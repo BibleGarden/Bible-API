@@ -17,6 +17,7 @@ from about import router as about_router
 from version_check import router as version_check_router
 from import_data import router as import_data_router
 from auth import RequireAPIKey
+from middleware import RequestStatsMiddleware
 
 # Simple in-memory cache with TTL
 _cache = {}
@@ -93,6 +94,8 @@ app = FastAPI(
         "tryItOutEnabled": True,
     }
 )
+
+app.add_middleware(RequestStatsMiddleware)
 
 # Create main router with /api prefix
 api_router = APIRouter(prefix="/api")
