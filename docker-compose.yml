@@ -3,7 +3,7 @@ services:
     container_name: public-api
     build: .
     ports:
-      - "8084:8000"
+      - "9084:8000"
     env_file:
       - .env
     volumes:
