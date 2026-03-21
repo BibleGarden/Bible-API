@@ -204,14 +204,14 @@ def get_chapters_by_book(translation_code: int) -> dict:
         if not book_numbers:
             return {}
 
-        # Get all chapters in one query
+        # Get all chapters in one query (filtered by translation)
         placeholders = ','.join(['%s'] * len(book_numbers))
         cursor.execute(f'''
             SELECT book_number, chapter_number
             FROM translation_verses
-            WHERE book_number IN ({placeholders})
+            WHERE translation = %s AND book_number IN ({placeholders})
             GROUP BY book_number, chapter_number
-        ''', book_numbers)
+        ''', [translation_code] + book_numbers)
 
         # Build map
         chapters_by_book = {}
