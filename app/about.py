@@ -22,10 +22,26 @@ ABOUT_DATA = {
             }
         },
         {
+            "id": "github",
+            "icon": "chevron.left.forwardslash.chevron.right",
+            "url": "https://github.com/BibleGarden/",
+            "sort_order": 2,
+            "label": {
+                "en": "GitHub",
+                "ru": "GitHub",
+                "uk": "GitHub"
+            },
+            "subtitle": {
+                "en": "Source code",
+                "ru": "Исходный код",
+                "uk": "Вихідний код"
+            }
+        },
+        {
             "id": "website",
             "icon": "globe",
             "url": "https://bible.garden",
-            "sort_order": 2,
+            "sort_order": 3,
             "label": {
                 "en": "Open website",
                 "ru": "Открыть сайт",
