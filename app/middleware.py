@@ -6,7 +6,13 @@ from starlette.requests import Request
 from starlette.responses import Response
 from database import create_connection
 
-EXCLUDED_PATHS = {"/docs", "/openapi.json", "/redoc", "/favicon.ico"}
+EXCLUDED_PATHS = {
+    "/docs",
+    "/openapi.json",
+    "/redoc",
+    "/favicon.ico",
+    "/api/lampada/v1/complete",
+}
 EXCLUDED_STATUS_CODES = {403, 404}
 
 # Normalize dynamic path segments for cleaner stats grouping
@@ -26,7 +32,8 @@ def _normalize_endpoint(path: str) -> str:
 class RequestStatsMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         path = request.url.path
-        if path in EXCLUDED_PATHS or not path.startswith("/api/"):
+        comparison_path = path.rstrip("/") or "/"
+        if comparison_path in EXCLUDED_PATHS or not path.startswith("/api/"):
             return await call_next(request)
 
         start = time.monotonic()

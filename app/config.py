@@ -36,3 +36,9 @@ API_KEY = _require("API_KEY")
 # Admin API connection settings (for import)
 ADMIN_API_URL = os.getenv("ADMIN_API_URL", "http://admin-api:8000")
 ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "")
+
+# Gemini API for the Lampada prayer companion. Optional at startup so the
+# rest of Bible API remains available when AI is not configured.
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.7-flash")
+GEMINI_REQUESTS_PER_MINUTE = max(1, _get_int("GEMINI_REQUESTS_PER_MINUTE", 10))

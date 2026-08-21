@@ -13,7 +13,7 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-The API will be available at `http://localhost:8084/api`.
+The API will be available at `http://localhost:9084/api`.
 
 ## Endpoints
 
@@ -26,6 +26,21 @@ The API will be available at `http://localhost:8084/api`.
 - `GET /api/version-check` — app version check
 
 All endpoints require `X-API-Key` header.
+
+### Lampada AI
+
+`POST /api/lampada/v1/complete` accepts `{ "system", "user" }` and calls
+Gemini. Set the Google AI Studio key only on the server:
+
+```dotenv
+GEMINI_API_KEY=your-google-ai-studio-key
+GEMINI_MODEL=gemini-3.7-flash
+GEMINI_REQUESTS_PER_MINUTE=10
+```
+
+The Google key must never be included in the mobile application. Before a
+production deployment, also set a hard quota for the key in Google AI Studio;
+the server-side request limit is only an additional safeguard.
 
 ## License
 
