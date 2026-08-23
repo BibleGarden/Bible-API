@@ -1,7 +1,9 @@
-import asyncio
+from collections import deque
 import logging
 import math
 import re
+import threading
+import time
 from typing import Any
 
 import httpx
@@ -17,14 +19,14 @@ from config import (
     GEMINI_REQUESTS_PER_MINUTE,
     LAMPADA_SYSTEM_PROMPT,
 )
-from database import create_connection
-
-
 router = APIRouter()
 MODEL_PATTERN = re.compile(r"^[a-zA-Z0-9._-]+$")
 logger = logging.getLogger(__name__)
-_RATE_LIMIT_WINDOW_SECONDS = 60
-_RATE_LIMIT_LOCK_NAME = "bible_api_lampada_rate_limit"
+_RATE_LIMIT_WINDOW_SECONDS = 60.0
+_rate_limit_lock = threading.Lock()
+_request_times: deque[float] = deque()
+_client_request_times: dict[str, deque[float]] = {}
+_last_client_cleanup = 0.0
 
 
 class CompleteRequest(BaseModel):
@@ -55,102 +57,59 @@ class RateLimitError(RuntimeError):
         self.retry_after = retry_after
 
 
-def _retry_after(age_microseconds: int | None) -> int:
-    age_seconds = (age_microseconds or 0) / 1_000_000
-    return max(1, math.ceil(_RATE_LIMIT_WINDOW_SECONDS - age_seconds))
+def _discard_expired(request_times: deque[float], cutoff: float) -> None:
+    while request_times and request_times[0] <= cutoff:
+        request_times.popleft()
 
 
-def _read_usage(cursor: Any, client_hash: bytes | None = None) -> tuple[int, int | None]:
-    sql = """
-        SELECT
-            COUNT(*),
-            TIMESTAMPDIFF(MICROSECOND, MIN(dt_create), UTC_TIMESTAMP(6))
-        FROM lampada_rate_limit_events
-        WHERE dt_create > UTC_TIMESTAMP(6) - INTERVAL 60 SECOND
-    """
-    params: tuple[bytes, ...] = ()
-    if client_hash is not None:
-        sql += " AND client_hash = %s"
-        params = (client_hash,)
-    cursor.execute(sql, params)
-    count, oldest_age = cursor.fetchone()
-    return int(count), oldest_age
+def _retry_after(request_times: deque[float], now: float) -> int:
+    return max(
+        1,
+        math.ceil(_RATE_LIMIT_WINDOW_SECONDS - (now - request_times[0])),
+    )
 
 
 def _reserve_rate_limit(client_key: str) -> None:
-    connection = create_connection()
-    if connection is None:
-        raise RateLimitError("rate limit storage is unavailable")
-
-    lock_acquired = False
-    cursor = None
     try:
-        cursor = connection.cursor()
-        cursor.execute("SELECT GET_LOCK(%s, 2)", (_RATE_LIMIT_LOCK_NAME,))
-        lock_acquired = cursor.fetchone()[0] == 1
-        if not lock_acquired:
-            raise RateLimitError("rate limit lock is unavailable")
+        client_hash = pseudonymize_lampada_client(client_key)
+    except RuntimeError as error:
+        raise RateLimitError(str(error)) from error
 
-        cursor.execute(
-            """
-            DELETE FROM lampada_rate_limit_events
-            WHERE dt_create <= UTC_TIMESTAMP(6) - INTERVAL 60 SECOND
-            """
-        )
+    now = time.monotonic()
+    cutoff = now - _RATE_LIMIT_WINDOW_SECONDS
 
-        global_count, global_age = _read_usage(cursor)
-        if global_count >= GEMINI_REQUESTS_PER_MINUTE:
+    global _last_client_cleanup
+    with _rate_limit_lock:
+        _discard_expired(_request_times, cutoff)
+
+        if now - _last_client_cleanup >= _RATE_LIMIT_WINDOW_SECONDS:
+            for stored_hash, stored_times in list(_client_request_times.items()):
+                _discard_expired(stored_times, cutoff)
+                if not stored_times:
+                    del _client_request_times[stored_hash]
+            _last_client_cleanup = now
+
+        client_times = _client_request_times.setdefault(client_hash, deque())
+        _discard_expired(client_times, cutoff)
+
+        if len(_request_times) >= GEMINI_REQUESTS_PER_MINUTE:
             raise RateLimitError(
                 "global AI request limit exceeded",
-                _retry_after(global_age),
+                _retry_after(_request_times, now),
             )
-
-        try:
-            client_hash = bytes.fromhex(pseudonymize_lampada_client(client_key))
-        except RuntimeError as error:
-            raise RateLimitError(str(error)) from error
-        client_count, client_age = _read_usage(cursor, client_hash)
-        if client_count >= GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE:
+        if len(client_times) >= GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE:
             raise RateLimitError(
                 "client AI request limit exceeded",
-                _retry_after(client_age),
+                _retry_after(client_times, now),
             )
 
-        cursor.execute(
-            """
-            INSERT INTO lampada_rate_limit_events (client_hash, dt_create)
-            VALUES (%s, UTC_TIMESTAMP(6))
-            """,
-            (client_hash,),
-        )
-        connection.commit()
-    except RateLimitError:
-        connection.rollback()
-        raise
-    except Exception as error:
-        connection.rollback()
-        raise RateLimitError("rate limit storage failed") from error
-    finally:
-        if cursor is not None and lock_acquired:
-            try:
-                cursor.execute("SELECT RELEASE_LOCK(%s)", (_RATE_LIMIT_LOCK_NAME,))
-                cursor.fetchone()
-            except Exception:
-                logger.warning("Failed to release Lampada rate limit lock")
-        if cursor is not None:
-            try:
-                cursor.close()
-            except Exception:
-                logger.warning("Failed to close Lampada rate limit cursor")
-        try:
-            connection.close()
-        except Exception:
-            logger.warning("Failed to close Lampada rate limit connection")
+        _request_times.append(now)
+        client_times.append(now)
 
 
 async def _enforce_rate_limit(client_key: str) -> None:
     try:
-        await asyncio.to_thread(_reserve_rate_limit, client_key)
+        _reserve_rate_limit(client_key)
     except RateLimitError as error:
         if error.retry_after is not None:
             raise HTTPException(

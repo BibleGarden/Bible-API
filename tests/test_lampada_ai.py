@@ -1,4 +1,5 @@
 import asyncio
+from collections import deque
 import hashlib
 import hmac
 import json
@@ -25,51 +26,11 @@ client = TestClient(app)
 real_reserve_rate_limit = lampada_ai._reserve_rate_limit
 
 
-class FakeRateLimitCursor:
-    def __init__(self, results):
-        self.executions = []
-        self.results = iter(results)
-        self.unread_result = False
-        self.closed = False
-
-    def execute(self, sql, params=()):
-        normalized = " ".join(sql.split())
-        self.executions.append((normalized, params))
-        self.unread_result = normalized.startswith("SELECT")
-
-    def fetchone(self):
-        result = next(self.results)
-        self.unread_result = False
-        return result
-
-    def close(self):
-        if self.unread_result:
-            raise RuntimeError("Unread result found")
-        self.closed = True
-
-
-class FakeRateLimitConnection:
-    def __init__(self, results):
-        self.cursor_instance = FakeRateLimitCursor(results)
-        self.commits = 0
-        self.rollbacks = 0
-        self.closed = False
-
-    def cursor(self):
-        return self.cursor_instance
-
-    def commit(self):
-        self.commits += 1
-
-    def rollback(self):
-        self.rollbacks += 1
-
-    def close(self):
-        self.closed = True
-
-
 @pytest.fixture(autouse=True)
 def allow_ai_requests(monkeypatch):
+    lampada_ai._request_times.clear()
+    lampada_ai._client_request_times.clear()
+    lampada_ai._last_client_cleanup = 0.0
     reservation = Mock()
     monkeypatch.setattr(lampada_ai, "_reserve_rate_limit", reservation)
     monkeypatch.setattr(middleware, "_insert_request_log", Mock())
@@ -313,65 +274,53 @@ def test_handles_gemini_failures(monkeypatch, response, expected_message):
         asyncio.run(lampada_ai.complete("Запрос"))
 
 
-def test_rate_limit_reservation_is_shared_and_hashed(monkeypatch):
-    connection = FakeRateLimitConnection([(1,), (0, None), (0, None), (1,)])
-    monkeypatch.setattr(lampada_ai, "create_connection", lambda: connection)
+def test_rate_limit_reservation_is_hashed_in_memory(monkeypatch):
+    monkeypatch.setattr(lampada_ai.time, "monotonic", lambda: 100.0)
     real_reserve_rate_limit("203.0.113.7")
 
-    insert = next(
-        params
-        for sql, params in connection.cursor_instance.executions
-        if sql.startswith("INSERT INTO lampada_rate_limit_events")
-    )
     expected_hash = hmac.new(
         b"test-hmac-key",
         b"203.0.113.7",
         hashlib.sha256,
-    ).digest()
-    assert insert == (expected_hash,)
-    assert connection.commits == 1
-    assert connection.cursor_instance.closed is True
-    assert connection.closed is True
+    ).hexdigest()
+    assert lampada_ai._request_times == deque([100.0])
+    assert lampada_ai._client_request_times == {expected_hash: deque([100.0])}
+    assert "203.0.113.7" not in lampada_ai._client_request_times
 
 
-def test_global_limit_is_shared_between_connections(monkeypatch):
-    first = FakeRateLimitConnection([(1,), (0, None), (0, None), (1,)])
-    second = FakeRateLimitConnection([(1,), (1, 10_000_000), (1,)])
-    connections = iter([first, second])
-    monkeypatch.setattr(lampada_ai, "create_connection", lambda: next(connections))
+def test_global_in_memory_limit(monkeypatch):
+    monkeypatch.setattr(lampada_ai.time, "monotonic", lambda: 100.0)
     monkeypatch.setattr(lampada_ai, "GEMINI_REQUESTS_PER_MINUTE", 1)
 
     real_reserve_rate_limit("203.0.113.7")
     with pytest.raises(lampada_ai.RateLimitError) as error:
         real_reserve_rate_limit("198.51.100.9")
 
-    assert error.value.retry_after == 50
-    assert first.commits == 1
-    assert second.rollbacks == 1
-    assert first.closed is True
-    assert second.closed is True
+    assert error.value.retry_after == 60
 
 
-def test_per_client_limit_and_lock_timeout(monkeypatch):
-    limited = FakeRateLimitConnection(
-        [(1,), (0, None), (3, 20_000_000), (1,)]
-    )
-    timed_out = FakeRateLimitConnection([(0,)])
-    connections = iter([limited, timed_out])
-    monkeypatch.setattr(lampada_ai, "create_connection", lambda: next(connections))
-    monkeypatch.setattr(lampada_ai, "GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE", 3)
+def test_per_client_in_memory_limit(monkeypatch):
+    monkeypatch.setattr(lampada_ai.time, "monotonic", lambda: 100.0)
+    monkeypatch.setattr(lampada_ai, "GEMINI_REQUESTS_PER_MINUTE", 10)
+    monkeypatch.setattr(lampada_ai, "GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE", 1)
 
+    real_reserve_rate_limit("203.0.113.7")
     with pytest.raises(lampada_ai.RateLimitError) as limited_error:
         real_reserve_rate_limit("203.0.113.7")
-    with pytest.raises(lampada_ai.RateLimitError) as timeout_error:
-        real_reserve_rate_limit("203.0.113.7")
 
-    assert limited_error.value.retry_after == 40
-    assert timeout_error.value.retry_after is None
-    assert limited.rollbacks == 1
-    assert timed_out.rollbacks == 1
-    assert limited.cursor_instance.closed is True
-    assert timed_out.cursor_instance.closed is True
+    assert limited_error.value.retry_after == 60
+
+
+def test_in_memory_limit_expires(monkeypatch):
+    request_times = iter([100.0, 161.0])
+    monkeypatch.setattr(lampada_ai.time, "monotonic", lambda: next(request_times))
+    monkeypatch.setattr(lampada_ai, "GEMINI_REQUESTS_PER_MINUTE", 1)
+    monkeypatch.setattr(lampada_ai, "GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE", 1)
+
+    real_reserve_rate_limit("203.0.113.7")
+    real_reserve_rate_limit("203.0.113.7")
+
+    assert lampada_ai._request_times == deque([161.0])
 
 
 def test_rate_limiter_fails_closed(monkeypatch):
@@ -379,7 +328,7 @@ def test_rate_limiter_fails_closed(monkeypatch):
         lampada_ai,
         "_reserve_rate_limit",
         lambda client_key: (_ for _ in ()).throw(
-            lampada_ai.RateLimitError("database unavailable")
+            lampada_ai.RateLimitError("limiter unavailable")
         ),
     )
 

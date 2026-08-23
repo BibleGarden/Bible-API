@@ -44,15 +44,10 @@ TRUSTED_PROXY_IPS=127.0.0.1
 
 The Google key must never be included in the mobile application. Before a
 production deployment, also set a hard quota for the key in Google AI Studio;
-the server-side request limit is only an additional safeguard. The
-database-backed counters are shared across API workers and replicas.
-
-Create the limiter table before deployment with an administrative database
-account. The runtime account needs only `SELECT`, `INSERT`, and `DELETE`:
-
-```bash
-mysql cep_public < sql/001_create_lampada_rate_limit_events.sql
-```
+the server-side request limit is only an additional safeguard. The counters
+are held in process memory, reset on restart, and are not shared across API
+workers or replicas. Run a single worker or add an external distributed
+limiter before scaling the service horizontally.
 
 `TRUSTED_PROXY_IPS` must contain only direct reverse-proxy peers whose
 `X-Forwarded-For` header is trusted. Leave it empty when the API is exposed

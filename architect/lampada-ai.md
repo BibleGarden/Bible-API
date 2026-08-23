@@ -29,21 +29,19 @@ details. Missing server configuration has the same public response.
 
 ## Rate limiting and observability
 
-Before calling Gemini, the service reserves a request in the MySQL table
-`lampada_rate_limit_events`. A MySQL advisory lock serializes reservations
-across workers and replicas. Two rolling 60-second limits are enforced:
+Before calling Gemini, the service reserves a request in an in-memory rolling
+window protected by a process lock. Two 60-second limits are enforced:
 
 - global: `GEMINI_REQUESTS_PER_MINUTE`;
 - per client address: `GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE`.
 
-The stored client identifier is an HMAC-SHA-256 pseudonym created with the
-separate `LAMPADA_CLIENT_HMAC_KEY`; the limiter table does not contain the
-original address. Rows live for at most one rolling window and expired rows
-are deleted during the next reservation. Exceeded limits return `429` with
-`Retry-After`. If MySQL or its advisory lock is unavailable, the endpoint
-fails closed with `503` and does not call Gemini. The table is installed before
-deployment from `sql/001_create_lampada_rate_limit_events.sql`; the runtime
-database account does not need DDL privileges.
+The in-memory client identifier is an HMAC-SHA-256 pseudonym created with the
+separate `LAMPADA_CLIENT_HMAC_KEY`; the original address is not retained.
+Expired timestamps and inactive client buckets are removed periodically.
+Exceeded limits return `429` with `Retry-After`. Counters reset on process
+restart and are not shared across workers or replicas, so production runs a
+single worker until a dedicated distributed limiter is introduced. Missing
+HMAC configuration fails closed with `503` and does not call Gemini.
 
 For this endpoint, standard request statistics store endpoint metadata,
 status, latency, an HMAC pseudonym truncated to 40 hexadecimal characters,
