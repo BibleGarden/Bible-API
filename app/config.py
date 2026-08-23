@@ -47,3 +47,9 @@ GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE = min(
     max(1, _get_int("GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE", 3)),
 )
 LAMPADA_SYSTEM_PROMPT = os.getenv("LAMPADA_SYSTEM_PROMPT", "").strip()
+LAMPADA_CLIENT_HMAC_KEY = os.getenv("LAMPADA_CLIENT_HMAC_KEY", "").strip()
+TRUSTED_PROXY_IPS = frozenset(
+    value.strip()
+    for value in os.getenv("TRUSTED_PROXY_IPS", "").split(",")
+    if value.strip()
+)

@@ -38,14 +38,26 @@ GEMINI_MODEL=gemini-3.7-flash
 GEMINI_REQUESTS_PER_MINUTE=10
 GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE=3
 LAMPADA_SYSTEM_PROMPT=Your server-controlled companion instructions
+LAMPADA_CLIENT_HMAC_KEY=generate-a-separate-random-secret
+TRUSTED_PROXY_IPS=127.0.0.1
 ```
 
 The Google key must never be included in the mobile application. Before a
 production deployment, also set a hard quota for the key in Google AI Studio;
-the server-side request limit is only an additional safeguard. The limiter
-uses MySQL so its global and per-client counters are shared by all API workers
-and replicas. The database user must be allowed to create and update the
-`lampada_rate_limit_events` table.
+the server-side request limit is only an additional safeguard. The
+database-backed counters are shared across API workers and replicas.
+
+Create the limiter table before deployment with an administrative database
+account. The runtime account needs only `SELECT`, `INSERT`, and `DELETE`:
+
+```bash
+mysql cep_public < sql/001_create_lampada_rate_limit_events.sql
+```
+
+`TRUSTED_PROXY_IPS` must contain only direct reverse-proxy peers whose
+`X-Forwarded-For` header is trusted. Leave it empty when the API is exposed
+directly. `LAMPADA_CLIENT_HMAC_KEY` pseudonymizes client addresses and must be
+different from both API keys.
 
 ## License
 

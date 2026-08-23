@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import hmac
 import json
 import os
 from types import SimpleNamespace
@@ -10,16 +11,61 @@ import pytest
 
 os.environ.setdefault("API_KEY", "test-api-key")
 os.environ.setdefault("LAMPADA_SYSTEM_PROMPT", "Серверная система")
+os.environ.setdefault("LAMPADA_CLIENT_HMAC_KEY", "test-hmac-key")
 
 from fastapi.testclient import TestClient
 
 import lampada_ai
+import client_ip
 import middleware
 from main import app
 
 
 client = TestClient(app)
 real_reserve_rate_limit = lampada_ai._reserve_rate_limit
+
+
+class FakeRateLimitCursor:
+    def __init__(self, results):
+        self.executions = []
+        self.results = iter(results)
+        self.unread_result = False
+        self.closed = False
+
+    def execute(self, sql, params=()):
+        normalized = " ".join(sql.split())
+        self.executions.append((normalized, params))
+        self.unread_result = normalized.startswith("SELECT")
+
+    def fetchone(self):
+        result = next(self.results)
+        self.unread_result = False
+        return result
+
+    def close(self):
+        if self.unread_result:
+            raise RuntimeError("Unread result found")
+        self.closed = True
+
+
+class FakeRateLimitConnection:
+    def __init__(self, results):
+        self.cursor_instance = FakeRateLimitCursor(results)
+        self.commits = 0
+        self.rollbacks = 0
+        self.closed = False
+
+    def cursor(self):
+        return self.cursor_instance
+
+    def commit(self):
+        self.commits += 1
+
+    def rollback(self):
+        self.rollbacks += 1
+
+    def close(self):
+        self.closed = True
 
 
 @pytest.fixture(autouse=True)
@@ -60,6 +106,41 @@ def test_returns_generated_text(monkeypatch):
     assert response.status_code == 200
     assert response.json() == {"text": "Ответ"}
     generated.assert_awaited_once_with("Запрос")
+
+
+def test_ignores_forwarded_for_from_untrusted_peer(monkeypatch, allow_ai_requests):
+    generated = AsyncMock(return_value="Ответ")
+    monkeypatch.setattr(lampada_ai, "complete", generated)
+
+    response = client.post(
+        "/api/lampada/v1/complete",
+        headers={
+            "X-API-Key": "test-api-key",
+            "X-Forwarded-For": "203.0.113.7",
+        },
+        json={"user": "Запрос"},
+    )
+
+    assert response.status_code == 200
+    allow_ai_requests.assert_called_once_with("testclient")
+
+
+def test_uses_forwarded_for_from_trusted_peer(monkeypatch, allow_ai_requests):
+    generated = AsyncMock(return_value="Ответ")
+    monkeypatch.setattr(lampada_ai, "complete", generated)
+    monkeypatch.setattr(client_ip, "TRUSTED_PROXY_IPS", frozenset({"testclient"}))
+
+    response = client.post(
+        "/api/lampada/v1/complete",
+        headers={
+            "X-API-Key": "test-api-key",
+            "X-Forwarded-For": "203.0.113.7, 192.0.2.1",
+        },
+        json={"user": "Запрос"},
+    )
+
+    assert response.status_code == 200
+    allow_ai_requests.assert_called_once_with("203.0.113.7")
 
 
 @pytest.mark.parametrize(
@@ -160,6 +241,21 @@ def test_trailing_slash_is_recorded_without_request_body(monkeypatch):
         307,
     )
     assert len(kwargs["args"]) == 6
+    expected_client = hmac.new(
+        b"test-hmac-key",
+        b"testclient",
+        hashlib.sha256,
+    ).hexdigest()[:40]
+    assert kwargs["args"][4:] == (expected_client, "")
+
+
+def test_openapi_documents_public_errors():
+    operation = app.openapi()["paths"]["/api/lampada/v1/complete"]["post"]
+
+    assert {"200", "403", "422", "429", "502", "503"} <= set(
+        operation["responses"]
+    )
+    assert "Retry-After" in operation["responses"]["429"]["headers"]
 
 
 def test_sends_expected_gemini_request(monkeypatch):
@@ -218,43 +314,8 @@ def test_handles_gemini_failures(monkeypatch, response, expected_message):
 
 
 def test_rate_limit_reservation_is_shared_and_hashed(monkeypatch):
-    class FakeCursor:
-        def __init__(self):
-            self.executions = []
-            self.results = iter([(1,), (0, None), (0, None)])
-
-        def execute(self, sql, params=()):
-            self.executions.append((" ".join(sql.split()), params))
-
-        def fetchone(self):
-            return next(self.results)
-
-        def close(self):
-            pass
-
-    class FakeConnection:
-        def __init__(self):
-            self.cursor_instance = FakeCursor()
-            self.commits = 0
-            self.rollbacks = 0
-            self.closed = False
-
-        def cursor(self):
-            return self.cursor_instance
-
-        def commit(self):
-            self.commits += 1
-
-        def rollback(self):
-            self.rollbacks += 1
-
-        def close(self):
-            self.closed = True
-
-    connection = FakeConnection()
+    connection = FakeRateLimitConnection([(1,), (0, None), (0, None), (1,)])
     monkeypatch.setattr(lampada_ai, "create_connection", lambda: connection)
-    monkeypatch.setattr(lampada_ai, "_rate_limit_table_ready", True)
-
     real_reserve_rate_limit("203.0.113.7")
 
     insert = next(
@@ -262,9 +323,55 @@ def test_rate_limit_reservation_is_shared_and_hashed(monkeypatch):
         for sql, params in connection.cursor_instance.executions
         if sql.startswith("INSERT INTO lampada_rate_limit_events")
     )
-    assert insert == (hashlib.sha256(b"203.0.113.7").digest(),)
+    expected_hash = hmac.new(
+        b"test-hmac-key",
+        b"203.0.113.7",
+        hashlib.sha256,
+    ).digest()
+    assert insert == (expected_hash,)
     assert connection.commits == 1
+    assert connection.cursor_instance.closed is True
     assert connection.closed is True
+
+
+def test_global_limit_is_shared_between_connections(monkeypatch):
+    first = FakeRateLimitConnection([(1,), (0, None), (0, None), (1,)])
+    second = FakeRateLimitConnection([(1,), (1, 10_000_000), (1,)])
+    connections = iter([first, second])
+    monkeypatch.setattr(lampada_ai, "create_connection", lambda: next(connections))
+    monkeypatch.setattr(lampada_ai, "GEMINI_REQUESTS_PER_MINUTE", 1)
+
+    real_reserve_rate_limit("203.0.113.7")
+    with pytest.raises(lampada_ai.RateLimitError) as error:
+        real_reserve_rate_limit("198.51.100.9")
+
+    assert error.value.retry_after == 50
+    assert first.commits == 1
+    assert second.rollbacks == 1
+    assert first.closed is True
+    assert second.closed is True
+
+
+def test_per_client_limit_and_lock_timeout(monkeypatch):
+    limited = FakeRateLimitConnection(
+        [(1,), (0, None), (3, 20_000_000), (1,)]
+    )
+    timed_out = FakeRateLimitConnection([(0,)])
+    connections = iter([limited, timed_out])
+    monkeypatch.setattr(lampada_ai, "create_connection", lambda: next(connections))
+    monkeypatch.setattr(lampada_ai, "GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE", 3)
+
+    with pytest.raises(lampada_ai.RateLimitError) as limited_error:
+        real_reserve_rate_limit("203.0.113.7")
+    with pytest.raises(lampada_ai.RateLimitError) as timeout_error:
+        real_reserve_rate_limit("203.0.113.7")
+
+    assert limited_error.value.retry_after == 40
+    assert timeout_error.value.retry_after is None
+    assert limited.rollbacks == 1
+    assert timed_out.rollbacks == 1
+    assert limited.cursor_instance.closed is True
+    assert timed_out.cursor_instance.closed is True
 
 
 def test_rate_limiter_fails_closed(monkeypatch):
