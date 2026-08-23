@@ -4,10 +4,20 @@ import threading
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
+from client_ip import pseudonymize_twinkler_client, resolve_client_ip
 from database import create_connection
 
-EXCLUDED_PATHS = {"/docs", "/openapi.json", "/redoc", "/favicon.ico"}
+EXCLUDED_PATHS = {
+    "/docs",
+    "/openapi.json",
+    "/redoc",
+    "/favicon.ico",
+}
 EXCLUDED_STATUS_CODES = {403, 404}
+TWINKLER_PATHS = frozenset({
+    "/api/twinkler/v1/complete",
+    "/api/twinkler/v1/transcribe",
+})
 
 # Normalize dynamic path segments for cleaner stats grouping
 _NORMALIZE_RULES = [
@@ -26,18 +36,22 @@ def _normalize_endpoint(path: str) -> str:
 class RequestStatsMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         path = request.url.path
-        if path in EXCLUDED_PATHS or not path.startswith("/api/"):
+        comparison_path = path.rstrip("/") or "/"
+        if comparison_path in EXCLUDED_PATHS or not path.startswith("/api/"):
             return await call_next(request)
 
         start = time.monotonic()
         response = await call_next(request)
         elapsed_ms = int((time.monotonic() - start) * 1000)
 
-        # Extract client IP from X-Forwarded-For or fall back to client host
-        forwarded = request.headers.get("x-forwarded-for")
-        client_ip = forwarded.split(",")[0].strip() if forwarded else (request.client.host if request.client else "unknown")
-
+        client_ip = resolve_client_ip(request)
         user_agent = (request.headers.get("user-agent") or "")[:512]
+        if comparison_path in TWINKLER_PATHS:
+            try:
+                client_ip = pseudonymize_twinkler_client(client_ip)[:40]
+            except RuntimeError:
+                client_ip = "twinkler-unconfigured"
+            user_agent = ""
 
         if response.status_code in EXCLUDED_STATUS_CODES:
             return response
