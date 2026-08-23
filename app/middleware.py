@@ -11,7 +11,6 @@ EXCLUDED_PATHS = {
     "/openapi.json",
     "/redoc",
     "/favicon.ico",
-    "/api/lampada/v1/complete",
 }
 EXCLUDED_STATUS_CODES = {403, 404}
 

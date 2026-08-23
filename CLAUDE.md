@@ -30,6 +30,7 @@ docker exec public-api bash -c "cd /code && PYTHONPATH=app python3 extract-opena
 - **`about.py`** — About page content
 - **`version_check.py`** — App version check
 - **`import_data.py`** — Import data from admin-api
+- **`lampada_ai.py`** — Server-prompted Gemini integration with distributed rate limiting
 - **`auth.py`** — Only API Key authentication (no JWT)
 - **`models.py`** — Pydantic response models (no admin models)
 - **`database.py`** — MySQL connection factory
@@ -46,11 +47,17 @@ docker exec public-api bash -c "cd /code && PYTHONPATH=app python3 extract-opena
 
 ### Database: `cep_public`
 
-9 tables: `languages`, `bible_books`, `translations`, `translation_books`, `translation_verses`, `translation_titles`, `translation_notes`, `voices`, `voice_alignments`
+Content tables: `languages`, `bible_books`, `translations`, `translation_books`,
+`translation_verses`, `translation_titles`, `translation_notes`, `voices`, and
+`voice_alignments`. Operational tables include request statistics and
+`lampada_rate_limit_events`.
 
 ### Environment
 
 Required env vars: `API_KEY`, `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `AUDIO_DIR` (host path), `MP3_FILES_PATH` (container path).
-Optional: `ADMIN_API_URL`, `ADMIN_API_KEY` (for import).
+Optional: `ADMIN_API_URL`, `ADMIN_API_KEY` (for import), `GEMINI_API_KEY`,
+`GEMINI_MODEL`, `GEMINI_REQUESTS_PER_MINUTE`,
+`GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE`, and `LAMPADA_SYSTEM_PROMPT`. Both
+`GEMINI_API_KEY` and `LAMPADA_SYSTEM_PROMPT` must be set for Lampada AI calls.
 
 ### All API routes are under `/api` prefix
