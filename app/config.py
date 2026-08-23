@@ -34,7 +34,7 @@ AUDIO_BASE_URL = os.getenv("AUDIO_BASE_URL", "http://localhost:8000")
 API_KEY = _require("API_KEY")
 
 # Admin API connection settings (for import)
-ADMIN_API_URL = os.getenv("ADMIN_API_URL", "http://admin-api:8000")
+ADMIN_API_URL = os.getenv("ADMIN_API_URL", "http://dashboard-api:8000")
 ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "")
 
 # Gemini API for the Twinkler prayer companion. Optional at startup so the
