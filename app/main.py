@@ -16,7 +16,7 @@ from audio import router as audio_router
 from about import router as about_router
 from version_check import router as version_check_router
 from import_data import router as import_data_router
-from lampada_ai import router as lampada_ai_router
+from twinkler_ai import router as twinkler_ai_router
 from auth import RequireAPIKey
 from middleware import RequestStatsMiddleware
 
@@ -82,8 +82,8 @@ tags_metadata = [
         "description": "Cache management",
     },
     {
-        "name": "Lampada",
-        "description": "AI companion for the Lampada prayer app",
+        "name": "Twinkler",
+        "description": "AI companion for the Twinkler prayer app",
     },
 ]
 
@@ -111,7 +111,7 @@ api_router.include_router(audio_router)
 api_router.include_router(about_router)
 api_router.include_router(version_check_router)
 api_router.include_router(import_data_router)
-api_router.include_router(lampada_ai_router)
+api_router.include_router(twinkler_ai_router)
 
 
 @api_router.get('/languages', response_model=list[LanguageModel], operation_id="get_languages", tags=["Languages"])

@@ -1,8 +1,8 @@
-# Lampada AI
+# Twinkler AI
 
 ## Public contract
 
-`POST /api/lampada/v1/complete` accepts a JSON object with one required field:
+`POST /api/twinkler/v1/complete` accepts a JSON object with one required field:
 
 ```json
 {"user": "User message"}
@@ -13,7 +13,7 @@ rejected. `user` must contain 1–16000 characters. The response is
 `{ "text": "..." }` on success. Documented errors are `403`, `429` with
 `Retry-After`, `502`, and `503`; FastAPI validation errors use `422`.
 
-`POST /api/lampada/v1/transcribe` accepts `multipart/form-data` with a required
+`POST /api/twinkler/v1/transcribe` accepts `multipart/form-data` with a required
 M4A `file` and an optional BCP 47 `locale`. The response is the same
 `{ "text": "..." }` shape. The locale is a weak disambiguation hint only; the
 recording is transcribed verbatim in its original language without translation
@@ -24,7 +24,7 @@ larger than 14 MiB return `413`, and unsupported audio types return `415`.
 
 The service calls
 `POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent`
-with the user message as user content. `LAMPADA_SYSTEM_PROMPT` is always read
+with the user message as user content. `TWINKLER_SYSTEM_PROMPT` is always read
 from the server environment and sent as `system_instruction`; clients cannot
 override it. `GEMINI_API_KEY` is sent only in the `x-goog-api-key` header. The
 system prompt is limited to 8000 characters. The request sets
@@ -52,14 +52,14 @@ window protected by a process lock. Two 60-second limits are enforced:
 - per client address: `GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE`.
 
 The in-memory client identifier is an HMAC-SHA-256 pseudonym created with the
-separate `LAMPADA_CLIENT_HMAC_KEY`; the original address is not retained.
+separate `TWINKLER_CLIENT_HMAC_KEY`; the original address is not retained.
 Expired timestamps and inactive client buckets are removed periodically.
 Exceeded limits return `429` with `Retry-After`. Counters reset on process
 restart and are not shared across workers or replicas, so production runs a
 single worker until a dedicated distributed limiter is introduced. Missing
 HMAC configuration fails closed with `503` and does not call Gemini.
 
-For both Lampada endpoints, standard request statistics store endpoint metadata,
+For both Twinkler endpoints, standard request statistics store endpoint metadata,
 status, latency, an HMAC pseudonym truncated to 40 hexadecimal characters,
 and an empty user-agent value. Prompt, response body, original client address,
 user agent, recording, filename, and transcript are never stored. Raw

@@ -30,7 +30,7 @@ docker exec public-api bash -c "cd /code && PYTHONPATH=app python3 extract-opena
 - **`about.py`** — About page content
 - **`version_check.py`** — App version check
 - **`import_data.py`** — Import data from admin-api
-- **`lampada_ai.py`** — Server-prompted Gemini integration with in-memory rate limiting
+- **`twinkler_ai.py`** — Server-prompted Gemini integration with in-memory rate limiting
 - **`auth.py`** — Only API Key authentication (no JWT)
 - **`models.py`** — Pydantic response models (no admin models)
 - **`database.py`** — MySQL connection factory
@@ -56,9 +56,9 @@ Content tables: `languages`, `bible_books`, `translations`, `translation_books`,
 Required env vars: `API_KEY`, `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `AUDIO_DIR` (host path), `MP3_FILES_PATH` (container path).
 Optional: `ADMIN_API_URL`, `ADMIN_API_KEY` (for import), `GEMINI_API_KEY`,
 `GEMINI_MODEL`, `GEMINI_TRANSCRIPTION_MODEL`, `GEMINI_REQUESTS_PER_MINUTE`,
-`GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE`, `LAMPADA_SYSTEM_PROMPT`,
-`LAMPADA_CLIENT_HMAC_KEY`, and `TRUSTED_PROXY_IPS`. `GEMINI_API_KEY`,
-`LAMPADA_SYSTEM_PROMPT`, and `LAMPADA_CLIENT_HMAC_KEY` must be set for Lampada
+`GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE`, `TWINKLER_SYSTEM_PROMPT`,
+`TWINKLER_CLIENT_HMAC_KEY`, and `TRUSTED_PROXY_IPS`. `GEMINI_API_KEY`,
+`TWINKLER_SYSTEM_PROMPT`, and `TWINKLER_CLIENT_HMAC_KEY` must be set for Twinkler
 AI calls. The limiter is process-local, so production uses a single API worker.
 
 ### All API routes are under `/api` prefix

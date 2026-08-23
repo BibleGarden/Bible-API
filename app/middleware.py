@@ -4,7 +4,7 @@ import threading
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
-from client_ip import pseudonymize_lampada_client, resolve_client_ip
+from client_ip import pseudonymize_twinkler_client, resolve_client_ip
 from database import create_connection
 
 EXCLUDED_PATHS = {
@@ -14,9 +14,9 @@ EXCLUDED_PATHS = {
     "/favicon.ico",
 }
 EXCLUDED_STATUS_CODES = {403, 404}
-LAMPADA_PATHS = frozenset({
-    "/api/lampada/v1/complete",
-    "/api/lampada/v1/transcribe",
+TWINKLER_PATHS = frozenset({
+    "/api/twinkler/v1/complete",
+    "/api/twinkler/v1/transcribe",
 })
 
 # Normalize dynamic path segments for cleaner stats grouping
@@ -46,11 +46,11 @@ class RequestStatsMiddleware(BaseHTTPMiddleware):
 
         client_ip = resolve_client_ip(request)
         user_agent = (request.headers.get("user-agent") or "")[:512]
-        if comparison_path in LAMPADA_PATHS:
+        if comparison_path in TWINKLER_PATHS:
             try:
-                client_ip = pseudonymize_lampada_client(client_ip)[:40]
+                client_ip = pseudonymize_twinkler_client(client_ip)[:40]
             except RuntimeError:
-                client_ip = "lampada-unconfigured"
+                client_ip = "twinkler-unconfigured"
             user_agent = ""
 
         if response.status_code in EXCLUDED_STATUS_CODES:

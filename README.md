@@ -27,9 +27,9 @@ The API will be available at `http://localhost:9084/api`.
 
 All endpoints require `X-API-Key` header.
 
-### Lampada AI
+### Twinkler AI
 
-`POST /api/lampada/v1/complete` accepts `{ "user" }` and calls Gemini. The
+`POST /api/twinkler/v1/complete` accepts `{ "user" }` and calls Gemini. The
 system prompt and the Google AI Studio key are configured only on the server:
 
 ```dotenv
@@ -38,8 +38,8 @@ GEMINI_MODEL=gemini-3.7-flash
 GEMINI_TRANSCRIPTION_MODEL=gemini-3.5-flash-lite
 GEMINI_REQUESTS_PER_MINUTE=10
 GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE=3
-LAMPADA_SYSTEM_PROMPT=Your server-controlled companion instructions
-LAMPADA_CLIENT_HMAC_KEY=generate-a-separate-random-secret
+TWINKLER_SYSTEM_PROMPT=Your server-controlled companion instructions
+TWINKLER_CLIENT_HMAC_KEY=generate-a-separate-random-secret
 TRUSTED_PROXY_IPS=127.0.0.1
 ```
 
@@ -52,10 +52,10 @@ limiter before scaling the service horizontally.
 
 `TRUSTED_PROXY_IPS` must contain only direct reverse-proxy peers whose
 `X-Forwarded-For` header is trusted. Leave it empty when the API is exposed
-directly. `LAMPADA_CLIENT_HMAC_KEY` pseudonymizes client addresses and must be
+directly. `TWINKLER_CLIENT_HMAC_KEY` pseudonymizes client addresses and must be
 different from both API keys.
 
-`POST /api/lampada/v1/transcribe` accepts `multipart/form-data` with a required
+`POST /api/twinkler/v1/transcribe` accepts `multipart/form-data` with a required
 M4A `file` and an optional BCP 47 `locale` (for example, `ru-RU`). The locale is
 only a weak language hint: Gemini transcribes the recording verbatim in its
 original language and does not translate it. Files larger than 14 MiB are

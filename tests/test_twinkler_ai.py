@@ -12,28 +12,28 @@ import httpx
 import pytest
 
 os.environ.setdefault("API_KEY", "test-api-key")
-os.environ.setdefault("LAMPADA_SYSTEM_PROMPT", "Серверная система")
-os.environ.setdefault("LAMPADA_CLIENT_HMAC_KEY", "test-hmac-key")
+os.environ.setdefault("TWINKLER_SYSTEM_PROMPT", "Серверная система")
+os.environ.setdefault("TWINKLER_CLIENT_HMAC_KEY", "test-hmac-key")
 
 from fastapi.testclient import TestClient
 
-import lampada_ai
+import twinkler_ai
 import client_ip
 import middleware
 from main import app
 
 
 client = TestClient(app)
-real_reserve_rate_limit = lampada_ai._reserve_rate_limit
+real_reserve_rate_limit = twinkler_ai._reserve_rate_limit
 
 
 @pytest.fixture(autouse=True)
 def allow_ai_requests(monkeypatch):
-    lampada_ai._request_times.clear()
-    lampada_ai._client_request_times.clear()
-    lampada_ai._last_client_cleanup = 0.0
+    twinkler_ai._request_times.clear()
+    twinkler_ai._client_request_times.clear()
+    twinkler_ai._last_client_cleanup = 0.0
     reservation = Mock()
-    monkeypatch.setattr(lampada_ai, "_reserve_rate_limit", reservation)
+    monkeypatch.setattr(twinkler_ai, "_reserve_rate_limit", reservation)
     monkeypatch.setattr(middleware, "_insert_request_log", Mock())
     return reservation
 
@@ -44,12 +44,12 @@ def test_extracts_text_parts():
             "content": {"parts": [{"text": "Тихий "}, {"text": "ответ"}]},
         }],
     }
-    assert lampada_ai._extract_text(data) == "Тихий ответ"
+    assert twinkler_ai._extract_text(data) == "Тихий ответ"
 
 
 def test_requires_api_key():
     response = client.post(
-        "/api/lampada/v1/complete",
+        "/api/twinkler/v1/complete",
         json={"user": "Запрос"},
     )
     assert response.status_code == 403
@@ -57,10 +57,10 @@ def test_requires_api_key():
 
 def test_returns_generated_text(monkeypatch):
     generated = AsyncMock(return_value="Ответ")
-    monkeypatch.setattr(lampada_ai, "complete", generated)
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
 
     response = client.post(
-        "/api/lampada/v1/complete",
+        "/api/twinkler/v1/complete",
         headers={"X-API-Key": "test-api-key"},
         json={"user": "Запрос"},
     )
@@ -72,10 +72,10 @@ def test_returns_generated_text(monkeypatch):
 
 def test_ignores_forwarded_for_from_untrusted_peer(monkeypatch, allow_ai_requests):
     generated = AsyncMock(return_value="Ответ")
-    monkeypatch.setattr(lampada_ai, "complete", generated)
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
 
     response = client.post(
-        "/api/lampada/v1/complete",
+        "/api/twinkler/v1/complete",
         headers={
             "X-API-Key": "test-api-key",
             "X-Forwarded-For": "203.0.113.7",
@@ -89,11 +89,11 @@ def test_ignores_forwarded_for_from_untrusted_peer(monkeypatch, allow_ai_request
 
 def test_uses_forwarded_for_from_trusted_peer(monkeypatch, allow_ai_requests):
     generated = AsyncMock(return_value="Ответ")
-    monkeypatch.setattr(lampada_ai, "complete", generated)
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
     monkeypatch.setattr(client_ip, "TRUSTED_PROXY_IPS", frozenset({"testclient"}))
 
     response = client.post(
-        "/api/lampada/v1/complete",
+        "/api/twinkler/v1/complete",
         headers={
             "X-API-Key": "test-api-key",
             "X-Forwarded-For": "203.0.113.7, 192.0.2.1",
@@ -115,7 +115,7 @@ def test_uses_forwarded_for_from_trusted_peer(monkeypatch, allow_ai_requests):
 )
 def test_rejects_invalid_prompts(payload):
     response = client.post(
-        "/api/lampada/v1/complete",
+        "/api/twinkler/v1/complete",
         headers={"X-API-Key": "test-api-key"},
         json=payload,
     )
@@ -124,11 +124,11 @@ def test_rejects_invalid_prompts(payload):
 
 
 def test_hides_provider_failure(monkeypatch):
-    generated = AsyncMock(side_effect=lampada_ai.GeminiError("provider details"))
-    monkeypatch.setattr(lampada_ai, "complete", generated)
+    generated = AsyncMock(side_effect=twinkler_ai.GeminiError("provider details"))
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
 
     response = client.post(
-        "/api/lampada/v1/complete",
+        "/api/twinkler/v1/complete",
         headers={"X-API-Key": "test-api-key"},
         json={"user": "Запрос"},
     )
@@ -141,11 +141,11 @@ def test_hides_provider_failure(monkeypatch):
 def test_rate_limits_requests(monkeypatch):
     generated = AsyncMock(return_value="Ответ")
     limiter = AsyncMock()
-    monkeypatch.setattr(lampada_ai, "complete", generated)
-    monkeypatch.setattr(lampada_ai, "_enforce_rate_limit", limiter)
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+    monkeypatch.setattr(twinkler_ai, "_enforce_rate_limit", limiter)
     limiter.side_effect = [
         None,
-        lampada_ai.HTTPException(
+        twinkler_ai.HTTPException(
             status_code=429,
             detail="AI request limit exceeded",
             headers={"Retry-After": "60"},
@@ -153,12 +153,12 @@ def test_rate_limits_requests(monkeypatch):
     ]
 
     first_response = client.post(
-        "/api/lampada/v1/complete",
+        "/api/twinkler/v1/complete",
         headers={"X-API-Key": "test-api-key"},
         json={"user": "Первый запрос"},
     )
     second_response = client.post(
-        "/api/lampada/v1/complete",
+        "/api/twinkler/v1/complete",
         headers={"X-API-Key": "test-api-key"},
         json={"user": "Второй запрос"},
     )
@@ -187,7 +187,7 @@ def test_trailing_slash_is_recorded_without_request_body(monkeypatch):
     )
 
     response = client.post(
-        "/api/lampada/v1/complete/",
+        "/api/twinkler/v1/complete/",
         headers={"X-API-Key": "test-api-key"},
         json={"user": "Запрос"},
         follow_redirects=False,
@@ -198,7 +198,7 @@ def test_trailing_slash_is_recorded_without_request_body(monkeypatch):
     args, kwargs = started_threads[0]
     assert args == ()
     assert kwargs["args"][0:3] == (
-        "/api/lampada/v1/complete/",
+        "/api/twinkler/v1/complete/",
         "POST",
         307,
     )
@@ -212,7 +212,7 @@ def test_trailing_slash_is_recorded_without_request_body(monkeypatch):
 
 
 def test_openapi_documents_public_errors():
-    operation = app.openapi()["paths"]["/api/lampada/v1/complete"]["post"]
+    operation = app.openapi()["paths"]["/api/twinkler/v1/complete"]["post"]
 
     assert {"200", "403", "422", "429", "502", "503"} <= set(
         operation["responses"]
@@ -245,12 +245,12 @@ def test_sends_expected_gemini_request(monkeypatch):
     def async_client(*args, **kwargs):
         return real_async_client(*args, transport=transport, **kwargs)
 
-    monkeypatch.setattr(lampada_ai, "GEMINI_API_KEY", "secret-test-key")
-    monkeypatch.setattr(lampada_ai, "GEMINI_MODEL", "gemini-test")
-    monkeypatch.setattr(lampada_ai, "LAMPADA_SYSTEM_PROMPT", "Серверная система")
-    monkeypatch.setattr(lampada_ai.httpx, "AsyncClient", async_client)
+    monkeypatch.setattr(twinkler_ai, "GEMINI_API_KEY", "secret-test-key")
+    monkeypatch.setattr(twinkler_ai, "GEMINI_MODEL", "gemini-test")
+    monkeypatch.setattr(twinkler_ai, "TWINKLER_SYSTEM_PROMPT", "Серверная система")
+    monkeypatch.setattr(twinkler_ai.httpx, "AsyncClient", async_client)
 
-    assert asyncio.run(lampada_ai.complete("Запрос")) == "Ответ"
+    assert asyncio.run(twinkler_ai.complete("Запрос")) == "Ответ"
 
 
 @pytest.mark.parametrize(
@@ -267,16 +267,16 @@ def test_handles_gemini_failures(monkeypatch, response, expected_message):
     def async_client(*args, **kwargs):
         return real_async_client(*args, transport=transport, **kwargs)
 
-    monkeypatch.setattr(lampada_ai, "GEMINI_API_KEY", "secret-test-key")
-    monkeypatch.setattr(lampada_ai, "LAMPADA_SYSTEM_PROMPT", "Серверная система")
-    monkeypatch.setattr(lampada_ai.httpx, "AsyncClient", async_client)
+    monkeypatch.setattr(twinkler_ai, "GEMINI_API_KEY", "secret-test-key")
+    monkeypatch.setattr(twinkler_ai, "TWINKLER_SYSTEM_PROMPT", "Серверная система")
+    monkeypatch.setattr(twinkler_ai.httpx, "AsyncClient", async_client)
 
-    with pytest.raises(lampada_ai.GeminiError, match=expected_message):
-        asyncio.run(lampada_ai.complete("Запрос"))
+    with pytest.raises(twinkler_ai.GeminiError, match=expected_message):
+        asyncio.run(twinkler_ai.complete("Запрос"))
 
 
 def test_rate_limit_reservation_is_hashed_in_memory(monkeypatch):
-    monkeypatch.setattr(lampada_ai.time, "monotonic", lambda: 100.0)
+    monkeypatch.setattr(twinkler_ai.time, "monotonic", lambda: 100.0)
     real_reserve_rate_limit("203.0.113.7")
 
     expected_hash = hmac.new(
@@ -284,29 +284,29 @@ def test_rate_limit_reservation_is_hashed_in_memory(monkeypatch):
         b"203.0.113.7",
         hashlib.sha256,
     ).hexdigest()
-    assert lampada_ai._request_times == deque([100.0])
-    assert lampada_ai._client_request_times == {expected_hash: deque([100.0])}
-    assert "203.0.113.7" not in lampada_ai._client_request_times
+    assert twinkler_ai._request_times == deque([100.0])
+    assert twinkler_ai._client_request_times == {expected_hash: deque([100.0])}
+    assert "203.0.113.7" not in twinkler_ai._client_request_times
 
 
 def test_global_in_memory_limit(monkeypatch):
-    monkeypatch.setattr(lampada_ai.time, "monotonic", lambda: 100.0)
-    monkeypatch.setattr(lampada_ai, "GEMINI_REQUESTS_PER_MINUTE", 1)
+    monkeypatch.setattr(twinkler_ai.time, "monotonic", lambda: 100.0)
+    monkeypatch.setattr(twinkler_ai, "GEMINI_REQUESTS_PER_MINUTE", 1)
 
     real_reserve_rate_limit("203.0.113.7")
-    with pytest.raises(lampada_ai.RateLimitError) as error:
+    with pytest.raises(twinkler_ai.RateLimitError) as error:
         real_reserve_rate_limit("198.51.100.9")
 
     assert error.value.retry_after == 60
 
 
 def test_per_client_in_memory_limit(monkeypatch):
-    monkeypatch.setattr(lampada_ai.time, "monotonic", lambda: 100.0)
-    monkeypatch.setattr(lampada_ai, "GEMINI_REQUESTS_PER_MINUTE", 10)
-    monkeypatch.setattr(lampada_ai, "GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE", 1)
+    monkeypatch.setattr(twinkler_ai.time, "monotonic", lambda: 100.0)
+    monkeypatch.setattr(twinkler_ai, "GEMINI_REQUESTS_PER_MINUTE", 10)
+    monkeypatch.setattr(twinkler_ai, "GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE", 1)
 
     real_reserve_rate_limit("203.0.113.7")
-    with pytest.raises(lampada_ai.RateLimitError) as limited_error:
+    with pytest.raises(twinkler_ai.RateLimitError) as limited_error:
         real_reserve_rate_limit("203.0.113.7")
 
     assert limited_error.value.retry_after == 60
@@ -314,34 +314,34 @@ def test_per_client_in_memory_limit(monkeypatch):
 
 def test_in_memory_limit_expires(monkeypatch):
     request_times = iter([100.0, 161.0])
-    monkeypatch.setattr(lampada_ai.time, "monotonic", lambda: next(request_times))
-    monkeypatch.setattr(lampada_ai, "GEMINI_REQUESTS_PER_MINUTE", 1)
-    monkeypatch.setattr(lampada_ai, "GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE", 1)
+    monkeypatch.setattr(twinkler_ai.time, "monotonic", lambda: next(request_times))
+    monkeypatch.setattr(twinkler_ai, "GEMINI_REQUESTS_PER_MINUTE", 1)
+    monkeypatch.setattr(twinkler_ai, "GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE", 1)
 
     real_reserve_rate_limit("203.0.113.7")
     real_reserve_rate_limit("203.0.113.7")
 
-    assert lampada_ai._request_times == deque([161.0])
+    assert twinkler_ai._request_times == deque([161.0])
 
 
 def test_rate_limiter_fails_closed(monkeypatch):
     monkeypatch.setattr(
-        lampada_ai,
+        twinkler_ai,
         "_reserve_rate_limit",
         lambda client_key: (_ for _ in ()).throw(
-            lampada_ai.RateLimitError("limiter unavailable")
+            twinkler_ai.RateLimitError("limiter unavailable")
         ),
     )
 
-    with pytest.raises(lampada_ai.HTTPException) as error:
-        asyncio.run(lampada_ai._enforce_rate_limit("203.0.113.7"))
+    with pytest.raises(twinkler_ai.HTTPException) as error:
+        asyncio.run(twinkler_ai._enforce_rate_limit("203.0.113.7"))
 
     assert error.value.status_code == 503
 
 
 def test_transcription_requires_api_key():
     response = client.post(
-        "/api/lampada/v1/transcribe",
+        "/api/twinkler/v1/transcribe",
         files={"file": ("recording.m4a", b"audio", "audio/mp4")},
     )
 
@@ -350,10 +350,10 @@ def test_transcription_requires_api_key():
 
 def test_returns_transcript_with_soft_locale_hint(monkeypatch):
     generated = AsyncMock(return_value="Господи, помоги мне.")
-    monkeypatch.setattr(lampada_ai, "transcribe", generated)
+    monkeypatch.setattr(twinkler_ai, "transcribe", generated)
 
     response = client.post(
-        "/api/lampada/v1/transcribe",
+        "/api/twinkler/v1/transcribe",
         headers={"X-API-Key": "test-api-key"},
         files={"file": ("recording.m4a", b"m4a-bytes", "audio/mp4")},
         data={"locale": "ru-RU"},
@@ -366,10 +366,10 @@ def test_returns_transcript_with_soft_locale_hint(monkeypatch):
 
 def test_transcription_locale_is_optional_and_m4a_has_safe_mime_fallback(monkeypatch):
     generated = AsyncMock(return_value="Original language")
-    monkeypatch.setattr(lampada_ai, "transcribe", generated)
+    monkeypatch.setattr(twinkler_ai, "transcribe", generated)
 
     response = client.post(
-        "/api/lampada/v1/transcribe",
+        "/api/twinkler/v1/transcribe",
         headers={"X-API-Key": "test-api-key"},
         files={
             "file": (
@@ -387,10 +387,10 @@ def test_transcription_locale_is_optional_and_m4a_has_safe_mime_fallback(monkeyp
 @pytest.mark.parametrize("locale", ["r", "../../ru", "ru_RU"])
 def test_transcription_rejects_invalid_locale(monkeypatch, locale):
     generated = AsyncMock(return_value="unused")
-    monkeypatch.setattr(lampada_ai, "transcribe", generated)
+    monkeypatch.setattr(twinkler_ai, "transcribe", generated)
 
     response = client.post(
-        "/api/lampada/v1/transcribe",
+        "/api/twinkler/v1/transcribe",
         headers={"X-API-Key": "test-api-key"},
         files={"file": ("recording.m4a", b"audio", "audio/mp4")},
         data={"locale": locale},
@@ -402,10 +402,10 @@ def test_transcription_rejects_invalid_locale(monkeypatch, locale):
 
 def test_transcription_rejects_empty_audio(monkeypatch):
     generated = AsyncMock(return_value="unused")
-    monkeypatch.setattr(lampada_ai, "transcribe", generated)
+    monkeypatch.setattr(twinkler_ai, "transcribe", generated)
 
     response = client.post(
-        "/api/lampada/v1/transcribe",
+        "/api/twinkler/v1/transcribe",
         headers={"X-API-Key": "test-api-key"},
         files={"file": ("recording.m4a", b"", "audio/x-m4a")},
     )
@@ -417,15 +417,15 @@ def test_transcription_rejects_empty_audio(monkeypatch):
 
 def test_transcription_rejects_oversized_audio(monkeypatch):
     generated = AsyncMock(return_value="unused")
-    monkeypatch.setattr(lampada_ai, "transcribe", generated)
+    monkeypatch.setattr(twinkler_ai, "transcribe", generated)
 
     response = client.post(
-        "/api/lampada/v1/transcribe",
+        "/api/twinkler/v1/transcribe",
         headers={"X-API-Key": "test-api-key"},
         files={
             "file": (
                 "recording.m4a",
-                b"x" * (lampada_ai._MAX_AUDIO_BYTES + 1),
+                b"x" * (twinkler_ai._MAX_AUDIO_BYTES + 1),
                 "audio/mp4",
             )
         },
@@ -446,10 +446,10 @@ def test_transcription_rejects_oversized_audio(monkeypatch):
 )
 def test_transcription_rejects_unsupported_audio(monkeypatch, filename, content_type):
     generated = AsyncMock(return_value="unused")
-    monkeypatch.setattr(lampada_ai, "transcribe", generated)
+    monkeypatch.setattr(twinkler_ai, "transcribe", generated)
 
     response = client.post(
-        "/api/lampada/v1/transcribe",
+        "/api/twinkler/v1/transcribe",
         headers={"X-API-Key": "test-api-key"},
         files={"file": (filename, b"audio", content_type)},
     )
@@ -461,10 +461,10 @@ def test_transcription_rejects_unsupported_audio(monkeypatch, filename, content_
 
 def test_invalid_audio_does_not_consume_rate_limit(monkeypatch, allow_ai_requests):
     generated = AsyncMock(return_value="unused")
-    monkeypatch.setattr(lampada_ai, "transcribe", generated)
+    monkeypatch.setattr(twinkler_ai, "transcribe", generated)
 
     response = client.post(
-        "/api/lampada/v1/transcribe",
+        "/api/twinkler/v1/transcribe",
         headers={"X-API-Key": "test-api-key"},
         files={"file": ("recording.wav", b"audio", "audio/wav")},
     )
@@ -475,11 +475,11 @@ def test_invalid_audio_does_not_consume_rate_limit(monkeypatch, allow_ai_request
 
 
 def test_transcription_hides_provider_failure(monkeypatch, caplog):
-    generated = AsyncMock(side_effect=lampada_ai.GeminiError("private details"))
-    monkeypatch.setattr(lampada_ai, "transcribe", generated)
+    generated = AsyncMock(side_effect=twinkler_ai.GeminiError("private details"))
+    monkeypatch.setattr(twinkler_ai, "transcribe", generated)
 
     response = client.post(
-        "/api/lampada/v1/transcribe",
+        "/api/twinkler/v1/transcribe",
         headers={"X-API-Key": "test-api-key"},
         files={"file": ("private-name.m4a", b"private audio", "audio/mp4")},
     )
@@ -530,12 +530,12 @@ def test_sends_expected_gemini_transcription_request(monkeypatch):
         assert kwargs["timeout"] == 60.0
         return real_async_client(*args, transport=transport, **kwargs)
 
-    monkeypatch.setattr(lampada_ai, "GEMINI_API_KEY", "secret-test-key")
-    monkeypatch.setattr(lampada_ai, "GEMINI_TRANSCRIPTION_MODEL", "gemini-test")
-    monkeypatch.setattr(lampada_ai.httpx, "AsyncClient", async_client)
+    monkeypatch.setattr(twinkler_ai, "GEMINI_API_KEY", "secret-test-key")
+    monkeypatch.setattr(twinkler_ai, "GEMINI_TRANSCRIPTION_MODEL", "gemini-test")
+    monkeypatch.setattr(twinkler_ai.httpx, "AsyncClient", async_client)
 
     result = asyncio.run(
-        lampada_ai.transcribe(b"audio bytes", "audio/mp4", "uk-UA")
+        twinkler_ai.transcribe(b"audio bytes", "audio/mp4", "uk-UA")
     )
     assert result == "Текст"
 
@@ -552,10 +552,10 @@ def test_transcription_stats_are_pseudonymized_without_user_agent(monkeypatch):
             started_threads.append((self.args, self.kwargs))
 
     monkeypatch.setattr(middleware, "threading", SimpleNamespace(Thread=FakeThread))
-    monkeypatch.setattr(lampada_ai, "transcribe", AsyncMock(return_value="Текст"))
+    monkeypatch.setattr(twinkler_ai, "transcribe", AsyncMock(return_value="Текст"))
 
     response = client.post(
-        "/api/lampada/v1/transcribe",
+        "/api/twinkler/v1/transcribe",
         headers={
             "X-API-Key": "test-api-key",
             "User-Agent": "private-device-details",
@@ -573,7 +573,7 @@ def test_transcription_stats_are_pseudonymized_without_user_agent(monkeypatch):
         hashlib.sha256,
     ).hexdigest()[:40]
     assert kwargs["args"][:3] == (
-        "/api/lampada/v1/transcribe",
+        "/api/twinkler/v1/transcribe",
         "POST",
         200,
     )
@@ -583,7 +583,7 @@ def test_transcription_stats_are_pseudonymized_without_user_agent(monkeypatch):
 
 
 def test_openapi_documents_transcription_contract():
-    operation = app.openapi()["paths"]["/api/lampada/v1/transcribe"]["post"]
+    operation = app.openapi()["paths"]["/api/twinkler/v1/transcribe"]["post"]
 
     assert operation["requestBody"]["content"].keys() == {"multipart/form-data"}
     assert {"200", "403", "413", "415", "422", "429", "502", "503"} <= set(

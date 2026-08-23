@@ -12,14 +12,14 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 
 from auth import RequireAPIKey
-from client_ip import pseudonymize_lampada_client, resolve_client_ip
+from client_ip import pseudonymize_twinkler_client, resolve_client_ip
 from config import (
     GEMINI_API_KEY,
     GEMINI_MODEL,
     GEMINI_TRANSCRIPTION_MODEL,
     GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE,
     GEMINI_REQUESTS_PER_MINUTE,
-    LAMPADA_SYSTEM_PROMPT,
+    TWINKLER_SYSTEM_PROMPT,
 )
 router = APIRouter()
 MODEL_PATTERN = re.compile(r"^[a-zA-Z0-9._-]+$")
@@ -83,7 +83,7 @@ def _retry_after(request_times: deque[float], now: float) -> int:
 
 def _reserve_rate_limit(client_key: str) -> None:
     try:
-        client_hash = pseudonymize_lampada_client(client_key)
+        client_hash = pseudonymize_twinkler_client(client_key)
     except RuntimeError as error:
         raise RateLimitError(str(error)) from error
 
@@ -129,7 +129,7 @@ async def _enforce_rate_limit(client_key: str) -> None:
                 detail="AI request limit exceeded",
                 headers={"Retry-After": str(error.retry_after)},
             ) from error
-        logger.warning("Lampada rate limiter unavailable: %s", error)
+        logger.warning("Twinkler rate limiter unavailable: %s", error)
         raise HTTPException(
             status_code=503,
             detail="AI service temporarily unavailable",
@@ -153,10 +153,10 @@ def _extract_text(data: Any) -> str:
 async def complete(user: str) -> str:
     if not GEMINI_API_KEY:
         raise GeminiError("GEMINI_API_KEY is not configured")
-    if not LAMPADA_SYSTEM_PROMPT:
-        raise GeminiError("LAMPADA_SYSTEM_PROMPT is not configured")
-    if len(LAMPADA_SYSTEM_PROMPT) > 8000:
-        raise GeminiError("LAMPADA_SYSTEM_PROMPT is too long")
+    if not TWINKLER_SYSTEM_PROMPT:
+        raise GeminiError("TWINKLER_SYSTEM_PROMPT is not configured")
+    if len(TWINKLER_SYSTEM_PROMPT) > 8000:
+        raise GeminiError("TWINKLER_SYSTEM_PROMPT is too long")
     if not MODEL_PATTERN.fullmatch(GEMINI_MODEL):
         raise GeminiError("GEMINI_MODEL contains invalid characters")
 
@@ -165,7 +165,7 @@ async def complete(user: str) -> str:
         f"{GEMINI_MODEL}:generateContent"
     )
     payload = {
-        "system_instruction": {"parts": [{"text": LAMPADA_SYSTEM_PROMPT}]},
+        "system_instruction": {"parts": [{"text": TWINKLER_SYSTEM_PROMPT}]},
         "contents": [{"role": "user", "parts": [{"text": user}]}],
         "generationConfig": {
             "maxOutputTokens": 1024,
@@ -264,11 +264,11 @@ async def transcribe(audio: bytes, mime_type: str, locale: str | None) -> str:
 
 
 @router.post(
-    "/lampada/v1/complete",
+    "/twinkler/v1/complete",
     response_model=CompleteResponse,
-    operation_id="lampada_complete",
-    tags=["Lampada"],
-    summary="Generate a Lampada companion response",
+    operation_id="twinkler_complete",
+    tags=["Twinkler"],
+    summary="Generate a Twinkler companion response",
     description=(
         "Sends the user message to the server-configured Gemini model. System "
         "instructions and the Gemini API key are never exposed to the client."
@@ -289,7 +289,7 @@ async def transcribe(audio: bytes, mime_type: str, locale: str | None) -> str:
         503: {"model": ErrorResponse, "description": "Rate limiter unavailable"},
     },
 )
-async def lampada_complete(
+async def twinkler_complete(
     request: CompleteRequest,
     http_request: Request,
     api_key: bool = RequireAPIKey,
@@ -300,17 +300,17 @@ async def lampada_complete(
         text = await complete(request.user)
     except GeminiError as error:
         # Log the failure category, but never the prayer text or provider key.
-        logger.warning("Lampada AI request failed: %s", error)
+        logger.warning("Twinkler AI request failed: %s", error)
         raise HTTPException(status_code=502, detail="AI service unavailable") from error
     return CompleteResponse(text=text)
 
 
 @router.post(
-    "/lampada/v1/transcribe",
+    "/twinkler/v1/transcribe",
     response_model=CompleteResponse,
-    operation_id="lampada_transcribe",
-    tags=["Lampada"],
-    summary="Transcribe a Lampada voice recording",
+    operation_id="twinkler_transcribe",
+    tags=["Twinkler"],
+    summary="Transcribe a Twinkler voice recording",
     description=(
         "Transcribes an M4A recording in its original language. The optional "
         "locale is used only as a weak language hint."
@@ -333,7 +333,7 @@ async def lampada_complete(
         503: {"model": ErrorResponse, "description": "Rate limiter unavailable"},
     },
 )
-async def lampada_transcribe(
+async def twinkler_transcribe(
     http_request: Request,
     file: UploadFile = File(..., description="M4A voice recording"),
     locale: str | None = Form(
@@ -364,6 +364,6 @@ async def lampada_transcribe(
         text = await transcribe(audio, mime_type, locale)
     except GeminiError as error:
         # Keep this static: provider errors must never leak recording metadata.
-        logger.warning("Lampada transcription request failed")
+        logger.warning("Twinkler transcription request failed")
         raise HTTPException(status_code=502, detail="AI service unavailable") from error
     return CompleteResponse(text=text)
