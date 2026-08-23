@@ -1,3 +1,4 @@
+import base64
 from collections import deque
 import logging
 import math
@@ -7,7 +8,7 @@ import time
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 
 from auth import RequireAPIKey
@@ -15,14 +16,25 @@ from client_ip import pseudonymize_lampada_client, resolve_client_ip
 from config import (
     GEMINI_API_KEY,
     GEMINI_MODEL,
+    GEMINI_TRANSCRIPTION_MODEL,
     GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE,
     GEMINI_REQUESTS_PER_MINUTE,
     LAMPADA_SYSTEM_PROMPT,
 )
 router = APIRouter()
 MODEL_PATTERN = re.compile(r"^[a-zA-Z0-9._-]+$")
+LOCALE_PATTERN = re.compile(r"^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$")
 logger = logging.getLogger(__name__)
 _RATE_LIMIT_WINDOW_SECONDS = 60.0
+# Inline data is base64-expanded inside Gemini's 20 MB request limit.
+_MAX_AUDIO_BYTES = 14 * 1024 * 1024
+_AUDIO_MIME_TYPES = frozenset({"audio/mp4", "audio/x-m4a"})
+_M4A_FALLBACK_MIME_TYPES = frozenset({"", "application/octet-stream"})
+_TRANSCRIPTION_PROMPT = (
+    "Transcribe the speech verbatim in its original language. Preserve "
+    "code-switching. Do not translate, summarize, add, omit, explain, or "
+    "rewrite anything. Add only natural punctuation. Return only the transcript."
+)
 _rate_limit_lock = threading.Lock()
 _request_times: deque[float] = deque()
 _client_request_times: dict[str, deque[float]] = {}
@@ -181,6 +193,76 @@ async def complete(user: str) -> str:
     return text
 
 
+def _audio_mime_type(file: UploadFile) -> str:
+    content_type = (file.content_type or "").split(";", 1)[0].strip().lower()
+    if content_type in _AUDIO_MIME_TYPES:
+        return content_type
+
+    filename = file.filename or ""
+    if filename.lower().endswith(".m4a") and content_type in _M4A_FALLBACK_MIME_TYPES:
+        return "audio/mp4"
+
+    raise HTTPException(status_code=415, detail="Unsupported audio format")
+
+
+def _transcription_prompt(locale: str | None) -> str:
+    if locale is None:
+        return _TRANSCRIPTION_PROMPT
+    return (
+        f"{_TRANSCRIPTION_PROMPT} The app locale is {locale}; use it only as a "
+        "weak hint when the spoken language is ambiguous."
+    )
+
+
+async def transcribe(audio: bytes, mime_type: str, locale: str | None) -> str:
+    if not GEMINI_API_KEY:
+        raise GeminiError("GEMINI_API_KEY is not configured")
+    if not MODEL_PATTERN.fullmatch(GEMINI_TRANSCRIPTION_MODEL):
+        raise GeminiError("GEMINI_TRANSCRIPTION_MODEL contains invalid characters")
+
+    url = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{GEMINI_TRANSCRIPTION_MODEL}:generateContent"
+    )
+    payload = {
+        "contents": [{
+            "role": "user",
+            "parts": [
+                {"text": _transcription_prompt(locale)},
+                {
+                    "inline_data": {
+                        "mime_type": mime_type,
+                        "data": base64.b64encode(audio).decode("ascii"),
+                    }
+                },
+            ],
+        }],
+        "generationConfig": {
+            "maxOutputTokens": 4096,
+            "temperature": 0,
+        },
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                url,
+                headers={"x-goog-api-key": GEMINI_API_KEY},
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+    except httpx.TimeoutException as error:
+        raise GeminiError("Gemini transcription timed out") from error
+    except (httpx.HTTPError, ValueError) as error:
+        raise GeminiError("Gemini transcription failed") from error
+
+    text = _extract_text(data)
+    if not text:
+        raise GeminiError("Gemini returned no transcript")
+    return text
+
+
 @router.post(
     "/lampada/v1/complete",
     response_model=CompleteResponse,
@@ -219,5 +301,69 @@ async def lampada_complete(
     except GeminiError as error:
         # Log the failure category, but never the prayer text or provider key.
         logger.warning("Lampada AI request failed: %s", error)
+        raise HTTPException(status_code=502, detail="AI service unavailable") from error
+    return CompleteResponse(text=text)
+
+
+@router.post(
+    "/lampada/v1/transcribe",
+    response_model=CompleteResponse,
+    operation_id="lampada_transcribe",
+    tags=["Lampada"],
+    summary="Transcribe a Lampada voice recording",
+    description=(
+        "Transcribes an M4A recording in its original language. The optional "
+        "locale is used only as a weak language hint."
+    ),
+    responses={
+        403: {"model": ErrorResponse, "description": "Invalid or missing API key"},
+        413: {"model": ErrorResponse, "description": "Audio file is too large"},
+        415: {"model": ErrorResponse, "description": "Unsupported audio format"},
+        429: {
+            "model": ErrorResponse,
+            "description": "Global or per-client request limit exceeded",
+            "headers": {
+                "Retry-After": {
+                    "description": "Seconds until another request can be attempted",
+                    "schema": {"type": "integer", "minimum": 1},
+                }
+            },
+        },
+        502: {"model": ErrorResponse, "description": "Gemini request failed"},
+        503: {"model": ErrorResponse, "description": "Rate limiter unavailable"},
+    },
+)
+async def lampada_transcribe(
+    http_request: Request,
+    file: UploadFile = File(..., description="M4A voice recording"),
+    locale: str | None = Form(
+        default=None,
+        max_length=35,
+        description="Optional BCP 47 app locale used only as a weak hint",
+    ),
+    api_key: bool = RequireAPIKey,
+) -> CompleteResponse:
+    if locale is not None and not LOCALE_PATTERN.fullmatch(locale):
+        raise HTTPException(status_code=422, detail="Invalid locale")
+
+    try:
+        mime_type = _audio_mime_type(file)
+        audio = await file.read(_MAX_AUDIO_BYTES + 1)
+    finally:
+        await file.close()
+
+    if not audio:
+        raise HTTPException(status_code=422, detail="Audio file is empty")
+    if len(audio) > _MAX_AUDIO_BYTES:
+        raise HTTPException(status_code=413, detail="Audio file is too large")
+
+    client_key = resolve_client_ip(http_request)
+    await _enforce_rate_limit(client_key)
+
+    try:
+        text = await transcribe(audio, mime_type, locale)
+    except GeminiError as error:
+        # Keep this static: provider errors must never leak recording metadata.
+        logger.warning("Lampada transcription request failed")
         raise HTTPException(status_code=502, detail="AI service unavailable") from error
     return CompleteResponse(text=text)

@@ -1,4 +1,5 @@
 import asyncio
+import base64
 from collections import deque
 import hashlib
 import hmac
@@ -336,3 +337,256 @@ def test_rate_limiter_fails_closed(monkeypatch):
         asyncio.run(lampada_ai._enforce_rate_limit("203.0.113.7"))
 
     assert error.value.status_code == 503
+
+
+def test_transcription_requires_api_key():
+    response = client.post(
+        "/api/lampada/v1/transcribe",
+        files={"file": ("recording.m4a", b"audio", "audio/mp4")},
+    )
+
+    assert response.status_code == 403
+
+
+def test_returns_transcript_with_soft_locale_hint(monkeypatch):
+    generated = AsyncMock(return_value="Господи, помоги мне.")
+    monkeypatch.setattr(lampada_ai, "transcribe", generated)
+
+    response = client.post(
+        "/api/lampada/v1/transcribe",
+        headers={"X-API-Key": "test-api-key"},
+        files={"file": ("recording.m4a", b"m4a-bytes", "audio/mp4")},
+        data={"locale": "ru-RU"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"text": "Господи, помоги мне."}
+    generated.assert_awaited_once_with(b"m4a-bytes", "audio/mp4", "ru-RU")
+
+
+def test_transcription_locale_is_optional_and_m4a_has_safe_mime_fallback(monkeypatch):
+    generated = AsyncMock(return_value="Original language")
+    monkeypatch.setattr(lampada_ai, "transcribe", generated)
+
+    response = client.post(
+        "/api/lampada/v1/transcribe",
+        headers={"X-API-Key": "test-api-key"},
+        files={
+            "file": (
+                "recording.M4A",
+                b"m4a-bytes",
+                "application/octet-stream",
+            )
+        },
+    )
+
+    assert response.status_code == 200
+    generated.assert_awaited_once_with(b"m4a-bytes", "audio/mp4", None)
+
+
+@pytest.mark.parametrize("locale", ["r", "../../ru", "ru_RU"])
+def test_transcription_rejects_invalid_locale(monkeypatch, locale):
+    generated = AsyncMock(return_value="unused")
+    monkeypatch.setattr(lampada_ai, "transcribe", generated)
+
+    response = client.post(
+        "/api/lampada/v1/transcribe",
+        headers={"X-API-Key": "test-api-key"},
+        files={"file": ("recording.m4a", b"audio", "audio/mp4")},
+        data={"locale": locale},
+    )
+
+    assert response.status_code == 422
+    generated.assert_not_awaited()
+
+
+def test_transcription_rejects_empty_audio(monkeypatch):
+    generated = AsyncMock(return_value="unused")
+    monkeypatch.setattr(lampada_ai, "transcribe", generated)
+
+    response = client.post(
+        "/api/lampada/v1/transcribe",
+        headers={"X-API-Key": "test-api-key"},
+        files={"file": ("recording.m4a", b"", "audio/x-m4a")},
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "Audio file is empty"}
+    generated.assert_not_awaited()
+
+
+def test_transcription_rejects_oversized_audio(monkeypatch):
+    generated = AsyncMock(return_value="unused")
+    monkeypatch.setattr(lampada_ai, "transcribe", generated)
+
+    response = client.post(
+        "/api/lampada/v1/transcribe",
+        headers={"X-API-Key": "test-api-key"},
+        files={
+            "file": (
+                "recording.m4a",
+                b"x" * (lampada_ai._MAX_AUDIO_BYTES + 1),
+                "audio/mp4",
+            )
+        },
+    )
+
+    assert response.status_code == 413
+    assert response.json() == {"detail": "Audio file is too large"}
+    generated.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "filename, content_type",
+    [
+        ("recording.wav", "audio/wav"),
+        ("recording.m4a", "image/png"),
+        ("recording.bin", "application/octet-stream"),
+    ],
+)
+def test_transcription_rejects_unsupported_audio(monkeypatch, filename, content_type):
+    generated = AsyncMock(return_value="unused")
+    monkeypatch.setattr(lampada_ai, "transcribe", generated)
+
+    response = client.post(
+        "/api/lampada/v1/transcribe",
+        headers={"X-API-Key": "test-api-key"},
+        files={"file": (filename, b"audio", content_type)},
+    )
+
+    assert response.status_code == 415
+    assert response.json() == {"detail": "Unsupported audio format"}
+    generated.assert_not_awaited()
+
+
+def test_invalid_audio_does_not_consume_rate_limit(monkeypatch, allow_ai_requests):
+    generated = AsyncMock(return_value="unused")
+    monkeypatch.setattr(lampada_ai, "transcribe", generated)
+
+    response = client.post(
+        "/api/lampada/v1/transcribe",
+        headers={"X-API-Key": "test-api-key"},
+        files={"file": ("recording.wav", b"audio", "audio/wav")},
+    )
+
+    assert response.status_code == 415
+    allow_ai_requests.assert_not_called()
+    generated.assert_not_awaited()
+
+
+def test_transcription_hides_provider_failure(monkeypatch, caplog):
+    generated = AsyncMock(side_effect=lampada_ai.GeminiError("private details"))
+    monkeypatch.setattr(lampada_ai, "transcribe", generated)
+
+    response = client.post(
+        "/api/lampada/v1/transcribe",
+        headers={"X-API-Key": "test-api-key"},
+        files={"file": ("private-name.m4a", b"private audio", "audio/mp4")},
+    )
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": "AI service unavailable"}
+    assert "private details" not in response.text
+    assert "private-name" not in response.text
+    assert "private audio" not in response.text
+    assert "private details" not in caplog.text
+    assert "private-name" not in caplog.text
+    assert "private audio" not in caplog.text
+
+
+def test_sends_expected_gemini_transcription_request(monkeypatch):
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url == (
+            "https://generativelanguage.googleapis.com/v1beta/models/"
+            "gemini-test:generateContent"
+        )
+        assert request.headers["x-goog-api-key"] == "secret-test-key"
+        payload = json.loads(request.read())
+        assert payload["generationConfig"] == {
+            "maxOutputTokens": 4096,
+            "temperature": 0,
+        }
+        parts = payload["contents"][0]["parts"]
+        assert "original language" in parts[0]["text"]
+        assert "Do not translate" in parts[0]["text"]
+        assert "app locale is uk-UA" in parts[0]["text"]
+        assert "weak hint" in parts[0]["text"]
+        assert parts[1] == {
+            "inline_data": {
+                "mime_type": "audio/mp4",
+                "data": base64.b64encode(b"audio bytes").decode("ascii"),
+            }
+        }
+        return httpx.Response(
+            200,
+            json={"candidates": [{"content": {"parts": [{"text": "Текст"}]}}]},
+        )
+
+    transport = httpx.MockTransport(handler)
+    real_async_client = httpx.AsyncClient
+
+    def async_client(*args, **kwargs):
+        assert kwargs["timeout"] == 60.0
+        return real_async_client(*args, transport=transport, **kwargs)
+
+    monkeypatch.setattr(lampada_ai, "GEMINI_API_KEY", "secret-test-key")
+    monkeypatch.setattr(lampada_ai, "GEMINI_TRANSCRIPTION_MODEL", "gemini-test")
+    monkeypatch.setattr(lampada_ai.httpx, "AsyncClient", async_client)
+
+    result = asyncio.run(
+        lampada_ai.transcribe(b"audio bytes", "audio/mp4", "uk-UA")
+    )
+    assert result == "Текст"
+
+
+def test_transcription_stats_are_pseudonymized_without_user_agent(monkeypatch):
+    started_threads = []
+
+    class FakeThread:
+        def __init__(self, *args, **kwargs):
+            self.args = args
+            self.kwargs = kwargs
+
+        def start(self):
+            started_threads.append((self.args, self.kwargs))
+
+    monkeypatch.setattr(middleware, "threading", SimpleNamespace(Thread=FakeThread))
+    monkeypatch.setattr(lampada_ai, "transcribe", AsyncMock(return_value="Текст"))
+
+    response = client.post(
+        "/api/lampada/v1/transcribe",
+        headers={
+            "X-API-Key": "test-api-key",
+            "User-Agent": "private-device-details",
+        },
+        files={"file": ("private-name.m4a", b"private audio", "audio/mp4")},
+    )
+
+    assert response.status_code == 200
+    assert len(started_threads) == 1
+    args, kwargs = started_threads[0]
+    assert args == ()
+    expected_client = hmac.new(
+        b"test-hmac-key",
+        b"testclient",
+        hashlib.sha256,
+    ).hexdigest()[:40]
+    assert kwargs["args"][:3] == (
+        "/api/lampada/v1/transcribe",
+        "POST",
+        200,
+    )
+    assert kwargs["args"][4:] == (expected_client, "")
+    assert "private-name" not in repr(kwargs)
+    assert "private audio" not in repr(kwargs)
+
+
+def test_openapi_documents_transcription_contract():
+    operation = app.openapi()["paths"]["/api/lampada/v1/transcribe"]["post"]
+
+    assert operation["requestBody"]["content"].keys() == {"multipart/form-data"}
+    assert {"200", "403", "413", "415", "422", "429", "502", "503"} <= set(
+        operation["responses"]
+    )
+    assert "Retry-After" in operation["responses"]["429"]["headers"]

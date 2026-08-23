@@ -14,7 +14,10 @@ EXCLUDED_PATHS = {
     "/favicon.ico",
 }
 EXCLUDED_STATUS_CODES = {403, 404}
-LAMPADA_PATH = "/api/lampada/v1/complete"
+LAMPADA_PATHS = frozenset({
+    "/api/lampada/v1/complete",
+    "/api/lampada/v1/transcribe",
+})
 
 # Normalize dynamic path segments for cleaner stats grouping
 _NORMALIZE_RULES = [
@@ -43,7 +46,7 @@ class RequestStatsMiddleware(BaseHTTPMiddleware):
 
         client_ip = resolve_client_ip(request)
         user_agent = (request.headers.get("user-agent") or "")[:512]
-        if comparison_path == LAMPADA_PATH:
+        if comparison_path in LAMPADA_PATHS:
             try:
                 client_ip = pseudonymize_lampada_client(client_ip)[:40]
             except RuntimeError:

@@ -13,6 +13,13 @@ rejected. `user` must contain 1–16000 characters. The response is
 `{ "text": "..." }` on success. Documented errors are `403`, `429` with
 `Retry-After`, `502`, and `503`; FastAPI validation errors use `422`.
 
+`POST /api/lampada/v1/transcribe` accepts `multipart/form-data` with a required
+M4A `file` and an optional BCP 47 `locale`. The response is the same
+`{ "text": "..." }` shape. The locale is a weak disambiguation hint only; the
+recording is transcribed verbatim in its original language without translation
+or generated additions. Empty files and invalid locales return `422`, files
+larger than 14 MiB return `413`, and unsupported audio types return `415`.
+
 ## Gemini contract
 
 The service calls
@@ -26,6 +33,15 @@ system prompt is limited to 8000 characters. The request sets
 Provider timeouts, HTTP errors, malformed responses and empty output are
 returned to the client as `502 AI service unavailable` without provider
 details. Missing server configuration has the same public response.
+
+Transcription uses `GEMINI_TRANSCRIPTION_MODEL` (default
+`gemini-3.5-flash-lite`) and the same configured Gemini API key. The M4A bytes
+are base64-encoded into an `inline_data` part alongside a server-controlled
+verbatim-transcription instruction. `audio/mp4` and `audio/x-m4a` are accepted;
+a `.m4a` filename is used as a fallback only when the client sends no MIME type
+or `application/octet-stream`. The request uses temperature `0` and a 60-second
+provider timeout. The uploaded file is closed after it is read and is never
+persisted by the application.
 
 ## Rate limiting and observability
 
@@ -43,10 +59,11 @@ restart and are not shared across workers or replicas, so production runs a
 single worker until a dedicated distributed limiter is introduced. Missing
 HMAC configuration fails closed with `503` and does not call Gemini.
 
-For this endpoint, standard request statistics store endpoint metadata,
+For both Lampada endpoints, standard request statistics store endpoint metadata,
 status, latency, an HMAC pseudonym truncated to 40 hexadecimal characters,
 and an empty user-agent value. Prompt, response body, original client address,
-and user agent are never stored. Raw statistics are purged after 14 days by
+user agent, recording, filename, and transcript are never stored. Raw
+statistics are purged after 14 days by
 `app/aggregate_stats.py`; daily aggregates retain counts only.
 
 Client addresses come from the direct peer. `X-Forwarded-For` is used only

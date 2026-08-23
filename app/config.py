@@ -41,6 +41,10 @@ ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "")
 # rest of Bible API remains available when AI is not configured.
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.7-flash")
+GEMINI_TRANSCRIPTION_MODEL = os.getenv(
+    "GEMINI_TRANSCRIPTION_MODEL",
+    "gemini-3.5-flash-lite",
+)
 GEMINI_REQUESTS_PER_MINUTE = max(1, _get_int("GEMINI_REQUESTS_PER_MINUTE", 10))
 GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE = min(
     GEMINI_REQUESTS_PER_MINUTE,

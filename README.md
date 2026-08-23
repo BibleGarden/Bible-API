@@ -35,6 +35,7 @@ system prompt and the Google AI Studio key are configured only on the server:
 ```dotenv
 GEMINI_API_KEY=your-google-ai-studio-key
 GEMINI_MODEL=gemini-3.7-flash
+GEMINI_TRANSCRIPTION_MODEL=gemini-3.5-flash-lite
 GEMINI_REQUESTS_PER_MINUTE=10
 GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE=3
 LAMPADA_SYSTEM_PROMPT=Your server-controlled companion instructions
@@ -53,6 +54,13 @@ limiter before scaling the service horizontally.
 `X-Forwarded-For` header is trusted. Leave it empty when the API is exposed
 directly. `LAMPADA_CLIENT_HMAC_KEY` pseudonymizes client addresses and must be
 different from both API keys.
+
+`POST /api/lampada/v1/transcribe` accepts `multipart/form-data` with a required
+M4A `file` and an optional BCP 47 `locale` (for example, `ru-RU`). The locale is
+only a weak language hint: Gemini transcribes the recording verbatim in its
+original language and does not translate it. Files larger than 14 MiB are
+rejected. Recordings, filenames, and transcripts are not written to logs or
+persistent storage.
 
 ## License
 
