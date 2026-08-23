@@ -147,7 +147,7 @@ def get_chapter_data(cursor, translation: int, book_info: dict, chapter_number: 
     """
     Retrieves chapter data: verses, titles, notes, and audio link.
 
-    In public-api, manual fixes are already applied to voice_alignments during import,
+    In Bible-API, manual fixes are already applied to voice_alignments during import,
     so COALESCE and LEFT JOIN voice_manual_fixes are not needed.
     """
     # Build the SQL query to fetch verses

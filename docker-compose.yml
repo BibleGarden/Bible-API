@@ -1,6 +1,6 @@
 services:
-  public-api:
-    container_name: public-api
+  bible-api:
+    container_name: bible-api
     build: .
     ports:
       - "9084:8000"
