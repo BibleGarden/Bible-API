@@ -14,9 +14,17 @@ EXCLUDED_PATHS = {
     "/favicon.ico",
 }
 EXCLUDED_STATUS_CODES = {403, 404}
-TWINKLER_PATHS = frozenset({
+# Endpoints handling prayer content. For these the stored client address is
+# replaced by an HMAC pseudonym and the user agent is dropped, so the
+# statistics cannot be tied back to a person. Request and response bodies
+# are never read by this middleware, so neither the prayer context nor the
+# selected passage can reach the stats table (ADR 0006: the passage alone
+# is not private, but combined with a client identity it would reveal what
+# the person prayed about).
+PRIVATE_PATHS = frozenset({
     "/api/twinkler/v1/complete",
     "/api/twinkler/v1/transcribe",
+    "/api/scripture/v1/select",
 })
 
 # Normalize dynamic path segments for cleaner stats grouping
@@ -46,7 +54,7 @@ class RequestStatsMiddleware(BaseHTTPMiddleware):
 
         client_ip = resolve_client_ip(request)
         user_agent = (request.headers.get("user-agent") or "")[:512]
-        if comparison_path in TWINKLER_PATHS:
+        if comparison_path in PRIVATE_PATHS:
             try:
                 client_ip = pseudonymize_twinkler_client(client_ip)[:40]
             except RuntimeError:

@@ -130,3 +130,33 @@ def test_retry_then_success_recovers():
 
     assert make_client(handler).embed_query("текст")[0] == pytest.approx(1.0)
     assert calls["n"] == 3
+
+
+def test_provider_error_bodies_never_reach_the_exception_message():
+    """Serve-path privacy: the request body is a query derived from the
+    prayer context, and a provider error can echo it back. Callers log
+    this message (retrieval.select), so it must carry the status only."""
+    secret = "переписанный запрос про тревогу"
+    client = make_client(
+        lambda r: httpx.Response(400, text=f'{{"error": "bad input: {secret}"}}')
+    )
+
+    with pytest.raises(EmbeddingUnavailable) as exc_info:
+        client.embed_query(secret)
+
+    message = str(exc_info.value)
+    assert "HTTP 400" in message
+    assert secret not in message
+    assert "bad input" not in message
+
+
+def test_transport_errors_report_only_the_exception_type():
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError(f"failed to POST {request.url}?q=секрет")
+
+    with pytest.raises(EmbeddingUnavailable) as exc_info:
+        make_client(handler).embed_query("секрет")
+
+    message = str(exc_info.value)
+    assert "ConnectError" in message
+    assert "секрет" not in message

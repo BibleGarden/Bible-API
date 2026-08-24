@@ -37,6 +37,12 @@ architect/adr/0005-grounded-passage-rerank.md): Gemini chooses the best
 candidate STRICTLY from the server's list (validated index answer,
 app/passage_rerank.py); on any AI failure the retrieval top-1 is served.
 
+Both entry points accept an optional `deadline.Deadline` — the public
+endpoint's time budget (ADR 0006). Stages are skipped once it is gone
+(safe pool, then retrieval top-1), and it caps every provider HTTP call,
+so the whole selection is bounded by the budget instead of by the sum of
+the stages' retry ladders.
+
 Privacy: prayer context and rewrite variants are never logged — only
 failure categories.
 """
@@ -46,9 +52,11 @@ from __future__ import annotations
 import json
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from deadline import Deadline
 from embeddings import EmbeddingUnavailable
 from passage_rerank import PassageRerankError
 from query_rewrite import QueryRewriteError, build_search_query
@@ -90,6 +98,38 @@ def parse_canonical_id(canonical_id: str) -> tuple[int, int, int, int, int]:
         int(match.group("start")),
         int(match.group("end")),
     )
+
+
+def split_exclusions(
+    canonical_ids, chunking_version: int
+) -> tuple[frozenset[str], list[str]]:
+    """Split already-shown IDs into usable ones and ones of another corpus.
+
+    A canonical ID is only meaningful inside the chunking version that
+    produced it (`v3:...`): after a CHUNKING_VERSION bump the boundaries
+    move, so an old ID neither matches a current chunk nor describes a
+    current window. Such IDs are dropped from the filter (they can no
+    longer hide anything) and reported back, so the client can reset its
+    "already shown" history instead of silently accumulating dead entries
+    (ADR 0006).
+
+    Unparseable IDs are classified as stale too, so a non-HTTP caller
+    cannot make this raise; over HTTP they never get here — request
+    validation rejects a malformed ID with 422.
+    """
+    current: set[str] = set()
+    stale: list[str] = []
+    for canonical_id in canonical_ids:
+        try:
+            version, *_ = parse_canonical_id(canonical_id)
+        except ValueError:
+            stale.append(canonical_id)
+            continue
+        if version == chunking_version:
+            current.add(canonical_id)
+        else:
+            stale.append(canonical_id)
+    return frozenset(current), stale
 
 
 # ---------------------------------------------------------------------------
@@ -376,7 +416,8 @@ class Candidate:
 class SelectionResult:
     candidates: list[Candidate]
     source: str                  # "retrieval" | "safe_pool"
-    fallback_reason: str | None  # None | "empty_topic" | "ai_unavailable"
+    # None | "empty_topic" | "ai_unavailable" | "deadline"
+    fallback_reason: str | None
     query_variants: list[str]    # rewrite variants actually searched (+ raw)
     rewrite_failed: bool
 
@@ -394,7 +435,7 @@ class FinalSelection:
     reason: str | None           # model diagnostic (rerank only); NOT for users
     method: str                  # "rerank" | "fallback_top1" | "none"
     # Why the rerank did not decide: None (it did) | "no_reranker" |
-    # "safe_pool" | "rerank_failed" | "no_candidates"
+    # "safe_pool" | "rerank_failed" | "deadline" | "no_candidates"
     fallback_reason: str | None
     selection: SelectionResult
 
@@ -417,6 +458,15 @@ class ScriptureRetriever:
     include_raw_query=False by default: with working rewrites the raw query
     only wastes interleave slots (benchmark: 0.917 -> 0.958 hit@10 without
     it); it is still searched whenever the rewrite fails.
+
+    embed_workers=1 by default (sequential, with the provider-down
+    fail-fast of ADR 0005 m2) — the CLI and the benchmark want a
+    deterministic, patient path. The public endpoint passes
+    embed_workers=REWRITE_VARIANTS: variant embeddings are independent
+    round trips and embedding them concurrently is the single biggest
+    serve-time saving (measured 1.6 s -> 0.31 s, ADR 0006). Under
+    concurrency the fail-fast heuristic is moot (all calls are already in
+    flight); the shared deadline bounds them instead.
     """
 
     def __init__(
@@ -433,6 +483,7 @@ class ScriptureRetriever:
         lexical_k: int = LEXICAL_K,
         max_per_book: int = MAX_PER_BOOK,
         include_raw_query: bool = False,
+        embed_workers: int = 1,
     ):
         self.index = index
         self.embedder = embedder
@@ -446,26 +497,34 @@ class ScriptureRetriever:
         self.lexical_k = lexical_k
         self.max_per_book = max_per_book
         self.include_raw_query = include_raw_query
+        self.embed_workers = max(1, embed_workers)
         self._vector_rows_cache: dict[str, dict[str, list[int]]] = {}
 
     # -- public entry point -------------------------------------------------
 
-    def select(self, request: SelectionRequest) -> SelectionResult:
+    def select(
+        self, request: SelectionRequest, deadline: Deadline | None = None
+    ) -> SelectionResult:
         raw_query = build_search_query(request.topic, list(request.user_replies))
         if not raw_query:
             return self._safe_pool_result(request, "empty_topic")
 
         queries, rewrite_failed = self._build_queries(
-            request.language, request.topic, list(request.user_replies), raw_query
+            request.language, request.topic, list(request.user_replies),
+            raw_query, deadline,
         )
         variant_hits, searched_queries = self._search_variants(
-            request.language, queries
+            request.language, queries, deadline
         )
         if not variant_hits:
-            # Gemini is down: no query could be embedded. Raw embedding
-            # search is impossible without the API embedder, so the safe
-            # pool is the deterministic fallback (ADR 0004).
-            result = self._safe_pool_result(request, "ai_unavailable")
+            # No query could be embedded: Gemini is down, or the request's
+            # time budget ran out. Raw embedding search is impossible
+            # without the API embedder, so the safe pool is the
+            # deterministic fallback (ADR 0004).
+            expired = deadline is not None and deadline.expired()
+            result = self._safe_pool_result(
+                request, "deadline" if expired else "ai_unavailable"
+            )
             result.rewrite_failed = rewrite_failed
             return result
 
@@ -481,16 +540,20 @@ class ScriptureRetriever:
             rewrite_failed=rewrite_failed,
         )
 
-    def select_final(self, request: SelectionRequest) -> FinalSelection:
+    def select_final(
+        self, request: SelectionRequest, deadline: Deadline | None = None
+    ) -> FinalSelection:
         """Select candidates, then let the reranker choose the final one.
 
         Grounding: the model only ever answers with a validated index into
         the server's candidate list; the returned passage text always comes
         from the DB. On ANY rerank failure (timeout, HTTP error, malformed
         JSON, out-of-range/unknown candidate, empty response) the retrieval
-        top-1 is served instead — never an error to the user path.
+        top-1 is served instead — never an error to the user path. An
+        exhausted `deadline` degrades the same way (`fallback_reason`
+        "deadline"), without starting the rerank call.
         """
-        selection = self.select(request)
+        selection = self.select(request, deadline)
         if not selection.candidates:
             return FinalSelection(
                 candidate=None, reason=None, method="none",
@@ -509,6 +572,13 @@ class ScriptureRetriever:
                 candidate=top1, reason=None, method="fallback_top1",
                 fallback_reason="no_reranker", selection=selection,
             )
+        if deadline is not None and deadline.expired():
+            # Retrieval already produced a verified list; serving its top-1
+            # is the documented degraded mode (ADR 0005).
+            return FinalSelection(
+                candidate=top1, reason=None, method="fallback_top1",
+                fallback_reason="deadline", selection=selection,
+            )
         texts = [
             _candidate_prompt_text(candidate)
             for candidate in selection.candidates
@@ -518,6 +588,7 @@ class ScriptureRetriever:
                 topic=request.topic,
                 user_replies=list(request.user_replies),
                 candidate_texts=texts,
+                deadline=deadline,
             )
         except PassageRerankError as exc:
             # failure category only — never the prayer context or model text
@@ -550,12 +621,19 @@ class ScriptureRetriever:
     # -- pipeline stages ----------------------------------------------------
 
     def _build_queries(
-        self, language: str, topic: str, replies: list[str], raw_query: str
+        self,
+        language: str,
+        topic: str,
+        replies: list[str],
+        raw_query: str,
+        deadline: Deadline | None = None,
     ) -> tuple[list[str], bool]:
         variants: list[str] = []
         rewrite_failed = False
         try:
-            variants = self.rewriter.rewrite(language, topic, replies)
+            variants = self.rewriter.rewrite(
+                language, topic, replies, deadline=deadline
+            )
         except QueryRewriteError as exc:
             rewrite_failed = True
             logger.warning("query rewrite failed: %s", exc)
@@ -564,16 +642,27 @@ class ScriptureRetriever:
             queries.append(raw_query)
         return queries, rewrite_failed
 
-    def _search_variants(
-        self, language: str, queries: list[str]
-    ) -> tuple[list[list[tuple[str, float]]], list[str]]:
-        variant_hits: list[list[tuple[str, float]]] = []
-        searched: list[str] = []
-        for query in queries:
+    def _embed_queries(
+        self, queries: list[str], deadline: Deadline | None
+    ) -> list[list[float] | None]:
+        """Embed every query variant, keeping their order (None = failed)."""
+        if self.embed_workers > 1 and len(queries) > 1:
+            with ThreadPoolExecutor(
+                max_workers=min(self.embed_workers, len(queries))
+            ) as pool:
+                futures = [
+                    pool.submit(self._embed_one_query, query, deadline)
+                    for query in queries
+                ]
+                return [future.result() for future in futures]
+
+        vectors: list[list[float] | None] = []
+        for index, query in enumerate(queries):
             try:
-                vector = self.embedder.embed_query(query)
+                vectors.append(self.embedder.embed_query(query, deadline=deadline))
             except EmbeddingUnavailable as exc:
                 logger.warning("query embedding failed: %s", exc)
+                vectors.append(None)
                 if getattr(exc, "provider_down", False):
                     # Fail fast: the provider is down for every request
                     # right now — do not burn the full retry budget on each
@@ -582,7 +671,30 @@ class ScriptureRetriever:
                         "embedding provider unavailable, "
                         "skipping remaining query variants"
                     )
+                    vectors.extend([None] * (len(queries) - index - 1))
                     break
+        return vectors
+
+    def _embed_one_query(
+        self, query: str, deadline: Deadline | None
+    ) -> list[float] | None:
+        try:
+            return self.embedder.embed_query(query, deadline=deadline)
+        except EmbeddingUnavailable as exc:
+            logger.warning("query embedding failed: %s", exc)
+            return None
+
+    def _search_variants(
+        self,
+        language: str,
+        queries: list[str],
+        deadline: Deadline | None = None,
+    ) -> tuple[list[list[tuple[str, float]]], list[str]]:
+        vectors = self._embed_queries(queries, deadline)
+        variant_hits: list[list[tuple[str, float]]] = []
+        searched: list[str] = []
+        for query, vector in zip(queries, vectors):
+            if vector is None:
                 continue
             hits = self.index.search(
                 vector, top_k=self.fetch_k, language=language

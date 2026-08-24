@@ -40,6 +40,7 @@ from config import (
     EMBEDDING_MODEL,
     GEMINI_API_KEY,
 )
+from deadline import Deadline, request_timeout, sleep_budget
 
 GEMINI_EMBED_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
@@ -108,11 +109,18 @@ class GeminiEmbeddingClient:
         config: EmbeddingConfig | None = None,
         http_client: httpx.Client | None = None,
         sleep=time.sleep,
+        timeout: float = 60.0,
+        max_retries: int = _MAX_RETRIES,
     ):
         self.config = config or EmbeddingConfig()
         self._owns_client = http_client is None
-        self._client = http_client or httpx.Client(timeout=httpx.Timeout(60.0))
+        self._client = http_client or httpx.Client(timeout=httpx.Timeout(timeout))
         self._sleep = sleep
+        # The offline indexing CLI wants a long, patient ladder; the
+        # serve-time endpoint lowers both (ADR 0006) so a request cannot
+        # outlive its budget.
+        self.timeout = timeout
+        self.max_retries = max(1, max_retries)
 
     def close(self) -> None:
         """Close the underlying HTTP client (only if this instance owns it)."""
@@ -128,10 +136,14 @@ class GeminiEmbeddingClient:
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         return [self._embed_one(text, TASK_DOCUMENT) for text in texts]
 
-    def embed_query(self, text: str) -> list[float]:
-        return self._embed_one(text, TASK_QUERY)
+    def embed_query(
+        self, text: str, deadline: Deadline | None = None
+    ) -> list[float]:
+        return self._embed_one(text, TASK_QUERY, deadline)
 
-    def _embed_one(self, text: str, task_type: str) -> list[float]:
+    def _embed_one(
+        self, text: str, task_type: str, deadline: Deadline | None = None
+    ) -> list[float]:
         if not self.config.api_key:
             raise EmbeddingUnavailable(
                 "GEMINI_API_KEY is not configured", provider_down=True
@@ -146,16 +158,26 @@ class GeminiEmbeddingClient:
         }
         last_error = "unknown error"
         provider_down = False
-        for attempt in range(_MAX_RETRIES):
-            last_attempt = attempt + 1 == _MAX_RETRIES
+        for attempt in range(self.max_retries):
+            last_attempt = attempt + 1 == self.max_retries
+            timeout = request_timeout(deadline, self.timeout)
+            if timeout <= 0.0:
+                raise EmbeddingUnavailable(
+                    "embedding budget exhausted", provider_down=True
+                )
             try:
                 response = self._client.post(
                     url,
                     json=body,
                     headers={"x-goog-api-key": self.config.api_key},
+                    timeout=timeout,
                 )
             except httpx.HTTPError as exc:
-                last_error = f"transport error: {exc}"
+                # Type only: an httpx error message can quote the request
+                # URL and body, and on the serve path the body is a query
+                # rewritten from the prayer context (same policy as
+                # query_rewrite / passage_rerank).
+                last_error = f"transport error: {type(exc).__name__}"
                 provider_down = True
             else:
                 if response.status_code == 200:
@@ -182,7 +204,10 @@ class GeminiEmbeddingClient:
                             f"{0 if not values else len(values)}"
                         )
                     return normalize(values)
-                last_error = f"HTTP {response.status_code}: {response.text[:200]}"
+                # Status only — a provider error body can echo the request
+                # (i.e. a query derived from the prayer context) and this
+                # message is logged by retrieval.
+                last_error = f"HTTP {response.status_code}"
                 provider_down = response.status_code in _RETRYABLE_STATUS
                 if response.status_code not in _RETRYABLE_STATUS or last_attempt:
                     break
@@ -191,11 +216,14 @@ class GeminiEmbeddingClient:
                 )
                 if response.status_code == 429:
                     backoff = retry_delay_from_response(response, backoff)
-                self._sleep(backoff)
+                self._sleep(sleep_budget(deadline, backoff))
                 continue
             if last_attempt:  # no pointless backoff before giving up
                 break
-            self._sleep(min(_RETRY_BASE_SECONDS * (2 ** attempt), _RETRY_MAX_SECONDS))
+            self._sleep(sleep_budget(
+                deadline,
+                min(_RETRY_BASE_SECONDS * (2 ** attempt), _RETRY_MAX_SECONDS),
+            ))
         raise EmbeddingUnavailable(
             f"Gemini embedding failed: {last_error}", provider_down=provider_down
         )

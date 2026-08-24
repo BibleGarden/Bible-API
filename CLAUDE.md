@@ -31,6 +31,10 @@ docker exec bible-api bash -c "cd /code && PYTHONPATH=app python3 extract-openap
 - **`version_check.py`** — App version check
 - **`import_data.py`** — Import data from Dashboard-API
 - **`twinkler_ai.py`** — Server-prompted Gemini integration with in-memory rate limiting
+- **`scripture_select.py`** — Public scripture-selection endpoint `POST /api/scripture/v1/select` over `retrieval.select_final` (see `architect/scripture-select.md`, `architect/adr/0006-scripture-select-api.md`)
+- **`rate_limit.py`** — Shared in-memory rolling-window limiter (Twinkler + scripture selection)
+- **`deadline.py`** — Per-request time budget threaded through the AI stages
+- **`prompt_safety.py`** — Neutralizes forged prompt data-block delimiters (invisible characters and angle-bracket look-alikes) in user text
 - **`auth.py`** — Only API Key authentication (no JWT)
 - **`models.py`** — Pydantic response models (no admin models)
 - **`chunking.py`** — Pure structural chunking algorithm for RAG (see `architect/adr/0001-structural-chunking.md`)
@@ -42,7 +46,7 @@ docker exec bible-api bash -c "cd /code && PYTHONPATH=app python3 extract-openap
 - **`index_cli.py`** — CLI that (re)builds the vector index idempotently (`rebuild`/`status`/`search`)
 - **`query_rewrite.py`** — Gemini rewrite of prayer context into scripture-register query variants (see `architect/adr/0004-retrieval-pipeline.md`)
 - **`lexical_index.py`** — in-process BM25 over chunks, the hybrid lexical signal
-- **`retrieval.py`** — retrieval pipeline: interleave fusion, global genre blacklist (`data/genre_blacklist.json`), safe pool (`data/safe_pool.json`), diversity, `ScriptureRetriever` service; `select_final` adds the grounded rerank with top-1 fallback
+- **`retrieval.py`** — retrieval pipeline: interleave fusion, global genre blacklist (`data/genre_blacklist.json`), safe pool (`data/safe_pool.json`), diversity, `ScriptureRetriever` service; `select_final` adds the grounded rerank with top-1 fallback; both entry points accept an optional per-request `Deadline` and can embed query variants concurrently
 - **`passage_rerank.py`** — grounded AI choice of the final passage among retrieval candidates: validated index-only answer, JSON schema, injection-hardened prompt (see `architect/adr/0005-grounded-passage-rerank.md`)
 - **`retrieval_cli.py`** — end-to-end retrieval smoke CLI (`select`)
 - **`database.py`** — MySQL connection factory
@@ -77,9 +81,24 @@ Optional: `ADMIN_API_URL`, `ADMIN_API_KEY` (for import), `GEMINI_API_KEY`,
 `GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE`, `TWINKLER_SYSTEM_PROMPT`,
 `TWINKLER_CLIENT_HMAC_KEY`, and `TRUSTED_PROXY_IPS`. `GEMINI_API_KEY`,
 `TWINKLER_SYSTEM_PROMPT`, and `TWINKLER_CLIENT_HMAC_KEY` must be set for Twinkler
-AI calls. The limiter is process-local, so production uses a single API worker.
-`EMBEDDING_MODEL` (default `gemini-embedding-001`) and `EMBEDDING_DIMENSIONS`
-(default 768) configure the RAG vector index; changing them changes the index
-version and requires `python app/index_cli.py rebuild`.
+AI calls. The limiters are process-local, so production uses a single API worker.
+
+RAG / scripture selection:
+
+- `EMBEDDING_MODEL` (default `gemini-embedding-001`) and `EMBEDDING_DIMENSIONS`
+  (default 768) configure the vector index; changing them changes the index
+  version and requires `python app/index_cli.py rebuild`.
+- `RETRIEVAL_REWRITE_MODEL` (default `gemini-3.7-flash`) — LLM query
+  reformulation, the dominant quality lever; pinned by the benchmark and
+  deliberately independent of `GEMINI_MODEL` (ADR 0004).
+- `RETRIEVAL_RERANK_MODEL` (default `gemini-3.5-flash-lite`) — grounded choice
+  of the final passage among candidates; pinned by the benchmark (ADR 0005).
+- `SCRIPTURE_SELECT_REQUESTS_PER_MINUTE` (10),
+  `SCRIPTURE_SELECT_REQUESTS_PER_CLIENT_PER_MINUTE` (3) — the selection
+  endpoint's own rate-limit budget (separate from the Twinkler one; it reuses
+  `TWINKLER_CLIENT_HMAC_KEY` for pseudonyms).
+- `SCRIPTURE_SELECT_TIMEOUT_SECONDS` (15) — total budget of one selection;
+  `SCRIPTURE_INDEX_CACHE_SECONDS` (3600) — TTL of the in-process corpus cache,
+  also dropped by `POST /api/cache/clear` (ADR 0006).
 
 ### All API routes are under `/api` prefix

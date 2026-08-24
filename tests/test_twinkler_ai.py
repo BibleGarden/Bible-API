@@ -20,6 +20,7 @@ from fastapi.testclient import TestClient
 import twinkler_ai
 import client_ip
 import middleware
+import rate_limit
 from main import app
 
 
@@ -29,9 +30,7 @@ real_reserve_rate_limit = twinkler_ai._reserve_rate_limit
 
 @pytest.fixture(autouse=True)
 def allow_ai_requests(monkeypatch):
-    twinkler_ai._request_times.clear()
-    twinkler_ai._client_request_times.clear()
-    twinkler_ai._last_client_cleanup = 0.0
+    twinkler_ai._limiter.reset()
     reservation = Mock()
     monkeypatch.setattr(twinkler_ai, "_reserve_rate_limit", reservation)
     monkeypatch.setattr(middleware, "_insert_request_log", Mock())
@@ -276,7 +275,7 @@ def test_handles_gemini_failures(monkeypatch, response, expected_message):
 
 
 def test_rate_limit_reservation_is_hashed_in_memory(monkeypatch):
-    monkeypatch.setattr(twinkler_ai.time, "monotonic", lambda: 100.0)
+    monkeypatch.setattr(rate_limit.time, "monotonic", lambda: 100.0)
     real_reserve_rate_limit("203.0.113.7")
 
     expected_hash = hmac.new(
@@ -290,7 +289,7 @@ def test_rate_limit_reservation_is_hashed_in_memory(monkeypatch):
 
 
 def test_global_in_memory_limit(monkeypatch):
-    monkeypatch.setattr(twinkler_ai.time, "monotonic", lambda: 100.0)
+    monkeypatch.setattr(rate_limit.time, "monotonic", lambda: 100.0)
     monkeypatch.setattr(twinkler_ai, "GEMINI_REQUESTS_PER_MINUTE", 1)
 
     real_reserve_rate_limit("203.0.113.7")
@@ -301,7 +300,7 @@ def test_global_in_memory_limit(monkeypatch):
 
 
 def test_per_client_in_memory_limit(monkeypatch):
-    monkeypatch.setattr(twinkler_ai.time, "monotonic", lambda: 100.0)
+    monkeypatch.setattr(rate_limit.time, "monotonic", lambda: 100.0)
     monkeypatch.setattr(twinkler_ai, "GEMINI_REQUESTS_PER_MINUTE", 10)
     monkeypatch.setattr(twinkler_ai, "GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE", 1)
 
@@ -314,7 +313,7 @@ def test_per_client_in_memory_limit(monkeypatch):
 
 def test_in_memory_limit_expires(monkeypatch):
     request_times = iter([100.0, 161.0])
-    monkeypatch.setattr(twinkler_ai.time, "monotonic", lambda: next(request_times))
+    monkeypatch.setattr(rate_limit.time, "monotonic", lambda: next(request_times))
     monkeypatch.setattr(twinkler_ai, "GEMINI_REQUESTS_PER_MINUTE", 1)
     monkeypatch.setattr(twinkler_ai, "GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE", 1)
 

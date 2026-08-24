@@ -17,6 +17,9 @@ from about import router as about_router
 from version_check import router as version_check_router
 from import_data import router as import_data_router
 from twinkler_ai import router as twinkler_ai_router
+from scripture_select import router as scripture_select_router
+from scripture_select import clear_cached_resources, validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from auth import RequireAPIKey
 from middleware import RequestStatsMiddleware
 
@@ -85,6 +88,10 @@ tags_metadata = [
         "name": "Twinkler",
         "description": "AI companion for the Twinkler prayer app",
     },
+    {
+        "name": "Scripture",
+        "description": "Contextual Bible passage selection for a prayer context",
+    },
 ]
 
 app = FastAPI(
@@ -102,6 +109,11 @@ app = FastAPI(
 
 app.add_middleware(RequestStatsMiddleware)
 
+# Scripture selection answers validation failures with a flat, sanitised
+# {"detail": "..."} body (the default one echoes the prayer text); every
+# other route keeps FastAPI's default handler. See app/scripture_select.py.
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
+
 # Create main router with /api prefix
 api_router = APIRouter(prefix="/api")
 
@@ -112,6 +124,7 @@ api_router.include_router(about_router)
 api_router.include_router(version_check_router)
 api_router.include_router(import_data_router)
 api_router.include_router(twinkler_ai_router)
+api_router.include_router(scripture_select_router)
 
 
 @api_router.get('/languages', response_model=list[LanguageModel], operation_id="get_languages", tags=["Languages"])
@@ -326,10 +339,13 @@ def clear_cache(api_key: bool = RequireAPIKey):
     get_existing_audio_chapters.cache_clear()
     check_audio_file_exists.cache_clear()
 
+    # Drop the cached scripture-selection corpus (vector + BM25 indexes)
+    clear_cached_resources()
+
     return {
         "message": f"All caches cleared successfully",
         "items_cleared": cache_size,
-        "lru_caches_cleared": ["get_all_existing_audio_chapters", "get_existing_audio_chapters", "check_audio_file_exists"]
+        "lru_caches_cleared": ["get_all_existing_audio_chapters", "get_existing_audio_chapters", "check_audio_file_exists", "scripture_corpus"]
     }
 
 

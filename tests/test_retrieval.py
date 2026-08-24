@@ -323,12 +323,17 @@ class FakeEmbedder:
         self.fail = fail
         self.provider_down = provider_down
         self.calls: list[str] = []
+        self.deadlines: list = []
 
-    def embed_query(self, text: str) -> list[float]:
+    def embed_query(self, text: str, deadline=None) -> list[float]:
         self.calls.append(text)
+        self.deadlines.append(deadline)
         if self.fail:
             raise EmbeddingUnavailable("down", provider_down=self.provider_down)
-        return self.mapping[text]
+        try:
+            return self.mapping[text]
+        except KeyError:
+            raise EmbeddingUnavailable(f"no vector for {text!r}") from None
 
 
 class FakeRewriter:
@@ -336,9 +341,11 @@ class FakeRewriter:
         self.variants = variants or []
         self.fail = fail
         self.calls: list[tuple] = []
+        self.deadlines: list = []
 
-    def rewrite(self, language, topic, replies):
+    def rewrite(self, language, topic, replies, deadline=None):
         self.calls.append((language, topic, tuple(replies)))
+        self.deadlines.append(deadline)
         if self.fail:
             raise QueryRewriteError("down")
         return list(self.variants)
@@ -574,8 +581,10 @@ class FakeReranker:
         self.reason = reason
         self.error = error
         self.calls: list[dict] = []
+        self.deadlines: list = []
 
-    def choose(self, topic, user_replies, candidate_texts):
+    def choose(self, topic, user_replies, candidate_texts, deadline=None):
+        self.deadlines.append(deadline)
         self.calls.append({
             "topic": topic,
             "user_replies": list(user_replies),
@@ -595,12 +604,9 @@ def make_final_retriever(reranker, **kwargs):
             "v3:09.001.027-028": 0.8, "v3:20.003.005-006": 0.4,
         }),
     })
-    return make_retriever(
-        embedder=embedder,
-        rewriter=FakeRewriter(["вариант один", "вариант два"]),
-        reranker=reranker,
-        **kwargs,
-    )
+    kwargs.setdefault("embedder", embedder)
+    kwargs.setdefault("rewriter", FakeRewriter(["вариант один", "вариант два"]))
+    return make_retriever(reranker=reranker, **kwargs)
 
 
 def final_request(**kwargs):
@@ -707,3 +713,109 @@ def test_candidate_prompt_text_prefers_title_and_primary_translation():
     assert _candidate_prompt_text(top) == (
         "Дети — наследие\nТекст v3:19.127.003-005 перевода 1"
     )
+
+
+# ---------------------------------------------------------------------------
+# Request time budget and concurrent variant embedding (ADR 0006)
+# ---------------------------------------------------------------------------
+
+from deadline import Deadline  # noqa: E402
+from retrieval import split_exclusions  # noqa: E402
+
+
+class FakeClock:
+    def __init__(self, now: float = 1000.0):
+        self.now = now
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
+def test_exhausted_budget_before_retrieval_serves_the_safe_pool():
+    clock = FakeClock()
+    deadline = Deadline(5.0, clock=clock)
+    embedder = FakeEmbedder({}, fail=True, provider_down=True)
+    retriever = make_retriever(
+        embedder=embedder, rewriter=FakeRewriter(["в1"]),
+    )
+    clock.advance(6.0)
+
+    result = retriever.select(SelectionRequest(language="ru", topic="тема"), deadline)
+
+    assert result.source == "safe_pool"
+    assert result.fallback_reason == "deadline"
+    assert result.candidates, "a verified passage is still served"
+
+
+def test_exhausted_budget_before_rerank_serves_the_retrieval_top1():
+    clock = FakeClock()
+    deadline = Deadline(5.0, clock=clock)
+    reranker = FakeReranker()
+
+    class ExpiringRewriter(FakeRewriter):
+        def rewrite(self, language, topic, replies, deadline=None):
+            clock.advance(6.0)  # the rewrite ate the whole budget
+            return super().rewrite(language, topic, replies, deadline)
+
+    retriever = make_final_retriever(
+        reranker, rewriter=ExpiringRewriter(["вариант один", "вариант два"])
+    )
+    final = retriever.select_final(final_request(), deadline)
+
+    assert final.method == "fallback_top1"
+    assert final.fallback_reason == "deadline"
+    assert final.candidate is final.selection.candidates[0]
+    assert reranker.calls == [], "no rerank call is started without budget"
+
+
+def test_the_deadline_reaches_every_stage():
+    deadline = Deadline(30.0)
+    reranker = FakeReranker()
+    rewriter = FakeRewriter(["вариант один", "вариант два"])
+    retriever = make_final_retriever(reranker, rewriter=rewriter)
+
+    retriever.select_final(final_request(), deadline)
+
+    assert rewriter.deadlines == [deadline]
+    assert retriever.embedder.deadlines == [deadline, deadline]
+    assert reranker.deadlines == [deadline]
+
+
+def test_concurrent_variant_embedding_keeps_the_interleave_order():
+    # Variant order is what interleave fusion ranks on (ADR 0004), so
+    # concurrency must not reorder the per-variant hit lists.
+    embedder = FakeEmbedder({
+        "вариант один": query_vector({"v3:19.127.003-005": 0.9}),
+        "вариант два": query_vector({"v3:09.001.027-028": 0.99}),
+    })
+    sequential = make_retriever(
+        embedder=embedder, rewriter=FakeRewriter(["вариант один", "вариант два"]),
+    ).select(SelectionRequest(language="ru", topic="тема"))
+    concurrent = make_retriever(
+        embedder=embedder, rewriter=FakeRewriter(["вариант один", "вариант два"]),
+        embed_workers=6,
+    ).select(SelectionRequest(language="ru", topic="тема"))
+
+    assert concurrent.query_variants == sequential.query_variants
+    assert [c.canonical_id for c in concurrent.candidates] == [
+        c.canonical_id for c in sequential.candidates
+    ]
+
+
+def test_concurrent_embedding_survives_a_failing_variant():
+    embedder = FakeEmbedder(
+        {"вариант два": query_vector({"v3:09.001.027-028": 0.8})}
+    )
+    retriever = make_retriever(
+        embedder=embedder,
+        rewriter=FakeRewriter(["вариант один", "вариант два"]),
+        embed_workers=6,
+    )
+
+    result = retriever.select(SelectionRequest(language="ru", topic="тема"))
+
+    assert result.source == "retrieval"
+    assert result.query_variants == ["вариант два"]

@@ -11,6 +11,16 @@ def _get_int(name: str, default: int) -> int:
         return default
 
 
+def _get_float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None or raw == "":
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
 def _require(name: str) -> str:
     value = os.getenv(name, "")
     if value is None or value.strip() == "":
@@ -68,6 +78,34 @@ RETRIEVAL_REWRITE_MODEL = os.getenv("RETRIEVAL_REWRITE_MODEL", "gemini-3.7-flash
 # RETRIEVAL_REWRITE_MODEL so each stage can be tuned separately.
 RETRIEVAL_RERANK_MODEL = os.getenv(
     "RETRIEVAL_RERANK_MODEL", "gemini-3.5-flash-lite"
+)
+
+# Public scripture-selection endpoint (see
+# architect/adr/0006-scripture-select-api.md). Its own rate-limit budget:
+# one selection costs ~8 Gemini calls (1 rewrite + 6 embeddings + 1
+# rerank), so it must not share a counter with the chat-shaped Twinkler
+# endpoints — either feature could otherwise starve the other.
+SCRIPTURE_SELECT_REQUESTS_PER_MINUTE = max(
+    1, _get_int("SCRIPTURE_SELECT_REQUESTS_PER_MINUTE", 10)
+)
+SCRIPTURE_SELECT_REQUESTS_PER_CLIENT_PER_MINUTE = min(
+    SCRIPTURE_SELECT_REQUESTS_PER_MINUTE,
+    max(1, _get_int("SCRIPTURE_SELECT_REQUESTS_PER_CLIENT_PER_MINUTE", 3)),
+)
+# Total time budget of one selection (rewrite + embeddings + rerank).
+# Measured p50 ~5-6 s with concurrent variant embeddings; 15 s leaves room
+# for a slow provider before the endpoint degrades to a verified fallback.
+SCRIPTURE_SELECT_TIMEOUT_SECONDS = max(
+    1.0, _get_float("SCRIPTURE_SELECT_TIMEOUT_SECONDS", 15.0)
+)
+# TTL of the process-local corpus cache (vector index + BM25 index). The
+# cached data is prayer-independent; nothing derived from a request is
+# cached. `POST /api/cache/clear` drops it immediately. Floored at 1
+# second: a 0 would rebuild ~45 MB of indexes under a global lock on every
+# request (self-inflicted denial of service), and "no caching" is not a
+# configuration this endpoint can serve traffic with.
+SCRIPTURE_INDEX_CACHE_SECONDS = max(
+    1, _get_int("SCRIPTURE_INDEX_CACHE_SECONDS", 3600)
 )
 
 TWINKLER_SYSTEM_PROMPT = os.getenv("TWINKLER_SYSTEM_PROMPT", "").strip()

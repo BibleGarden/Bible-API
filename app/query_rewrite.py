@@ -28,6 +28,8 @@ import time
 import httpx
 
 from config import GEMINI_API_KEY, RETRIEVAL_REWRITE_MODEL
+from deadline import Deadline, request_timeout, sleep_budget
+from prompt_safety import neutralize_prompt_markers
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +70,9 @@ _LANGUAGES = {
     ),
 }
 
+# Languages the rewrite stage (and therefore the selection endpoint) supports.
+SUPPORTED_LANGUAGES = tuple(_LANGUAGES)
+
 
 class QueryRewriteError(RuntimeError):
     """The rewrite backend is not configured, unreachable or returned junk."""
@@ -101,8 +106,16 @@ Output strictly a JSON object: {{"queries": ["...", "...", "...", "..."]}} with 
 
 
 def build_rewrite_user_content(topic: str, user_replies: list[str]) -> str:
-    lines = [f"Topic: {topic.strip()}"]
-    replies = [r.strip() for r in user_replies if r.strip()]
+    """User message for the rewrite call.
+
+    Prayer text is passed through `neutralize_prompt_markers` so it cannot
+    forge the data-block delimiters used by the downstream rerank prompt
+    (prompt_safety); benign text is unchanged.
+    """
+    lines = [f"Topic: {neutralize_prompt_markers(topic.strip())}"]
+    replies = [
+        neutralize_prompt_markers(r.strip()) for r in user_replies if r.strip()
+    ]
     if replies:
         lines.append("Remarks:")
         lines.extend(f"- {reply}" for reply in replies)
@@ -150,12 +163,18 @@ class GeminiQueryRewriter:
         model: str = RETRIEVAL_REWRITE_MODEL,
         http_client: httpx.Client | None = None,
         variants: int = REWRITE_VARIANTS,
+        timeout: float = 20.0,
+        attempts: int = 3,
     ):
         self.api_key = api_key
         self.model = model
         self.variants = variants
+        # Serve-time callers lower both (ADR 0006): the endpoint's budget,
+        # not the retry ladder, must bound the request.
+        self.timeout = timeout
+        self.attempts = max(1, attempts)
         self._owns_client = http_client is None
-        self._client = http_client or httpx.Client(timeout=httpx.Timeout(20.0))
+        self._client = http_client or httpx.Client(timeout=httpx.Timeout(timeout))
 
     def close(self) -> None:
         if self._owns_client:
@@ -167,11 +186,19 @@ class GeminiQueryRewriter:
     def __exit__(self, *exc_info) -> None:
         self.close()
 
-    def rewrite(self, language: str, topic: str, user_replies: list[str]) -> list[str]:
+    def rewrite(
+        self,
+        language: str,
+        topic: str,
+        user_replies: list[str],
+        deadline: Deadline | None = None,
+    ) -> list[str]:
         """Return rewrite variants for the prayer context.
 
         Raises QueryRewriteError on configuration/transport/parse failure —
-        never logs the prayer context itself.
+        never logs the prayer context itself. With a `deadline`, no attempt
+        is started once the budget is gone and every HTTP call is capped by
+        what is left of it.
         """
         if language not in _LANGUAGES:
             raise QueryRewriteError(f"unsupported language: {language}")
@@ -202,12 +229,18 @@ class GeminiQueryRewriter:
         url = GEMINI_GENERATE_URL.format(model=self.model)
         data = None
         last_error: Exception | None = None
-        for attempt in range(3):
+        for attempt in range(self.attempts):
             if attempt:
-                time.sleep(2.0 * attempt)
+                time.sleep(sleep_budget(deadline, 2.0 * attempt))
+            timeout = request_timeout(deadline, self.timeout)
+            if timeout <= 0.0:
+                raise QueryRewriteError("rewrite budget exhausted") from last_error
             try:
                 response = self._client.post(
-                    url, json=payload, headers={"x-goog-api-key": self.api_key}
+                    url,
+                    json=payload,
+                    headers={"x-goog-api-key": self.api_key},
+                    timeout=timeout,
                 )
                 if response.status_code in (429, 500, 502, 503, 504):
                     last_error = QueryRewriteError(

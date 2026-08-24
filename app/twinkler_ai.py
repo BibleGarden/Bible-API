@@ -1,10 +1,6 @@
 import base64
-from collections import deque
 import logging
-import math
 import re
-import threading
-import time
 from typing import Any
 
 import httpx
@@ -12,7 +8,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 
 from auth import RequireAPIKey
-from client_ip import pseudonymize_twinkler_client, resolve_client_ip
+from client_ip import resolve_client_ip
 from config import (
     GEMINI_API_KEY,
     GEMINI_MODEL,
@@ -21,11 +17,12 @@ from config import (
     GEMINI_REQUESTS_PER_MINUTE,
     TWINKLER_SYSTEM_PROMPT,
 )
+from rate_limit import RateLimiter, RateLimitError
+
 router = APIRouter()
 MODEL_PATTERN = re.compile(r"^[a-zA-Z0-9._-]+$")
 LOCALE_PATTERN = re.compile(r"^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$")
 logger = logging.getLogger(__name__)
-_RATE_LIMIT_WINDOW_SECONDS = 60.0
 # Inline data is base64-expanded inside Gemini's 20 MB request limit.
 _MAX_AUDIO_BYTES = 14 * 1024 * 1024
 _AUDIO_MIME_TYPES = frozenset({"audio/mp4", "audio/x-m4a", "audio/m4a"})
@@ -35,10 +32,11 @@ _TRANSCRIPTION_PROMPT = (
     "code-switching. Do not translate, summarize, add, omit, explain, or "
     "rewrite anything. Add only natural punctuation. Return only the transcript."
 )
-_rate_limit_lock = threading.Lock()
-_request_times: deque[float] = deque()
-_client_request_times: dict[str, deque[float]] = {}
-_last_client_cleanup = 0.0
+_limiter = RateLimiter(name="AI")
+# Historical module-level names, kept as aliases of the very same deques so
+# diagnostics and tests can inspect the limiter state directly.
+_request_times = _limiter.request_times
+_client_request_times = _limiter.client_request_times
 
 
 class CompleteRequest(BaseModel):
@@ -63,60 +61,13 @@ class GeminiError(RuntimeError):
     pass
 
 
-class RateLimitError(RuntimeError):
-    def __init__(self, message: str, retry_after: int | None = None):
-        super().__init__(message)
-        self.retry_after = retry_after
-
-
-def _discard_expired(request_times: deque[float], cutoff: float) -> None:
-    while request_times and request_times[0] <= cutoff:
-        request_times.popleft()
-
-
-def _retry_after(request_times: deque[float], now: float) -> int:
-    return max(
-        1,
-        math.ceil(_RATE_LIMIT_WINDOW_SECONDS - (now - request_times[0])),
-    )
-
-
 def _reserve_rate_limit(client_key: str) -> None:
-    try:
-        client_hash = pseudonymize_twinkler_client(client_key)
-    except RuntimeError as error:
-        raise RateLimitError(str(error)) from error
-
-    now = time.monotonic()
-    cutoff = now - _RATE_LIMIT_WINDOW_SECONDS
-
-    global _last_client_cleanup
-    with _rate_limit_lock:
-        _discard_expired(_request_times, cutoff)
-
-        if now - _last_client_cleanup >= _RATE_LIMIT_WINDOW_SECONDS:
-            for stored_hash, stored_times in list(_client_request_times.items()):
-                _discard_expired(stored_times, cutoff)
-                if not stored_times:
-                    del _client_request_times[stored_hash]
-            _last_client_cleanup = now
-
-        client_times = _client_request_times.setdefault(client_hash, deque())
-        _discard_expired(client_times, cutoff)
-
-        if len(_request_times) >= GEMINI_REQUESTS_PER_MINUTE:
-            raise RateLimitError(
-                "global AI request limit exceeded",
-                _retry_after(_request_times, now),
-            )
-        if len(client_times) >= GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE:
-            raise RateLimitError(
-                "client AI request limit exceeded",
-                _retry_after(client_times, now),
-            )
-
-        _request_times.append(now)
-        client_times.append(now)
+    """Book one Twinkler AI slot; limits are read at call time."""
+    _limiter.reserve(
+        client_key,
+        GEMINI_REQUESTS_PER_MINUTE,
+        GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE,
+    )
 
 
 async def _enforce_rate_limit(client_key: str) -> None:
