@@ -856,6 +856,11 @@ def _final_top1_report(label: str, rows: list[dict], thresholds: dict) -> None:
             print(f"    {r['scenario_id']:<8} [{r['category']}] "
                   f"{r['grade']:<12} {r['chosen']}  {r.get('reason', '')}")
     if ungraded:
+        if t.get("ungraded_review_required"):
+            print(f"  [action required] {len(ungraded)} top-1 match no "
+                  f"reference — grade them and merge into scenarios.json "
+                  f"(thresholds.ungraded_review_required=true); the shares "
+                  f"above are computed WITHOUT them")
         print("  ungraded top-1 (manual review):")
         for r in ungraded:
             print(f"    {r['scenario_id']:<8} [{r['category']}] "

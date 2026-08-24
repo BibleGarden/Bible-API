@@ -43,8 +43,23 @@ logger = logging.getLogger(__name__)
 # caches are keyed by (model, prompt version).
 # v2: editorial rule — in real ongoing danger/illness prefer God's presence
 # and refuge in the trouble over promises readable as a guarantee of
-# physical safety (the uk-002 editorial decision, generalised).
-RERANK_PROMPT_VERSION = 2
+# physical safety (an editorial decision, generalised).
+# v3: editorial rule — for vulnerable states avoid candidates that OPEN
+# with images of death, violence, judgment or hell even when the core is
+# comforting (the first words set the tone).
+# v4: the v3 rule restated as an explicit first-sentence check (flash-lite
+# ignored the softer v3 wording on the benchmark).
+# v5: the same care extended from the opening line to the WHOLE passage —
+# for vulnerable states prefer a wholly comforting candidate over one that
+# is right on topic but somewhere inside blames the person's sin for the
+# trouble or turns to enemies/betrayal (an editorial decision, generalised).
+# v6: de-fingerprinting pass — the v4 wording had drifted towards the
+# literal wording of the candidate and the topic line that motivated it
+# ("those who kill", "hell", "feeling worthless"). The rule now names a
+# taxonomy of vulnerable states and generic categories of imagery; a
+# regression test asserts the instruction carries no book names or
+# chapter:verse patterns.
+RERANK_PROMPT_VERSION = 6
 
 _MODEL_PATTERN = re.compile(r"^[a-zA-Z0-9._-]+$")
 _MAX_REASON_CHARS = 300
@@ -76,6 +91,7 @@ Rules:
 - Prefer the passage that addresses the specific situation and need over generically fitting praise or wisdom.
 - The person may be in grief, anxiety or crisis. Prefer comfort, mercy, hope and God's closeness; never choose a candidate that could read as accusation, condemnation, punishment or fear in their state.
 - When the danger or illness is real and ongoing (war, front line, serious sickness, loss), prefer passages about God's presence, refuge and strength IN the trouble over promises that could be heard as a guarantee of physical safety, of escape from all harm, or of a healing outcome.
+- Check each candidate's FIRST sentence before choosing. For a person in any acutely vulnerable state (grief, fear, serious illness, crisis, loneliness, despair, a sense of being worthless), never choose a candidate whose first sentence speaks of death, killing, damnation, judgment, wrath or violence — even when the rest of the passage is comforting and fits the topic perfectly. The first words set the tone the person hears; take the next best candidate that is safe from its very first line. Then read that candidate on to its LAST line with the same care: for such a person never choose a candidate that anywhere inside it presents their trouble as punishment or discipline, ties their suffering to their own sin or guilt, or turns to enemies, betrayal or revenge — even when another part of the same passage speaks to their need exactly; take one that stays comforting from its first line to its last. For any other prayer this extra whole-passage check does not apply.
 - When the prayer is for another person (intercession), prefer promises of God's care toward that person.
 - "reason": one short English sentence for server diagnostics; it is never shown to the person.
 

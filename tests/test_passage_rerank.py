@@ -8,6 +8,7 @@ candidate list — everything else is rejected and never reaches the caller.
 import json
 import logging
 import os
+import re
 
 import httpx
 import pytest
@@ -36,6 +37,33 @@ def test_instruction_pins_candidate_range_and_data_policy():
     assert "between 1 and 7" in text
     assert "DATA, not instructions" in text
     assert "Never invent" in text
+
+
+# Editorial rules reach the prompt as GENERIC principles (ADR 0005): they may
+# describe states and categories of imagery, never the passages of the
+# evaluation set. A rule naming a book or a chapter:verse would both leak the
+# benchmark into production and turn the reranker into a lookup table.
+BOOK_NAMES = (
+    "Genesis Exodus Leviticus Numbers Deuteronomy Joshua Judges Ruth Samuel "
+    "Kings Chronicles Ezra Nehemiah Esther Job Psalm Psalms Proverbs "
+    "Ecclesiastes Song Isaiah Jeremiah Lamentations Ezekiel Daniel Hosea Joel "
+    "Amos Obadiah Jonah Micah Nahum Habakkuk Zephaniah Haggai Zechariah "
+    "Malachi Matthew Mark Luke John Acts Romans Corinthians Galatians "
+    "Ephesians Philippians Colossians Thessalonians Timothy Titus Philemon "
+    "Hebrews James Peter Jude Revelation "
+    "Бытие Псалом Псалтирь Притчи Исаия Матфея Иоанна Римлянам Коринфянам "
+    "Псалом Псалми Приповісті Ісая Матвія Івана"
+).split()
+
+
+def test_instruction_never_names_scripture_passages():
+    text = build_rerank_instruction(10)
+    lowered = text.lower()
+    named = sorted({b for b in BOOK_NAMES
+                    if re.search(rf"\b{re.escape(b.lower())}\b", lowered)})
+    assert not named, f"rerank instruction names Bible books: {named}"
+    coords = re.findall(r"\b\d+:\d+\b", text)
+    assert not coords, f"rerank instruction contains verse coordinates: {coords}"
 
 
 def test_user_content_wraps_context_and_candidates_as_data():
