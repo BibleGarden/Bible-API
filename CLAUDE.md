@@ -33,6 +33,13 @@ docker exec bible-api bash -c "cd /code && PYTHONPATH=app python3 extract-openap
 - **`twinkler_ai.py`** — Server-prompted Gemini integration with in-memory rate limiting
 - **`auth.py`** — Only API Key authentication (no JWT)
 - **`models.py`** — Pydantic response models (no admin models)
+- **`chunking.py`** — Pure structural chunking algorithm for RAG (see `architect/adr/0001-structural-chunking.md`)
+- **`chunk_cli.py`** — CLI that materializes chunks into `translation_chunks`
+- **`versification.py`** — Pure Psalm versification mapping to the canonical english-masoretic numbering (see `architect/adr/0003-psalm-versification-canon.md`)
+- **`versification_cli.py`** — CLI: builds/verifies `psalm_verse_mappings`, migrates the chunk corpus to the current CHUNKING_VERSION carrying embeddings over by text (`build`/`verify`/`rechunk`)
+- **`embeddings.py`** — Gemini embedding client for RAG retrieval (see `architect/adr/0002-embedding-model-and-vector-store.md`)
+- **`vector_index.py`** — `chunk_embeddings` storage + in-process cosine search with language/translation filters
+- **`index_cli.py`** — CLI that (re)builds the vector index idempotently (`rebuild`/`status`/`search`)
 - **`database.py`** — MySQL connection factory
 - **`config.py`** — Environment variable loading
 
@@ -49,7 +56,13 @@ docker exec bible-api bash -c "cd /code && PYTHONPATH=app python3 extract-openap
 
 Content tables: `languages`, `bible_books`, `translations`, `translation_books`,
 `translation_verses`, `translation_titles`, `translation_notes`, `voices`, and
-`voice_alignments`. Operational tables include request statistics.
+`voice_alignments`. Operational tables include request statistics,
+`translation_chunks` (RAG chunks, produced by `app/chunk_cli.py`, not part of
+the admin-api import), `chunk_embeddings` (chunk vectors, produced by
+`app/index_cli.py rebuild`; versioned by chunking version + embedding model)
+and `psalm_verse_mappings` (Psalm versification: translation verse →
+canonical english-masoretic coordinates, produced by
+`app/versification_cli.py build`).
 
 ### Environment
 
@@ -60,5 +73,8 @@ Optional: `ADMIN_API_URL`, `ADMIN_API_KEY` (for import), `GEMINI_API_KEY`,
 `TWINKLER_CLIENT_HMAC_KEY`, and `TRUSTED_PROXY_IPS`. `GEMINI_API_KEY`,
 `TWINKLER_SYSTEM_PROMPT`, and `TWINKLER_CLIENT_HMAC_KEY` must be set for Twinkler
 AI calls. The limiter is process-local, so production uses a single API worker.
+`EMBEDDING_MODEL` (default `gemini-embedding-001`) and `EMBEDDING_DIMENSIONS`
+(default 768) configure the RAG vector index; changing them changes the index
+version and requires `python app/index_cli.py rebuild`.
 
 ### All API routes are under `/api` prefix

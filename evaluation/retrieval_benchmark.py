@@ -1,0 +1,644 @@
+"""
+Retrieval mini-benchmark for the scripture-selection RAG (ClickUp 86cb8vw14).
+
+Compares embedding models (local sentence-transformers and the Gemini
+embedding API) on the draft evaluation set (evaluation/scenarios.json) against
+the retrieval thresholds (evaluation/thresholds.json).
+
+Not part of the production service: it runs on the host in a dedicated venv
+(sentence-transformers + torch-cpu), because the bible-api container stays
+slim. Corpus data is exported from MySQL to bench_data/chunks.jsonl first
+(see evaluation/README-embeddings section "benchmark").
+
+Usage:
+    python retrieval_benchmark.py embed  --model e5-small --variant title_text
+    python retrieval_benchmark.py run    --model e5-small --variant title_text
+    python retrieval_benchmark.py run-all           # every cached config
+    python retrieval_benchmark.py stores --model X --variant Y   # numpy/qdrant/chroma parity+latency
+
+Scenario query = prayer topic + allowed user replies, embedded with the
+model's query mode; the corpus is the language's translation chunks
+(ru -> syn, en -> bsb, uk -> ubh) embedded in document mode.
+
+Psalm coordinates: scenario references use the canonical english-masoretic
+numbering (see coordinate_system in scenarios.json); they are converted to
+each translation's own numbering before matching with the project's
+versification module (app/versification.py, ADR 0003) built from the verse
+counts in bench_data/psalm_verse_counts.tsv — the same rules that define the
+canonical chunk IDs and the cep_public.psalm_verse_mappings table.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import statistics
+import sys
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+
+import numpy as np
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent / "app"))
+
+from versification import (  # noqa: E402
+    PsalmMap,
+    build_psalm_map,
+    canonical_counts_with_extras,
+)
+DATA = HERE / "bench_data"
+CHUNKS_FILE = DATA / "chunks.jsonl"
+PSALM_COUNTS_FILE = DATA / "psalm_verse_counts.tsv"
+SCENARIOS_FILE = HERE / "scenarios.json"
+THRESHOLDS_FILE = HERE / "thresholds.json"
+
+TOP_K = 10
+PSALMS_BOOK = 19
+
+# language -> (translation code, alias) used as the retrieval corpus
+LANGUAGE_CORPUS = {"ru": (1, "syn"), "en": (16, "bsb"), "uk": (20, "ubh")}
+
+# ---------------------------------------------------------------------------
+# Model registry
+# ---------------------------------------------------------------------------
+
+MODELS = {
+    # key: (kind, model id, query prefix, passage prefix, dims)
+    "minilm": ("local", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2", "", "", 384),
+    "e5-small": ("local", "intfloat/multilingual-e5-small", "query: ", "passage: ", 384),
+    "e5-base": ("local", "intfloat/multilingual-e5-base", "query: ", "passage: ", 768),
+    "labse": ("local", "sentence-transformers/LaBSE", "", "", 768),
+    # Gemini is embedded once at 3072 dims; gemini-768 is evaluated by MRL
+    # truncation to the first 768 dims + re-normalisation (what the API's
+    # outputDimensionality=768 does server-side).
+    "gemini": ("gemini", "gemini-embedding-001", "", "", 3072),
+}
+VARIANTS = ("text", "title_text")
+
+
+# ---------------------------------------------------------------------------
+# Data loading
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ChunkMeta:
+    canonical_id: str
+    translation: int
+    book: int
+    chapter: int
+    vstart: int
+    vend: int
+
+
+def load_chunks() -> tuple[list[ChunkMeta], list[str], list[str]]:
+    """Return metadata, plain texts and title+texts, in stable file order."""
+    metas, texts, title_texts = [], [], []
+    with CHUNKS_FILE.open() as fh:
+        for line in fh:
+            row = json.loads(line)
+            metas.append(
+                ChunkMeta(
+                    canonical_id=row["canonical_id"],
+                    translation=row["translation"],
+                    book=row["book_number"],
+                    chapter=row["chapter_number"],
+                    vstart=row["verse_number_start"],
+                    vend=row["verse_number_end"],
+                )
+            )
+            texts.append(row["text"])
+            title = (row.get("title") or "").strip()
+            title_texts.append(f"{title}\n\n{row['text']}" if title else row["text"])
+    return metas, texts, title_texts
+
+
+def load_psalm_maps() -> dict[int, PsalmMap]:
+    """Per-translation PsalmMap built from the exported verse counts."""
+    counts: dict[int, dict[int, int]] = {}
+    for line in PSALM_COUNTS_FILE.read_text().splitlines():
+        translation, chapter, max_verse = line.split("\t")
+        counts.setdefault(int(translation), {})[int(chapter)] = int(max_verse)
+    canonical = canonical_counts_with_extras(counts[16])  # bsb defines the canon
+    aliases = {code: alias for code, alias in LANGUAGE_CORPUS.values()}
+    return {
+        code: PsalmMap(build_psalm_map(aliases[code], counts[code], canonical))
+        for code in counts
+        if code in aliases
+    }
+
+
+# ---------------------------------------------------------------------------
+# Psalm mapping layer (canonical english-masoretic -> translation coords)
+# ---------------------------------------------------------------------------
+
+def map_reference(
+    ref: dict, translation: int, psalm_maps: dict[int, PsalmMap]
+) -> list[tuple[int, int, int, int]]:
+    """Map one canonical reference to (book, chapter, vstart, vend) targets
+    in the given translation's own numbering."""
+    book, m = ref["book_number"], ref["chapter"]
+    vs, ve = ref["verse_start"], ref["verse_end"]
+    if book != PSALMS_BOOK:
+        return [(book, m, vs, ve)]
+
+    per_chapter: dict[int, list[int]] = {}
+    psalm_map = psalm_maps[translation]
+    for verse in range(vs, ve + 1):
+        located = psalm_map.from_canonical(m, verse)
+        if located is None:  # verse absent from this translation
+            continue
+        chapter, own_verse = located
+        per_chapter.setdefault(chapter, []).append(own_verse)
+    return [
+        (book, chapter, min(verses), max(verses))
+        for chapter, verses in sorted(per_chapter.items())
+    ]
+
+
+def chunk_matches(chunk: ChunkMeta, targets: list[tuple[int, int, int, int]]) -> bool:
+    for book, chapter, vs, ve in targets:
+        if chunk.book == book and chunk.chapter == chapter \
+                and chunk.vend >= vs and chunk.vstart <= ve:
+            return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Embedding backends
+# ---------------------------------------------------------------------------
+
+def emb_path(model_key: str, variant: str) -> Path:
+    return DATA / f"emb_{model_key}_{variant}.npy"
+
+
+def embed_local(model_id: str, texts: list[str], prefix: str) -> np.ndarray:
+    from sentence_transformers import SentenceTransformer
+
+    model = SentenceTransformer(model_id, device="cpu")
+    vecs = model.encode(
+        [prefix + t for t in texts],
+        batch_size=16,
+        show_progress_bar=True,
+        normalize_embeddings=True,
+        convert_to_numpy=True,
+    )
+    return vecs.astype(np.float32)
+
+
+def _gemini_retry_delay(resp) -> float:
+    """Extract the server-suggested retry delay from a 429 body, if any."""
+    try:
+        for detail in resp.json()["error"]["details"]:
+            if detail.get("@type", "").endswith("RetryInfo"):
+                raw = detail.get("retryDelay", "")
+                return float(raw.rstrip("s") or 0) or 30.0
+    except Exception:
+        pass
+    return 30.0
+
+
+def embed_gemini(
+    texts: list[str], task_type: str, api_key: str,
+    checkpoint_dir: Path | None = None,
+) -> np.ndarray:
+    """Embed with gemini-embedding-001 at full 3072 dims.
+
+    Uses SINGLE embedContent calls, client-side paced just under the
+    free-tier quota (~100 RPM / 30k TPM): on the free tier the
+    batchEmbedContents endpoint crawls (~12 chunks/min observed), a thread
+    pool of unpaced single calls drowns in 429s with long server-suggested
+    delays, while a paced sequential loop sustains its rate cleanly.
+    On a 429 the pace temporarily slows. With a checkpoint_dir every
+    finished shard of 200 texts is persisted, so an interrupted run resumes
+    without re-embedding.
+    """
+    import requests
+
+    url = ("https://generativelanguage.googleapis.com/v1beta/models/"
+           "gemini-embedding-001:embedContent")
+    session = requests.Session()
+    # AIMD pacing: the effective cap is tokens-per-minute, which depends on
+    # chunk length and language (Cyrillic tokenises heavily), so the interval
+    # self-tunes: multiplicative increase on 429, slow additive decrease on
+    # success streaks.
+    state = {"interval": 0.8, "streak": 0}
+
+    def embed_one(text: str) -> list[float]:
+        body = {
+            "content": {"parts": [{"text": text if text.strip() else " "}]},
+            "taskType": task_type,
+        }
+        while True:
+            time.sleep(state["interval"])
+            try:
+                resp = session.post(
+                    url, json=body, timeout=60,
+                    headers={"x-goog-api-key": api_key},
+                )
+            except requests.RequestException:
+                time.sleep(10)
+                continue
+            if resp.status_code == 200:
+                state["streak"] += 1
+                if state["streak"] >= 30:
+                    state["streak"] = 0
+                    state["interval"] = max(state["interval"] - 0.05, 0.3)
+                return resp.json()["embedding"]["values"]
+            if resp.status_code == 429:
+                state["streak"] = 0
+                state["interval"] = min(state["interval"] * 1.5, 10.0)
+                time.sleep(5)
+                continue
+            if resp.status_code in (500, 502, 503, 504):
+                time.sleep(10)
+                continue
+            raise RuntimeError(
+                f"gemini embedding failed ({resp.status_code}): {resp.text[:300]}")
+
+    shard_size = 200
+    if checkpoint_dir:
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    shards: list[np.ndarray] = []
+    started = time.time()
+    fresh = 0
+    for start in range(0, len(texts), shard_size):
+        shard_file = (
+            checkpoint_dir / f"single_{start:06d}.npy" if checkpoint_dir else None
+        )
+        if shard_file is not None and shard_file.exists():
+            shards.append(np.load(shard_file))
+            continue
+        batch = texts[start:start + shard_size]
+        shard = np.asarray([embed_one(t) for t in batch], dtype=np.float32)
+        if shard_file is not None:
+            np.save(shard_file, shard)
+        shards.append(shard)
+        fresh += len(batch)
+        rate = fresh / max(time.time() - started, 1e-9) * 60
+        print(f"  {start + len(batch)}/{len(texts)} ({rate:.0f} chunks/min)",
+              flush=True)
+    vecs = np.vstack(shards)
+    return vecs / np.linalg.norm(vecs, axis=1, keepdims=True)
+
+
+def truncate_mrl(vecs: np.ndarray, dims: int) -> np.ndarray:
+    cut = vecs[:, :dims]
+    return cut / np.linalg.norm(cut, axis=1, keepdims=True)
+
+
+def cmd_embed(args) -> None:
+    kind, model_id, _qpref, ppref, _dims = MODELS[args.model]
+    metas, texts, title_texts = load_chunks()
+    corpus = title_texts if args.variant == "title_text" else texts
+    path = emb_path(args.model, args.variant)
+    if path.exists() and not args.force:
+        print(f"{path} exists, skip (use --force)")
+        return
+    started = time.time()
+    if kind == "local":
+        vecs = embed_local(model_id, corpus, ppref)
+    else:
+        vecs = embed_gemini(
+            corpus, "RETRIEVAL_DOCUMENT", require_api_key(),
+            checkpoint_dir=DATA / f"gemini_ckpt_{args.variant}",
+        )
+    np.save(path, vecs)
+    print(f"saved {path} shape={vecs.shape} in {time.time() - started:.0f}s")
+
+
+def require_api_key() -> str:
+    key = os.environ.get("GEMINI_API_KEY", "")
+    if not key:
+        env = Path(__file__).resolve().parents[1] / ".env"
+        for line in env.read_text().splitlines():
+            if line.startswith("GEMINI_API_KEY="):
+                key = line.split("=", 1)[1].strip()
+    if not key:
+        raise SystemExit("GEMINI_API_KEY not found (env or Bible-API/.env)")
+    return key
+
+
+# ---------------------------------------------------------------------------
+# Evaluation
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ScenarioResult:
+    scenario_id: str
+    language: str
+    category: str
+    hit: bool
+    recall: float
+    rr: float
+    unacceptable_share: float
+    query_ms: float
+
+
+@dataclass
+class Aggregate:
+    label: str
+    n: int
+    hit_rate: float
+    recall: float
+    mrr: float
+    unacceptable_share: float
+
+
+def build_query(scenario: dict) -> str:
+    ctx = scenario["prayer_context"]
+    parts = [ctx["topic"].strip()] + [r.strip() for r in ctx["user_replies"]]
+    return "\n".join(p for p in parts if p)
+
+
+def evaluate_config(
+    model_key: str,
+    variant: str,
+    dims_override: int | None = None,
+) -> tuple[list[ScenarioResult], dict]:
+    kind, model_id, qpref, _ppref, dims = MODELS[model_key]
+    metas, _texts, _tt = load_chunks()
+    psalm_maps = load_psalm_maps()
+    scenarios = json.loads(SCENARIOS_FILE.read_text())["scenarios"]
+
+    corpus = np.load(emb_path(model_key, variant))
+    if dims_override:
+        corpus = truncate_mrl(corpus, dims_override)
+
+    # per-translation views
+    trans_idx = {
+        code: np.array([i for i, m in enumerate(metas) if m.translation == code])
+        for code, _alias in LANGUAGE_CORPUS.values()
+    }
+
+    queries = [build_query(s) for s in scenarios]
+    t0 = time.time()
+    if kind == "local":
+        qvecs = embed_local(model_id, queries, qpref)
+    else:
+        qvecs = embed_gemini(queries, "RETRIEVAL_QUERY", require_api_key())
+    query_embed_ms = (time.time() - t0) * 1000 / len(queries)
+    if dims_override:
+        qvecs = truncate_mrl(qvecs, dims_override)
+
+    results = []
+    for scenario, qvec in zip(scenarios, qvecs):
+        code, _alias = LANGUAGE_CORPUS[scenario["language"]]
+        idx = trans_idx[code]
+        t0 = time.time()
+        sims = corpus[idx] @ qvec
+        top_local = np.argsort(-sims)[:TOP_K]
+        top = idx[top_local]
+        search_ms = (time.time() - t0) * 1000
+
+        relevant = [r for r in scenario["references"] if r["grade"] == "relevant"]
+        unacceptable = [r for r in scenario["references"] if r["grade"] == "unacceptable"]
+        rel_targets = [map_reference(r, code, psalm_maps) for r in relevant]
+        una_targets = [map_reference(r, code, psalm_maps) for r in unacceptable]
+
+        top_metas = [metas[i] for i in top]
+        hit_rank = 0
+        for rank, cm in enumerate(top_metas, start=1):
+            if any(chunk_matches(cm, t) for t in rel_targets):
+                hit_rank = rank
+                break
+        matched_refs = sum(
+            1 for t in rel_targets if any(chunk_matches(cm, t) for cm in top_metas)
+        )
+        una_hits = sum(
+            1 for cm in top_metas if any(chunk_matches(cm, t) for t in una_targets)
+        )
+        results.append(
+            ScenarioResult(
+                scenario_id=scenario["id"],
+                language=scenario["language"],
+                category=scenario["category"],
+                hit=hit_rank > 0,
+                recall=matched_refs / len(relevant) if relevant else 1.0,
+                rr=1.0 / hit_rank if hit_rank else 0.0,
+                unacceptable_share=una_hits / TOP_K,
+                query_ms=search_ms,
+            )
+        )
+    info = {"query_embed_ms_avg": round(query_embed_ms, 1)}
+    return results, info
+
+
+def aggregate(results: list[ScenarioResult], label: str) -> Aggregate:
+    n = len(results)
+    return Aggregate(
+        label=label,
+        n=n,
+        hit_rate=sum(r.hit for r in results) / n,
+        recall=sum(r.recall for r in results) / n,
+        mrr=sum(r.rr for r in results) / n,
+        unacceptable_share=sum(r.unacceptable_share for r in results) / n,
+    )
+
+
+def print_report(config: str, results: list[ScenarioResult], info: dict, thresholds: dict) -> None:
+    t = thresholds["retrieval_top_k"]
+    groups = [
+        ("ALL", results),
+        ("no-empty", [r for r in results if r.category != "empty"]),
+        ("ru", [r for r in results if r.language == "ru"]),
+        ("en", [r for r in results if r.language == "en"]),
+        ("uk", [r for r in results if r.language == "uk"]),
+    ]
+    print(f"\n=== {config} (query embed avg {info.get('query_embed_ms_avg', '?')} ms) ===")
+    print(f"{'group':<10}{'n':>4}{'hit@10':>9}{'recall@10':>11}{'MRR':>8}{'unacc@10':>10}")
+    for label, subset in groups:
+        if not subset:
+            continue
+        a = aggregate(subset, label)
+        print(f"{a.label:<10}{a.n:>4}{a.hit_rate:>9.3f}{a.recall:>11.3f}"
+              f"{a.mrr:>8.3f}{a.unacceptable_share:>10.3f}")
+    a = aggregate(results, "ALL")
+    checks = [
+        ("hit_rate@10", a.hit_rate, ">=", t["hit_rate_at_k_min"]),
+        ("recall@10", a.recall, ">=", t["recall_at_k_min"]),
+        ("MRR", a.mrr, ">=", t["mrr_min"]),
+        ("unacceptable@10", a.unacceptable_share, "<=", t["unacceptable_share_in_top_k_max"]),
+    ]
+    for name, value, op, limit in checks:
+        ok = value >= limit if op == ">=" else value <= limit
+        print(f"  threshold {name}: {value:.3f} {op} {limit} -> {'PASS' if ok else 'FAIL'}")
+    misses = [r.scenario_id for r in results if not r.hit]
+    if misses:
+        print(f"  scenarios without relevant in top-10: {', '.join(misses)}")
+
+
+def cmd_run(args) -> None:
+    thresholds = json.loads(THRESHOLDS_FILE.read_text())
+    dims = args.dims if args.dims else None
+    label = f"{args.model}/{args.variant}" + (f"/dims={dims}" if dims else "")
+    results, info = evaluate_config(args.model, args.variant, dims_override=dims)
+    print_report(label, results, info, thresholds)
+    if args.json_out:
+        payload = {
+            "config": label,
+            "aggregate": aggregate(results, "ALL").__dict__,
+            "info": info,
+            "scenarios": [r.__dict__ for r in results],
+        }
+        Path(args.json_out).write_text(json.dumps(payload, ensure_ascii=False, indent=1))
+
+
+def cmd_run_all(args) -> None:
+    thresholds = json.loads(THRESHOLDS_FILE.read_text())
+    for model_key in MODELS:
+        for variant in VARIANTS:
+            if not emb_path(model_key, variant).exists():
+                continue
+            configs = [(None, "")]
+            if model_key == "gemini":
+                configs = [(None, ""), (768, "/dims=768")]
+            for dims, suffix in configs:
+                results, info = evaluate_config(model_key, variant, dims_override=dims)
+                print_report(f"{model_key}/{variant}{suffix}", results, info, thresholds)
+
+
+# ---------------------------------------------------------------------------
+# Vector store parity / latency (numpy vs qdrant vs chroma)
+# ---------------------------------------------------------------------------
+
+def cmd_stores(args) -> None:
+    """Load one cached embedding config into qdrant + chroma, verify that the
+    top-10 matches brute-force cosine, and measure query latency."""
+    metas, _texts, _tt = load_chunks()
+    corpus = np.load(emb_path(args.model, args.variant))
+    if args.dims:
+        corpus = truncate_mrl(corpus, args.dims)
+    n, dims = corpus.shape
+    rng = np.random.default_rng(7)
+    sample = rng.choice(n, size=100, replace=False)
+    translations = np.array([m.translation for m in metas])
+
+    def brute(qv, code, k):
+        idx = np.nonzero(translations == code)[0]
+        sims = corpus[idx] @ qv
+        return idx[np.argsort(-sims)[:k]]
+
+    # --- numpy latency
+    lat = []
+    for i in sample:
+        t0 = time.perf_counter()
+        brute(corpus[i], translations[i], TOP_K)
+        lat.append((time.perf_counter() - t0) * 1000)
+    report = {"numpy": (statistics.median(lat), max(lat))}
+
+    # --- qdrant
+    try:
+        from qdrant_client import QdrantClient, models as qm
+
+        client = QdrantClient(url=args.qdrant_url, timeout=30)
+        coll = f"bench_{args.model}_{args.variant}_{dims}"
+        client.delete_collection(coll)
+        client.create_collection(
+            coll, vectors_config=qm.VectorParams(size=dims, distance=qm.Distance.COSINE)
+        )
+        batch = 256
+        for start in range(0, n, batch):
+            end = min(start + batch, n)
+            client.upsert(
+                coll,
+                points=qm.Batch(
+                    ids=list(range(start, end)),
+                    vectors=corpus[start:end].tolist(),
+                    payloads=[{"translation": int(translations[i])} for i in range(start, end)],
+                ),
+            )
+        mismatches, lat = 0, []
+        for i in sample:
+            flt = qm.Filter(must=[qm.FieldCondition(
+                key="translation", match=qm.MatchValue(value=int(translations[i])))])
+            t0 = time.perf_counter()
+            res = client.query_points(coll, query=corpus[i].tolist(),
+                                      query_filter=flt, limit=TOP_K)
+            lat.append((time.perf_counter() - t0) * 1000)
+            got = [p.id for p in res.points]
+            if set(got) != set(brute(corpus[i], translations[i], TOP_K).tolist()):
+                mismatches += 1
+        report["qdrant"] = (statistics.median(lat), max(lat))
+        print(f"qdrant top-10 set mismatches vs brute force: {mismatches}/100")
+    except Exception as exc:  # pragma: no cover - depends on local qdrant
+        print(f"qdrant skipped: {exc}")
+
+    # --- chroma (embedded, persistent)
+    try:
+        import chromadb
+
+        cclient = chromadb.PersistentClient(path=str(DATA / "chroma"))
+        cname = f"bench_{args.model.replace('/', '_')}_{args.variant}_{dims}"
+        try:
+            cclient.delete_collection(cname)
+        except Exception:
+            pass
+        ccoll = cclient.create_collection(cname, metadata={"hnsw:space": "cosine"})
+        batch = 2000
+        for start in range(0, n, batch):
+            end = min(start + batch, n)
+            ccoll.add(
+                ids=[str(i) for i in range(start, end)],
+                embeddings=corpus[start:end].tolist(),
+                metadatas=[{"translation": int(translations[i])} for i in range(start, end)],
+            )
+        mismatches, lat = 0, []
+        for i in sample:
+            t0 = time.perf_counter()
+            res = ccoll.query(
+                query_embeddings=[corpus[i].tolist()],
+                n_results=TOP_K,
+                where={"translation": int(translations[i])},
+            )
+            lat.append((time.perf_counter() - t0) * 1000)
+            got = [int(x) for x in res["ids"][0]]
+            if set(got) != set(brute(corpus[i], translations[i], TOP_K).tolist()):
+                mismatches += 1
+        report["chroma"] = (statistics.median(lat), max(lat))
+        print(f"chroma top-10 set mismatches vs brute force: {mismatches}/100")
+    except Exception as exc:  # pragma: no cover
+        print(f"chroma skipped: {exc}")
+
+    print(f"\nquery latency over 100 sampled vectors, corpus n={n} dims={dims}:")
+    for store, (p50, worst) in report.items():
+        print(f"  {store:<8} p50={p50:.2f} ms  max={worst:.2f} ms")
+
+
+# ---------------------------------------------------------------------------
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    p = sub.add_parser("embed", help="embed the chunk corpus for one config")
+    p.add_argument("--model", choices=MODELS, required=True)
+    p.add_argument("--variant", choices=VARIANTS, required=True)
+    p.add_argument("--force", action="store_true")
+    p.set_defaults(func=cmd_embed)
+
+    p = sub.add_parser("run", help="evaluate one cached config")
+    p.add_argument("--model", choices=MODELS, required=True)
+    p.add_argument("--variant", choices=VARIANTS, required=True)
+    p.add_argument("--dims", type=int, default=0, help="MRL truncation (gemini)")
+    p.add_argument("--json-out", default="")
+    p.set_defaults(func=cmd_run)
+
+    p = sub.add_parser("run-all", help="evaluate every cached config")
+    p.set_defaults(func=cmd_run_all)
+
+    p = sub.add_parser("stores", help="store parity + latency for one config")
+    p.add_argument("--model", choices=MODELS, required=True)
+    p.add_argument("--variant", choices=VARIANTS, required=True)
+    p.add_argument("--dims", type=int, default=0)
+    p.add_argument("--qdrant-url", default="http://localhost:6333")
+    p.set_defaults(func=cmd_stores)
+
+    args = parser.parse_args()
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()
