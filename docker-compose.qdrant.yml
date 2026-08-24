@@ -1,0 +1,22 @@
+# EXPERIMENTAL — not part of the production stack.
+#
+# Standalone Qdrant instance used only for the vector-store comparison in
+# evaluation/retrieval_benchmark.py (ClickUp 86cb8vw14). The production
+# decision (see architect/adr/0002-embedding-model-and-vector-store.md) does
+# NOT require this service; keep it out of the main docker-compose.yml unless
+# the corpus outgrows the in-MySQL index.
+#
+# Usage:
+#   docker compose -f docker-compose.qdrant.yml up -d
+#   docker compose -f docker-compose.qdrant.yml down -v
+services:
+  qdrant-experimental:
+    image: qdrant/qdrant:v1.15.1
+    container_name: qdrant-experimental
+    ports:
+      - "127.0.0.1:6333:6333"
+    volumes:
+      - qdrant_experimental_storage:/qdrant/storage
+
+volumes:
+  qdrant_experimental_storage:

@@ -50,6 +50,12 @@ GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE = min(
     GEMINI_REQUESTS_PER_MINUTE,
     max(1, _get_int("GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE", 3)),
 )
+# Embedding model for the scripture-selection RAG index (see
+# architect/adr/0002-embedding-model-and-vector-store.md). Uses the same
+# GEMINI_API_KEY as the Twinkler endpoints.
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "gemini-embedding-001")
+EMBEDDING_DIMENSIONS = _get_int("EMBEDDING_DIMENSIONS", 768)
+
 TWINKLER_SYSTEM_PROMPT = os.getenv("TWINKLER_SYSTEM_PROMPT", "").strip()
 TWINKLER_CLIENT_HMAC_KEY = os.getenv("TWINKLER_CLIENT_HMAC_KEY", "").strip()
 TRUSTED_PROXY_IPS = frozenset(
