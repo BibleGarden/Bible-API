@@ -1,0 +1,29 @@
+{
+  "name": "scripture-selection-quality-thresholds",
+  "version": "0.2.0",
+  "status": "approved",
+  "approved_by": "Мария",
+  "approved_date": "2026-08-24",
+  "applies_to_dataset": "scripture-selection-benchmark >= 0.1.0",
+  "matching_rule": "Найденный отрывок считается совпавшим с эталонной ссылкой, если совпадают book_number и chapter, а диапазоны стихов пересекаются (canonical psalm numbering — см. coordinate_system набора).",
+  "retrieval_top_k": {
+    "k": 10,
+    "hit_rate_at_k_min": 0.90,
+    "recall_at_k_min": 0.60,
+    "mrr_min": 0.60,
+    "unacceptable_share_in_top_k_max": 0.05
+  },
+  "final_top1": {
+    "relevant_share_min": 0.70,
+    "relevant_or_acceptable_share_min": 0.95,
+    "unacceptable_share_max": 0.0,
+    "sensitive_unacceptable_share_max": 0.0,
+    "sensitive_relevant_share_min": 1.0,
+    "ungraded_review_required": true
+  },
+  "diversity": {
+    "no_repeat_window_selections": 10,
+    "max_share_single_book_in_window": 0.4,
+    "min_distinct_books_in_window": 4
+  }
+}

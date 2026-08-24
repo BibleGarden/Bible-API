@@ -2,3 +2,6 @@
 __pycache__/
 *.pyc
 .venv/
+# local artifacts of evaluation/retrieval_benchmark.py (exported corpus,
+# cached embeddings, chroma store) — regenerable, never committed
+evaluation/bench_data/

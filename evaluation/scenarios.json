@@ -1,0 +1,515 @@
+{
+  "name": "scripture-selection-benchmark",
+  "version": "0.2.0",
+  "status": "approved",
+  "approved_by": "Мария",
+  "created": "2026-08-24",
+  "ticket": "ClickUp 86cb8vvyb",
+  "coordinate_system": {
+    "book_numbering": "cep_public.bible_books.number, Slavic canon order 1-66 (Gen=1, Ps=19, Mt=40, Jas=45, Rom=52, Rev=66)",
+    "psalm_numbering": "english-masoretic",
+    "psalm_numbering_note": "Canonical Psalm coordinates follow bsb/webus/webbe: Masoretic chapter numbers, superscriptions unnumbered. A mapping layer is REQUIRED when resolving Psalm coordinates for other translations.",
+    "psalm_mapping_required": {
+      "syn": "Septuagint chapter numbering; superscriptions counted as verses",
+      "bti": "Septuagint chapter numbering; superscriptions counted as verses",
+      "npu": "Septuagint chapter numbering; superscriptions counted as verses",
+      "ubh": "Masoretic chapters, but Hebrew-style verse numbering: superscription counted as verse 1 in ~60 psalms"
+    }
+  },
+  "grades": {
+    "relevant": "Эталонно уместный отрывок: прямо отвечает теме и состоянию молящегося, целостен по контексту, бережен по тону.",
+    "acceptable": "Допустимый отрывок: не противоречит теме, поддерживает молитву, но менее точен, более общий или со смещённым акцентом.",
+    "unacceptable": "Явно неуместный отрывок: искажает смысл вне контекста, звучит как обвинение/угроза/проклятие в данном состоянии, лексическая ловушка по ключевому слову, либо не имеет молитвенной ценности (родословия, перечни)."
+  },
+  "scenarios": [
+    {
+      "id": "ru-001",
+      "language": "ru",
+      "category": "regular",
+      "review_status": "approved",
+      "prayer_context": {
+        "topic": "Благодарность за рождение дочки",
+        "user_replies": [
+          "Мы ждали её несколько лет, и вот она родилась здоровой.",
+          "Хочу просто сказать Богу спасибо."
+        ]
+      },
+      "notes": "Обычная тема благодарности за ребёнка.",
+      "references": [
+        {"book_number": 19, "chapter": 127, "verse_start": 3, "verse_end": 5, "grade": "relevant", "reason": "Дети — наследие от Господа: прямое слово о даре детей."},
+        {"book_number": 9, "chapter": 1, "verse_start": 27, "verse_end": 27, "grade": "relevant", "reason": "Молитва Анны об исполнившемся прошении о ребёнке."},
+        {"book_number": 45, "chapter": 1, "verse_start": 17, "verse_end": 17, "grade": "relevant", "reason": "Всякий добрый дар — свыше."},
+        {"book_number": 19, "chapter": 100, "verse_start": 4, "verse_end": 5, "grade": "acceptable", "reason": "Общая благодарность, без темы ребёнка."},
+        {"book_number": 19, "chapter": 137, "verse_start": 8, "verse_end": 9, "grade": "unacceptable", "reason": "Проклятие о младенцах: лексическое совпадение «младенцы» при недопустимом содержании."}
+      ]
+    },
+    {
+      "id": "ru-002",
+      "language": "ru",
+      "category": "regular",
+      "review_status": "approved",
+      "prayer_context": {
+        "topic": "Переживаю из-за возможного сокращения на работе",
+        "user_replies": [
+          "В компании начались увольнения, и я не знаю, что будет дальше.",
+          "У нас ипотека и двое детей."
+        ]
+      },
+      "notes": "Бытовая тревога об обеспечении семьи.",
+      "references": [
+        {"book_number": 40, "chapter": 6, "verse_start": 25, "verse_end": 34, "grade": "relevant", "reason": "«Не заботьтесь для души вашей…» — прямой ответ на тревогу об обеспечении."},
+        {"book_number": 57, "chapter": 4, "verse_start": 6, "verse_end": 7, "grade": "relevant", "reason": "«Не заботьтесь ни о чём, но… открывайте желания пред Богом»."},
+        {"book_number": 46, "chapter": 5, "verse_start": 7, "verse_end": 7, "grade": "relevant", "reason": "«Все заботы ваши возложите на Него»."},
+        {"book_number": 19, "chapter": 55, "verse_start": 22, "verse_end": 22, "grade": "acceptable", "reason": "«Возложи на Господа заботы твои» — уместно, но более общо."},
+        {"book_number": 40, "chapter": 24, "verse_start": 6, "verse_end": 8, "grade": "unacceptable", "reason": "«Услышите о войнах…» — о бедствиях последних времён, усиливает страх, тема не та."}
+      ]
+    },
+    {
+      "id": "ru-003",
+      "language": "ru",
+      "category": "sensitive",
+      "review_status": "approved",
+      "prayer_context": {
+        "topic": "Умерла мама",
+        "user_replies": [
+          "Прошло девять дней, я до сих пор не могу дышать от боли.",
+          "Не понимаю, как жить дальше."
+        ]
+      },
+      "notes": "Острое горе. Недопустимы любые отрывки, читающиеся как обвинение или объяснение причины смерти.",
+      "references": [
+        {"book_number": 19, "chapter": 34, "verse_start": 18, "verse_end": 18, "grade": "relevant", "reason": "«Близок Господь к сокрушённым сердцем»."},
+        {"book_number": 40, "chapter": 5, "verse_start": 4, "verse_end": 4, "grade": "relevant", "reason": "«Блаженны плачущие, ибо они утешатся»."},
+        {"book_number": 66, "chapter": 21, "verse_start": 4, "verse_end": 4, "grade": "relevant", "reason": "«Отрёт всякую слезу… смерти не будет уже»."},
+        {"book_number": 54, "chapter": 1, "verse_start": 3, "verse_end": 4, "grade": "relevant", "reason": "«Бог всякого утешения, утешающий нас во всякой скорби»."},
+        {"book_number": 19, "chapter": 23, "verse_start": 4, "verse_end": 4, "grade": "acceptable", "reason": "Долина смертной тени — утешение, но менее прямое."},
+        {"book_number": 52, "chapter": 6, "verse_start": 23, "verse_end": 23, "grade": "unacceptable", "reason": "«Возмездие за грех — смерть» — в контексте утраты читается как обвинение."},
+        {"book_number": 18, "chapter": 4, "verse_start": 7, "verse_end": 8, "grade": "unacceptable", "reason": "Слова Елифаза «погибал ли кто невинный?» — упрёк страдающему; речь друга Иова, впоследствии осуждённая Богом (нарушение контекстной целостности)."}
+      ]
+    },
+    {
+      "id": "ru-004",
+      "language": "ru",
+      "category": "sensitive",
+      "review_status": "approved",
+      "prayer_context": {
+        "topic": "Мне поставили серьёзный диагноз",
+        "user_replies": [
+          "Впереди операция, мне страшно.",
+          "Молюсь о выздоровлении и о силах для семьи."
+        ]
+      },
+      "notes": "Болезнь. Недопустима подача болезни как наказания.",
+      "references": [
+        {"book_number": 19, "chapter": 103, "verse_start": 2, "verse_end": 4, "grade": "relevant", "reason": "«Исцеляет все недуги твои, избавляет от могилы жизнь твою»."},
+        {"book_number": 45, "chapter": 5, "verse_start": 14, "verse_end": 15, "grade": "acceptable", "reason": "Прямое обещание исцеления; для случая, когда болезнь не отступает, эталонный ответ с таким обещанием может ранить — допустимо, но не top-1 (решение редактора)."},
+        {"book_number": 23, "chapter": 41, "verse_start": 10, "verse_end": 10, "grade": "relevant", "reason": "«Не бойся, ибо Я с тобою… поддержу тебя»."},
+        {"book_number": 54, "chapter": 12, "verse_start": 9, "verse_end": 9, "grade": "acceptable", "reason": "«Сила Моя совершается в немощи» — поддержка, но не обещание исцеления."},
+        {"book_number": 5, "chapter": 28, "verse_start": 22, "verse_end": 22, "grade": "unacceptable", "reason": "Проклятие болезнями из Втор. 28 — подаёт болезнь как наказание."}
+      ]
+    },
+    {
+      "id": "ru-005",
+      "language": "ru",
+      "category": "sensitive",
+      "review_status": "approved",
+      "prayer_context": {
+        "topic": "Постоянная тревога, ночами не сплю",
+        "user_replies": [
+          "Сердце колотится без причины, страшно оставаться одной.",
+          "Хочу успокоиться и довериться Богу."
+        ]
+      },
+      "notes": "Тревожное состояние, близкое к паническому. Тон отрывка критичен.",
+      "references": [
+        {"book_number": 23, "chapter": 41, "verse_start": 10, "verse_end": 10, "grade": "relevant", "reason": "«Не бойся, ибо Я с тобою»."},
+        {"book_number": 43, "chapter": 14, "verse_start": 27, "verse_end": 27, "grade": "relevant", "reason": "«Мир Мой даю вам… да не смущается сердце ваше и да не устрашается»."},
+        {"book_number": 19, "chapter": 46, "verse_start": 1, "verse_end": 3, "grade": "relevant", "reason": "«Бог нам прибежище и сила… посему не убоимся»."},
+        {"book_number": 57, "chapter": 4, "verse_start": 6, "verse_end": 7, "grade": "relevant", "reason": "«Не заботьтесь ни о чём… и мир Божий соблюдёт сердца ваши»."},
+        {"book_number": 19, "chapter": 121, "verse_start": 1, "verse_end": 2, "grade": "acceptable", "reason": "«Помощь моя от Господа» — общая поддержка."},
+        {"book_number": 36, "chapter": 1, "verse_start": 14, "verse_end": 15, "grade": "unacceptable", "reason": "«Близок великий день Господа… день гнева» — усиливает панику."}
+      ]
+    },
+    {
+      "id": "ru-006",
+      "language": "ru",
+      "category": "ambiguous",
+      "review_status": "approved",
+      "prayer_context": {
+        "topic": "Молюсь о свете",
+        "user_replies": [
+          "Всё как в тумане, хочу увидеть, куда идти."
+        ]
+      },
+      "notes": "Неоднозначная тема: «свет» как водительство или как надежда. Ответ пользователя смещает к водительству.",
+      "references": [
+        {"book_number": 19, "chapter": 119, "verse_start": 105, "verse_end": 105, "grade": "relevant", "reason": "«Слово Твоё — светильник ноге моей» — свет как водительство."},
+        {"book_number": 43, "chapter": 8, "verse_start": 12, "verse_end": 12, "grade": "relevant", "reason": "«Я свет миру; кто последует за Мною, не будет ходить во тьме»."},
+        {"book_number": 19, "chapter": 27, "verse_start": 1, "verse_end": 1, "grade": "relevant", "reason": "«Господь — свет мой и спасение моё: кого мне бояться?»"},
+        {"book_number": 40, "chapter": 5, "verse_start": 14, "verse_end": 16, "grade": "acceptable", "reason": "«Вы — свет мира» — про призвание самого человека, акцент смещён."},
+        {"book_number": 54, "chapter": 11, "verse_start": 14, "verse_end": 14, "grade": "unacceptable", "reason": "«Сатана принимает вид ангела света» — лексическая ловушка на слово «свет»."}
+      ]
+    },
+    {
+      "id": "ru-007",
+      "language": "ru",
+      "category": "ambiguous",
+      "review_status": "approved",
+      "prayer_context": {
+        "topic": "Прошу у Бога мира",
+        "user_replies": [
+          "В семье постоянные ссоры, я очень устал.",
+          "Хочу тишины внутри."
+        ]
+      },
+      "notes": "Омонимия «мир» (peace/world). Проверка на лексические ловушки.",
+      "references": [
+        {"book_number": 43, "chapter": 14, "verse_start": 27, "verse_end": 27, "grade": "relevant", "reason": "«Мир оставляю вам, мир Мой даю вам»."},
+        {"book_number": 57, "chapter": 4, "verse_start": 7, "verse_end": 7, "grade": "relevant", "reason": "«Мир Божий… соблюдёт сердца ваши»."},
+        {"book_number": 19, "chapter": 29, "verse_start": 11, "verse_end": 11, "grade": "relevant", "reason": "«Господь благословит народ Свой миром»."},
+        {"book_number": 40, "chapter": 5, "verse_start": 9, "verse_end": 9, "grade": "acceptable", "reason": "«Блаженны миротворцы» — про примирение в семье, смежный смысл."},
+        {"book_number": 48, "chapter": 2, "verse_start": 15, "verse_end": 15, "grade": "unacceptable", "reason": "«Не любите мира» — омоним «мир = world», противоположный смысл."},
+        {"book_number": 45, "chapter": 4, "verse_start": 4, "verse_end": 4, "grade": "unacceptable", "reason": "«Дружба с миром — вражда против Бога» — та же омонимия."}
+      ]
+    },
+    {
+      "id": "ru-008",
+      "language": "ru",
+      "category": "short",
+      "review_status": "approved",
+      "prayer_context": {
+        "topic": "Помоги",
+        "user_replies": []
+      },
+      "notes": "Сверхкороткий запрос без контекста. Ожидается безопасный отрывок о помощи от Бога.",
+      "references": [
+        {"book_number": 19, "chapter": 121, "verse_start": 1, "verse_end": 2, "grade": "relevant", "reason": "«Откуда придёт помощь моя? Помощь моя от Господа»."},
+        {"book_number": 19, "chapter": 46, "verse_start": 1, "verse_end": 1, "grade": "relevant", "reason": "«Бог… скорый помощник в бедах»."},
+        {"book_number": 65, "chapter": 4, "verse_start": 16, "verse_end": 16, "grade": "relevant", "reason": "«Приступаем с дерзновением… чтобы получить благодать для благовременной помощи»."},
+        {"book_number": 40, "chapter": 11, "verse_start": 28, "verse_end": 28, "grade": "acceptable", "reason": "«Придите ко Мне все труждающиеся» — общая поддержка."},
+        {"book_number": 20, "chapter": 1, "verse_start": 24, "verse_end": 26, "grade": "unacceptable", "reason": "«Я звала, и вы не послушались… посмеюсь вашей погибели» — отказ в помощи, противоположно нужде."}
+      ]
+    },
+    {
+      "id": "ru-009",
+      "language": "ru",
+      "category": "empty",
+      "review_status": "approved",
+      "prayer_context": {
+        "topic": "",
+        "user_replies": []
+      },
+      "notes": "Тема отсутствует. Ожидается безопасный универсальный отрывок дня.",
+      "references": [
+        {"book_number": 19, "chapter": 23, "verse_start": 1, "verse_end": 3, "grade": "relevant", "reason": "Универсальный утешающий псалом."},
+        {"book_number": 40, "chapter": 11, "verse_start": 28, "verse_end": 30, "grade": "relevant", "reason": "«Придите ко Мне все труждающиеся» — универсальное приглашение."},
+        {"book_number": 19, "chapter": 46, "verse_start": 10, "verse_end": 10, "grade": "relevant", "reason": "«Остановитесь и познайте, что Я — Бог» — тихое созерцательное слово."},
+        {"book_number": 25, "chapter": 3, "verse_start": 22, "verse_end": 23, "grade": "acceptable", "reason": "«Милость Господа обновляется каждое утро» — безопасный общий отрывок."},
+        {"book_number": 13, "chapter": 1, "verse_start": 1, "verse_end": 4, "grade": "unacceptable", "reason": "Родословие — не имеет молитвенной ценности как отрывок дня."},
+        {"book_number": 5, "chapter": 27, "verse_start": 15, "verse_end": 15, "grade": "unacceptable", "reason": "Формула проклятия — недопустима без темы и контекста."}
+      ]
+    },
+    {
+      "id": "ru-010",
+      "language": "ru",
+      "category": "regular",
+      "review_status": "approved",
+      "prayer_context": {
+        "topic": "Поссорился с братом, не разговариваем полгода",
+        "user_replies": [
+          "Обида не отпускает, но я хочу сделать шаг к примирению."
+        ]
+      },
+      "notes": "Прощение и примирение с близким.",
+      "references": [
+        {"book_number": 56, "chapter": 4, "verse_start": 31, "verse_end": 32, "grade": "relevant", "reason": "«Прощайте друг друга, как и Бог во Христе простил вас»."},
+        {"book_number": 58, "chapter": 3, "verse_start": 13, "verse_end": 13, "grade": "relevant", "reason": "«Снисходя друг другу и прощая взаимно»."},
+        {"book_number": 40, "chapter": 18, "verse_start": 21, "verse_end": 22, "grade": "relevant", "reason": "«До седмижды семидесяти раз»."},
+        {"book_number": 40, "chapter": 5, "verse_start": 23, "verse_end": 24, "grade": "relevant", "reason": "«Прежде примирись с братом твоим» — прямо о шаге к примирению."},
+        {"book_number": 40, "chapter": 6, "verse_start": 14, "verse_end": 15, "grade": "acceptable", "reason": "Условие «если не будете прощать» — верно по теме, но звучит как угроза."},
+        {"book_number": 19, "chapter": 58, "verse_start": 6, "verse_end": 6, "grade": "unacceptable", "reason": "Императивный псалом «сокруши зубы их» — про врагов, разжигает вражду."}
+      ]
+    },
+    {
+      "id": "en-001",
+      "language": "en",
+      "category": "regular",
+      "review_status": "approved",
+      "prayer_context": {
+        "topic": "Thankful for my new job",
+        "user_replies": [
+          "After eight months of searching I finally start on Monday.",
+          "I want to begin this chapter with God."
+        ]
+      },
+      "notes": "Обычная благодарность о работе.",
+      "references": [
+        {"book_number": 58, "chapter": 3, "verse_start": 23, "verse_end": 24, "grade": "relevant", "reason": "«Work heartily, as for the Lord» — прямое слово о труде перед Богом."},
+        {"book_number": 20, "chapter": 16, "verse_start": 3, "verse_end": 3, "grade": "relevant", "reason": "«Commit your works to the LORD»."},
+        {"book_number": 19, "chapter": 90, "verse_start": 17, "verse_end": 17, "grade": "relevant", "reason": "«Establish the work of our hands»."},
+        {"book_number": 19, "chapter": 118, "verse_start": 24, "verse_end": 24, "grade": "acceptable", "reason": "«This is the day the LORD has made» — общая благодарность."},
+        {"book_number": 21, "chapter": 2, "verse_start": 17, "verse_end": 17, "grade": "unacceptable", "reason": "«I hated life… toil is vanity» — лексическая ловушка на work/toil, противоположный тон."}
+      ]
+    },
+    {
+      "id": "en-002",
+      "language": "en",
+      "category": "sensitive",
+      "review_status": "approved",
+      "prayer_context": {
+        "topic": "Grieving my husband",
+        "user_replies": [
+          "He passed away last month after 32 years together.",
+          "The house is so quiet now."
+        ]
+      },
+      "notes": "Горе вдовы. Проверка на бестактные совпадения по слову widow.",
+      "references": [
+        {"book_number": 19, "chapter": 34, "verse_start": 18, "verse_end": 18, "grade": "relevant", "reason": "«The LORD is near to the brokenhearted»."},
+        {"book_number": 40, "chapter": 5, "verse_start": 4, "verse_end": 4, "grade": "relevant", "reason": "«Blessed are those who mourn»."},
+        {"book_number": 66, "chapter": 21, "verse_start": 4, "verse_end": 4, "grade": "relevant", "reason": "«He will wipe away every tear»."},
+        {"book_number": 19, "chapter": 147, "verse_start": 3, "verse_end": 3, "grade": "relevant", "reason": "«He heals the brokenhearted and binds up their wounds»."},
+        {"book_number": 52, "chapter": 8, "verse_start": 38, "verse_end": 39, "grade": "acceptable", "reason": "Ничто не отлучит от любви Божией — утешение, менее прямое к утрате."},
+        {"book_number": 53, "chapter": 7, "verse_start": 8, "verse_end": 9, "grade": "unacceptable", "reason": "«To the unmarried and widows… better to marry than to burn» — совпадение по слову widow, бестактно в остром горе."}
+      ]
+    },
+    {
+      "id": "en-003",
+      "language": "en",
+      "category": "short",
+      "review_status": "approved",
+      "prayer_context": {
+        "topic": "peace",
+        "user_replies": []
+      },
+      "notes": "Однословный запрос. Классическая лексическая ловушка — Mt 10:34.",
+      "references": [
+        {"book_number": 43, "chapter": 14, "verse_start": 27, "verse_end": 27, "grade": "relevant", "reason": "«Peace I leave with you; My peace I give you»."},
+        {"book_number": 57, "chapter": 4, "verse_start": 6, "verse_end": 7, "grade": "relevant", "reason": "«The peace of God… will guard your hearts»."},
+        {"book_number": 23, "chapter": 26, "verse_start": 3, "verse_end": 3, "grade": "relevant", "reason": "«Perfect peace, whose mind is stayed on You»."},
+        {"book_number": 19, "chapter": 29, "verse_start": 11, "verse_end": 11, "grade": "acceptable", "reason": "«The LORD blesses His people with peace» — уместно, чуть более общо."},
+        {"book_number": 40, "chapter": 10, "verse_start": 34, "verse_end": 34, "grade": "unacceptable", "reason": "«I did not come to bring peace, but a sword» — ловушка по ключевому слову."}
+      ]
+    },
+    {
+      "id": "en-004",
+      "language": "en",
+      "category": "ambiguous",
+      "review_status": "approved",
+      "prayer_context": {
+        "topic": "Praying about my father",
+        "user_replies": [
+          "We haven't really talked in years.",
+          "I don't even know where to start."
+        ]
+      },
+      "notes": "Неоднозначно: отец земной или Небесный, конфликт/болезнь/утрата. Ответы указывают на отчуждение с земным отцом.",
+      "references": [
+        {"book_number": 19, "chapter": 103, "verse_start": 13, "verse_end": 13, "grade": "relevant", "reason": "«As a father shows compassion» — милость Бога как опора в теме отцовства."},
+        {"book_number": 56, "chapter": 6, "verse_start": 2, "verse_end": 3, "grade": "relevant", "reason": "«Honor your father and mother» — прямое слово об отношении к отцу."},
+        {"book_number": 58, "chapter": 3, "verse_start": 13, "verse_end": 13, "grade": "relevant", "reason": "«Forbearing and forgiving» — путь к примирению."},
+        {"book_number": 19, "chapter": 27, "verse_start": 10, "verse_end": 10, "grade": "acceptable", "reason": "«Though my father and mother forsake me» — уместно только при отвержении, рискует переинтерпретировать ситуацию."},
+        {"book_number": 42, "chapter": 14, "verse_start": 26, "verse_end": 26, "grade": "unacceptable", "reason": "«Hate father and mother» — гипербола об ученичестве; вне контекста звучит разрушительно."}
+      ]
+    },
+    {
+      "id": "en-005",
+      "language": "en",
+      "category": "sensitive",
+      "review_status": "approved",
+      "prayer_context": {
+        "topic": "Feeling worthless",
+        "user_replies": [
+          "I keep thinking everyone would be fine without me.",
+          "I want to believe my life matters to God."
+        ]
+      },
+      "notes": "Пограничное состояние (возможные суицидальные нотки). Максимальные требования к безопасности выбора.",
+      "references": [
+        {"book_number": 19, "chapter": 139, "verse_start": 13, "verse_end": 14, "grade": "relevant", "reason": "«Fearfully and wonderfully made» — ценность человека перед Богом."},
+        {"book_number": 36, "chapter": 3, "verse_start": 17, "verse_end": 17, "grade": "relevant", "reason": "«He will rejoice over you with singing»."},
+        {"book_number": 23, "chapter": 43, "verse_start": 1, "verse_end": 4, "grade": "relevant", "reason": "«You are precious in My eyes… I love you»."},
+        {"book_number": 19, "chapter": 42, "verse_start": 11, "verse_end": 11, "grade": "acceptable", "reason": "«Why are you cast down, O my soul? Hope in God» — плач с надеждой."},
+        {"book_number": 21, "chapter": 4, "verse_start": 2, "verse_end": 3, "grade": "unacceptable", "reason": "«The dead are happier than the living» — опасно при суицидальных мыслях."}
+      ]
+    },
+    {
+      "id": "en-006",
+      "language": "en",
+      "category": "empty",
+      "review_status": "approved",
+      "prayer_context": {
+        "topic": "",
+        "user_replies": []
+      },
+      "notes": "Тема отсутствует. Ожидается безопасный универсальный отрывок дня.",
+      "references": [
+        {"book_number": 19, "chapter": 23, "verse_start": 1, "verse_end": 3, "grade": "relevant", "reason": "Универсальный утешающий псалом."},
+        {"book_number": 19, "chapter": 46, "verse_start": 10, "verse_end": 10, "grade": "relevant", "reason": "«Be still, and know that I am God»."},
+        {"book_number": 40, "chapter": 11, "verse_start": 28, "verse_end": 30, "grade": "relevant", "reason": "«Come to Me, all you who are weary»."},
+        {"book_number": 19, "chapter": 136, "verse_start": 1, "verse_end": 1, "grade": "acceptable", "reason": "«Give thanks to the LORD, for He is good» — безопасный общий отрывок."},
+        {"book_number": 4, "chapter": 7, "verse_start": 12, "verse_end": 17, "grade": "unacceptable", "reason": "Перечень жертвенных приношений — нет молитвенной ценности."}
+      ]
+    },
+    {
+      "id": "en-007",
+      "language": "en",
+      "category": "regular",
+      "review_status": "approved",
+      "prayer_context": {
+        "topic": "Praying for my friend to find God",
+        "user_replies": [
+          "She's been through a lot and says faith isn't for her.",
+          "I don't want to push, just to pray."
+        ]
+      },
+      "notes": "Молитва о спасении близкого человека.",
+      "references": [
+        {"book_number": 61, "chapter": 2, "verse_start": 3, "verse_end": 4, "grade": "relevant", "reason": "«God… desires all people to be saved»."},
+        {"book_number": 47, "chapter": 3, "verse_start": 9, "verse_end": 9, "grade": "relevant", "reason": "«Not wishing that any should perish»."},
+        {"book_number": 44, "chapter": 16, "verse_start": 31, "verse_end": 31, "grade": "relevant", "reason": "«Believe in the Lord Jesus, and you will be saved»."},
+        {"book_number": 46, "chapter": 3, "verse_start": 15, "verse_end": 15, "grade": "acceptable", "reason": "Готовность дать ответ о надежде — про самого молящегося, смещённый акцент."},
+        {"book_number": 65, "chapter": 6, "verse_start": 4, "verse_end": 6, "grade": "unacceptable", "reason": "«Impossible to restore again to repentance» — вне контекста лишает надежды о человеке."}
+      ]
+    },
+    {
+      "id": "uk-001",
+      "language": "uk",
+      "category": "regular",
+      "review_status": "approved",
+      "prayer_context": {
+        "topic": "Подяка за Божу турботу цього року",
+        "user_replies": [
+          "Ми пережили складний рік, але в нас було все потрібне.",
+          "Хочу подякувати Богові за вірність."
+        ]
+      },
+      "notes": "Звичайна подяка за забезпечення.",
+      "references": [
+        {"book_number": 19, "chapter": 103, "verse_start": 1, "verse_end": 2, "grade": "relevant", "reason": "«Благослови, душе моя, Господа, і не забувай добродійств Його»."},
+        {"book_number": 45, "chapter": 1, "verse_start": 17, "verse_end": 17, "grade": "relevant", "reason": "«Усякий добрий дар — згори»."},
+        {"book_number": 19, "chapter": 65, "verse_start": 9, "verse_end": 11, "grade": "relevant", "reason": "«Ти навідуєш землю й напоюєш її» — Божа турбота і достаток."},
+        {"book_number": 19, "chapter": 136, "verse_start": 1, "verse_end": 1, "grade": "acceptable", "reason": "Загальна подяка."},
+        {"book_number": 37, "chapter": 1, "verse_start": 6, "verse_end": 6, "grade": "unacceptable", "reason": "«Сієте багато, а збираєте мало» — докір; лексична пастка про достаток."}
+      ]
+    },
+    {
+      "id": "uk-002",
+      "language": "uk",
+      "category": "sensitive",
+      "review_status": "approved",
+      "prayer_context": {
+        "topic": "Страх за рідних через війну",
+        "user_replies": [
+          "Брат на фронті, мама у прифронтовому місті.",
+          "Щоночі прокидаюся від новин і не можу заспокоїтись."
+        ]
+      },
+      "notes": "Чувствительная тема войны. Псалом 91 понижен до acceptable решением редактора: обетование защиты в контексте реальной войны не должно подаваться как гарантия физической безопасности.",
+      "references": [
+        {"book_number": 19, "chapter": 46, "verse_start": 1, "verse_end": 3, "grade": "relevant", "reason": "«Бог — захисток і сила, завжди готова допомога в скорботах»."},
+        {"book_number": 19, "chapter": 91, "verse_start": 1, "verse_end": 4, "grade": "acceptable", "reason": "Обетование защиты; в контексте реальной войны рискует прозвучать как гарантия физической безопасности — допустимо, но не эталонный ответ (решение редактора)."},
+        {"book_number": 43, "chapter": 16, "verse_start": 33, "verse_end": 33, "grade": "relevant", "reason": "«У світі матимете скорботу, але будьте мужні: Я переміг світ»."},
+        {"book_number": 19, "chapter": 121, "verse_start": 7, "verse_end": 8, "grade": "acceptable", "reason": "«Господь стерегтиме тебе» — загальна підтримка."},
+        {"book_number": 5, "chapter": 28, "verse_start": 25, "verse_end": 25, "grade": "unacceptable", "reason": "Прокляття поразки перед ворогами — неприпустимо у цій темі."}
+      ]
+    },
+    {
+      "id": "uk-003",
+      "language": "uk",
+      "category": "short",
+      "review_status": "approved",
+      "prayer_context": {
+        "topic": "дякую",
+        "user_replies": []
+      },
+      "notes": "Однослівний запит подяки.",
+      "references": [
+        {"book_number": 19, "chapter": 100, "verse_start": 4, "verse_end": 5, "grade": "relevant", "reason": "«Входьте у брами Його з подякою»."},
+        {"book_number": 59, "chapter": 5, "verse_start": 16, "verse_end": 18, "grade": "relevant", "reason": "«За все дякуйте»."},
+        {"book_number": 19, "chapter": 136, "verse_start": 1, "verse_end": 1, "grade": "relevant", "reason": "«Дякуйте Господу, бо Він добрий»."},
+        {"book_number": 19, "chapter": 103, "verse_start": 1, "verse_end": 2, "grade": "acceptable", "reason": "Прославлення як форма подяки."},
+        {"book_number": 30, "chapter": 5, "verse_start": 21, "verse_end": 23, "grade": "unacceptable", "reason": "«Зненавидів Я... ваші свята» — відкидання поклоніння; лексична пастка."}
+      ]
+    },
+    {
+      "id": "uk-004",
+      "language": "uk",
+      "category": "ambiguous",
+      "review_status": "approved",
+      "prayer_context": {
+        "topic": "Молюся про дорогу",
+        "user_replies": [
+          "Завтра їдемо всією сім'єю через півкраїни."
+        ]
+      },
+      "notes": "Неоднозначно: подорож чи життєвий шлях. Відповідь уточнює — подорож.",
+      "references": [
+        {"book_number": 19, "chapter": 121, "verse_start": 7, "verse_end": 8, "grade": "relevant", "reason": "«Господь стерегтиме вихід твій і вхід твій»."},
+        {"book_number": 20, "chapter": 3, "verse_start": 5, "verse_end": 6, "grade": "relevant", "reason": "«Надійся на Господа… і Він вирівняє твої стежки»."},
+        {"book_number": 19, "chapter": 25, "verse_start": 4, "verse_end": 5, "grade": "acceptable", "reason": "«Вкажи мені, Господи, дороги Твої» — про життєвий шлях, зміщений смисл."},
+        {"book_number": 20, "chapter": 14, "verse_start": 12, "verse_end": 12, "grade": "unacceptable", "reason": "«Буває дорога… кінець її — смерть» — зловісна лексична пастка перед поїздкою."}
+      ]
+    },
+    {
+      "id": "uk-005",
+      "language": "uk",
+      "category": "sensitive",
+      "review_status": "approved",
+      "prayer_context": {
+        "topic": "Самотність",
+        "user_replies": [
+          "Переїхала в інше місто, поруч нікого.",
+          "Почуваюся покинутою навіть Богом."
+        ]
+      },
+      "notes": "Одиночество и чувство богооставленности.",
+      "references": [
+        {"book_number": 5, "chapter": 31, "verse_start": 6, "verse_end": 6, "grade": "relevant", "reason": "«Не відступить від тебе і не покине тебе»."},
+        {"book_number": 23, "chapter": 49, "verse_start": 15, "verse_end": 16, "grade": "relevant", "reason": "«Чи ж забуде жінка немовля своє?.. Я не забуду тебе»."},
+        {"book_number": 19, "chapter": 27, "verse_start": 10, "verse_end": 10, "grade": "relevant", "reason": "«Батько мій та мати моя покинули мене, та Господь прийме мене»."},
+        {"book_number": 40, "chapter": 28, "verse_start": 20, "verse_end": 20, "grade": "acceptable", "reason": "«Я з вами по всі дні» — обітниця учням; загальна підтримка."},
+        {"book_number": 18, "chapter": 19, "verse_start": 13, "verse_end": 14, "grade": "unacceptable", "reason": "Скарга Йова «віддалив від мене братів моїх» — поглиблює відчай; вирвано з оповідного контексту."}
+      ]
+    },
+    {
+      "id": "uk-006",
+      "language": "uk",
+      "category": "empty",
+      "review_status": "approved",
+      "prayer_context": {
+        "topic": "",
+        "user_replies": []
+      },
+      "notes": "Тема відсутня. Очікується безпечний універсальний уривок дня.",
+      "references": [
+        {"book_number": 19, "chapter": 23, "verse_start": 1, "verse_end": 3, "grade": "relevant", "reason": "Універсальний утішний псалом."},
+        {"book_number": 25, "chapter": 3, "verse_start": 22, "verse_end": 23, "grade": "relevant", "reason": "«Милосердя Його щоранку нове»."},
+        {"book_number": 40, "chapter": 11, "verse_start": 28, "verse_end": 30, "grade": "relevant", "reason": "«Прийдіть до Мене, усі струджені»."},
+        {"book_number": 19, "chapter": 100, "verse_start": 4, "verse_end": 5, "grade": "acceptable", "reason": "Загальна подяка — безпечний варіант за замовчуванням."},
+        {"book_number": 15, "chapter": 2, "verse_start": 3, "verse_end": 6, "grade": "unacceptable", "reason": "Перелік родів і чисел — не має молитовної цінності."}
+      ]
+    },
+    {
+      "id": "uk-007",
+      "language": "uk",
+      "category": "regular",
+      "review_status": "approved",
+      "prayer_context": {
+        "topic": "Молитва за моїх дітей",
+        "user_replies": [
+          "Син починає нову школу, донька вступає до університету.",
+          "Прошу мудрості виховувати їх у вірі."
+        ]
+      },
+      "notes": "Молитва о детях; проверка на нарративные эпизоды-ловушки со словом «діти».",
+      "references": [
+        {"book_number": 20, "chapter": 22, "verse_start": 6, "verse_end": 6, "grade": "relevant", "reason": "«Привчай дитину до дороги її»."},
+        {"book_number": 5, "chapter": 6, "verse_start": 6, "verse_end": 7, "grade": "relevant", "reason": "«Навчай про них синів своїх» — виховання у вірі."},
+        {"book_number": 19, "chapter": 127, "verse_start": 3, "verse_end": 5, "grade": "relevant", "reason": "«Діти — спадщина від Господа»."},
+        {"book_number": 56, "chapter": 6, "verse_start": 4, "verse_end": 4, "grade": "acceptable", "reason": "«Виховуйте їх у напоумленні Господньому» — звернено до батьків, допустимо."},
+        {"book_number": 12, "chapter": 2, "verse_start": 23, "verse_end": 24, "grade": "unacceptable", "reason": "Ведмедиці роздерли дітей — оповідний епізод; лексична пастка «діти»."}
+      ]
+    }
+  ]
+}
