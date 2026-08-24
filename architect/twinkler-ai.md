@@ -37,7 +37,8 @@ details. Missing server configuration has the same public response.
 Transcription uses `GEMINI_TRANSCRIPTION_MODEL` (default
 `gemini-3.5-flash-lite`) and the same configured Gemini API key. The M4A bytes
 are base64-encoded into an `inline_data` part alongside a server-controlled
-verbatim-transcription instruction. `audio/mp4` and `audio/x-m4a` are accepted;
+verbatim-transcription instruction. `audio/mp4`, `audio/x-m4a` and `audio/m4a`
+are accepted;
 a `.m4a` filename is used as a fallback only when the client sends no MIME type
 or `application/octet-stream`. The request uses temperature `0` and a 60-second
 provider timeout. The uploaded file is closed after it is read and is never

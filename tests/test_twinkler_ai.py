@@ -364,6 +364,24 @@ def test_returns_transcript_with_soft_locale_hint(monkeypatch):
     generated.assert_awaited_once_with(b"m4a-bytes", "audio/mp4", "ru-RU")
 
 
+@pytest.mark.parametrize(
+    "content_type",
+    ["audio/mp4", "audio/x-m4a", "audio/m4a"],
+)
+def test_transcription_accepts_every_m4a_mime_spelling(monkeypatch, content_type):
+    generated = AsyncMock(return_value="Transcript")
+    monkeypatch.setattr(twinkler_ai, "transcribe", generated)
+
+    response = client.post(
+        "/api/twinkler/v1/transcribe",
+        headers={"X-API-Key": "test-api-key"},
+        files={"file": ("recording.m4a", b"m4a-bytes", content_type)},
+    )
+
+    assert response.status_code == 200
+    generated.assert_awaited_once_with(b"m4a-bytes", content_type, None)
+
+
 def test_transcription_locale_is_optional_and_m4a_has_safe_mime_fallback(monkeypatch):
     generated = AsyncMock(return_value="Original language")
     monkeypatch.setattr(twinkler_ai, "transcribe", generated)

@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 _RATE_LIMIT_WINDOW_SECONDS = 60.0
 # Inline data is base64-expanded inside Gemini's 20 MB request limit.
 _MAX_AUDIO_BYTES = 14 * 1024 * 1024
-_AUDIO_MIME_TYPES = frozenset({"audio/mp4", "audio/x-m4a"})
+_AUDIO_MIME_TYPES = frozenset({"audio/mp4", "audio/x-m4a", "audio/m4a"})
 _M4A_FALLBACK_MIME_TYPES = frozenset({"", "application/octet-stream"})
 _TRANSCRIPTION_PROMPT = (
     "Transcribe the speech verbatim in its original language. Preserve "
