@@ -261,3 +261,30 @@ docker cp evaluation bible-api:/tmp/evaluation \
    `npu`, `bsb`, `webus`, `webbe`); оставшиеся четыре (`bti`, `webus`,
    `webbe`, `npu`) доиндексируются после подтверждения качества бенчмарком
    на канонической тройке. Бенчмарк гоняется на канонических переводах.
+
+## Прогон retrieval-пайплайна (ClickUp 86cb8vw1g)
+
+Полный retrieval-слой (LLM-переформулировка -> гибридный поиск
+embedding+BM25 -> interleave-слияние -> чёрный список жанров -> разнообразие
+-> безопасный пул для пустой темы) прогоняется командой:
+
+```bash
+# venv бенчмарка (numpy+httpx+requests), Gemini-вызовы кэшируются на диск
+python retrieval_benchmark.py pipeline            # утверждённая конфигурация
+python retrieval_benchmark.py pipeline -h         # абляции: --no-rewrite,
+                                                  # --no-lexical, --fusion, ...
+```
+
+Дефолтные флаги воспроизводят утверждённую конфигурацию (rewrite
+gemini-3.7-flash, prompt v7, 6 вариантов, interleave, BM25 k=20, blacklist,
+pool, cap 4/книга и 1/глава). Результат на approved-наборе v0.2.0: hit@10
+0.958, recall@10 0.753, MRR 0.650, unacc@10 0.000 — все пороги
+`retrieval_top_k` пройдены (детали и абляции:
+`../architect/adr/0004-retrieval-pipeline.md`, свежий прогон —
+`bench_data/results_pipeline_final.json`). Кэш Gemini-вызовов —
+`bench_data/pipeline_cache.json`; смена промпта (`REWRITE_PROMPT_VERSION`)
+или модели инвалидирует ключи кэша автоматически.
+
+Статус решений 5 и 6: реализованы в `app/data/safe_pool.json` и
+`app/data/genre_blacklist.json`; эталонные жанровые ловушки закреплены
+регресс-тестами `tests/test_retrieval.py`.

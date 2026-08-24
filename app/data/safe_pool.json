@@ -1,0 +1,17 @@
+{
+  "name": "safe-pool",
+  "version": "1.0.0",
+  "decision": "Мария, 2026-08-24 (ClickUp 86cb8vw1g, вопрос 5): версионируемый пул из relevant/acceptable мест сценариев ru-009/en-006/uk-006. Используется при пустой теме (без retrieval и Gemini) и как детерминированный fallback при недоступности AI на любой теме; ротация с исключением уже показанных.",
+  "coordinate_system": {
+    "book_numbering": "cep_public.bible_books.number, Slavic canon order 1-66",
+    "psalm_numbering": "english-masoretic (canonical chunk-ID space, see ADR 0003)"
+  },
+  "entries": [
+    {"book": 19, "chapter": 23, "verse_start": 1, "verse_end": 3, "source": "ru-009/en-006/uk-006 relevant", "note": "Универсальный утешающий псалом «Господь — Пастырь мой»"},
+    {"book": 40, "chapter": 11, "verse_start": 28, "verse_end": 30, "source": "ru-009/en-006/uk-006 relevant", "note": "«Придите ко Мне все труждающиеся»"},
+    {"book": 19, "chapter": 46, "verse_start": 10, "verse_end": 10, "source": "ru-009/en-006 relevant", "note": "«Остановитесь и познайте, что Я — Бог»"},
+    {"book": 25, "chapter": 3, "verse_start": 22, "verse_end": 23, "source": "ru-009 acceptable, uk-006 relevant", "note": "«Милость Господа обновляется каждое утро»"},
+    {"book": 19, "chapter": 136, "verse_start": 1, "verse_end": 1, "source": "en-006 acceptable", "note": "«Славьте Господа, ибо Он благ»"},
+    {"book": 19, "chapter": 100, "verse_start": 4, "verse_end": 5, "source": "uk-006 acceptable", "note": "Общая благодарность"}
+  ]
+}

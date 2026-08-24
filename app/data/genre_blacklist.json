@@ -1,0 +1,43 @@
+{
+  "name": "genre-blacklist",
+  "version": "1.0.0",
+  "decision": "Мария, 2026-08-24 (ClickUp 86cb8vw1g, вопрос 6): глобальный чёрный список жанровых диапазонов, применяется на retrieval ко ВСЕМ запросам; блокировка по пересечению диапазонов.",
+  "coordinate_system": {
+    "book_numbering": "cep_public.bible_books.number, Slavic canon order 1-66 (Gen=1, Ps=19, Mt=40, Jas=45, Rom=52, Rev=66)",
+    "psalm_numbering": "english-masoretic (canonical chunk-ID space, see ADR 0003)"
+  },
+  "entry_format": "book + inclusive chapter range; verses (inclusive, optional) apply only when the chapter range is a single chapter — otherwise whole chapters are blocked. A candidate is blocked when its canonical verse range intersects any entry.",
+  "genres": {
+    "genealogy": "родословия, переписи и перечни имён/чисел — нет молитвенной ценности как отрывок дня",
+    "offering_list": "перечни жертвоприношений и приношений — нет молитвенной ценности",
+    "imprecatory": "императивные/проклинающие фрагменты псалмов — призывы кары на врагов",
+    "covenant_curse": "проклятия завета — перечни кар; вне контекста подают беду как наказание"
+  },
+  "entries": [
+    {"book": 13, "chapters": [1, 9], "genre": "genealogy", "note": "1 Chr 1-9: родословия Израиля; 1 Chr 1:1-4 — эталонная ловушка ru-009"},
+    {"book": 15, "chapters": [2, 2], "genre": "genealogy", "note": "Ezra 2: перечень родов и чисел вернувшихся; Ezra 2:3-6 — эталонная ловушка uk-006"},
+    {"book": 1, "chapters": [5, 5], "genre": "genealogy", "note": "Gen 5: родословие от Адама до Ноя"},
+    {"book": 1, "chapters": [10, 10], "genre": "genealogy", "note": "Gen 10: таблица народов"},
+    {"book": 1, "chapters": [11, 11], "verses": [10, 32], "genre": "genealogy", "note": "Gen 11:10-32: родословие Сима"},
+    {"book": 1, "chapters": [36, 36], "genre": "genealogy", "note": "Gen 36: родословие Исава"},
+    {"book": 1, "chapters": [46, 46], "verses": [8, 27], "genre": "genealogy", "note": "Gen 46:8-27: перечень пришедших в Египет"},
+    {"book": 2, "chapters": [6, 6], "verses": [14, 27], "genre": "genealogy", "note": "Ex 6:14-27: родословие Моисея и Аарона"},
+    {"book": 8, "chapters": [4, 4], "verses": [18, 22], "genre": "genealogy", "note": "Ruth 4:18-22: родословие Фареса"},
+    {"book": 16, "chapters": [7, 7], "verses": [6, 73], "genre": "genealogy", "note": "Neh 7:6-73: перечень вернувшихся"},
+    {"book": 40, "chapters": [1, 1], "verses": [1, 17], "genre": "genealogy", "note": "Mt 1:1-17: родословие Иисуса Христа"},
+    {"book": 42, "chapters": [3, 3], "verses": [23, 38], "genre": "genealogy", "note": "Lk 3:23-38: родословие Иисуса Христа"},
+    {"book": 4, "chapters": [1, 2], "genre": "genealogy", "note": "Num 1-2: перепись и порядок станов"},
+    {"book": 4, "chapters": [3, 3], "verses": [14, 39], "genre": "genealogy", "note": "Num 3:14-39: перепись левитов"},
+    {"book": 4, "chapters": [26, 26], "genre": "genealogy", "note": "Num 26: вторая перепись"},
+    {"book": 4, "chapters": [7, 7], "genre": "offering_list", "note": "Num 7: приношения начальников; Num 7:12-17 — эталонная ловушка en-006"},
+    {"book": 4, "chapters": [28, 29], "genre": "offering_list", "note": "Num 28-29: расписание жертвоприношений"},
+    {"book": 19, "chapters": [137, 137], "verses": [7, 9], "genre": "imprecatory", "note": "Ps 137:7-9 (canonical): «блажен, кто разобьёт младенцев»; Ps 137:8-9 — эталонная ловушка ru-001"},
+    {"book": 19, "chapters": [58, 58], "genre": "imprecatory", "note": "Ps 58 (canonical): императивный псалом «сокруши зубы их»; Ps 58:6 — эталонная ловушка ru-010"},
+    {"book": 19, "chapters": [35, 35], "verses": [4, 8], "genre": "imprecatory", "note": "Ps 35:4-8 (canonical): призыв посрамления на врагов"},
+    {"book": 19, "chapters": [69, 69], "verses": [22, 28], "genre": "imprecatory", "note": "Ps 69:22-28 (canonical): «да будет трапеза их сетью»"},
+    {"book": 19, "chapters": [109, 109], "verses": [6, 20], "genre": "imprecatory", "note": "Ps 109:6-20 (canonical): проклятия на нечестивого"},
+    {"book": 5, "chapters": [27, 27], "verses": [11, 26], "genre": "covenant_curse", "note": "Deut 27:11-26: формулы проклятия; Deut 27:15 — эталонная ловушка ru-009"},
+    {"book": 5, "chapters": [28, 28], "verses": [15, 68], "genre": "covenant_curse", "note": "Deut 28:15-68: проклятия завета; Deut 28:22 (ru-004) и 28:25 (uk-002) — эталонные ловушки"},
+    {"book": 3, "chapters": [26, 26], "verses": [14, 39], "genre": "covenant_curse", "note": "Lev 26:14-39: кары за нарушение завета"}
+  ]
+}

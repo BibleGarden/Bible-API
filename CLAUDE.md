@@ -40,6 +40,10 @@ docker exec bible-api bash -c "cd /code && PYTHONPATH=app python3 extract-openap
 - **`embeddings.py`** — Gemini embedding client for RAG retrieval (see `architect/adr/0002-embedding-model-and-vector-store.md`)
 - **`vector_index.py`** — `chunk_embeddings` storage + in-process cosine search with language/translation filters
 - **`index_cli.py`** — CLI that (re)builds the vector index idempotently (`rebuild`/`status`/`search`)
+- **`query_rewrite.py`** — Gemini rewrite of prayer context into scripture-register query variants (see `architect/adr/0004-retrieval-pipeline.md`)
+- **`lexical_index.py`** — in-process BM25 over chunks, the hybrid lexical signal
+- **`retrieval.py`** — retrieval pipeline: interleave fusion, global genre blacklist (`data/genre_blacklist.json`), safe pool (`data/safe_pool.json`), diversity, `ScriptureRetriever` service
+- **`retrieval_cli.py`** — end-to-end retrieval smoke CLI (`select`)
 - **`database.py`** — MySQL connection factory
 - **`config.py`** — Environment variable loading
 

@@ -15,6 +15,9 @@ Usage:
     python retrieval_benchmark.py run    --model e5-small --variant title_text
     python retrieval_benchmark.py run-all           # every cached config
     python retrieval_benchmark.py stores --model X --variant Y   # numpy/qdrant/chroma parity+latency
+    python retrieval_benchmark.py pipeline [...]    # full retrieval pipeline
+                                                    # (rewrite+fusion+blacklist+pool),
+                                                    # ablations via flags — see -h
 
 Scenario query = prayer topic + allowed user replies, embedded with the
 model's query mode; the corpus is the language's translation chunks
@@ -608,6 +611,344 @@ def cmd_stores(args) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Full retrieval pipeline (ClickUp 86cb8vw1g): LLM query reformulation +
+# multi-variant fusion + genre blacklist + diversity + safe pool.
+#
+# Reuses the production modules from app/ (query_rewrite, retrieval) over the
+# cached gemini corpus embeddings (truncated to 768 dims — MRL-identical to
+# the production index c3:gemini-embedding-001@768). Gemini calls (rewrites,
+# query embeddings) are cached on disk, so re-runs with different ablation
+# flags cost nothing.
+# ---------------------------------------------------------------------------
+
+os.environ.setdefault("API_KEY", "benchmark")  # app/config.py requires it
+
+PIPELINE_CACHE_FILE = DATA / "pipeline_cache.json"
+PIPELINE_DIMS = 768
+FETCH_K_DEFAULT = 50
+
+
+def _load_pipeline_cache() -> dict:
+    if PIPELINE_CACHE_FILE.exists():
+        return json.loads(PIPELINE_CACHE_FILE.read_text())
+    return {"rewrites": {}, "query_embeddings": {}}
+
+
+def _save_pipeline_cache(cache: dict) -> None:
+    PIPELINE_CACHE_FILE.write_text(json.dumps(cache))
+
+
+def _dotenv_value(name: str, default: str = "") -> str:
+    value = os.environ.get(name, "")
+    if value:
+        return value
+    env = Path(__file__).resolve().parents[1] / ".env"
+    if env.exists():
+        for line in env.read_text().splitlines():
+            if line.startswith(f"{name}="):
+                return line.split("=", 1)[1].strip()
+    return default
+
+
+def _query_vector(text: str, api_key: str, cache: dict) -> np.ndarray:
+    """Embed one query at 768 dims (RETRIEVAL_QUERY), disk-cached."""
+    import hashlib
+
+    key = hashlib.sha1(f"q768:{text}".encode()).hexdigest()
+    hit = cache["query_embeddings"].get(key)
+    if hit is not None:
+        return np.asarray(hit, dtype=np.float32)
+    import requests
+
+    url = ("https://generativelanguage.googleapis.com/v1beta/models/"
+           "gemini-embedding-001:embedContent")
+    body = {
+        "content": {"parts": [{"text": text if text.strip() else " "}]},
+        "taskType": "RETRIEVAL_QUERY",
+        "outputDimensionality": PIPELINE_DIMS,
+    }
+    for attempt in range(6):
+        resp = requests.post(url, json=body, timeout=60,
+                             headers={"x-goog-api-key": api_key})
+        if resp.status_code == 200:
+            values = np.asarray(resp.json()["embedding"]["values"],
+                                dtype=np.float32)
+            values = values / np.linalg.norm(values)
+            cache["query_embeddings"][key] = [round(float(x), 7) for x in values]
+            return values
+        if resp.status_code in (429, 500, 502, 503, 504):
+            time.sleep(min(2 ** attempt * 2.0, 30.0))
+            continue
+        raise RuntimeError(f"query embedding failed ({resp.status_code}): "
+                           f"{resp.text[:200]}")
+    raise RuntimeError("query embedding failed: retries exhausted")
+
+
+def _scenario_rewrites(
+    scenario: dict, rewriter, model: str, variants: int, cache: dict,
+    tag: str = "",
+) -> list[str]:
+    from query_rewrite import REWRITE_PROMPT_VERSION
+
+    key = f"{model}|p{REWRITE_PROMPT_VERSION}|n{variants}|{scenario['id']}"
+    if tag:
+        key += f"|{tag}"
+    hit = cache["rewrites"].get(key)
+    if hit is not None:
+        return list(hit)
+    ctx = scenario["prayer_context"]
+    queries = rewriter.rewrite(scenario["language"], ctx["topic"],
+                               ctx["user_replies"])
+    cache["rewrites"][key] = queries
+    return queries
+
+
+def _evaluate_topk(
+    scenario: dict,
+    top_metas: list[ChunkMeta],
+    translation: int,
+    psalm_maps: dict[int, PsalmMap],
+    top_k: int,
+) -> ScenarioResult:
+    """Metrics of one ranked candidate list against the scenario references
+    (same matching rules as evaluate_config)."""
+    relevant = [r for r in scenario["references"] if r["grade"] == "relevant"]
+    unacceptable = [
+        r for r in scenario["references"] if r["grade"] == "unacceptable"
+    ]
+    rel_targets = [map_reference(r, translation, psalm_maps) for r in relevant]
+    una_targets = [map_reference(r, translation, psalm_maps) for r in unacceptable]
+    hit_rank = 0
+    for rank, cm in enumerate(top_metas, start=1):
+        if any(chunk_matches(cm, t) for t in rel_targets):
+            hit_rank = rank
+            break
+    matched = sum(
+        1 for t in rel_targets if any(chunk_matches(cm, t) for cm in top_metas)
+    )
+    una_hits = sum(
+        1 for cm in top_metas if any(chunk_matches(cm, t) for t in una_targets)
+    )
+    return ScenarioResult(
+        scenario_id=scenario["id"],
+        language=scenario["language"],
+        category=scenario["category"],
+        hit=hit_rank > 0,
+        recall=matched / len(relevant) if relevant else 1.0,
+        rr=1.0 / hit_rank if hit_rank else 0.0,
+        unacceptable_share=una_hits / top_k,
+        query_ms=0.0,
+    )
+
+
+def _rrf_fuse(variant_hits: list[list[tuple[str, float]]], k: int = 60):
+    """Reciprocal-rank fusion alternative to retrieval.fuse_variant_hits."""
+    from retrieval import FusedHit
+
+    fused: dict[str, FusedHit] = {}
+    for variant_index, hits in enumerate(variant_hits):
+        for rank, (canonical_id, score) in enumerate(hits, start=1):
+            entry = fused.get(canonical_id)
+            if entry is None:
+                entry = FusedHit(canonical_id=canonical_id, score=0.0,
+                                 best_variant=variant_index)
+                fused[canonical_id] = entry
+            entry.variant_scores[variant_index] = score
+            entry.score += 1.0 / (k + rank)
+    return sorted(fused.values(), key=lambda h: -h.score)
+
+
+def cmd_pipeline(args) -> None:
+    from retrieval import (
+        apply_diversity,
+        fuse_interleave,
+        fuse_variant_hits,
+        is_blacklisted,
+        load_genre_blacklist,
+        load_safe_pool,
+        merge_semantic_lexical,
+        parse_canonical_id,
+        rotate_safe_pool,
+    )
+    from lexical_index import LexicalIndex
+    from query_rewrite import GeminiQueryRewriter, QueryRewriteError
+
+    thresholds = json.loads(THRESHOLDS_FILE.read_text())
+    scenarios = json.loads(SCENARIOS_FILE.read_text())["scenarios"]
+    metas, _texts, _tt = load_chunks()
+    psalm_maps = load_psalm_maps()
+    corpus = truncate_mrl(np.load(emb_path("gemini", "title_text")), PIPELINE_DIMS)
+    api_key = require_api_key()
+    cache = _load_pipeline_cache()
+    blacklist = load_genre_blacklist() if not args.no_blacklist else []
+    safe_pool = load_safe_pool()
+
+    # per-translation corpus views + canonical-id lookups
+    trans_idx = {
+        code: np.array([i for i, m in enumerate(metas) if m.translation == code])
+        for code, _alias in LANGUAGE_CORPUS.values()
+    }
+    meta_by_key = {(m.translation, m.canonical_id): m for m in metas}
+    canon_parsed = {
+        code: [
+            (metas[i].canonical_id, *parse_canonical_id(metas[i].canonical_id)[1:])
+            for i in idx
+        ]
+        for code, idx in trans_idx.items()
+    }
+
+    from config import RETRIEVAL_REWRITE_MODEL
+
+    rewrite_model = args.rewrite_model or RETRIEVAL_REWRITE_MODEL
+    rewriter = GeminiQueryRewriter(
+        api_key=api_key, model=rewrite_model, variants=args.variants
+    )
+
+    lexical: dict[int, LexicalIndex] = {}
+    if not args.no_lexical:
+        _m, _texts2, title_texts = load_chunks()
+        for code, _alias in LANGUAGE_CORPUS.values():
+            docs = [
+                (metas[i].canonical_id, title_texts[i])
+                for i in trans_idx[code]
+            ]
+            lexical[code] = LexicalIndex(docs)
+
+    canon_row = {
+        code: {metas[i].canonical_id: i for i in idx}
+        for code, idx in trans_idx.items()
+    }
+
+    def search_variant(
+        code: int, query: str, qvec: np.ndarray
+    ) -> list[tuple[str, float]]:
+        idx = trans_idx[code]
+        sims = corpus[idx] @ qvec
+        top_local = np.argsort(-sims)[: args.fetch_k]
+        semantic = [
+            (metas[idx[j]].canonical_id, float(sims[j])) for j in top_local
+        ]
+        lex_index = lexical.get(code)
+        if lex_index is None:
+            return semantic
+        lex = [
+            (h.canonical_id,
+             float(corpus[canon_row[code][h.canonical_id]] @ qvec))
+            for h in lex_index.search(query, top_k=args.lex_k)
+        ]
+        return merge_semantic_lexical(semantic, lex)
+
+    results, per_scenario = [], []
+    rewrite_failures = 0
+    try:
+        for scenario in scenarios:
+            code, _alias = LANGUAGE_CORPUS[scenario["language"]]
+            ctx = scenario["prayer_context"]
+            raw_query = "\n".join(
+                p for p in [ctx["topic"].strip()]
+                + [r.strip() for r in ctx["user_replies"]] if p
+            )
+
+            # --- empty topic: safe pool (no retrieval, no Gemini)
+            if not raw_query and not args.no_pool:
+                resolved = []
+                for ref in safe_pool:
+                    best = None
+                    for cid, book, chapter, start, end in canon_parsed[code]:
+                        if (book == ref.book and chapter == ref.chapter
+                                and end >= ref.verse_start
+                                and start <= ref.verse_end):
+                            if best is None or start <= ref.verse_start:
+                                best = cid
+                    resolved.append(best)
+                indices = rotate_safe_pool(safe_pool, resolved, set(), TOP_K)
+                seen, pool_ids = set(), []
+                for i in indices:
+                    if resolved[i] is not None and resolved[i] not in seen:
+                        seen.add(resolved[i])
+                        pool_ids.append(resolved[i])
+                top_metas = [meta_by_key[(code, cid)] for cid in pool_ids]
+                results.append(_evaluate_topk(
+                    scenario, top_metas, code, psalm_maps, TOP_K))
+                per_scenario.append({
+                    "scenario_id": scenario["id"], "source": "safe_pool",
+                    "queries": [], "top": pool_ids,
+                })
+                continue
+
+            # --- rewrite (unless ablated)
+            queries: list[str] = []
+            if not args.no_rewrite:
+                try:
+                    queries = _scenario_rewrites(
+                        scenario, rewriter, rewrite_model, args.variants,
+                        cache, args.cache_tag)
+                except QueryRewriteError as exc:
+                    rewrite_failures += 1
+                    print(f"  [warn] rewrite failed for {scenario['id']}: {exc}")
+            if not args.no_raw or not queries:
+                queries = queries + [raw_query]
+
+            # --- embed + search + fuse
+            variant_hits = [
+                search_variant(code, q, _query_vector(q, api_key, cache))
+                for q in queries
+            ]
+            if args.fusion == "rrf":
+                fused = _rrf_fuse(variant_hits)
+            elif args.fusion == "interleave":
+                fused = fuse_interleave(variant_hits)
+            else:
+                fused = fuse_variant_hits(variant_hits)
+
+            # --- blacklist + diversity
+            filtered = []
+            for hit in fused:
+                _v, book, chapter, start, end = parse_canonical_id(hit.canonical_id)
+                if is_blacklisted(blacklist, book, chapter, start, end):
+                    continue
+                filtered.append(hit)
+            final = apply_diversity(
+                filtered, TOP_K, args.max_per_book, args.max_per_chapter)
+
+            top_metas = [meta_by_key[(code, h.canonical_id)] for h in final]
+            results.append(_evaluate_topk(
+                scenario, top_metas, code, psalm_maps, TOP_K))
+            per_scenario.append({
+                "scenario_id": scenario["id"], "source": "retrieval",
+                "queries": queries,
+                "top": [
+                    {"id": h.canonical_id, "score": round(h.score, 4),
+                     "variant": h.best_variant}
+                    for h in final
+                ],
+            })
+    finally:
+        _save_pipeline_cache(cache)
+        rewriter.close()
+
+    label = (
+        f"pipeline rewrite={'off' if args.no_rewrite else rewrite_model}"
+        f" variants={args.variants} raw={'no' if args.no_raw else 'yes'}"
+        f" fusion={args.fusion} blacklist={'off' if args.no_blacklist else 'on'}"
+        f" pool={'off' if args.no_pool else 'on'}"
+        f" lexical={'off' if args.no_lexical else f'k{args.lex_k}'}"
+        f" fetch_k={args.fetch_k} max_per_book={args.max_per_book}"
+    )
+    print_report(label, results, {"rewrite_failures": rewrite_failures},
+                 thresholds)
+    if args.json_out:
+        payload = {
+            "config": label,
+            "aggregate": aggregate(results, "ALL").__dict__,
+            "scenarios": [r.__dict__ for r in results],
+            "details": per_scenario,
+        }
+        Path(args.json_out).write_text(
+            json.dumps(payload, ensure_ascii=False, indent=1))
+
+
+# ---------------------------------------------------------------------------
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -628,6 +969,38 @@ def main() -> None:
 
     p = sub.add_parser("run-all", help="evaluate every cached config")
     p.set_defaults(func=cmd_run_all)
+
+    p = sub.add_parser(
+        "pipeline",
+        help="full retrieval pipeline (rewrite + fusion + blacklist + pool)",
+    )
+    p.add_argument("--no-rewrite", action="store_true",
+                   help="ablation: search the raw query only")
+    p.add_argument("--with-raw", dest="no_raw", action="store_false",
+                   help="ablation: search the raw query alongside variants")
+    p.set_defaults(no_raw=True)
+    p.add_argument("--no-blacklist", action="store_true",
+                   help="ablation: disable the genre blacklist")
+    p.add_argument("--no-pool", action="store_true",
+                   help="ablation: search empty topics instead of the safe pool")
+    p.add_argument("--fusion", choices=("max", "rrf", "interleave"),
+                   default="interleave")
+    p.add_argument("--no-lexical", action="store_true",
+                   help="ablation: disable the hybrid BM25 signal")
+    p.add_argument("--lex-k", type=int, default=20,
+                   help="lexical hits merged into each variant's ranking")
+    p.add_argument("--variants", type=int, default=6,
+                   help="rewrite variants per scenario")
+    p.add_argument("--fetch-k", type=int, default=FETCH_K_DEFAULT)
+    p.add_argument("--max-per-book", type=int, default=4)
+    p.add_argument("--max-per-chapter", type=int, default=1)
+    p.add_argument("--rewrite-model", default="",
+                   help="Gemini model for rewriting "
+                        "(default: production RETRIEVAL_REWRITE_MODEL)")
+    p.add_argument("--cache-tag", default="",
+                   help="extra rewrite-cache key part (stability re-sampling)")
+    p.add_argument("--json-out", default="")
+    p.set_defaults(func=cmd_pipeline)
 
     p = sub.add_parser("stores", help="store parity + latency for one config")
     p.add_argument("--model", choices=MODELS, required=True)

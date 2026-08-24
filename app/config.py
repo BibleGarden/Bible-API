@@ -55,6 +55,11 @@ GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE = min(
 # GEMINI_API_KEY as the Twinkler endpoints.
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "gemini-embedding-001")
 EMBEDDING_DIMENSIONS = _get_int("EMBEDDING_DIMENSIONS", 768)
+# Model for LLM query reformulation in the retrieval pipeline (see
+# architect/adr/0004-retrieval-pipeline.md). Deliberately NOT defaulting to
+# GEMINI_MODEL: the benchmark passes the retrieval thresholds only with
+# gemini-3.7-flash rewrites (gemini-3.5-flash-lite fails recall@10 and MRR).
+RETRIEVAL_REWRITE_MODEL = os.getenv("RETRIEVAL_REWRITE_MODEL", "gemini-3.7-flash")
 
 TWINKLER_SYSTEM_PROMPT = os.getenv("TWINKLER_SYSTEM_PROMPT", "").strip()
 TWINKLER_CLIENT_HMAC_KEY = os.getenv("TWINKLER_CLIENT_HMAC_KEY", "").strip()
