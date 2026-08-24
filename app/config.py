@@ -60,6 +60,15 @@ EMBEDDING_DIMENSIONS = _get_int("EMBEDDING_DIMENSIONS", 768)
 # GEMINI_MODEL: the benchmark passes the retrieval thresholds only with
 # gemini-3.7-flash rewrites (gemini-3.5-flash-lite fails recall@10 and MRR).
 RETRIEVAL_REWRITE_MODEL = os.getenv("RETRIEVAL_REWRITE_MODEL", "gemini-3.7-flash")
+# Model for the grounded passage rerank (final choice among retrieval
+# candidates, see architect/adr/0005-grounded-passage-rerank.md). Pinned by
+# the final_top1 benchmark: gemini-3.5-flash-lite passes every threshold on
+# both rerank prompt versions (gemini-3.7-flash ties on v2 only) and is the
+# cheaper/faster stage. Independent from GEMINI_MODEL and
+# RETRIEVAL_REWRITE_MODEL so each stage can be tuned separately.
+RETRIEVAL_RERANK_MODEL = os.getenv(
+    "RETRIEVAL_RERANK_MODEL", "gemini-3.5-flash-lite"
+)
 
 TWINKLER_SYSTEM_PROMPT = os.getenv("TWINKLER_SYSTEM_PROMPT", "").strip()
 TWINKLER_CLIENT_HMAC_KEY = os.getenv("TWINKLER_CLIENT_HMAC_KEY", "").strip()

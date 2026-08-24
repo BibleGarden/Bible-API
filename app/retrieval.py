@@ -32,6 +32,11 @@ Pipeline (ScriptureRetriever.select):
    chunking, ADR 0001: section/paragraph aligned, never crossing chapters or
    titles), so the returned window needs no further expansion.
 
+select_final adds the grounded rerank stage on top (ClickUp 86cb8vw1h,
+architect/adr/0005-grounded-passage-rerank.md): Gemini chooses the best
+candidate STRICTLY from the server's list (validated index answer,
+app/passage_rerank.py); on any AI failure the retrieval top-1 is served.
+
 Privacy: prayer context and rewrite variants are never logged — only
 failure categories.
 """
@@ -45,6 +50,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from embeddings import EmbeddingUnavailable
+from passage_rerank import PassageRerankError
 from query_rewrite import QueryRewriteError, build_search_query
 
 logger = logging.getLogger(__name__)
@@ -375,12 +381,33 @@ class SelectionResult:
     rewrite_failed: bool
 
 
+@dataclass
+class FinalSelection:
+    """One passage chosen from the candidate list (grounded rerank stage).
+
+    The chosen candidate is ALWAYS an element of selection.candidates — the
+    reranker only ever returns a validated index into that list, so the
+    passage text/coordinates come from the DB, never from the model.
+    """
+
+    candidate: Candidate | None  # None only when there are no candidates
+    reason: str | None           # model diagnostic (rerank only); NOT for users
+    method: str                  # "rerank" | "fallback_top1" | "none"
+    # Why the rerank did not decide: None (it did) | "no_reranker" |
+    # "safe_pool" | "rerank_failed" | "no_candidates"
+    fallback_reason: str | None
+    selection: SelectionResult
+
+
 class ScriptureRetriever:
     """Wires the pipeline against a vector index, embedder, rewriter and DB.
 
     index           - vector_index.InMemoryVectorIndex (search())
     embedder        - embeddings.GeminiEmbeddingClient (embed_query())
     rewriter        - query_rewrite.GeminiQueryRewriter (rewrite())
+    reranker        - optional passage_rerank.GeminiPassageReranker
+                      (choose()); without it select_final() degrades to the
+                      retrieval top-1
     load_passages   - callable(translation_code: int, canonical_ids: list[str])
                       -> dict[canonical_id, PassageText-shaped dict]; the
                       production implementation reads translation_chunks.
@@ -398,6 +425,7 @@ class ScriptureRetriever:
         embedder,
         rewriter,
         load_passages,
+        reranker=None,
         lexical_indexes: dict | None = None,
         blacklist: list[BlacklistRange] | None = None,
         safe_pool: list[SafePoolRef] | None = None,
@@ -409,6 +437,7 @@ class ScriptureRetriever:
         self.index = index
         self.embedder = embedder
         self.rewriter = rewriter
+        self.reranker = reranker
         self.load_passages = load_passages
         self.lexical_indexes = lexical_indexes or {}
         self.blacklist = blacklist if blacklist is not None else load_genre_blacklist()
@@ -452,6 +481,72 @@ class ScriptureRetriever:
             rewrite_failed=rewrite_failed,
         )
 
+    def select_final(self, request: SelectionRequest) -> FinalSelection:
+        """Select candidates, then let the reranker choose the final one.
+
+        Grounding: the model only ever answers with a validated index into
+        the server's candidate list; the returned passage text always comes
+        from the DB. On ANY rerank failure (timeout, HTTP error, malformed
+        JSON, out-of-range/unknown candidate, empty response) the retrieval
+        top-1 is served instead — never an error to the user path.
+        """
+        selection = self.select(request)
+        if not selection.candidates:
+            return FinalSelection(
+                candidate=None, reason=None, method="none",
+                fallback_reason="no_candidates", selection=selection,
+            )
+        top1 = selection.candidates[0]
+        if selection.source != "retrieval":
+            # Safe pool is already the deterministic no-AI path; there is no
+            # prayer context worth reranking on (empty topic) or no AI at all.
+            return FinalSelection(
+                candidate=top1, reason=None, method="fallback_top1",
+                fallback_reason="safe_pool", selection=selection,
+            )
+        if self.reranker is None:
+            return FinalSelection(
+                candidate=top1, reason=None, method="fallback_top1",
+                fallback_reason="no_reranker", selection=selection,
+            )
+        texts = [
+            _candidate_prompt_text(candidate)
+            for candidate in selection.candidates
+        ]
+        try:
+            choice = self.reranker.choose(
+                topic=request.topic,
+                user_replies=list(request.user_replies),
+                candidate_texts=texts,
+            )
+        except PassageRerankError as exc:
+            # failure category only — never the prayer context or model text
+            logger.warning("passage rerank failed: %s", exc)
+            return FinalSelection(
+                candidate=top1, reason=None, method="fallback_top1",
+                fallback_reason="rerank_failed", selection=selection,
+            )
+        except Exception as exc:  # defensive: any AI failure -> fallback
+            logger.warning("passage rerank failed: %s", type(exc).__name__)
+            return FinalSelection(
+                candidate=top1, reason=None, method="fallback_top1",
+                fallback_reason="rerank_failed", selection=selection,
+            )
+        if not 0 <= choice.index < len(selection.candidates):
+            # The reranker validates this already; keep the belt anyway.
+            logger.warning("passage rerank returned an out-of-range index")
+            return FinalSelection(
+                candidate=top1, reason=None, method="fallback_top1",
+                fallback_reason="rerank_failed", selection=selection,
+            )
+        return FinalSelection(
+            candidate=selection.candidates[choice.index],
+            reason=choice.reason,
+            method="rerank",
+            fallback_reason=None,
+            selection=selection,
+        )
+
     # -- pipeline stages ----------------------------------------------------
 
     def _build_queries(
@@ -479,6 +574,15 @@ class ScriptureRetriever:
                 vector = self.embedder.embed_query(query)
             except EmbeddingUnavailable as exc:
                 logger.warning("query embedding failed: %s", exc)
+                if getattr(exc, "provider_down", False):
+                    # Fail fast: the provider is down for every request
+                    # right now — do not burn the full retry budget on each
+                    # remaining variant (worst case minutes before fallback).
+                    logger.warning(
+                        "embedding provider unavailable, "
+                        "skipping remaining query variants"
+                    )
+                    break
                 continue
             hits = self.index.search(
                 vector, top_k=self.fetch_k, language=language
@@ -652,6 +756,18 @@ class ScriptureRetriever:
             query_variants=[],
             rewrite_failed=False,
         )
+
+
+def _candidate_prompt_text(candidate: Candidate) -> str:
+    """Candidate text as shown to the reranker: primary translation's
+    title + text (the first passage is the language's primary corpus
+    translation — index insertion order)."""
+    if not candidate.passages:
+        return ""
+    passage = candidate.passages[0]
+    if passage.title:
+        return f"{passage.title}\n{passage.text}"
+    return passage.text
 
 
 # ---------------------------------------------------------------------------

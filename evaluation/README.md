@@ -288,3 +288,22 @@ pool, cap 4/книга и 1/глава). Результат на approved-наб
 Статус решений 5 и 6: реализованы в `app/data/safe_pool.json` и
 `app/data/genre_blacklist.json`; эталонные жанровые ловушки закреплены
 регресс-тестами `tests/test_retrieval.py`.
+
+## Финальный выбор (ClickUp 86cb8vw1h)
+
+Стадия обоснованного AI-выбора top-1 из кандидатов (grounded rerank,
+`app/passage_rerank.py`) прогоняется поверх пайплайна:
+
+```bash
+python retrieval_benchmark.py pipeline --rerank   # модель из RETRIEVAL_RERANK_MODEL
+python retrieval_benchmark.py pipeline --rerank --rerank-model gemini-3.5-flash-lite
+```
+
+Отчёт сверяет три политики top-1 с порогами `final_top1` из
+`thresholds.json`: выбор reranker'а, fallback «ранг-1 retrieval» (что увидит
+пользователь при отказе AI) и fallback «максимальный fused score».
+Неразмеченные top-1 (не совпали ни с одной эталонной ссылкой) не считаются
+ни успехом, ни провалом — печатаются отдельным списком для ручной оценки.
+Ответы reranker'а кэшируются в `pipeline_cache.json` (ключ: модель, версия
+промпта `RERANK_PROMPT_VERSION`, сценарий, hash списка кандидатов). Детали:
+`../architect/adr/0005-grounded-passage-rerank.md`.

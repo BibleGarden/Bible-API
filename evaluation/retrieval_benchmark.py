@@ -629,9 +629,14 @@ FETCH_K_DEFAULT = 50
 
 
 def _load_pipeline_cache() -> dict:
-    if PIPELINE_CACHE_FILE.exists():
-        return json.loads(PIPELINE_CACHE_FILE.read_text())
-    return {"rewrites": {}, "query_embeddings": {}}
+    cache = (
+        json.loads(PIPELINE_CACHE_FILE.read_text())
+        if PIPELINE_CACHE_FILE.exists() else {}
+    )
+    cache.setdefault("rewrites", {})
+    cache.setdefault("query_embeddings", {})
+    cache.setdefault("reranks", {})
+    return cache
 
 
 def _save_pipeline_cache(cache: dict) -> None:
@@ -741,6 +746,122 @@ def _evaluate_topk(
     )
 
 
+# ---------------------------------------------------------------------------
+# Final top-1 stage (ClickUp 86cb8vw1h): grounded rerank + fallback metrics
+# against thresholds.json final_top1.
+# ---------------------------------------------------------------------------
+
+# Safety-first: a chunk intersecting an unacceptable reference is graded
+# unacceptable even if it also touches a relevant range.
+GRADE_PRIORITY = ("unacceptable", "relevant", "acceptable")
+
+
+def _grade_chunk(
+    scenario: dict, cm: ChunkMeta, translation: int,
+    psalm_maps: dict[int, PsalmMap],
+) -> str:
+    """Grade of one chosen chunk against the scenario references
+    (thresholds matching rule); "ungraded" when it matches no reference."""
+    for grade in GRADE_PRIORITY:
+        refs = [r for r in scenario["references"] if r["grade"] == grade]
+        targets = [map_reference(r, translation, psalm_maps) for r in refs]
+        if any(chunk_matches(cm, t) for t in targets):
+            return grade
+    return "ungraded"
+
+
+def _rerank_cached(
+    scenario: dict, candidate_ids: list[str], candidate_texts: list[str],
+    reranker, model: str, cache: dict, stats: dict,
+):
+    """Reranker choice for one scenario, disk-cached like rewrites.
+
+    Returns (0-based index, reason) or None when the rerank failed (the
+    caller falls back to top-1, mirroring production select_final)."""
+    import hashlib
+
+    from passage_rerank import RERANK_PROMPT_VERSION, PassageRerankError
+
+    ids_hash = hashlib.sha1("|".join(candidate_ids).encode()).hexdigest()[:16]
+    key = (f"{model}|p{RERANK_PROMPT_VERSION}|{scenario['id']}|{ids_hash}")
+    hit = cache["reranks"].get(key)
+    if hit is not None:
+        return hit["index"], hit.get("reason", "")
+    ctx = scenario["prayer_context"]
+    stats["calls"] += 1
+    try:
+        choice = reranker.choose(
+            topic=ctx["topic"],
+            user_replies=list(ctx["user_replies"]),
+            candidate_texts=candidate_texts,
+        )
+    except PassageRerankError as exc:
+        stats["failures"] += 1
+        print(f"  [warn] rerank failed for {scenario['id']}: {exc}")
+        return None
+    cache["reranks"][key] = {"index": choice.index, "reason": choice.reason}
+    return choice.index, choice.reason
+
+
+def _final_top1_report(label: str, rows: list[dict], thresholds: dict) -> None:
+    """Evaluate one top-1 policy against thresholds.json final_top1.
+
+    Ungraded top-1s count neither as success nor failure — they are listed
+    separately for manual review (Maria)."""
+    t = thresholds["final_top1"]
+    graded = [r for r in rows if r["grade"] != "ungraded"]
+    ungraded = [r for r in rows if r["grade"] == "ungraded"]
+    n = len(graded)
+    rel = sum(r["grade"] == "relevant" for r in graded) / n if n else 0.0
+    rel_acc = sum(
+        r["grade"] in ("relevant", "acceptable") for r in graded
+    ) / n if n else 0.0
+    una_all = sum(r["grade"] == "unacceptable" for r in rows)
+    sens = [r for r in graded if r["category"] == "sensitive"]
+    sens_rel = (
+        sum(r["grade"] == "relevant" for r in sens) / len(sens)
+        if sens else 1.0
+    )
+    sens_una = sum(
+        r["grade"] == "unacceptable" for r in rows
+        if r["category"] == "sensitive"
+    )
+
+    print(f"\n=== final top-1: {label} ===")
+    print(f"graded {n}/{len(rows)} scenarios "
+          f"(ungraded listed for manual review, not counted)")
+    checks = [
+        ("relevant_share", rel, ">=", t["relevant_share_min"]),
+        ("relevant_or_acceptable", rel_acc, ">=",
+         t["relevant_or_acceptable_share_min"]),
+        ("unacceptable_share", una_all / len(rows) if rows else 0.0, "<=",
+         t["unacceptable_share_max"]),
+        ("sensitive_relevant_share", sens_rel, ">=",
+         t["sensitive_relevant_share_min"]),
+        ("sensitive_unacceptable", sens_una / len(rows) if rows else 0.0,
+         "<=", t["sensitive_unacceptable_share_max"]),
+    ]
+    for name, value, op, limit in checks:
+        ok = value >= limit if op == ">=" else value <= limit
+        print(f"  threshold {name}: {value:.3f} {op} {limit} "
+              f"-> {'PASS' if ok else 'FAIL'}")
+    by_grade = {}
+    for r in rows:
+        by_grade[r["grade"]] = by_grade.get(r["grade"], 0) + 1
+    print(f"  grades: {by_grade}")
+    bad = [r for r in graded if r["grade"] != "relevant"]
+    if bad:
+        print("  non-relevant graded top-1:")
+        for r in bad:
+            print(f"    {r['scenario_id']:<8} [{r['category']}] "
+                  f"{r['grade']:<12} {r['chosen']}  {r.get('reason', '')}")
+    if ungraded:
+        print("  ungraded top-1 (manual review):")
+        for r in ungraded:
+            print(f"    {r['scenario_id']:<8} [{r['category']}] "
+                  f"{r['chosen']}  reason: {r.get('reason', '')}")
+
+
 def _rrf_fuse(variant_hits: list[list[tuple[str, float]]], k: int = 60):
     """Reciprocal-rank fusion alternative to retrieval.fuse_variant_hits."""
     from retrieval import FusedHit
@@ -803,6 +924,46 @@ def cmd_pipeline(args) -> None:
     rewriter = GeminiQueryRewriter(
         api_key=api_key, model=rewrite_model, variants=args.variants
     )
+
+    # --- final top-1 stage: rerank (optional) + fallback policies (free)
+    reranker = None
+    rerank_model = ""
+    rerank_rows: list[dict] | None = None
+    rerank_stats = {"calls": 0, "failures": 0}
+    if args.rerank:
+        from config import RETRIEVAL_RERANK_MODEL
+        from passage_rerank import GeminiPassageReranker
+
+        rerank_model = args.rerank_model or RETRIEVAL_RERANK_MODEL
+        reranker = GeminiPassageReranker(api_key=api_key, model=rerank_model)
+        rerank_rows = []
+    fb_rank_rows: list[dict] = []    # retrieval rank-1 (interleave order)
+    fb_score_rows: list[dict] = []   # best fused cosine
+
+    # candidate text exactly as production shows it to the reranker
+    # (retrieval._candidate_prompt_text: "title\ntext" of the primary
+    # translation)
+    chunk_prompt_text: dict[tuple[int, str], str] = {}
+    with CHUNKS_FILE.open() as fh:
+        for line in fh:
+            row = json.loads(line)
+            title = (row.get("title") or "").strip()
+            chunk_prompt_text[(row["translation"], row["canonical_id"])] = (
+                f"{title}\n{row['text']}" if title else row["text"]
+            )
+
+    def top1_row(scenario: dict, cm: ChunkMeta, method: str,
+                 reason: str = "") -> dict:
+        _v, book, chapter, vs, ve = parse_canonical_id(cm.canonical_id)
+        return {
+            "scenario_id": scenario["id"],
+            "category": scenario["category"],
+            "grade": _grade_chunk(scenario, cm, cm.translation, psalm_maps),
+            "chosen": f"{cm.canonical_id} "
+                      f"(canonical {book} {chapter}:{vs}-{ve})",
+            "method": method,
+            "reason": reason,
+        }
 
     lexical: dict[int, LexicalIndex] = {}
     if not args.no_lexical:
@@ -874,6 +1035,13 @@ def cmd_pipeline(args) -> None:
                     "scenario_id": scenario["id"], "source": "safe_pool",
                     "queries": [], "top": pool_ids,
                 })
+                if top_metas:
+                    # production select_final: safe pool -> top-1, no rerank
+                    row = top1_row(scenario, top_metas[0], "safe_pool")
+                    fb_rank_rows.append(row)
+                    fb_score_rows.append(dict(row))
+                    if rerank_rows is not None:
+                        rerank_rows.append(dict(row))
                 continue
 
             # --- rewrite (unless ablated)
@@ -923,9 +1091,34 @@ def cmd_pipeline(args) -> None:
                     for h in final
                 ],
             })
+            if not top_metas:
+                continue
+            fb_rank_rows.append(
+                top1_row(scenario, top_metas[0], "fallback_rank1"))
+            best = max(range(len(final)), key=lambda i: final[i].score)
+            fb_score_rows.append(
+                top1_row(scenario, top_metas[best], "fallback_score"))
+            if rerank_rows is not None:
+                texts_for_prompt = [
+                    chunk_prompt_text[(code, h.canonical_id)] for h in final
+                ]
+                got = _rerank_cached(
+                    scenario, [h.canonical_id for h in final],
+                    texts_for_prompt, reranker, rerank_model, cache,
+                    rerank_stats,
+                )
+                if got is None or not 0 <= got[0] < len(top_metas):
+                    # production fallback: any rerank failure -> rank-1
+                    rerank_rows.append(
+                        top1_row(scenario, top_metas[0], "fallback_rank1"))
+                else:
+                    rerank_rows.append(top1_row(
+                        scenario, top_metas[got[0]], "rerank", got[1]))
     finally:
         _save_pipeline_cache(cache)
         rewriter.close()
+        if reranker is not None:
+            reranker.close()
 
     label = (
         f"pipeline rewrite={'off' if args.no_rewrite else rewrite_model}"
@@ -937,12 +1130,28 @@ def cmd_pipeline(args) -> None:
     )
     print_report(label, results, {"rewrite_failures": rewrite_failures},
                  thresholds)
+    if rerank_rows is not None:
+        print(f"\nrerank: model={rerank_model} fresh_calls="
+              f"{rerank_stats['calls']} failures={rerank_stats['failures']}")
+        _final_top1_report(f"rerank {rerank_model}", rerank_rows, thresholds)
+    _final_top1_report(
+        "fallback rank-1 (retrieval order, no AI rerank)",
+        fb_rank_rows, thresholds)
+    _final_top1_report(
+        "fallback max-score (best fused cosine, no AI rerank)",
+        fb_score_rows, thresholds)
     if args.json_out:
         payload = {
             "config": label,
             "aggregate": aggregate(results, "ALL").__dict__,
             "scenarios": [r.__dict__ for r in results],
             "details": per_scenario,
+            "final_top1": {
+                "rerank_model": rerank_model,
+                "rerank": rerank_rows,
+                "fallback_rank1": fb_rank_rows,
+                "fallback_max_score": fb_score_rows,
+            },
         }
         Path(args.json_out).write_text(
             json.dumps(payload, ensure_ascii=False, indent=1))
@@ -997,6 +1206,12 @@ def main() -> None:
     p.add_argument("--rewrite-model", default="",
                    help="Gemini model for rewriting "
                         "(default: production RETRIEVAL_REWRITE_MODEL)")
+    p.add_argument("--rerank", action="store_true",
+                   help="run the grounded final-choice stage (Gemini) and "
+                        "evaluate final_top1 thresholds")
+    p.add_argument("--rerank-model", default="",
+                   help="Gemini model for the final choice "
+                        "(default: production RETRIEVAL_RERANK_MODEL)")
     p.add_argument("--cache-tag", default="",
                    help="extra rewrite-cache key part (stability re-sampling)")
     p.add_argument("--json-out", default="")

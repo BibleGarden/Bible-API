@@ -26,6 +26,7 @@ from chunking import CHUNKING_VERSION
 from database import create_connection
 from embeddings import GeminiEmbeddingClient
 from lexical_index import load_lexical_indexes
+from passage_rerank import GeminiPassageReranker
 from query_rewrite import GeminiQueryRewriter
 from retrieval import (
     ScriptureRetriever,
@@ -46,11 +47,15 @@ def cmd_select(args) -> int:
         print("Vector index is empty — run app/index_cli.py rebuild first")
         return 1
     lexical = load_lexical_indexes(cursor, CHUNKING_VERSION)
-    with GeminiEmbeddingClient() as embedder, GeminiQueryRewriter() as rewriter:
+    final = None
+    with GeminiEmbeddingClient() as embedder, \
+            GeminiQueryRewriter() as rewriter, \
+            GeminiPassageReranker() as reranker:
         retriever = ScriptureRetriever(
             index=index,
             embedder=embedder,
             rewriter=rewriter,
+            reranker=reranker if args.final else None,
             load_passages=make_db_passage_loader(cursor),
             lexical_indexes=lexical,
         )
@@ -63,8 +68,21 @@ def cmd_select(args) -> int:
             ),
             top_k=args.top_k,
         )
-        result = retriever.select(request)
+        if args.final:
+            final = retriever.select_final(request)
+            result = final.selection
+        else:
+            result = retriever.select(request)
 
+    if final is not None:
+        chosen = (
+            final.candidate.canonical_id if final.candidate else "(none)"
+        )
+        print(f"final: {chosen}  method={final.method}"
+              + (f" fallback={final.fallback_reason}"
+                 if final.fallback_reason else ""))
+        if final.reason:
+            print(f"final reason (diagnostic): {final.reason}")
     print(f"source: {result.source}"
           + (f" (fallback: {result.fallback_reason})"
              if result.fallback_reason else ""))
@@ -111,6 +129,8 @@ def main() -> None:
     p.add_argument("--exclude", default="",
                    help="comma-separated canonical IDs already shown")
     p.add_argument("--top-k", type=int, default=10)
+    p.add_argument("--final", action="store_true",
+                   help="also run the grounded rerank (select_final)")
     p.add_argument("--show-text", action="store_true")
     p.set_defaults(func=cmd_select)
 

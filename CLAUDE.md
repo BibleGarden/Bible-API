@@ -42,7 +42,8 @@ docker exec bible-api bash -c "cd /code && PYTHONPATH=app python3 extract-openap
 - **`index_cli.py`** — CLI that (re)builds the vector index idempotently (`rebuild`/`status`/`search`)
 - **`query_rewrite.py`** — Gemini rewrite of prayer context into scripture-register query variants (see `architect/adr/0004-retrieval-pipeline.md`)
 - **`lexical_index.py`** — in-process BM25 over chunks, the hybrid lexical signal
-- **`retrieval.py`** — retrieval pipeline: interleave fusion, global genre blacklist (`data/genre_blacklist.json`), safe pool (`data/safe_pool.json`), diversity, `ScriptureRetriever` service
+- **`retrieval.py`** — retrieval pipeline: interleave fusion, global genre blacklist (`data/genre_blacklist.json`), safe pool (`data/safe_pool.json`), diversity, `ScriptureRetriever` service; `select_final` adds the grounded rerank with top-1 fallback
+- **`passage_rerank.py`** — grounded AI choice of the final passage among retrieval candidates: validated index-only answer, JSON schema, injection-hardened prompt (see `architect/adr/0005-grounded-passage-rerank.md`)
 - **`retrieval_cli.py`** — end-to-end retrieval smoke CLI (`select`)
 - **`database.py`** — MySQL connection factory
 - **`config.py`** — Environment variable loading

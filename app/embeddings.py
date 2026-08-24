@@ -56,7 +56,19 @@ _RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
 
 
 class EmbeddingUnavailable(RuntimeError):
-    """The embedding backend is not configured or not reachable."""
+    """The embedding backend is not configured or not reachable.
+
+    provider_down=True marks failures that would equally hit any other
+    request right now (no API key, retries exhausted on 429/5xx/transport
+    errors): callers embedding several texts fail fast instead of burning
+    the full retry budget per text (retrieval m2). provider_down=False
+    marks request-specific failures (non-retryable HTTP status, malformed
+    response body) — other texts may still succeed.
+    """
+
+    def __init__(self, message: str, provider_down: bool = False):
+        super().__init__(message)
+        self.provider_down = provider_down
 
 
 def normalize(vector: list[float]) -> list[float]:
@@ -121,7 +133,9 @@ class GeminiEmbeddingClient:
 
     def _embed_one(self, text: str, task_type: str) -> list[float]:
         if not self.config.api_key:
-            raise EmbeddingUnavailable("GEMINI_API_KEY is not configured")
+            raise EmbeddingUnavailable(
+                "GEMINI_API_KEY is not configured", provider_down=True
+            )
         url = GEMINI_EMBED_URL.format(model=self.config.model)
         body = {
             # The API rejects empty content; a single space is a harmless
@@ -131,6 +145,7 @@ class GeminiEmbeddingClient:
             "outputDimensionality": self.config.dimensions,
         }
         last_error = "unknown error"
+        provider_down = False
         for attempt in range(_MAX_RETRIES):
             last_attempt = attempt + 1 == _MAX_RETRIES
             try:
@@ -141,9 +156,26 @@ class GeminiEmbeddingClient:
                 )
             except httpx.HTTPError as exc:
                 last_error = f"transport error: {exc}"
+                provider_down = True
             else:
                 if response.status_code == 200:
-                    values = response.json().get("embedding", {}).get("values")
+                    # An HTTP 200 with a broken body must surface as
+                    # EmbeddingUnavailable, not json.JSONDecodeError, so
+                    # retrieval degrades to its fallback (retrieval m3).
+                    try:
+                        payload = response.json()
+                    except ValueError as exc:
+                        raise EmbeddingUnavailable(
+                            "invalid JSON in embedding response"
+                        ) from exc
+                    embedding = (
+                        payload.get("embedding") if isinstance(payload, dict)
+                        else None
+                    )
+                    values = (
+                        embedding.get("values") if isinstance(embedding, dict)
+                        else None
+                    )
                     if not values or len(values) != self.config.dimensions:
                         raise EmbeddingUnavailable(
                             "unexpected embedding size: "
@@ -151,6 +183,7 @@ class GeminiEmbeddingClient:
                         )
                     return normalize(values)
                 last_error = f"HTTP {response.status_code}: {response.text[:200]}"
+                provider_down = response.status_code in _RETRYABLE_STATUS
                 if response.status_code not in _RETRYABLE_STATUS or last_attempt:
                     break
                 backoff = min(
@@ -163,4 +196,6 @@ class GeminiEmbeddingClient:
             if last_attempt:  # no pointless backoff before giving up
                 break
             self._sleep(min(_RETRY_BASE_SECONDS * (2 ** attempt), _RETRY_MAX_SECONDS))
-        raise EmbeddingUnavailable(f"Gemini embedding failed: {last_error}")
+        raise EmbeddingUnavailable(
+            f"Gemini embedding failed: {last_error}", provider_down=provider_down
+        )
