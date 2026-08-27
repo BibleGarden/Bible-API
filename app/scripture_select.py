@@ -4,9 +4,11 @@ Public scripture-selection API for the mobile app (ClickUp 86cb8vw1m).
 `POST /api/scripture/v1/select` turns a prayer context (topic + the replies
 the person picked in the Twinkler dialog) into ONE Bible passage: canonical
 coordinates, the exact text of the chosen translation from `cep_public`,
-a stable canonical ID the client stores to avoid repeats, and optionally
-the key verses to emphasise inside it (`highlight`, ADR 0005 prompt v9 —
-numbers only, resolved against the versification table).
+a stable canonical ID the client stores to avoid repeats, the passage's own
+verse boundaries (`passage.verses`) so the client can place a highlight
+deterministically, and optionally the key verses to emphasise inside it
+(`highlight`, ADR 0005 prompt v9 — numbers only, resolved against the
+versification table).
 
 Everything behind it already exists and is benchmarked: the retrieval
 pipeline (ADR 0004) and the grounded rerank (ADR 0005). This module is the
@@ -232,6 +234,41 @@ class CanonicalRange(BaseModel):
     verse_end: int = Field(description="Last canonical verse", examples=[6])
 
 
+class VerseModel(BaseModel):
+    """One verse of `passage.text`, in the returned translation's numbering."""
+
+    number: int = Field(
+        description=(
+            "Verse number in the numbering of the translation this passage is "
+            "returned in — the SAME numbering as `highlight.passage`, so a "
+            "highlight is applied by selecting the verses whose `number` lies "
+            "between `highlight.passage.verse_start` and `verse_end` "
+            "inclusive. It is not a position in the list: a passage may start "
+            "mid-chapter, a Psalm superscription is verse 1 wherever the "
+            "translation counts it (`syn`, `bti`, `ubh`) and absent where it "
+            "does not (`bsb`), and the numbering may have HOLES where the "
+            "translation carries several canonical verses in one (`bti` has "
+            "no Genesis 35:10 — its verse 9 says both). When a `highlight` is "
+            "served together with these verses, its boundary numbers are "
+            "guaranteed to occur among them; a highlight whose ends fall into "
+            "such a hole is omitted instead."
+        ),
+        examples=[6],
+    )
+    text: str = Field(
+        description="Exact verse text from the database, whitespace-trimmed.",
+    )
+    paragraph_start: bool = Field(
+        description=(
+            "True when this verse opens a paragraph of `passage.text` (its "
+            "own paragraph flag, a section title standing before it, or its "
+            "being the first verse of the passage). Joining the verses of a "
+            "paragraph with single spaces and the paragraphs with a blank "
+            "line reproduces `passage.text` exactly."
+        ),
+    )
+
+
 class PassageModel(BaseModel):
     """The passage as it exists in the requested translation."""
 
@@ -248,6 +285,49 @@ class PassageModel(BaseModel):
         "translation has one"
     )
     text: str = Field(description="Exact passage text from the database")
+    # SkipJsonSchema for the same reason as `SelectResponse.highlight`: the
+    # serializer below drops the key when the verse breakdown is unavailable,
+    # so `null` is not a value this endpoint can return and the published
+    # schema must not offer it.
+    verses: list[VerseModel] | SkipJsonSchema[None] = Field(
+        default=None,
+        description=(
+            "The same text split into its verses, in order — the passage's "
+            "verse boundaries, so the client can place `highlight` (or any "
+            "other per-verse decoration) deterministically instead of "
+            "guessing where a verse begins.\n\n"
+            "`text` and every other field are unchanged by this: the verses "
+            "are an additional view of the SAME passage, read from the same "
+            "database rows the text was assembled from. Their `number`s are "
+            "in the numbering of the returned translation and therefore "
+            "directly comparable with `highlight.passage`.\n\n"
+            "The KEY IS ABSENT ENTIRELY (never present with a null value, "
+            "never an empty list) in the degraded case where the server has "
+            "the passage text but not its verse breakdown — the verse load "
+            "failed, or the passage is a chunk of an indexed translation "
+            "other than the one the candidates were rendered in. Clients "
+            "must fall back to `text` then.\n\n"
+            "This field and `highlight` are independent: a response may "
+            "carry a `highlight` and no `verses` (the case above, reachable "
+            "once a language has a second indexed translation), `verses` and "
+            "no `highlight`, both, or neither. Do not make the presence of "
+            "one imply the other — locate the highlight in `text` when the "
+            "verses are absent."
+        ),
+    )
+
+    @model_serializer(mode="wrap")
+    def _drop_absent_verses(self, handler):
+        """Omit `verses` entirely when the breakdown is unavailable.
+
+        Additivity: a client written against the previous contract must
+        receive the exact same bytes it did before, so an unavailable verse
+        list is an absent KEY, not a `null` and not an empty array.
+        """
+        payload = handler(self)
+        if payload.get("verses") is None:
+            payload.pop("verses", None)
+        return payload
 
 
 class HighlightCanonical(BaseModel):
@@ -279,7 +359,10 @@ class HighlightModel(BaseModel):
     """Key verses inside `passage` — 1 to 3 verses carrying its central
     thought for this prayer, chosen by the same grounded AI call that chose
     the passage. `passage` coordinates are always a real sub-range of the
-    returned passage.
+    returned passage, and whenever `passage.verses` is served as well, both
+    boundary numbers of that range occur among those verses (a translation
+    that merges canonical verses leaves holes in its numbering; a highlight
+    that would end in one is omitted rather than served unfindable).
 
     `canonical` describes the same text in the canonical numbering and MAY
     span more than 3 verses: a translation verse that merges several
@@ -1168,6 +1251,43 @@ def build_highlight(
     )
 
 
+def build_passage_verses(passage) -> list[VerseModel] | None:
+    """Verse boundaries of the passage actually served, or None.
+
+    The verses come from the SAME object the text does — the chunk of an
+    indexed translation whose verses the pipeline loaded
+    (`retrieval.make_db_verse_loader`), or the own-range rendering of a
+    non-indexed one (`passage_render.render_passage`) — so the numbering is
+    the returned translation's own, exactly like `highlight.passage`, and no
+    second interpretation of the passage can drift from the first.
+
+    `paragraph_start` reports the paragraph structure of `passage.text`, which
+    `chunking.build_text` derives from exactly two rules: the verse's own
+    `start_paragraph` flag and a section title standing before it
+    (`VerseText.title_break`). The first verse always opens a paragraph. So
+    `build_text` over these verses reproduces `passage.text` byte for byte.
+
+    None when the passage carries no verses: the caller then omits the field
+    rather than serving an empty list. That happens when the verse loader
+    failed (best effort by design — it also powers the highlight), when the
+    pipeline ran without one at all, or when the served chunk is not the one
+    the candidates were rendered in (only reachable with a second indexed
+    translation per language, which the corpus does not have today).
+    """
+    if not passage.verses:
+        return None
+    return [
+        VerseModel(
+            number=verse.verse_number,
+            text=verse.text,
+            paragraph_start=bool(
+                index == 0 or verse.start_paragraph or verse.title_break
+            ),
+        )
+        for index, verse in enumerate(passage.verses)
+    ]
+
+
 def indexed_passage(candidate, translation: int):
     """The candidate's own chunk in a translation, when it has one."""
     if candidate is None:
@@ -1232,6 +1352,7 @@ def build_response(
             verse_end=passage.verse_number_end,
             title=passage.title,
             text=passage.text,
+            verses=build_passage_verses(passage),
         ),
         highlight=build_highlight(final, passage, psalm_maps),
         source=source,
@@ -1254,6 +1375,13 @@ def build_response(
         "translation taken from the database — the AI stage only picks "
         "among candidates the server retrieved, it never produces "
         "scripture text or references itself.\n\n"
+        "`passage.verses` carries the same text split into its verses, in "
+        "the returned translation's own numbering — the same numbering "
+        "`highlight.passage` speaks, so the key verses are placed by "
+        "matching `number`, never by counting characters or guessing verse "
+        "boundaries inside `text`. It is omitted (never null, never empty) "
+        "in the rare case where the server has the text but not the "
+        "breakdown.\n\n"
         "`highlight` is optional: when the AI stage also marked the key "
         "verses of the passage (1-3 verses), it carries their canonical "
         "and translation coordinates — the translation ones always inside "

@@ -324,9 +324,16 @@ def load_section_title(
 
 def load_range_verses(
     cursor, translation_code: int, book_number: int, chapter_number: int,
-    first: int, last: int,
+    first: int, last: int, title_verses: set[int] | None = None,
 ) -> list[VerseText]:
-    """Non-empty verses of a range, in order (chunking's text semantics)."""
+    """Non-empty verses of a range, in order (chunking's text semantics).
+
+    `title_verses` (from `title_verses_of_range`) marks the verses a section
+    title stands before: `build_text` opens a paragraph there too, so the flag
+    is carried on the verse itself as `title_break` for the public passage to
+    report.
+    """
+    titled = title_verses or set()
     cursor.execute(
         """
         SELECT verse_number, text, start_paragraph
@@ -342,6 +349,7 @@ def load_range_verses(
             verse_number=row["verse_number"],
             text=row["text"].strip(),
             start_paragraph=bool(row["start_paragraph"]),
+            title_break=row["verse_number"] in titled,
         )
         for row in cursor.fetchall()
         if row["text"].strip()
@@ -390,14 +398,15 @@ def render_passage(
     if mapped is None:
         return None
     chapter, first, last = mapped
-    verses = load_range_verses(
-        cursor, translation_code, book_number, chapter, first, last
-    )
-    if not verses:
-        return None
     title_verses = title_verses_of_range(
         cursor, translation_code, book_number, chapter, first, last
     )
+    verses = load_range_verses(
+        cursor, translation_code, book_number, chapter, first, last,
+        title_verses,
+    )
+    if not verses:
+        return None
     text = build_text(verses, title_verses)
     if not text:
         return None

@@ -20,9 +20,10 @@ stored, verified one — `cep_public.psalm_verse_mappings`, produced by
 
 Any coordinate that cannot be mapped exactly (missing psalm mapping, a span
 straddling two canonical chapters, a superscription that the canon does not
-number, a mapped range falling outside the passage that is actually served)
-yields None: the passage is then served WITHOUT a highlight rather than with
-a guessed reference.
+number, a mapped range falling outside the passage that is actually served,
+a boundary number that passage does not number at all) yields None: the
+passage is then served WITHOUT a highlight rather than with a guessed
+reference.
 
 One deliberate asymmetry: a highlight is at most 3 verses in the numbering
 the model saw, but a canonical span may come out LONGER — a translation
@@ -139,6 +140,31 @@ def _inside_passage(passage, span: VerseSpan) -> bool:
     )
 
 
+def _numbered_in_passage(passage, span: VerseSpan) -> bool:
+    """Do the span's boundary numbers actually occur in the passage's verses?
+
+    `_inside_passage` compares the span with the FIRST and the LAST verse of
+    the passage, and a range is not a set. A translation that carries two
+    canonical verses in one leaves a HOLE in its own numbering — `bti` has no
+    Genesis 35:10, its verse 9 says both — and a span converted from another
+    translation's numbering can land exactly in such a hole. Outside the
+    Psalms the conversion is the identity, so nothing before this point had
+    any reason to notice.
+
+    The public contract promises that a highlight served next to `verses`
+    names numbers a client can find there, so a boundary the served passage
+    does not number yields no highlight at all — the same fail-closed rule
+    the rest of the ladder follows. Inside the Psalms the mapping table
+    already answers per verse and this check agrees with it. A passage
+    carrying no verse list promises nothing (the client only gets `text`),
+    so there is nothing to check against.
+    """
+    if not passage.verses:
+        return True
+    numbers = {verse.verse_number for verse in passage.verses}
+    return span.verse_start in numbers and span.verse_end in numbers
+
+
 def resolve_highlight(
     book_number: int,
     prompt_passage,
@@ -155,7 +181,9 @@ def resolve_highlight(
     The bounds are re-checked here as well: this function is the last place
     before the public contract, and it must never build a range out of an
     index it was not given verses for, nor hand back a range that is not
-    inside the passage actually served (`_inside_passage`).
+    inside the passage actually served (`_inside_passage`), nor one whose
+    ends that passage does not number at all (`_numbered_in_passage` — the
+    check that makes the published `verses` guarantee true).
     """
     psalm_maps = psalm_maps or {}
     verses = getattr(prompt_passage, "verses", None) or []
@@ -180,6 +208,8 @@ def resolve_highlight(
         )
         if target is None or not _inside_passage(target_passage, target):
             return None
+    if not _numbered_in_passage(target_passage, target):
+        return None
     return Highlight(canonical=canonical, passage=target)
 
 

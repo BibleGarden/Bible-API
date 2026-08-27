@@ -46,7 +46,11 @@ Response:
     "book_number": 19, "chapter_number": 22,
     "verse_start": 1, "verse_end": 6,
     "title": "Псалом Давида",
-    "text": "Господь — Пастырь мой; я ни в чем не буду нуждаться…"
+    "text": "Господь — Пастырь мой; я ни в чем не буду нуждаться…",
+    "verses": [
+      {"number": 1, "text": "Господь — Пастырь мой; я ни в чем не буду нуждаться:", "paragraph_start": true},
+      {"number": 2, "text": "Он покоит меня на злачных пажитях…", "paragraph_start": false}
+    ]
   },
   "highlight": {
     "canonical": {
@@ -67,6 +71,44 @@ translation's own numbering — the two differ for Psalms. The text is read
 from the database; the AI stage only picks among candidates the server
 retrieved and can never introduce a passage, a reference or scripture text
 of its own.
+
+## Verse boundaries (`passage.verses`)
+
+`passage.text` is the passage as one string. `passage.verses` is the same
+text split into its verses, in order, so the client can decorate individual
+verses — first of all `highlight` — without parsing the text or counting
+characters:
+
+| field | meaning |
+|---|---|
+| `number` | verse number **in the numbering of the returned translation**, i.e. the same numbering `highlight.passage` speaks. Not a position in the list: a passage may start mid-chapter, a Psalm superscription is verse 1 wherever the translation counts it (`syn`, `bti`, `ubh`) and absent where it does not (`bsb`), and the numbering may have **holes** where the translation carries several canonical verses in one (`bti` has no Genesis 35:10 — its verse 9 says both) |
+| `text` | the verse text, whitespace-trimmed, exactly as stored |
+| `paragraph_start` | true when the verse opens a paragraph of `passage.text` |
+
+Rendering rule: **highlight by `number`**. The verses to emphasise are
+those whose `number` lies between `highlight.passage.verse_start` and
+`verse_end` inclusive; the two fields are guaranteed to be in the same
+coordinate system, because they are read from the same database rows.
+
+`verses` and `highlight` are **independent fields**. A response may carry
+both, either one alone, or neither: in particular a `highlight` can arrive
+without `verses` in the degraded case below, and the client must then find
+the verses in `text` itself. Presence of one never implies presence of the
+other.
+
+Joining the verses of a paragraph with single spaces and the paragraphs
+with a blank line reproduces `passage.text` byte for byte (the rule
+`chunking.build_text` uses, tested over the live corpus). A client can
+therefore render the passage entirely from `verses` and ignore `text`, or
+use `text` and only take the boundaries from `verses`.
+
+The field is **additive**: every previously published field of `passage`
+keeps its value and its meaning. It is **omitted entirely** (never `null`,
+never an empty array) in the degraded case where the server has the passage
+text but not its verse breakdown — the verse query failed, or the served
+chunk belongs to an indexed translation other than the one the candidates
+were rendered in (not reachable with today's one indexed translation per
+language). Clients must fall back to `text` then.
 
 ## Available translations
 
@@ -119,7 +161,11 @@ of the passage for this prayer, so the client can emphasise them. Both
 coordinate systems are given, in the same shape as above: `canonical` for
 storing and comparing, `passage` for locating the verses inside the text
 just returned. The `passage` range is always a real sub-range of the
-passage returned, and never longer than 3 verses. `canonical` names the
+passage returned — and when `passage.verses` is present as well, both its
+boundary numbers are guaranteed to occur among those verses, so the client
+always finds where the highlight begins and ends; a highlight that could
+not satisfy this is omitted (see below). It is never longer than 3 verses.
+`canonical` names the
 same words and can be slightly wider: where the translation merges verses
 the canon numbers separately, one translation verse maps onto several
 canonical ones (syn 114:8 is canonical 116:8-9), so a 3-verse highlight can
@@ -137,7 +183,13 @@ unchanged. There is no highlight when
   mapping is missing, a highlighted Psalm superscription, which the
   canonical numbering does not number, or a span that lands outside the
   passage after being converted into the numbering of a translation other
-  than the one the AI stage read.
+  than the one the AI stage read;
+- the converted span ends on a number the served translation does not have
+  at all. Translations merge verses the canon numbers separately, which
+  leaves holes in their numbering: a key verse the AI marked in `syn`
+  (Genesis 35:10) may simply not exist in `bti`, whose verse 9 carries both.
+  The range would be inside the passage and still unfindable in its verses,
+  so it is dropped — better no highlight than one the client cannot locate.
 
 Like the passage itself, the highlight is numbers only: the model answers
 with positions of verses the server put in front of it, and the server

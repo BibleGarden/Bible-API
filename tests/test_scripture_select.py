@@ -202,6 +202,12 @@ def test_returns_canonical_coordinates_title_and_translation_text():
         "verse_end": 6,
         "title": "Псалом Давида",
         "text": PASSAGE_TEXT,
+        # additive (ClickUp 86cbb1mq7): the passage's own verse boundaries,
+        # in the numbering of the translation the passage is returned in
+        "verses": [
+            {"number": n, "text": f"стих {n}", "paragraph_start": n == 1}
+            for n in range(1, 7)
+        ],
     }
     assert body["source"] == "rerank"
     assert body["fallback_reason"] is None
@@ -766,6 +772,290 @@ def test_the_highlight_never_leaks_the_prayer_context(monkeypatch, caplog):
     assert TOPIC not in response.text and REPLY not in response.text
     for secret in PRIVATE_STRINGS:
         assert secret not in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# Verse boundaries of the passage (ClickUp 86cbb1mq7, additive)
+# ---------------------------------------------------------------------------
+# The client places `highlight.passage` on the text by verse NUMBER; without
+# the boundaries it would have to guess where a verse begins. The rule tested
+# throughout: reassembling `passage.verses` with `chunking.build_text` gives
+# `passage.text` back, byte for byte, on every path.
+
+# A passage whose text really is the rendering of its verses: verse 3 carries
+# a section title, which `build_text` breaks the paragraph at even though the
+# verse's own `start_paragraph` is false (the `ubh` case of the live corpus).
+CONSISTENT_VERSES = [
+    VerseText(1, "Не заботьтесь ни о чем", start_paragraph=True),
+    VerseText(2, "но всегда в молитве"),
+    VerseText(3, "и мир Божий", title_break=True),
+    VerseText(4, "соблюдет сердца ваши", start_paragraph=True),
+]
+CONSISTENT_TEXT = (
+    "Не заботьтесь ни о чем но всегда в молитве\n\n"
+    "и мир Божий\n\nсоблюдет сердца ваши"
+)
+
+
+def reassemble(verses: list[dict]) -> str:
+    """`passage.verses` -> text, by exactly the rules that produced it."""
+    from chunking import Verse, build_text
+
+    return build_text(
+        [
+            Verse(
+                verse_number=verse["number"],
+                text=verse["text"],
+                start_paragraph=verse["paragraph_start"],
+            )
+            for verse in verses
+        ],
+        set(),
+    )
+
+
+def consistent_candidate(translation: int = 1, alias: str = "syn"):
+    candidate = make_candidate("v3:50.004.006-009")
+    candidate.book_number, candidate.chapter_number = 50, 4
+    candidate.verse_start, candidate.verse_end = 6, 9
+    candidate.passages = [
+        PassageText(
+            translation=translation, alias=alias, book_number=50,
+            chapter_number=4, verse_number_start=1, verse_number_end=4,
+            title="Радуйтесь", text=CONSISTENT_TEXT,
+            verses=list(CONSISTENT_VERSES),
+        )
+    ]
+    return candidate
+
+
+def test_the_passage_carries_its_verse_boundaries():
+    body = post({"language": "ru", "topic": TOPIC}).json()
+
+    assert [verse["number"] for verse in body["passage"]["verses"]] == [
+        1, 2, 3, 4, 5, 6
+    ]
+    assert body["passage"]["verses"][0]["text"] == "стих 1"
+
+
+def test_the_verses_reassemble_into_the_passage_text_on_the_primary_path(
+    monkeypatch,
+):
+    """Contract: `build_text` over the returned verses IS `passage.text` —
+    the two are the same database rows seen twice, never two renderings."""
+    monkeypatch.setattr(
+        scripture_select, "_run_selection",
+        Mock(return_value=make_final(candidate=consistent_candidate())),
+    )
+
+    passage = post({"language": "ru", "topic": TOPIC}).json()["passage"]
+
+    assert passage["text"] == CONSISTENT_TEXT
+    assert reassemble(passage["verses"]) == passage["text"]
+    # the paragraph flags are the two rules build_text uses, plus the opening
+    # verse: own flag, section title, first verse
+    assert [verse["paragraph_start"] for verse in passage["verses"]] == [
+        True, False, True, True
+    ]
+
+
+def test_the_verses_reassemble_into_the_passage_text_on_the_render_path(
+    monkeypatch,
+):
+    """ADR 0007: a translation with no chunk is served from `render_passage`,
+    and its verses must come from that same rendering — the BTI reader gets
+    BTI verses, not the reference translation's."""
+    rendered = PassageText(
+        translation=11, alias="bti", book_number=50, chapter_number=4,
+        verse_number_start=1, verse_number_end=4, title="Радуйтесь",
+        text=CONSISTENT_TEXT, verses=list(CONSISTENT_VERSES),
+    )
+    monkeypatch.setattr(
+        scripture_select, "get_resources", lambda: catalogue_resources()
+    )
+    monkeypatch.setattr(
+        scripture_select, "_render_target_passage", Mock(return_value=rendered)
+    )
+
+    passage = post(
+        {"language": "ru", "topic": TOPIC, "translation": 11}
+    ).json()["passage"]
+
+    assert passage["translation_alias"] == "bti"
+    assert reassemble(passage["verses"]) == passage["text"]
+
+
+def test_the_safe_pool_passage_carries_its_verses_too(monkeypatch):
+    """The no-AI path answers with a passage like any other, so it answers
+    with its verse boundaries like any other."""
+    body = select_with_highlight(
+        monkeypatch, None, method="fallback_top1",
+        fallback_reason="safe_pool", source="safe_pool",
+        selection_reason="empty_topic",
+        candidate=consistent_candidate(),
+    ).json()
+
+    assert body["source"] == "safe_pool"
+    assert "highlight" not in body
+    assert reassemble(body["passage"]["verses"]) == body["passage"]["text"]
+
+
+def test_the_verse_numbers_are_the_ones_the_highlight_speaks(monkeypatch):
+    """The whole point: `highlight.passage` is applied by matching `number`.
+
+    The chunk starts at syn 22:3, so markers 2-3 are verses 4-5 — and those
+    numbers must be findable in `verses`, not inferred from list positions.
+    """
+    candidate = make_candidate()
+    candidate.passages[0].verses = psalm_verses(range(3, 7))
+    candidate.passages[0].verse_number_start = 3
+
+    body = select_with_highlight(
+        monkeypatch, (2, 3), candidate=candidate
+    ).json()
+
+    numbers = [verse["number"] for verse in body["passage"]["verses"]]
+    highlight = body["highlight"]["passage"]
+    assert numbers == [3, 4, 5, 6]
+    assert (highlight["verse_start"], highlight["verse_end"]) == (4, 5)
+    assert {highlight["verse_start"], highlight["verse_end"]} <= set(numbers)
+
+
+def test_a_counted_superscription_is_verse_one_of_the_verse_list(monkeypatch):
+    """Psalter: `syn` counts the inscription as verse 1 while the canon does
+    not, so the verse list and the highlight both stay in the translation's
+    numbering — canonical 3:1-2 is `syn` 3:2-3."""
+    candidate = make_candidate("v3:19.003.001-004")
+    candidate.chapter_number = 3
+    candidate.verse_start, candidate.verse_end = 1, 4
+    passage = candidate.passages[0]
+    passage.chapter_number = 3
+    passage.verse_number_start, passage.verse_number_end = 1, 5
+    passage.verses = psalm_verses(range(1, 6))
+
+    body = select_with_highlight(
+        monkeypatch, (2, 3), candidate=candidate
+    ).json()
+
+    assert [v["number"] for v in body["passage"]["verses"]] == [1, 2, 3, 4, 5]
+    assert body["highlight"]["passage"]["verse_start"] == 2
+    assert body["highlight"]["canonical"]["verse_start"] == 1
+
+
+def test_a_ukrainian_psalm_numbers_its_verses_the_ubh_way(
+    monkeypatch, selection_environment
+):
+    """`ubh` keeps the Masoretic chapter but counts the superscription as
+    verse 1 — the verse list says so, and the highlight agrees with it."""
+    candidate = make_candidate("v3:19.003.001-004")
+    candidate.chapter_number = 3
+    candidate.verse_start, candidate.verse_end = 1, 4
+    candidate.passages = [
+        PassageText(
+            translation=20, alias="ubh", book_number=19, chapter_number=3,
+            verse_number_start=1, verse_number_end=5, title=None,
+            text="Псалом", verses=psalm_verses(range(1, 6)),
+        )
+    ]
+    resources = scripture_select.CorpusResources(
+        index=SimpleNamespace(metas=[]), lexical={},
+        translations={"uk": [(20, "ubh")]}, loaded_at=0.0,
+        psalm_maps=PSALM_MAPS,
+    )
+    monkeypatch.setattr(scripture_select, "get_resources", lambda: resources)
+
+    body = select_with_highlight(
+        monkeypatch, (2, 2), payload={"language": "uk", "topic": TOPIC},
+        candidate=candidate,
+    ).json()
+
+    assert body["passage"]["verses"][0]["number"] == 1
+    assert body["highlight"]["passage"]["verse_start"] == 2
+    assert body["highlight"]["passage"]["chapter_number"] == 3
+
+
+def test_verses_are_omitted_entirely_when_the_breakdown_is_unavailable(
+    monkeypatch,
+):
+    """Degradation (verse loader down, or a chunk of an indexed translation
+    the candidates were not rendered in): an absent breakdown is an absent
+    KEY — never null, never an empty list, and never a failed request."""
+    candidate = make_candidate()
+    for passage in candidate.passages:
+        passage.verses = []
+    monkeypatch.setattr(
+        scripture_select, "_run_selection",
+        Mock(return_value=make_final(candidate=candidate)),
+    )
+
+    response = post({"language": "ru", "topic": TOPIC})
+
+    assert response.status_code == 200
+    passage = response.json()["passage"]
+    assert "verses" not in passage
+    assert passage["text"] == PASSAGE_TEXT
+
+
+def test_the_verse_list_is_additive_and_changes_nothing_else(monkeypatch):
+    """Every previously published field of `passage` keeps its value; the
+    only difference is the added key."""
+    candidate = consistent_candidate()
+    monkeypatch.setattr(
+        scripture_select, "_run_selection",
+        Mock(return_value=make_final(candidate=candidate)),
+    )
+    passage = post({"language": "ru", "topic": TOPIC}).json()["passage"]
+    source = candidate.passages[0]
+
+    assert set(passage) == {
+        "translation", "translation_alias", "book_number", "chapter_number",
+        "verse_start", "verse_end", "title", "text", "verses",
+    }
+    assert (
+        passage["translation"], passage["translation_alias"],
+        passage["book_number"], passage["chapter_number"],
+        passage["verse_start"], passage["verse_end"],
+        passage["title"], passage["text"],
+    ) == (
+        source.translation, source.alias, source.book_number,
+        source.chapter_number, source.verse_number_start,
+        source.verse_number_end, source.title, source.text,
+    )
+
+
+def test_the_verse_list_never_reaches_the_logs(monkeypatch, caplog):
+    """Privacy is unchanged: the passage is in the body and nowhere else."""
+    candidate = consistent_candidate()
+    monkeypatch.setattr(
+        scripture_select, "_run_selection",
+        Mock(return_value=make_final(candidate=candidate)),
+    )
+
+    with caplog.at_level("DEBUG"):
+        response = post({
+            "language": "ru", "topic": TOPIC, "user_replies": [REPLY],
+        })
+
+    assert response.json()["passage"]["verses"]
+    for secret in (*PRIVATE_STRINGS, "Не заботьтесь ни о чем"):
+        assert secret not in caplog.text
+
+
+def test_the_openapi_schema_publishes_the_verse_boundaries():
+    schema = client.get("/openapi.json").json()
+    passage = schema["components"]["schemas"]["PassageModel"]
+    field = passage["properties"]["verses"]
+
+    # optional and additive: absent, never null
+    assert "verses" not in passage.get("required", [])
+    assert "anyOf" not in field
+    assert field["type"] == "array"
+    assert field["items"] == {"$ref": "#/components/schemas/VerseModel"}
+    assert "KEY IS ABSENT ENTIRELY" in field["description"]
+    verse = schema["components"]["schemas"]["VerseModel"]
+    assert set(verse["properties"]) == {"number", "text", "paragraph_start"}
+    assert set(verse["required"]) == {"number", "text", "paragraph_start"}
+    assert "highlight.passage" in verse["properties"]["number"]["description"]
 
 
 # ---------------------------------------------------------------------------
@@ -1796,9 +2086,188 @@ def test_a_psalm_highlight_is_carried_into_another_translation(
         },
         "passage": {"chapter_number": 114, "verse_start": 7, "verse_end": 7},
     }
+    # the bti verse list is bti's own, and the highlight is findable in it
+    numbers = [verse["number"] for verse in body["passage"]["verses"]]
+    assert body["highlight"]["passage"]["verse_start"] in numbers
+    assert reassemble(body["passage"]["verses"]) == body["passage"]["text"]
 
     # the merged verse maps onto a canonical range the bti window ends before
     assert "highlight" not in select_with((8, 8))
+
+
+@pytest.mark.skipif(
+    not _database_available(), reason="needs the cep_public database"
+)
+def test_a_highlight_on_a_verse_the_served_translation_merges_is_dropped(
+    monkeypatch, live_resources
+):
+    """F1, outside the Psalter, where the coordinate conversion is the
+    identity and only the served passage's own verse list can object.
+
+    `bti` carries Genesis 35:9 and 35:10 in one verse and numbers it 9, so
+    its verses of this window run 9, 11, 12… A `syn` highlight of 35:10 is
+    inside the bti range (9-15) and yet not a number bti has: the response
+    would name a verse the client cannot find among `passage.verses`. It is
+    dropped instead — the neighbouring verse, which bti does number, still
+    resolves.
+    """
+    from database import create_connection
+    from retrieval import make_db_verse_loader
+
+    connection = create_connection()
+    cursor = connection.cursor(dictionary=True)
+    try:
+        loader = make_db_verse_loader(cursor)
+        canonical_id = "v3:01.035.009-015"
+        verses = loader(1, [(canonical_id, 1, 35, 8, 15)])[canonical_id]
+    finally:
+        cursor.close()
+        connection.close()
+    assert [v.verse_number for v in verses] == [8, 9, 10, 11, 12, 13, 14, 15]
+
+    candidate = Candidate(
+        canonical_id=canonical_id, book_number=1, chapter_number=35,
+        verse_start=9, verse_end=15, score=0.7, best_variant=0,
+        variant_scores={0: 0.7},
+        passages=[
+            PassageText(
+                translation=1, alias="syn", book_number=1,
+                chapter_number=35, verse_number_start=8, verse_number_end=15,
+                title=None, text="", verses=verses,
+            )
+        ],
+    )
+
+    def select_with(indices):
+        monkeypatch.setattr(
+            scripture_select, "_run_selection",
+            Mock(return_value=make_final(candidate=candidate, highlight=indices)),
+        )
+        return post({
+            "language": "ru", "topic": TOPIC, "translation": 11,
+        }).json()
+
+    body = select_with((4, 4))                 # marker 4 = syn 35:11
+    numbers = [verse["number"] for verse in body["passage"]["verses"]]
+    assert body["passage"]["translation_alias"] == "bti"
+    assert 10 not in numbers and numbers[:2] == [9, 11]
+    assert body["highlight"]["passage"] == {
+        "chapter_number": 35, "verse_start": 11, "verse_end": 11,
+    }
+
+    # marker 3 = syn 35:10, a number bti does not use at all
+    assert "highlight" not in select_with((3, 3))
+
+
+@pytest.mark.skipif(
+    not _database_available(), reason="needs the cep_public database"
+)
+@pytest.mark.parametrize(
+    ("language", "translation"),
+    [("ru", None), ("ru", 11), ("en", None), ("en", 17), ("en", 779),
+     ("uk", None), ("uk", 21)],
+)
+def test_the_live_verses_reassemble_into_the_served_passage(
+    monkeypatch, live_resources, language, translation
+):
+    """Acceptance on live data, without Gemini (empty topic = safe pool), for
+    the chunk path (`translation` omitted -> the primary) and the render path
+    (ADR 0007) of every language."""
+    monkeypatch.setattr(scripture_select, "_run_selection", REAL_RUN_SELECTION)
+    payload = {"language": language, "topic": ""}
+    if translation is not None:
+        payload["translation"] = translation
+
+    body = post(payload).json()
+
+    passage = body["passage"]
+    assert body["source"] == "safe_pool"
+    verses = passage["verses"]
+    assert verses and reassemble(verses) == passage["text"]
+    numbers = [verse["number"] for verse in verses]
+    assert numbers == sorted(numbers)
+    assert numbers[0] == passage["verse_start"]
+    assert numbers[-1] == passage["verse_end"]
+    assert verses[0]["paragraph_start"] is True
+
+
+@pytest.mark.skipif(
+    not _database_available(), reason="needs the cep_public database"
+)
+@pytest.mark.parametrize("code", [1, 16, 20])
+def test_every_chunk_reassembles_from_its_verses(code):
+    """The chunk path against `translation_chunks` itself — the WHOLE corpus
+    of every indexed translation, not a sample: this is the test that catches
+    a re-import of the texts without a re-chunking, where the stored chunk
+    text and the verses a client would rebuild it from drift apart.
+
+    The counted subset is the chunks whose stored text has a paragraph break
+    that only a section title explains (`ubh` inherits the pivot's
+    boundaries, so 278 of its chunks carry a title inside them where the
+    verse's own `start_paragraph` is 0). Without `VerseText.title_break`
+    those are exactly the chunks a client could not rebuild.
+    """
+    from database import create_connection
+    from retrieval import make_db_verse_loader
+
+    connection = create_connection()
+    cursor = connection.cursor(dictionary=True)
+    try:
+        cursor.execute(
+            """
+            SELECT DISTINCT tc.canonical_id, tc.book_number, tc.chapter_number,
+                   tc.verse_number_start, tc.verse_number_end, tc.text
+            FROM translation_chunks tc
+            JOIN translation_verses tv
+              ON tv.translation = tc.translation
+             AND tv.book_number = tc.book_number
+             AND tv.chapter_number = tc.chapter_number
+             AND tv.start_paragraph = 0
+             AND tv.verse_number > tc.verse_number_start
+             AND tv.verse_number <= tc.verse_number_end
+            JOIN translation_titles tt
+              ON tt.before_translation_verse = tv.code AND tt.subtitle = 0
+            WHERE tc.translation = %s AND tc.chunking_version = %s
+            """,
+            (code, CHUNKING_VERSION),
+        )
+        titled = cursor.fetchall()
+        cursor.execute(
+            """
+            SELECT canonical_id, book_number, chapter_number,
+                   verse_number_start, verse_number_end, text
+            FROM translation_chunks
+            WHERE translation = %s AND chunking_version = %s
+            ORDER BY canonical_id
+            """,
+            (code, CHUNKING_VERSION),
+        )
+        rows = {row["canonical_id"]: row for row in cursor.fetchall()}
+        loader = make_db_verse_loader(cursor)
+        sample = list(rows.values())
+        loaded: dict = {}
+        for start in range(0, len(sample), 100):
+            loaded.update(loader(code, [
+                (row["canonical_id"], row["book_number"],
+                 row["chapter_number"], row["verse_number_start"],
+                 row["verse_number_end"])
+                for row in sample[start:start + 100]
+            ]))
+    finally:
+        cursor.close()
+        connection.close()
+
+    assert len(titled) == (278 if code == 20 else 0)
+    assert {row["canonical_id"] for row in titled} <= set(rows)
+    assert len(rows) > 2000, code
+    for canonical_id, row in rows.items():
+        verses = scripture_select.build_passage_verses(
+            SimpleNamespace(verses=loaded[canonical_id])
+        )
+        assert verses is not None, canonical_id
+        assert reassemble(
+            [verse.model_dump() for verse in verses]
+        ) == row["text"], canonical_id
 
 
 @pytest.mark.skipif(

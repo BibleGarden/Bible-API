@@ -1095,28 +1095,7 @@ def test_fallback_paths_never_carry_a_highlight():
 def test_the_db_verse_loader_reads_the_chunk_ranges_in_order():
     from retrieval import make_db_verse_loader
 
-    class FakeCursor:
-        def __init__(self):
-            self.sql = ""
-            self.params = None
-
-        def execute(self, sql, params=None):
-            self.sql = sql
-            self.params = params
-
-        def fetchall(self):
-            return [
-                {"book_number": 19, "chapter_number": 22, "verse_number": 1,
-                 "text": " Господь — Пастырь мой ", "start_paragraph": 1},
-                {"book_number": 19, "chapter_number": 22, "verse_number": 2,
-                 "text": "Он покоит меня", "start_paragraph": 0},
-                {"book_number": 19, "chapter_number": 22, "verse_number": 3,
-                 "text": "   ", "start_paragraph": 0},     # empty: dropped
-                {"book_number": 43, "chapter_number": 14, "verse_number": 27,
-                 "text": "Мир оставляю вам", "start_paragraph": 1},
-            ]
-
-    cursor = FakeCursor()
+    cursor = FakeVerseCursor()
     loaded = make_db_verse_loader(cursor)(1, [
         ("v3:19.023.001-003", 19, 22, 1, 3),
         ("v3:43.014.027-027", 43, 14, 27, 27),
@@ -1127,6 +1106,128 @@ def test_the_db_verse_loader_reads_the_chunk_ranges_in_order():
     assert loaded["v3:19.023.001-003"][0].text == "Господь — Пастырь мой"
     assert loaded["v3:19.023.001-003"][0].start_paragraph is True
     assert [v.text for v in loaded["v3:43.014.027-027"]] == ["Мир оставляю вам"]
+
+
+# The loader issues two statements now (titles, then verses), so the fake
+# cursor answers per statement instead of returning one fixed row set.
+class FakeVerseCursor:
+    """Cursor answering the title query and the verse query separately."""
+
+    VERSES = [
+        {"book_number": 19, "chapter_number": 22, "verse_number": 1,
+         "text": " Господь — Пастырь мой ", "start_paragraph": 1},
+        {"book_number": 19, "chapter_number": 22, "verse_number": 2,
+         "text": "Он покоит меня", "start_paragraph": 0},
+        {"book_number": 19, "chapter_number": 22, "verse_number": 3,
+         "text": "   ", "start_paragraph": 0},             # empty: dropped
+        {"book_number": 43, "chapter_number": 14, "verse_number": 27,
+         "text": "Мир оставляю вам", "start_paragraph": 1},
+    ]
+
+    def __init__(
+        self, title_verses=(), fail_titles=False, fail_title_fetch=False
+    ):
+        self.sql = ""
+        self.params = None
+        self.statements = []
+        self._titles = [
+            {"book_number": b, "chapter_number": c, "verse_number": v}
+            for b, c, v in title_verses
+        ]
+        self._fail_titles = fail_titles
+        self._fail_fetch = fail_title_fetch
+        self._rows: list[dict] = []
+        # MySQL refuses a new statement while a result set is unread — the
+        # state a failure between `execute` and `fetchall` leaves behind.
+        self._unread = False
+
+    def execute(self, sql, params=None):
+        if self._unread:
+            raise RuntimeError("Unread result found")
+        self.sql = sql
+        self.params = params
+        self.statements.append(sql)
+        if "translation_titles" in sql:
+            if self._fail_titles:
+                raise RuntimeError("MySQL connection lost")
+            self._rows = self._titles
+        else:
+            self._rows = self.VERSES
+        self._unread = True
+
+    def fetchall(self):
+        if self._fail_fetch:
+            self._fail_fetch = False       # only the interrupted read fails
+            raise RuntimeError("MySQL connection lost")
+        self._unread = False
+        return self._rows
+
+
+def test_the_db_verse_loader_marks_the_verses_a_section_title_precedes():
+    """`chunking.build_text` breaks the paragraph before a titled verse, so
+    the verse list has to carry that break as well — otherwise it could not
+    reassemble into the stored chunk text (278 `ubh` chunks)."""
+    from retrieval import make_db_verse_loader
+
+    cursor = FakeVerseCursor(title_verses=[(19, 22, 2)])
+    loaded = make_db_verse_loader(cursor)(1, [("v3:19.023.001-003", 19, 22, 1, 3)])
+
+    assert [v.title_break for v in loaded["v3:19.023.001-003"]] == [False, True]
+    # the prompt-facing flag is untouched
+    assert [v.start_paragraph for v in loaded["v3:19.023.001-003"]] == [
+        True, False
+    ]
+
+
+def test_a_failing_title_query_still_yields_the_verses(caplog):
+    """Best effort: the verses also power the key-verse highlight, so losing
+    the paragraph refinement must not lose them."""
+    from retrieval import make_db_verse_loader
+
+    cursor = FakeVerseCursor(fail_titles=True)
+    with caplog.at_level("WARNING"):
+        loaded = make_db_verse_loader(cursor)(
+            1, [("v3:19.023.001-003", 19, 22, 1, 3)]
+        )
+
+    assert [v.verse_number for v in loaded["v3:19.023.001-003"]] == [1, 2]
+    assert all(not v.title_break for v in loaded["v3:19.023.001-003"])
+    assert "MySQL connection lost" not in caplog.text
+
+
+def test_a_title_query_failing_mid_result_still_yields_the_verses(caplog):
+    """The same promise when the title query breaks BETWEEN `execute` and the
+    end of `fetchall`: the unread result set left on the shared cursor would
+    make the verse query below fail too, degrading to "no verses" instead of
+    "verses without title breaks". The handler drains the cursor first."""
+    from retrieval import make_db_verse_loader
+
+    cursor = FakeVerseCursor(title_verses=[(19, 22, 2)], fail_title_fetch=True)
+    with caplog.at_level("WARNING"):
+        loaded = make_db_verse_loader(cursor)(
+            1, [("v3:19.023.001-003", 19, 22, 1, 3)]
+        )
+
+    assert [v.verse_number for v in loaded["v3:19.023.001-003"]] == [1, 2]
+    assert all(not v.title_break for v in loaded["v3:19.023.001-003"])
+    assert "MySQL connection lost" not in caplog.text
+
+
+def test_the_verse_markers_of_the_prompt_ignore_a_section_title_break():
+    """The rerank prompt must not move by a byte: `number_verses` renders
+    paragraphs from `start_paragraph` alone."""
+    from retrieval import VerseText, number_verses
+
+    plain = [
+        VerseText(1, "первый", start_paragraph=True),
+        VerseText(2, "второй"),
+    ]
+    titled = [
+        VerseText(1, "первый", start_paragraph=True),
+        VerseText(2, "второй", title_break=True),
+    ]
+
+    assert number_verses(titled) == number_verses(plain)
 
 
 def test_the_db_verse_loader_asks_nothing_without_ranges():

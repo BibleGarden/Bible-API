@@ -45,8 +45,71 @@ Twinkler's `user` field (1..16000): that endpoint carries a whole free-form
 message, this one carries dialog metadata.
 
 Response: canonical coordinates + `canonical_id` (the repeat key the client
-stores), the exact title/text/coordinates of the chosen translation, an
-optional `highlight`, `source`, `fallback_reason`, `history_reset`.
+stores), the exact title/text/coordinates/verse boundaries of the chosen
+translation, an optional `highlight`, `source`, `fallback_reason`,
+`history_reset`.
+
+### The verse boundaries of `passage` (ClickUp 86cbb1mq7)
+
+`highlight.passage` names verse NUMBERS, but the passage was published as
+one opaque string, so a client had to find those verses inside it by
+guessing where a verse begins. `passage.verses` publishes the boundaries
+the server already has:
+
+```json
+"verses": [
+  {"number": 1, "text": "Господь — Пастырь мой; …", "paragraph_start": true},
+  {"number": 2, "text": "Он покоит меня …", "paragraph_start": false}
+]
+```
+
+Four decisions:
+
+- **Verse numbers, not character offsets.** Offsets are a second encoding
+  of the text that silently rots against any whitespace or import change,
+  and they are not the coordinate system the rest of the contract uses.
+  `number` is the verse number of the translation the passage is RETURNED
+  in — literally the same rows `highlight.passage` is resolved from — so
+  the rendering rule is "emphasise the verses whose `number` is inside
+  `highlight.passage`", with no third coordinate system to keep in sync.
+  For the Psalter this is what makes the field usable at all: the
+  superscription is verse 1 in `syn`/`bti`/`ubh` and absent in `bsb`, and
+  the Septuagint chapter shift is already accounted for in both fields.
+- **The same source as the text, on every path.** For an indexed
+  translation the verses are the ones the pipeline loaded for the chosen
+  chunk (`retrieval.make_db_verse_loader`, one query it already made for
+  the key-verse markers of ADR 0005); for a translation rendered from its
+  own verses (ADR 0007) they are the very list `passage_render` assembled
+  the text from. Neither path re-derives anything from the string, so the
+  two views of the passage cannot drift apart. The safe pool and the
+  retrieval fallbacks go through whichever of the two paths their
+  translation uses, and carry the field like any other answer.
+- **`build_text` equivalence is the contract.** Joining the verses of a
+  paragraph with single spaces and the paragraphs with a blank line gives
+  `passage.text` back byte for byte, so a client may render the passage
+  entirely from `verses`. That required publishing the SECOND paragraph
+  rule `chunking.build_text` uses: a section title standing before a verse
+  also opens a paragraph. `translation_verses.start_paragraph` alone misses
+  it in 278 `ubh` chunks (the boundaries come from the pivot translation's
+  plan, so a title can fall inside a chunk), so both verse loaders now mark
+  it as `VerseText.title_break` and the public `paragraph_start` is the OR
+  of the two rules plus "first verse of the passage". `title_break` is
+  display metadata only — the rerank prompt is rendered by `number_verses`,
+  which reads `start_paragraph` alone, so the prompt is unchanged to the
+  byte.
+- **Additive, and absent rather than null.** Every previously published
+  field of `passage` keeps its value. Degradation exists — the verse load
+  is best-effort by design (it also powers the highlight, and a failure
+  there must cost at most the highlight), and a served chunk of an indexed
+  translation other than the one the candidates were rendered in has no
+  verses attached — so the key is DROPPED by a `model_serializer` in those
+  cases rather than serialised as `null` or as an empty array, exactly like
+  `highlight`. Clients fall back to `text`.
+
+No separate ADR: the change adds one nested object to an existing response
+field, introduces no new stage, no new provider call and no new coordinate
+system, and its only non-obvious consequence (the title paragraph rule) is
+recorded above.
 
 ### The optional `highlight` field
 
@@ -78,8 +141,12 @@ Three decisions:
   shown, and — when the translation served is not the one shown — against
   the served passage's own chapter and verse range, since the mapped span
   is built from a versification table rather than from that passage's
-  verses. Nothing is ever clamped into range: out of range means no
-  highlight at all.
+  verses. A range check is not enough once `passage.verses` is published:
+  a translation that carries several canonical verses in one leaves HOLES
+  in its numbering (`bti` has no Genesis 35:10), so the boundary numbers
+  are finally required to occur in the served passage's own verse list.
+  Nothing is ever clamped into range: out of range, or onto a number the
+  served translation does not use, means no highlight at all.
 - **Coordinates come from the versification table, not from arithmetic.**
   `passage_highlight` converts through `psalm_verse_mappings` (ADR 0003):
   outside the Psalms the two systems coincide, inside them they do not
@@ -331,6 +398,10 @@ re-run).
   (`translation_verses` for the candidate chunks) so the rerank prompt can
   carry verse markers. Without it the endpoint still works and simply
   returns no `highlight`.
+- Publishing `passage.verses` adds one more query to the same loader
+  (`translation_titles` for the same chunk ranges, one statement per
+  selection). It is guarded separately: if it fails, the verses are still
+  returned, only without the section-title paragraph breaks.
 - New env vars: `SCRIPTURE_SELECT_REQUESTS_PER_MINUTE`,
   `SCRIPTURE_SELECT_REQUESTS_PER_CLIENT_PER_MINUTE`,
   `SCRIPTURE_SELECT_TIMEOUT_SECONDS`, `SCRIPTURE_INDEX_CACHE_SECONDS`.

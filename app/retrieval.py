@@ -394,6 +394,13 @@ class VerseText:
     verse_number: int
     text: str
     start_paragraph: bool = False
+    # True when a section title stands before this verse. `chunking.build_text`
+    # opens a paragraph there as well, so the rendered text carries a break the
+    # verse's own `start_paragraph` does not (278 `ubh` chunks of the current
+    # corpus, where the chunk boundaries come from another translation's plan).
+    # Display metadata only: the rerank prompt is rendered by `number_verses`,
+    # which reads `start_paragraph` alone, so the prompt is unaffected.
+    title_break: bool = False
 
 
 @dataclass
@@ -1133,6 +1140,94 @@ def make_db_passage_loader(cursor):
     return load
 
 
+def _range_conditions(ordered, prefix: str = "") -> tuple[str, list]:
+    """SQL disjunction over chunk display ranges + its parameters.
+
+    Never called with an empty list — both callers return early on one — and
+    an empty disjunction would silently render as `AND ()`, a syntax error at
+    best and a whole-table read at worst, so the invariant is stated here.
+    """
+    if not ordered:
+        raise ValueError("no chunk ranges to build a condition for")
+    conditions = " OR ".join(
+        [f"({prefix}book_number = %s AND {prefix}chapter_number = %s "
+         f"AND {prefix}verse_number BETWEEN %s AND %s)"] * len(ordered)
+    )
+    params: list = []
+    for _cid, book, chapter, first, last in ordered:
+        params.extend((book, chapter, first, last))
+    return conditions, params
+
+
+def _load_title_verses(cursor, translation_code: int, ordered) -> set[tuple]:
+    """(book, chapter, verse) of the ranges' verses that carry a section title.
+
+    `chunking.build_text` breaks the paragraph before such a verse, so this is
+    the second half of the paragraph structure of a stored chunk text — the
+    half `translation_verses.start_paragraph` does not carry. Same source and
+    filter as `chunk_cli.load_translation_titles` (non-subtitle rows), so the
+    breaks are the ones the chunk was actually built with.
+
+    `translation_titles` is indexed by its primary key alone, so a query
+    DRIVEN by it can only be a full scan of all ~12.7k rows plus one row read
+    in `translation_verses` per title. Driving from the verses instead — the
+    ranges a range scan on `idx_translation_verses_trans_book_chapter`, the
+    titles one scan materialised into a hash — asks the same question over
+    the same rows in a sixth of the time: 14-16 ms -> 2.4 ms on the
+    production corpus for the 10 chunks a selection actually loads (the two
+    converge around 100 ranges, which only the corpus-wide test reaches). No
+    index is added: the table is small and the corpus has no migrations.
+
+    Best effort: it only refines the paragraph flags of the PUBLIC passage,
+    while the verses themselves also power the key-verse highlight — a
+    failure here must not cost the caller its verses (nor, through them, its
+    highlight). That promise includes leaving the shared cursor usable: a
+    failure BETWEEN `execute` and the end of `fetchall` would otherwise leave
+    an unread result set on it and make the next statement — the verse query
+    right below — fail as well, degrading to "no verses" instead of "verses
+    without title breaks". Hence the drain in the handler.
+    """
+    conditions, params = _range_conditions(ordered, prefix="tv.")
+    try:
+        cursor.execute(
+            f"""
+            SELECT tv.book_number, tv.chapter_number, tv.verse_number
+            FROM translation_verses tv
+            WHERE tv.translation = %s AND ({conditions})
+              AND tv.code IN (
+                  SELECT tt.before_translation_verse
+                  FROM translation_titles tt
+                  WHERE tt.subtitle = 0
+              )
+            """,
+            [translation_code, *params],
+        )
+        return {
+            (row["book_number"], row["chapter_number"], row["verse_number"])
+            for row in cursor.fetchall()
+        }
+    except Exception as exc:          # category only — never the context
+        logger.warning(
+            "candidate title loading failed: %s", type(exc).__name__
+        )
+        _discard_result(cursor)
+        return set()
+
+
+def _discard_result(cursor) -> None:
+    """Leave the shared cursor ready for the next statement.
+
+    Called only on the failure path above, where it is unknown whether the
+    result set was consumed at all; draining an already-consumed cursor is a
+    no-op, and a drain that fails in turn changes nothing that was not
+    already broken.
+    """
+    try:
+        cursor.fetchall()
+    except Exception:
+        pass
+
+
 def make_db_verse_loader(cursor):
     """load_verses implementation over cep_public.translation_verses.
 
@@ -1141,6 +1236,10 @@ def make_db_verse_loader(cursor):
     `translation_chunks` stores) and returns their verses in order. Empty
     verses are dropped, mirroring chunking.build_text, so the n-th verse
     here is the n-th verse of the rendered chunk text.
+
+    A second, guarded query marks the verses a section title stands before
+    (`title_break`), which is what makes the verse list reassemble into the
+    stored chunk text through `chunking.build_text` — see `VerseText`.
     """
 
     def load(translation_code: int, chunk_ranges) -> dict[str, list[VerseText]]:
@@ -1151,13 +1250,10 @@ def make_db_verse_loader(cursor):
         if not unique:
             return {}
         ordered = sorted(unique)
-        conditions = " OR ".join(
-            ["(book_number = %s AND chapter_number = %s "
-             "AND verse_number BETWEEN %s AND %s)"] * len(ordered)
-        )
-        params: list = [translation_code]
-        for _cid, book, chapter, first, last in ordered:
-            params.extend((book, chapter, first, last))
+        # Titles first so the verse query is the last statement on the cursor.
+        title_verses = _load_title_verses(cursor, translation_code, ordered)
+        conditions, range_params = _range_conditions(ordered)
+        params: list = [translation_code, *range_params]
         cursor.execute(
             f"""
             SELECT book_number, chapter_number, verse_number, text,
@@ -1180,6 +1276,9 @@ def make_db_verse_loader(cursor):
                     verse_number=row["verse_number"],
                     text=row["text"].strip(),
                     start_paragraph=bool(row["start_paragraph"]),
+                    title_break=(
+                        (book, chapter, row["verse_number"]) in title_verses
+                    ),
                 )
                 for row in by_chapter.get((book, chapter), [])
                 if first <= row["verse_number"] <= last and row["text"].strip()

@@ -38,9 +38,11 @@ from versification import (
 
 FIXTURE = Path(__file__).parent / "data" / "psalm_max_verses.json"
 JOHN = 43  # a non-Psalm book: coordinates are canonical as they stand
+GENESIS = 1
 
 # translation codes of the indexed corpus (cep_public)
 SYN, BSB, UBH = 1, 16, 20
+BTI = 11  # rendered from its own verses (ADR 0007), not indexed
 
 
 @pytest.fixture(scope="module")
@@ -231,6 +233,57 @@ def test_resolve_refuses_a_mapped_span_in_another_chapter(psalm_maps):
     target = passage(BSB, 22, [1, 2, 3, 4, 5, 6], alias="bsb")
 
     assert resolve_highlight(PSALMS_BOOK, shown, target, (4, 4), psalm_maps) is None
+
+
+def test_resolve_refuses_a_number_the_served_translation_does_not_have():
+    """F1: outside the Psalms the conversion between the two numberings is
+    the identity, so a range check cannot notice that the served translation
+    has no such verse. `bti` says Genesis 35:9 and 35:10 in one verse and
+    numbers it 9, so its verses run 9, 11, 12… — a `syn` highlight of verse
+    10 lies inside the bti window and is absent from its verse list. The
+    contract promises a highlight is findable in `verses`; this one is not,
+    so it is dropped rather than served."""
+    def genesis(translation, alias, verse_numbers):
+        return PassageText(
+            translation=translation, alias=alias, book_number=GENESIS,
+            chapter_number=35, verse_number_start=verse_numbers[0],
+            verse_number_end=verse_numbers[-1], title=None, text="…",
+            verses=[VerseText(n, f"стих {n}") for n in verse_numbers],
+        )
+
+    shown = genesis(SYN, "syn", [9, 10, 11, 12])
+    target = genesis(BTI, "bti", [9, 11, 12])
+
+    # marker 2 is syn 35:10 — inside the bti range, missing from its verses
+    assert resolve_highlight(GENESIS, shown, target, (2, 2), {}) is None
+    # a number bti does have still resolves
+    assert resolve_highlight(GENESIS, shown, target, (3, 3), {}) == Highlight(
+        canonical=VerseSpan(35, 11, 11), passage=VerseSpan(35, 11, 11)
+    )
+    # a span whose ENDS both exist is served even though it steps over the
+    # hole: the client selects by number and simply finds nothing at 10
+    assert resolve_highlight(GENESIS, shown, target, (1, 3), {}) == Highlight(
+        canonical=VerseSpan(35, 9, 11), passage=VerseSpan(35, 9, 11)
+    )
+
+
+def test_a_passage_without_verses_is_not_checked_for_membership():
+    """The guarantee is conditional on `verses` being served at all: a
+    passage whose verse load failed publishes only `text`, and the highlight
+    keeps degrading no further than it did before."""
+    shown = PassageText(
+        translation=SYN, alias="syn", book_number=GENESIS, chapter_number=35,
+        verse_number_start=9, verse_number_end=12, title=None, text="…",
+        verses=[VerseText(n, f"стих {n}") for n in (9, 10, 11, 12)],
+    )
+    target = PassageText(
+        translation=BTI, alias="bti", book_number=GENESIS, chapter_number=35,
+        verse_number_start=9, verse_number_end=12, title=None, text="…",
+    )
+
+    assert resolve_highlight(GENESIS, shown, target, (2, 2), {}) == Highlight(
+        canonical=VerseSpan(35, 10, 10), passage=VerseSpan(35, 10, 10)
+    )
 
 
 def test_resolve_gives_up_when_the_other_translation_cannot_be_mapped():
