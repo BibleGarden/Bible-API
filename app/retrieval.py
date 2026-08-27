@@ -430,7 +430,7 @@ class Candidate:
 class SelectionResult:
     candidates: list[Candidate]
     source: str                  # "retrieval" | "safe_pool"
-    # None | "empty_topic" | "ai_unavailable" | "deadline"
+    # None | "empty_topic" | "ai_unavailable" | "deadline" | "coverage_empty"
     fallback_reason: str | None
     query_variants: list[str]    # rewrite variants actually searched (+ raw)
     rewrite_failed: bool
@@ -481,6 +481,17 @@ class ScriptureRetriever:
                       production one).
     lexical_indexes - optional {language: lexical_index.LexicalIndex} for the
                       hybrid BM25 signal (lexical_index.load_lexical_indexes).
+    allowed_canonical_ids - optional set of canonical chunk IDs the selection
+                      may return. Used when the passage will be RENDERED in a
+                      translation that was never chunked (ADR 0007): only the
+                      windows that fully exist in it survive, so the rerank
+                      never chooses a passage the server cannot serve. None
+                      (the default, and always the case for the primary
+                      translation of a language) means no restriction — the
+                      filter is then not applied at all. When the filter
+                      leaves the ranking empty, the selection degrades to the
+                      safe pool (fallback_reason "coverage_empty") rather
+                      than to nothing at all.
 
     include_raw_query=False by default: with working rewrites the raw query
     only wastes interleave slots (benchmark: 0.917 -> 0.958 hit@10 without
@@ -512,6 +523,7 @@ class ScriptureRetriever:
         max_per_book: int = MAX_PER_BOOK,
         include_raw_query: bool = False,
         embed_workers: int = 1,
+        allowed_canonical_ids: frozenset[str] | set[str] | None = None,
     ):
         self.index = index
         self.embedder = embedder
@@ -527,6 +539,7 @@ class ScriptureRetriever:
         self.max_per_book = max_per_book
         self.include_raw_query = include_raw_query
         self.embed_workers = max(1, embed_workers)
+        self.allowed_canonical_ids = allowed_canonical_ids
         self._vector_rows_cache: dict[str, dict[str, list[int]]] = {}
 
     # -- public entry point -------------------------------------------------
@@ -561,6 +574,22 @@ class ScriptureRetriever:
         filtered = self._filter(fused, request.exclude_canonical_ids)
         final = apply_diversity(filtered, request.top_k, self.max_per_book)
         candidates = self._resolve_candidates(request.language, final)
+        if not candidates and self.allowed_canonical_ids is not None:
+            # ADR 0007 fix F1: retrieval found nothing this translation can
+            # render (its coverage set hid the whole ranking — reachable for
+            # an incomplete Bible on an Old Testament topic). The safe pool
+            # is the same deterministic no-AI answer used when the provider
+            # is down, and it is filtered by the very same coverage set, so
+            # what it serves is renderable by construction. Answering 503
+            # here instead would fail a request the server can satisfy.
+            logger.info(
+                "retrieval produced no candidate inside the requested "
+                "translation's coverage; serving the safe pool"
+            )
+            result = self._safe_pool_result(request, "coverage_empty")
+            result.query_variants = searched_queries
+            result.rewrite_failed = rewrite_failed
+            return result
         return SelectionResult(
             candidates=candidates,
             source="retrieval",
@@ -784,12 +813,21 @@ class ScriptureRetriever:
             self._vector_rows_cache[language] = cached
         return cached
 
+    def _allowed(self, canonical_id: str) -> bool:
+        """Can the requested translation render this window? (ADR 0007)"""
+        return (
+            self.allowed_canonical_ids is None
+            or canonical_id in self.allowed_canonical_ids
+        )
+
     def _filter(
         self, fused: list[FusedHit], exclude: frozenset[str] | set[str]
     ) -> list[FusedHit]:
         result = []
         for hit in fused:
             if hit.canonical_id in exclude:
+                continue
+            if not self._allowed(hit.canonical_id):
                 continue
             _v, book, chapter, start, end = parse_canonical_id(hit.canonical_id)
             if is_blacklisted(self.blacklist, book, chapter, start, end):
@@ -916,9 +954,17 @@ class ScriptureRetriever:
     # -- safe pool -----------------------------------------------------------
 
     def _resolve_pool_ids(self, language: str) -> list[str | None]:
-        """Resolve each pool ref to the canonical chunk ID owning it."""
+        """Resolve each pool ref to the canonical chunk ID owning it.
+
+        Windows the requested translation cannot render are left out here as
+        well: the safe pool is the no-AI path, not an exemption from the
+        grounding rule (a pool entry that does not exist in the requested
+        translation simply does not resolve for it).
+        """
         parsed = []
         for canonical_id in self._language_chunks(language):
+            if not self._allowed(canonical_id):
+                continue
             _v, book, chapter, start, end = parse_canonical_id(canonical_id)
             parsed.append((canonical_id, book, chapter, start, end))
         resolved: list[str | None] = []
@@ -1093,7 +1139,7 @@ def make_db_verse_loader(cursor):
     Takes the chunks' own display ranges (book, chapter, first/last verse of
     the chunk TEXT, overlap verses included — exactly what
     `translation_chunks` stores) and returns their verses in order. Empty
-    verses are dropped, mirroring chunking._build_text, so the n-th verse
+    verses are dropped, mirroring chunking.build_text, so the n-th verse
     here is the n-th verse of the rendered chunk text.
     """
 

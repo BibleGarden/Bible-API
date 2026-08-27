@@ -201,4 +201,6 @@ parallel embedding is an obvious later optimisation).
 2. Serve-time latency: embed the 6 variants concurrently when the public
    endpoint (next task) defines its budget.
 3. Safe-pool size (6 places) is small for long exclusion histories; extend
-   with Maria when the mobile API defines the repeat window.
+   with Maria when the mobile API defines the repeat window. Partly done:
+   `safe_pool.json` 1.1.0 (Мария, 2026-08-28, ADR 0007) has 9 places, chosen
+   so that every active translation carries them.

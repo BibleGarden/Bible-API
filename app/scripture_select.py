@@ -59,6 +59,7 @@ from chunking import CHUNKING_VERSION
 from client_ip import resolve_client_ip
 from config import (
     SCRIPTURE_INDEX_CACHE_SECONDS,
+    SCRIPTURE_PRIMARY_TRANSLATIONS,
     SCRIPTURE_SELECT_REQUESTS_PER_CLIENT_PER_MINUTE,
     SCRIPTURE_SELECT_REQUESTS_PER_MINUTE,
     SCRIPTURE_SELECT_TIMEOUT_SECONDS,
@@ -68,6 +69,12 @@ from deadline import Deadline
 from lexical_index import load_lexical_indexes
 from passage_highlight import load_psalm_maps, resolve_highlight
 from passage_rerank import GeminiPassageReranker
+from passage_render import (
+    build_coverage,
+    load_chunk_ranges,
+    reference_faithful_windows,
+    render_passage,
+)
 from query_rewrite import REWRITE_VARIANTS, GeminiQueryRewriter
 from embeddings import GeminiEmbeddingClient
 from rate_limit import RateLimiter, RateLimitError
@@ -77,6 +84,7 @@ from retrieval import (
     SelectionRequest,
     make_db_passage_loader,
     make_db_verse_loader,
+    parse_canonical_id,
     prompt_passage,
     split_exclusions,
 )
@@ -142,6 +150,9 @@ class FallbackReason(str, Enum):
     rerank_failed = "rerank_failed"
     no_reranker = "no_reranker"
     deadline = "deadline"
+    # ADR 0007: retrieval ran, but nothing it found exists in the requested
+    # (non-primary) translation, so the coverage-filtered safe pool answered.
+    coverage_empty = "coverage_empty"
 
 
 class SelectRequest(BaseModel):
@@ -194,7 +205,10 @@ class SelectRequest(BaseModel):
         ge=1,
         description=(
             "Translation code to render the passage in. Defaults to the "
-            "primary indexed translation of the language; must belong to it."
+            "language's primary translation. Must be one of the translations "
+            "`GET /api/scripture/v1/translations` lists for the language — "
+            "any active translation of a language whose corpus is indexed "
+            "can be served, not only the indexed one."
         ),
     )
 
@@ -306,7 +320,14 @@ class SelectResponse(BaseModel):
     )
     fallback_reason: FallbackReason | None = Field(
         default=None,
-        description="Category of the fallback; null when `source` is `rerank`.",
+        description=(
+            "Category of the fallback; null when `source` is `rerank`. "
+            "`coverage_empty` means that once the requested translation's "
+            "coverage, the caller's exclusions and the genre blacklist had "
+            "all narrowed the candidate pool, nothing was left in it, so the "
+            "safe pool answered — it can only appear for a translation "
+            "other than the language's primary one."
+        ),
     )
     history_reset: bool = Field(
         description=(
@@ -329,6 +350,53 @@ class SelectResponse(BaseModel):
         if payload.get("highlight") is None:
             payload.pop("highlight", None)
         return payload
+
+
+class ScriptureTranslationModel(BaseModel):
+    """One translation the selection endpoint can render a passage in."""
+
+    code: int = Field(description="Translation code", examples=[1])
+    alias: str = Field(description="Translation alias", examples=["syn"])
+    primary: bool = Field(
+        description=(
+            "True for the translation served when `translation` is omitted. "
+            "Exactly one per language; it is also the translation the corpus "
+            "itself is indexed in."
+        )
+    )
+
+
+class LanguageTranslations(BaseModel):
+    """The renderable translations of one corpus language."""
+
+    language: Language
+    translations: list[ScriptureTranslationModel] = Field(
+        description="Primary first, then by code."
+    )
+
+
+class TranslationCatalogue(BaseModel):
+    """Answer of `GET /api/scripture/v1/translations`."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "languages": [
+                    {
+                        "language": "ru",
+                        "translations": [
+                            {"code": 1, "alias": "syn", "primary": True},
+                            {"code": 11, "alias": "bti", "primary": False},
+                        ],
+                    }
+                ]
+            }
+        }
+    )
+
+    languages: list[LanguageTranslations] = Field(
+        description="Languages with an indexed corpus, in alphabetical order."
+    )
 
 
 class ErrorResponse(BaseModel):
@@ -468,13 +536,253 @@ async def _enforce_rate_limit(client_key: str) -> None:
 class CorpusResources:
     index: object                      # vector_index.InMemoryVectorIndex
     lexical: dict                      # language -> lexical_index.LexicalIndex
-    translations: dict                 # language -> [(code, alias), ...]
+    # RENDERABLE catalogue: language -> [(code, alias), ...], primary first.
+    # A translation is renderable when its language has an index (the corpus
+    # is retrieved in the indexed translation's space), it has a Psalm
+    # versification map and it fully covers at least one canonical window —
+    # see `_build_catalogue`.
+    translations: dict
     loaded_at: float
     psalm_maps: dict = field(default_factory=dict)  # translation -> PsalmMap
+    # INDEXED (reference) translations: language -> [(code, alias), ...].
+    # Their chunks and embeddings ARE the corpus; every candidate window and
+    # every rerank prompt passage comes from one of them.
+    indexed: dict = field(default_factory=dict)
+    # language -> the translation served when the request names none, and the
+    # one whose path stays byte-for-byte the pre-catalogue behaviour.
+    primary: dict = field(default_factory=dict)
+    # translation code -> frozenset of canonical IDs fully present in it.
+    # Built only for non-primary renderable translations (the primary needs
+    # no filter: the corpus is its own chunk set).
+    coverage: dict = field(default_factory=dict)
 
 
 _resources_lock = threading.Lock()
 _resources: CorpusResources | None = None
+
+
+def parse_primary_config(raw: str) -> dict[str, str]:
+    """Parse SCRIPTURE_PRIMARY_TRANSLATIONS ("ru=syn,en=bsb,uk=16").
+
+    Entries are `language=alias` or `language=code`, comma separated,
+    whitespace tolerated. A malformed item is skipped with a warning (the
+    language then falls back to the deterministic default) instead of taking
+    the endpoint down over a typo in an optional variable.
+    """
+    config: dict[str, str] = {}
+    for item in raw.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        language, separator, value = item.partition("=")
+        language, value = language.strip(), value.strip()
+        if not separator or not language or not value:
+            logger.warning(
+                "SCRIPTURE_PRIMARY_TRANSLATIONS: ignoring a malformed entry"
+            )
+            continue
+        config[language] = value
+    return config
+
+
+def resolve_primary_translations(
+    indexed: dict[str, list[tuple[int, str]]], raw_config: str
+) -> dict[str, int]:
+    """language -> primary (default) translation code.
+
+    Closes ADR 0006 open question 5. The primary must be an INDEXED
+    translation of its language: it is the one the retrieval corpus is built
+    from and the one the rerank prompt is rendered in, so serving it needs no
+    coverage filter and no re-rendering.
+
+    Without configuration the primary is the indexed translation with the
+    lowest code — deterministic, and identical to the previous "first in
+    index insertion order" while a language has a single indexed translation
+    (which is the case for the whole current corpus).
+
+    ADR 0007 OQ2 guard (review fix F7): the primary is NOT necessarily the
+    translation the rerank prompt is rendered in — that one is
+    `candidate.passages[0]`, i.e. index insertion order (`reference_
+    translations`). While every language has a single indexed translation the
+    two are the same object; a second indexed translation could separate
+    them, and then the own-range rendering of a non-indexed translation would
+    be verified against a chunk nobody read. The disagreement is therefore
+    logged here, the reference (not the primary) is what the coverage filter
+    is built from, and `_render_target_passage` refuses a candidate whose
+    prompt passage is not the reference at all.
+    """
+    config = parse_primary_config(raw_config)
+    primary: dict[str, int] = {}
+    for language, entries in indexed.items():
+        wanted = config.get(language)
+        chosen: int | None = None
+        if wanted is not None:
+            for code, alias in entries:
+                if alias == wanted or str(code) == wanted:
+                    chosen = code
+                    break
+            if chosen is None:
+                # Category only: never echo an unindexed value into the log
+                # of a language it does not belong to.
+                logger.warning(
+                    "SCRIPTURE_PRIMARY_TRANSLATIONS: %s names a translation "
+                    "that is not indexed for that language; using the default",
+                    language,
+                )
+        if chosen is None:
+            chosen = min(code for code, _alias in entries)
+        reference_code = entries[0][0]
+        if chosen != reference_code:
+            logger.warning(
+                "Primary translation %s of %s is not the one the rerank "
+                "prompt is rendered in (%s, index order): the candidate "
+                "texts the AI reads and the default served translation are "
+                "different books — see ADR 0007 open question 2",
+                chosen,
+                language,
+                reference_code,
+            )
+        primary[language] = chosen
+    for language in config:
+        if language not in indexed:
+            logger.warning(
+                "SCRIPTURE_PRIMARY_TRANSLATIONS: language %s has no index",
+                language,
+            )
+    return primary
+
+
+def _indexed_translations(index) -> dict[str, list[tuple[int, str]]]:
+    """language -> [(code, alias), ...] in index insertion order."""
+    indexed: dict[str, list[tuple[int, str]]] = {}
+    for meta in index.metas:
+        entries = indexed.setdefault(meta["language"], [])
+        entry = (meta["translation"], meta["alias"])
+        if entry not in entries:
+            entries.append(entry)
+    return indexed
+
+
+def reference_translation(
+    indexed: dict[str, list[tuple[int, str]]], language: str
+) -> int | None:
+    """The translation the rerank prompt (and every candidate text) is in.
+
+    `retrieval.prompt_passage` shows the reranker `candidate.passages[0]`,
+    and passages follow index insertion order — so the FIRST indexed entry of
+    a language is the text every AI decision is made on, and the chunk the
+    own-range rendering of another translation has to agree with (ADR 0007
+    fix F2/F7). Identical to the primary for the whole current corpus.
+    """
+    entries = indexed.get(language) or []
+    return entries[0][0] if entries else None
+
+
+def _canonical_windows(index) -> dict[str, list[tuple]]:
+    """language -> [(canonical_id, book, chapter, start, end), ...].
+
+    The candidate universe of a language: every canonical window its indexed
+    translations contribute, in canonical coordinates.
+    """
+    windows: dict[str, list[tuple]] = {}
+    seen: dict[str, set[str]] = {}
+    for meta in index.metas:
+        language = meta["language"]
+        canonical_id = meta["canonical_id"]
+        known = seen.setdefault(language, set())
+        if canonical_id in known:
+            continue
+        known.add(canonical_id)
+        _version, book, chapter, start, end = parse_canonical_id(canonical_id)
+        windows.setdefault(language, []).append(
+            (canonical_id, book, chapter, start, end)
+        )
+    return windows
+
+
+def _load_active_translations(cursor) -> dict[str, list[tuple[int, str]]]:
+    """language -> [(code, alias), ...] of every ACTIVE translation."""
+    cursor.execute(
+        "SELECT code, alias, language FROM translations "
+        "WHERE active = 1 ORDER BY code"
+    )
+    active: dict[str, list[tuple[int, str]]] = {}
+    for row in cursor.fetchall():
+        active.setdefault(row["language"], []).append(
+            (row["code"], row["alias"])
+        )
+    return active
+
+
+def _build_catalogue(
+    cursor, index, psalm_maps: dict, indexed: dict, primary: dict
+) -> tuple[dict, dict]:
+    """Renderable catalogue + per-translation coverage sets.
+
+    A translation is renderable when
+
+    - its language has an index (there is nothing to retrieve otherwise);
+    - it is active in `translations`;
+    - it has a Psalm versification map, so a Psalm window can be converted
+      into its numbering at all (ADR 0003). A translation without one is
+      dropped WHOLE, not only for its Psalm windows: see ADR 0007;
+    - at least one canonical window of its language exists in it fully.
+
+    The window universe offered to a non-primary translation is additionally
+    narrowed to the windows whose stored REFERENCE chunk really is the
+    window's own range (`reference_faithful_windows`) — otherwise the reader
+    would get a passage the reranker judged with a tail of extra verses
+    attached (ADR 0007, fix F2).
+
+    The primary of each language skips both steps entirely: it IS the corpus,
+    its request path must stay byte-for-byte what it was, and the filter
+    would be a no-op that costs a full verse scan.
+    """
+    windows = _canonical_windows(index)
+    active = _load_active_translations(cursor)
+    renderable: dict[str, list[tuple[int, str]]] = {}
+    coverage: dict[int, frozenset[str]] = {}
+    for language, entries in indexed.items():
+        primary_code = primary.get(language, min(c for c, _a in entries))
+        primary_alias = next(
+            (alias for code, alias in entries if code == primary_code), ""
+        )
+        catalogue = [(primary_code, primary_alias)]
+        others = [
+            entry for entry in active.get(language, [])
+            if entry[0] != primary_code
+        ]
+        reference_code = reference_translation(indexed, language) or primary_code
+        offered = (
+            reference_faithful_windows(
+                windows.get(language, []),
+                load_chunk_ranges(cursor, reference_code),
+                psalm_maps.get(reference_code),
+            )
+            if others else []
+        )
+        for code, alias in others:
+            if code not in psalm_maps:
+                logger.warning(
+                    "Translation %s has no Psalm versification map; "
+                    "it cannot be served by scripture selection",
+                    code,
+                )
+                continue
+            covered = frozenset(
+                build_coverage(cursor, code, offered, psalm_maps[code])
+            )
+            if not covered:
+                logger.warning(
+                    "Translation %s covers no canonical window of the corpus; "
+                    "it cannot be served by scripture selection",
+                    code,
+                )
+                continue
+            coverage[code] = covered
+            catalogue.append((code, alias))
+        renderable[language] = catalogue
+    return renderable, coverage
 
 
 def _load_resources() -> CorpusResources:
@@ -499,22 +807,35 @@ def _load_resources() -> CorpusResources:
                 type(error).__name__,
             )
             psalm_maps = {}
+        indexed = _indexed_translations(index)
+        primary = resolve_primary_translations(
+            indexed, SCRIPTURE_PRIMARY_TRANSLATIONS
+        )
+        try:
+            translations, coverage = _build_catalogue(
+                cursor, index, psalm_maps, indexed, primary
+            )
+        except Exception as error:
+            # The catalogue only ADDS translations; without it the endpoint
+            # still serves every indexed one exactly as before. Category only.
+            logger.warning(
+                "Renderable translation catalogue unavailable: %s",
+                type(error).__name__,
+            )
+            translations, coverage = dict(indexed), {}
     finally:
         cursor.close()
         connection.close()
 
-    translations: dict[str, list[tuple[int, str]]] = {}
-    for meta in index.metas:
-        entries = translations.setdefault(meta["language"], [])
-        entry = (meta["translation"], meta["alias"])
-        if entry not in entries:
-            entries.append(entry)
     return CorpusResources(
         index=index,
         lexical=lexical,
         translations=translations,
         loaded_at=time.monotonic(),
         psalm_maps=psalm_maps,
+        indexed=indexed,
+        primary=primary,
+        coverage=coverage,
     )
 
 
@@ -596,15 +917,35 @@ def _gemini_clients() -> tuple:
 # Selection
 # ---------------------------------------------------------------------------
 
+def primary_translation(resources: CorpusResources, language: str) -> int:
+    """The language's default translation (see resolve_primary_translations).
+
+    Falls back to the first entry of the catalogue when no primary was
+    resolved — the pre-catalogue behaviour, kept so a partially built
+    CorpusResources still answers.
+    """
+    code = resources.primary.get(language)
+    if code is not None:
+        return code
+    return resources.translations[language][0][0]
+
+
 def resolve_translation(
     resources: CorpusResources, language: str, requested: int | None
 ) -> int:
-    """Validate the requested translation or pick the language's primary."""
+    """Validate the requested translation or pick the language's primary.
+
+    422 means one thing only: the code is not in the language's RENDERABLE
+    catalogue (`GET /api/scripture/v1/translations`) — it belongs to another
+    language, is inactive, is unknown, or cannot be resolved against the
+    canonical corpus. The message never repeats anything but the number the
+    caller already sent.
+    """
     available = resources.translations.get(language, [])
     if not available:
         raise ScriptureSelectUnavailable(f"no indexed translation for {language}")
     if requested is None:
-        return available[0][0]
+        return primary_translation(resources, language)
     if requested not in {code for code, _alias in available}:
         raise HTTPException(
             status_code=422,
@@ -613,10 +954,52 @@ def resolve_translation(
     return requested
 
 
+def translation_alias(
+    resources: CorpusResources, language: str, code: int
+) -> str:
+    """Alias of a catalogue entry (empty string when unknown)."""
+    for entry_code, alias in resources.translations.get(language, []):
+        if entry_code == code:
+            return alias
+    return ""
+
+
+def coverage_filter(
+    resources: CorpusResources, language: str, translation: int
+) -> frozenset[str] | None:
+    """Canonical windows a selection may choose from, or None for "all".
+
+    The primary translation is never filtered: it is the corpus itself, and
+    its request path must stay byte-for-byte the one measured in ADR 0006.
+    Any other translation is restricted to the windows that fully exist in
+    it, BEFORE the rerank — so the AI never chooses a passage the server
+    would then be unable to render (the rerank prompt is untouched).
+
+    Fail-CLOSED for a non-primary translation with no coverage set (review
+    fix F4): a missing set means the catalogue and the coverage map have
+    drifted apart, and "None" would read as "no restriction at all" — every
+    window allowed for exactly the translation whose renderability was never
+    established. The empty set allows nothing instead; the selection then
+    degrades to the (equally empty) safe pool and answers 503, which is the
+    honest outcome for a translation the server cannot vouch for.
+    """
+    if translation == primary_translation(resources, language):
+        return None
+    covered = resources.coverage.get(translation)
+    if covered is None:
+        logger.warning(
+            "No coverage set for translation %s; refusing every window",
+            translation,
+        )
+        return frozenset()
+    return covered
+
+
 def _run_selection(
     resources: CorpusResources,
     selection_request: SelectionRequest,
     deadline: Deadline,
+    allowed_canonical_ids: frozenset[str] | None = None,
 ) -> FinalSelection:
     """Blocking part of a selection: DB texts + the AI pipeline."""
     connection = create_connection()
@@ -635,8 +1018,93 @@ def _run_selection(
             lexical_indexes=resources.lexical,
             # Independent round trips: embed the variants concurrently.
             embed_workers=REWRITE_VARIANTS,
+            allowed_canonical_ids=allowed_canonical_ids,
         )
         return retriever.select_final(selection_request, deadline)
+    finally:
+        cursor.close()
+        connection.close()
+
+
+def _render_target_passage(
+    candidate,
+    translation: int,
+    alias: str,
+    psalm_maps: dict | None,
+    reference: int | None = None,
+    deadline: Deadline | None = None,
+):
+    """Passage of a translation that has no chunk of the chosen window.
+
+    Reads `translation_verses` directly (app/passage_render.py) for the
+    window's canonical range, converted into the translation's own
+    coordinates. Grounded exactly like the indexed path: the text comes from
+    MySQL, and a window that cannot be resolved returns None (the request
+    then fails with 503 — silently serving another translation is forbidden).
+
+    Two guards around that one round trip:
+
+    - the request's time budget (review fix F6). This runs AFTER the pipeline
+      returned, so an exhausted deadline means every stage already degraded;
+      spending another DB round trip on top of an over-budget request buys
+      nothing the caller is still waiting for. There is no cheaper answer to
+      fall back to — the passage of THIS translation is the response — so the
+      request ends in the documented 503;
+    - the window was verified against the REFERENCE translation's stored
+      chunk (`reference_faithful_windows`), which is only meaningful if the
+      reranker actually read that translation. A candidate whose prompt
+      passage is another one is refused rather than rendered on a hope
+      (review fix F7, ADR 0007 OQ2); a candidate with no prompt passage at
+      all (`prompt_passage` returns None) is refused the same way — fail
+      CLOSED, not "no reference to check against". Unreachable with today's
+      single indexed translation per language.
+
+    Any MySQL failure of the rendering is reported as the same
+    ScriptureSelectUnavailable every other DB failure of this endpoint
+    raises: a documented 503, not a bare 500.
+    """
+    if deadline is not None and deadline.expired():
+        raise ScriptureSelectUnavailable(
+            "time budget exhausted before the passage could be rendered"
+        )
+    shown = prompt_passage(candidate)
+    if reference is not None and (shown is None or shown.translation != reference):
+        logger.warning(
+            "Candidate was judged in translation %s, not the language's "
+            "reference %s; refusing to render translation %s from its own "
+            "range (ADR 0007 open question 2)",
+            shown.translation if shown is not None else None,
+            reference,
+            translation,
+        )
+        raise ScriptureSelectUnavailable(
+            "chosen candidate was not judged in the reference translation"
+        )
+    connection = create_connection()
+    if connection is None:
+        raise ScriptureSelectUnavailable("database is not available")
+    cursor = connection.cursor(dictionary=True)
+    try:
+        return render_passage(
+            cursor,
+            translation,
+            alias,
+            candidate.book_number,
+            candidate.chapter_number,
+            candidate.verse_start,
+            candidate.verse_end,
+            (psalm_maps or {}).get(translation),
+        )
+    except ScriptureSelectUnavailable:
+        raise
+    except Exception as error:
+        # Category only — never the passage or the prayer context.
+        logger.warning(
+            "Rendering the chosen passage failed: %s", type(error).__name__
+        )
+        raise ScriptureSelectUnavailable(
+            "the chosen passage could not be read from the database"
+        ) from error
     finally:
         cursor.close()
         connection.close()
@@ -700,14 +1168,28 @@ def build_highlight(
     )
 
 
+def indexed_passage(candidate, translation: int):
+    """The candidate's own chunk in a translation, when it has one."""
+    if candidate is None:
+        return None
+    return next(
+        (p for p in candidate.passages if p.translation == translation), None
+    )
+
+
 def build_response(
     final: FinalSelection,
     language: str,
     translation: int,
     history_reset: bool,
     psalm_maps: dict | None = None,
+    passage=None,
 ) -> SelectResponse:
     """Map the internal selection onto the public contract.
+
+    `passage` is the already-resolved rendering of the chosen window in the
+    requested translation; when it is None the candidate's own chunk is used
+    (the indexed path, unchanged).
 
     `FinalSelection.reason` (the model's diagnostic sentence) is
     deliberately dropped here — it is server-side only.
@@ -715,9 +1197,8 @@ def build_response(
     candidate = final.candidate
     if candidate is None:
         raise ScriptureSelectUnavailable("no candidate passage")
-    passage = next(
-        (p for p in candidate.passages if p.translation == translation), None
-    )
+    if passage is None:
+        passage = indexed_passage(candidate, translation)
     if passage is None:
         raise ScriptureSelectUnavailable(
             f"chosen passage has no text in translation {translation}"
@@ -783,9 +1264,13 @@ def build_response(
         "Degradation is part of the contract, not an error: when the AI "
         "choice is unavailable the retrieval top candidate is served "
         "(`source=retrieval_fallback`), and when retrieval itself cannot "
-        "run — empty topic, provider outage, exhausted time budget — a "
-        "curated safe pool is served (`source=safe_pool`). `fallback_reason` "
-        "carries the category.\n\n"
+        "run — empty topic, provider outage, exhausted time budget — or its "
+        "candidates, once narrowed by the requested translation's coverage "
+        "together with the caller's exclusions and the genre blacklist, "
+        "leave nothing to choose from (`coverage_empty`, possible only for "
+        "a non-primary translation of an incomplete Bible), a curated safe "
+        "pool is served (`source=safe_pool`). `fallback_reason` carries the "
+        "category.\n\n"
         "Prayer topic, replies and the returned passage are never logged or "
         "stored in request statistics."
     ),
@@ -796,8 +1281,9 @@ def build_response(
             "description": (
                 "Request validation failed: unknown field, oversized topic, "
                 "replies or exclusion list, malformed canonical ID, "
-                "unsupported language, or a translation that does not belong "
-                "to the language"
+                "unsupported language, or a translation that is not among "
+                "those available for the language (see "
+                "`GET /api/scripture/v1/translations`)"
             ),
         },
         429: {
@@ -814,7 +1300,9 @@ def build_response(
             "model": ErrorResponse,
             "description": (
                 "No verified passage could be produced (database, corpus or "
-                "rate limiter unavailable)"
+                "rate limiter unavailable, the chosen passage cannot be read "
+                "in the requested translation, or the time budget ran out "
+                "before it could be)"
             ),
         },
     },
@@ -853,20 +1341,106 @@ async def scripture_select(
         exclude_canonical_ids=exclusions,
         top_k=TOP_K,
     )
+    language = request.language.value
+    allowed = coverage_filter(resources, language, translation)
     deadline = Deadline(SCRIPTURE_SELECT_TIMEOUT_SECONDS)
     try:
         final = await run_in_threadpool(
-            _run_selection, resources, selection_request, deadline
+            _run_selection, resources, selection_request, deadline, allowed
         )
+        passage = indexed_passage(final.candidate, translation)
+        if passage is None and final.candidate is not None:
+            # A renderable translation that was never chunked: build the
+            # passage from its own verses for the same canonical window.
+            passage = await run_in_threadpool(
+                _render_target_passage,
+                final.candidate,
+                translation,
+                translation_alias(resources, language, translation),
+                resources.psalm_maps,
+                reference_translation(resources.indexed, language),
+                deadline,
+            )
         return build_response(
             final,
-            request.language.value,
+            language,
             translation,
             history_reset=bool(stale),
             psalm_maps=resources.psalm_maps,
+            passage=passage,
         )
     except ScriptureSelectUnavailable as error:
         logger.warning("Scripture selection unavailable: %s", error)
         raise HTTPException(
             status_code=503, detail="Scripture selection temporarily unavailable"
         ) from error
+
+
+def build_translation_catalogue(
+    resources: CorpusResources,
+) -> TranslationCatalogue:
+    """Public catalogue built from the cached corpus (no extra DB access)."""
+    languages = []
+    for language in sorted(resources.translations):
+        entries = resources.translations[language]
+        if not entries or language not in Language.__members__:
+            # A corpus language the request enum does not know cannot be
+            # asked for, so it is not part of the public catalogue either.
+            continue
+        primary = primary_translation(resources, language)
+        languages.append(
+            LanguageTranslations(
+                language=Language(language),
+                translations=[
+                    ScriptureTranslationModel(
+                        code=code, alias=alias, primary=code == primary
+                    )
+                    for code, alias in entries
+                ],
+            )
+        )
+    return TranslationCatalogue(languages=languages)
+
+
+@router.get(
+    "/scripture/v1/translations",
+    response_model=TranslationCatalogue,
+    operation_id="scripture_translations",
+    tags=["Scripture"],
+    summary="Translations the selection endpoint can render",
+    description=(
+        "Lists, per language, the translations `POST "
+        "/api/scripture/v1/select` accepts in its `translation` field, and "
+        "which one it uses when the field is omitted (`primary`).\n\n"
+        "A translation is listed when its language has an indexed corpus and "
+        "the server can resolve the canonical passage windows into it; a "
+        "code that is not listed is answered with 422 by the selection "
+        "endpoint. The list comes from the same cached corpus the selection "
+        "uses, so the two can never disagree; it changes only when the "
+        "corpus is rebuilt (`POST /api/cache/clear` publishes it "
+        "immediately).\n\n"
+        "Names, descriptions and audio voices of these translations are in "
+        "`GET /api/translations`, joined by `code`."
+    ),
+    responses={
+        403: {"model": ErrorResponse, "description": "Invalid or missing API key"},
+        503: {
+            "model": ErrorResponse,
+            "description": (
+                "The corpus is unavailable (database down or vector index "
+                "empty)"
+            ),
+        },
+    },
+)
+async def scripture_translations(
+    api_key: bool = RequireAPIKey,
+) -> TranslationCatalogue:
+    try:
+        resources = await run_in_threadpool(get_resources)
+    except ScriptureSelectUnavailable as error:
+        logger.warning("Scripture selection unavailable: %s", error)
+        raise HTTPException(
+            status_code=503, detail="Scripture selection temporarily unavailable"
+        ) from error
+    return build_translation_catalogue(resources)

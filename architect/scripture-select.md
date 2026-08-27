@@ -1,9 +1,12 @@
 # Scripture selection
 
 Public contract of `POST /api/scripture/v1/select` — contextual Bible
-passage selection for the prayer app. Design decisions and measurements:
-`architect/adr/0006-scripture-select-api.md`; the pipeline behind it is
-ADR 0004 (retrieval) and ADR 0005 (grounded rerank).
+passage selection for the prayer app — and of
+`GET /api/scripture/v1/translations`, which lists the translations it can
+render. Design decisions and measurements:
+`architect/adr/0006-scripture-select-api.md` and
+`architect/adr/0007-reference-translation-rendering.md`; the pipeline behind
+them is ADR 0004 (retrieval) and ADR 0005 (grounded rerank).
 
 ## Public contract
 
@@ -26,7 +29,7 @@ are rejected.
 | `topic` | no (default `""`) | <= 500 characters; an empty topic is valid and served from the safe pool without any AI call |
 | `user_replies` | no | <= 10 items, <= 1000 characters each, <= 4000 characters in total; blank items are dropped |
 | `exclude_canonical_ids` | no | <= 200 items, each matching `v<version>:BB.CCC.VVV-VVV` |
-| `translation` | no | translation code; must belong to `language`; defaults to the language's primary indexed translation |
+| `translation` | no | translation code; must be one of the codes `GET /api/scripture/v1/translations` lists for `language`; defaults to that language's `primary` |
 
 Response:
 
@@ -64,6 +67,50 @@ translation's own numbering — the two differ for Psalms. The text is read
 from the database; the AI stage only picks among candidates the server
 retrieved and can never introduce a passage, a reference or scripture text
 of its own.
+
+## Available translations
+
+```
+GET /api/scripture/v1/translations
+```
+
+```json
+{
+  "languages": [
+    {"language": "en", "translations": [
+      {"code": 16, "alias": "bsb", "primary": true},
+      {"code": 17, "alias": "webus", "primary": false},
+      {"code": 779, "alias": "webbe", "primary": false}]},
+    {"language": "ru", "translations": [
+      {"code": 1, "alias": "syn", "primary": true},
+      {"code": 11, "alias": "bti", "primary": false}]},
+    {"language": "uk", "translations": [
+      {"code": 20, "alias": "ubh", "primary": true},
+      {"code": 21, "alias": "npu", "primary": false}]}
+  ]
+}
+```
+
+Every code listed here is accepted in `translation`; anything else is
+rejected with 422. `primary` is the one served when the field is omitted.
+Names, descriptions and audio voices of the same translations are in
+`GET /api/translations`, joined by `code`.
+
+The selection itself always runs over ONE indexed corpus per language (the
+primary), and the chosen canonical passage is then rendered in the
+translation that was asked for — from the database, through the Psalm
+versification table where the numbering differs (ADR 0007). A translation
+that does not contain a passage never has it proposed: candidates are
+filtered by what that translation actually covers before the AI stage, so
+an incomplete Bible (`npu` is the New Testament and the Psalms) is served
+from a smaller pool rather than refused. The passage is never silently
+replaced by another translation's text — if the chosen window cannot be
+rendered, the request fails with 503.
+
+The list is derived from the corpus and is cached with it: activating a
+translation in the database publishes it after the corpus cache expires or
+`POST /api/cache/clear` is called. Because both the list and the request
+validation read the same cached object, they cannot disagree.
 
 ## Key verses (`highlight`)
 
@@ -116,18 +163,23 @@ Degradation is part of the contract, not an error:
 | `safe_pool` | `empty_topic` | no topic and no replies were sent |
 | `safe_pool` | `ai_unavailable` | no query could be embedded (provider outage) |
 | `safe_pool` | `deadline` | the time budget ran out before retrieval could run |
+| `safe_pool` | `coverage_empty` | retrieval ran, but the candidate pool narrowed by the requested translation's coverage together with the caller's exclusions and the genre blacklist left nothing (only possible for a translation other than the language's primary — ADR 0007) |
 
 The safe pool is a curated, versioned list of comforting passages
-(`app/data/safe_pool.json`) rotated with the same exclusion list.
+(`app/data/safe_pool.json`, 9 places in version 1.1.0) rotated with the same
+exclusion list. It is resolved through the requested translation's coverage
+set as well, so a pool place missing from an incomplete Bible is skipped
+rather than served from somewhere else: `npu` resolves 8 of the 9 places,
+every other active translation all 9.
 
 ## Errors
 
 | code | when |
 |---|---|
 | 403 | invalid or missing API key |
-| 422 | unknown field; oversized topic, reply, reply total or exclusion list; malformed canonical ID; unsupported language; translation that does not belong to the language |
+| 422 | unknown field; oversized topic, reply, reply total or exclusion list; malformed canonical ID; unsupported language; a translation that is not listed for the language by `GET /api/scripture/v1/translations` (another language's, inactive, unknown, or not renderable from the canonical corpus) |
 | 429 | global or per-client request limit exceeded (with `Retry-After`) |
-| 503 | no verified passage can be produced: database unavailable, vector index empty (run `app/index_cli.py rebuild`), or the rate limiter is misconfigured |
+| 503 | no verified passage can be produced: database unavailable, vector index empty (run `app/index_cli.py rebuild`), the rate limiter is misconfigured, the chosen passage cannot be rendered in the requested translation, or the time budget was already exhausted when the rendering would have started |
 
 There is no `502`: provider failures are absorbed by the fallbacks above.
 
@@ -164,6 +216,9 @@ query rewrite is ~75 % of it. The six query embeddings run concurrently.
 
 ## Rate limiting and observability
 
+`GET /api/scripture/v1/translations` is a cached, prayer-independent read
+and has no rate limit of its own. The limits below are the selection's.
+
 Two 60-second windows, independent of the Twinkler budget because one
 selection costs ~8 provider calls:
 
@@ -187,9 +242,10 @@ categories only.
 
 ## Caching
 
-The vector index, the per-language BM25 index and the Psalm versification
-maps are cached in the process for `SCRIPTURE_INDEX_CACHE_SECONDS` (default
-1 hour, minimum 1 second) — they depend only on the corpus, cost ~0.9 s to
+The vector index, the per-language BM25 index, the Psalm versification maps,
+the renderable-translation catalogue and the per-translation coverage sets
+are cached in the process for `SCRIPTURE_INDEX_CACHE_SECONDS` (default
+1 hour, minimum 1 second) — they depend only on the corpus, cost ~1.4 s to
 build and are identical for every request. `POST /api/cache/clear` drops them immediately, so a rebuilt
 index can be published without restarting the service. If a refresh fails,
 the previous copy keeps being served (a 503 only happens when there is no

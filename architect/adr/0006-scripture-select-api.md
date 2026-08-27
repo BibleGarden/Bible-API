@@ -35,7 +35,7 @@ Request (unknown fields rejected, `extra="forbid"`):
 | `topic` | string | <= 500 chars | empty is valid -> safe pool, no AI call |
 | `user_replies` | string[] | <= 10 items, <= 1000 chars each, <= 4000 total | the replies the person picked in the dialog |
 | `exclude_canonical_ids` | string[] | <= 200 items, canonical-ID pattern | already shown passages |
-| `translation` | int | optional | must belong to `language`; defaults to its primary indexed translation |
+| `translation` | int | optional | must be one of the language's renderable translations (ADR 0007); defaults to its primary |
 
 Limits are ~10x the observed corpus (the evaluation scenarios top out at a
 47-character topic and 62-character replies) — generous for a dialog that
@@ -105,6 +105,12 @@ assertion that the response schema has no `reason` property).
 | `rerank` | null | the AI chose among verified candidates |
 | `retrieval_fallback` | `rerank_failed` / `no_reranker` / `deadline` | retrieval's top-1 was served |
 | `safe_pool` | `empty_topic` / `ai_unavailable` / `deadline` | the curated no-AI list was served |
+
+ADR 0007 adds one more value to the last row, `coverage_empty`: retrieval
+ran, but the candidate pool — narrowed by the requested (non-primary)
+translation's coverage together with the caller's exclusions and the genre
+blacklist — was left with nothing, so the coverage-filtered safe pool
+answered.
 
 A Gemini outage therefore never produces a 5xx: it degrades along the ADR
 0005 ladder. `503` is reserved for "no verified passage exists at all"
@@ -343,9 +349,11 @@ re-run).
    decided, it stays server-side. (Inherited from ADR 0005.) `highlight` is
    the first piece of the model's judgement that IS returned — but as
    coordinates the server verified, never as words.
-2. Safe-pool size (6 places) is small for long exclusion histories — with
-   `history_reset` the client now has a defined way to start over, but a
-   heavy user still cycles the pool quickly (ADR 0004 open question 3).
+2. Safe-pool size (9 places since version 1.1.0, 2026-08-28; 6 when this ADR
+   was written) is small for long exclusion histories — with `history_reset`
+   the client now has a defined way to start over, but a heavy user still
+   cycles the pool quickly (ADR 0004 open question 3). An incomplete Bible
+   sees fewer still: `npu` resolves 8 of the 9.
 3. The rewrite stage is 75 % of the latency. Options if it must shrink:
    a cheaper rewrite model (fails the ADR 0004 thresholds today), fewer
    variants (costs recall), or overlapping the rerank with retrieval —
@@ -353,7 +361,17 @@ re-run).
 4. `history_reset` is a boolean; if several corpora ever coexist (e.g. a
    staged migration), the client may need the server's current chunking
    version instead. Left out until there is a second corpus.
-5. A single Bible per language is indexed today, so `translation` is
+5. ~~A single Bible per language is indexed today, so `translation` is
    effectively fixed per language. When a second translation of one
    language is indexed, the primary-translation default ("first in index
-   order") should become an explicit per-language configuration.
+   order") should become an explicit per-language configuration.~~
+   **Closed by ADR 0007 (2026-08-27):** the default is now the explicit
+   `SCRIPTURE_PRIMARY_TRANSLATIONS` configuration (falling back to the
+   lowest indexed code, deterministic and identical to today's behaviour),
+   and `translation` is no longer fixed per language — every ACTIVE
+   translation of an indexed language can be requested. The corpus is still
+   indexed once per language; a non-indexed translation is rendered from
+   `translation_verses` for the same canonical window, and candidates are
+   filtered by a per-translation coverage set before the rerank so the
+   chosen passage always exists in it. `GET /api/scripture/v1/translations`
+   publishes the list.

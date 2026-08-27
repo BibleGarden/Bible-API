@@ -302,8 +302,13 @@ def build_chapter_plan(
     return planned
 
 
-def _build_text(verses: list[Verse], title_verses: set[int]) -> str:
-    """Chunk text: paragraphs separated by blank lines, verses by spaces."""
+def build_text(verses: list[Verse], title_verses: set[int]) -> str:
+    """Chunk text: paragraphs separated by blank lines, verses by spaces.
+
+    Public because a passage rendered outside the chunk corpus must be
+    assembled by exactly these rules (app/passage_render.py); any duck-typed
+    verse with `verse_number`, `text` and `start_paragraph` is accepted.
+    """
     non_empty = [v for v in verses if _clean_text(v)]
     paragraphs = _split_paragraphs(non_empty, title_verses)
     return "\n\n".join(
@@ -382,7 +387,7 @@ def apply_chapter_plan(
             if plan.text_start <= v.verse_number < plan.own_start
         ]
         included = overlap + owned
-        text = _build_text(included, title_verses)
+        text = build_text(included, title_verses)
         if not text:
             continue
         title_candidates = [

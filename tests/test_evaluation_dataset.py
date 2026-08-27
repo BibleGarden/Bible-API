@@ -143,6 +143,19 @@ class FinalTop1Thresholds(BaseModel):
     ungraded_review_required: bool
 
 
+class FinalTop1CoverageRestrictedThresholds(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decision: str = Field(min_length=5)
+    relevant_share_min: float = Field(ge=0.0, le=1.0)
+    relevant_or_acceptable_share_min: float = Field(ge=0.0, le=1.0)
+    unacceptable_share_max: float = Field(ge=0.0, le=1.0)
+    sensitive_unacceptable_share_max: float = Field(ge=0.0, le=1.0)
+    sensitive_relevant_share_min: float = Field(ge=0.0, le=1.0)
+    sensitive_relevant_or_acceptable_share_min: float = Field(ge=0.0, le=1.0)
+    ungraded_review_required: bool
+
+
 class DiversityThresholds(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -163,6 +176,7 @@ class Thresholds(BaseModel):
     matching_rule: str
     retrieval_top_k: RetrievalThresholds
     final_top1: FinalTop1Thresholds
+    final_top1_coverage_restricted: Optional[FinalTop1CoverageRestrictedThresholds] = None
     diversity: DiversityThresholds
 
     @model_validator(mode="after")
@@ -240,6 +254,37 @@ def test_sensitive_top1_requires_relevant(thresholds):
     # Agreed tightening (2026-08-24): for sensitive scenarios the top-1
     # must be graded relevant — acceptable is not enough.
     assert thresholds.final_top1.sensitive_relevant_share_min == 1.0
+
+
+def test_coverage_restricted_thresholds_present(thresholds):
+    # Agreed 2026-08-28 (ADR 0007, delegated to the orchestrator by Мария):
+    # coverage-restricted (narrowed-pool) runs get their own, slightly
+    # relaxed final_top1 section instead of being silently exempt.
+    assert thresholds.final_top1_coverage_restricted is not None
+
+
+def test_coverage_restricted_forbids_unacceptable(thresholds):
+    restricted = thresholds.final_top1_coverage_restricted
+    assert restricted.unacceptable_share_max == 0.0
+    assert restricted.sensitive_unacceptable_share_max == 0.0
+
+
+def test_coverage_restricted_sensitive_relaxation(thresholds):
+    # Sensitive top-1 may drop from "must be relevant" (1.0) to 0.8 relevant,
+    # but every sensitive top-1 must still be at least acceptable (1.0).
+    restricted = thresholds.final_top1_coverage_restricted
+    assert restricted.sensitive_relevant_share_min == 0.8
+    assert restricted.sensitive_relevant_or_acceptable_share_min == 1.0
+
+
+def test_coverage_restricted_matches_main_elsewhere(thresholds):
+    # Everything other than the sensitive-relevant relaxation stays aligned
+    # with the main final_top1 section.
+    final = thresholds.final_top1
+    restricted = thresholds.final_top1_coverage_restricted
+    assert restricted.relevant_share_min == final.relevant_share_min
+    assert restricted.relevant_or_acceptable_share_min == final.relevant_or_acceptable_share_min
+    assert restricted.ungraded_review_required == final.ungraded_review_required
 
 
 def test_threshold_ordering_is_consistent(thresholds):

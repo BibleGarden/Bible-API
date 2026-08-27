@@ -1068,6 +1068,76 @@ def _final_top1_report(label: str, rows: list[dict], thresholds: dict) -> None:
                   f"{r['chosen']}  reason: {r.get('reason', '')}")
 
 
+def _coverage_allowed(
+    translation_code: int, metas: list[ChunkMeta]
+) -> tuple[int, frozenset[str]]:
+    """Canonical windows a NON-INDEXED translation can render (ADR 0007).
+
+    Simulates the production candidate filter: the corpus stays the indexed
+    translation of the language (the rerank prompt is unchanged), but only
+    windows that fully exist in `translation_code` may be chosen — which is
+    what `POST /api/scripture/v1/select` does when the passage will be
+    rendered in a translation that was never chunked.
+
+    Returns (corpus translation code of that language, allowed canonical
+    IDs). Needs the database: coverage is a fact about the verses, not about
+    the exported chunk corpus.
+    """
+    from database import create_connection
+    from passage_highlight import load_psalm_maps
+    from passage_render import (
+        build_coverage,
+        load_chunk_ranges,
+        reference_faithful_windows,
+    )
+    from retrieval import parse_canonical_id
+
+    connection = create_connection()
+    if connection is None:
+        raise SystemExit("--coverage-translation needs the cep_public database")
+    cursor = connection.cursor(dictionary=True)
+    try:
+        cursor.execute(
+            "SELECT alias, language FROM translations WHERE code = %s",
+            (translation_code,),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            raise SystemExit(f"translation {translation_code} not found")
+        corpus_code, _alias = LANGUAGE_CORPUS[row["language"]]
+        windows = []
+        seen = set()
+        for meta in metas:
+            if meta.translation != corpus_code or meta.canonical_id in seen:
+                continue
+            seen.add(meta.canonical_id)
+            _v, book, chapter, start, end = parse_canonical_id(meta.canonical_id)
+            windows.append((meta.canonical_id, book, chapter, start, end))
+        maps = load_psalm_maps(cursor)
+        # Same two steps as production (`scripture_select._build_catalogue`):
+        # windows whose stored reference chunk really is the window's own
+        # range, then the ones this translation carries in full.
+        offered = reference_faithful_windows(
+            windows,
+            load_chunk_ranges(cursor, corpus_code),
+            maps.get(corpus_code),
+        )
+        covered = frozenset(
+            build_coverage(
+                cursor, translation_code, offered, maps.get(translation_code)
+            )
+        )
+    finally:
+        cursor.close()
+        connection.close()
+    print(
+        f"coverage filter: {row['alias']} (code {translation_code}, "
+        f"{row['language']}) renders {len(covered)} of {len(windows)} "
+        f"canonical windows of the {row['language']} corpus"
+    )
+    return corpus_code, covered
+
+
 def _rrf_fuse(variant_hits: list[list[tuple[str, float]]], k: int = 60):
     """Reciprocal-rank fusion alternative to retrieval.fuse_variant_hits."""
     from retrieval import FusedHit
@@ -1109,6 +1179,16 @@ def cmd_pipeline(args) -> None:
     cache = _load_pipeline_cache()
     blacklist = load_genre_blacklist() if not args.no_blacklist else []
     safe_pool = load_safe_pool()
+    # ADR 0007 simulation: restrict one language's candidates to the windows
+    # a non-indexed translation can render. Other languages are untouched, so
+    # their cached rewrites/embeddings/reranks stay valid.
+    coverage_code, coverage_allowed = (
+        _coverage_allowed(args.coverage_translation, metas)
+        if args.coverage_translation else (None, frozenset())
+    )
+
+    def allowed(code: int, canonical_id: str) -> bool:
+        return code != coverage_code or canonical_id in coverage_allowed
 
     # per-translation corpus views + canonical-id lookups
     trans_idx = {
@@ -1240,6 +1320,8 @@ def cmd_pipeline(args) -> None:
                 for ref in safe_pool:
                     best = None
                     for cid, book, chapter, start, end in canon_parsed[code]:
+                        if not allowed(code, cid):
+                            continue
                         if (book == ref.book and chapter == ref.chapter
                                 and end >= ref.verse_start
                                 and start <= ref.verse_end):
@@ -1296,6 +1378,8 @@ def cmd_pipeline(args) -> None:
             # --- blacklist + diversity
             filtered = []
             for hit in fused:
+                if not allowed(code, hit.canonical_id):
+                    continue
                 _v, book, chapter, start, end = parse_canonical_id(hit.canonical_id)
                 if is_blacklisted(blacklist, book, chapter, start, end):
                     continue
@@ -1365,6 +1449,8 @@ def cmd_pipeline(args) -> None:
         f" pool={'off' if args.no_pool else 'on'}"
         f" lexical={'off' if args.no_lexical else f'k{args.lex_k}'}"
         f" fetch_k={args.fetch_k} max_per_book={args.max_per_book}"
+        + (f" coverage={args.coverage_translation}"
+           if args.coverage_translation else "")
     )
     print_report(label, results, {"rewrite_failures": rewrite_failures},
                  thresholds)
@@ -1453,6 +1539,11 @@ def main() -> None:
                         "(default: production RETRIEVAL_RERANK_MODEL)")
     p.add_argument("--cache-tag", default="",
                    help="extra rewrite-cache key part (stability re-sampling)")
+    p.add_argument("--coverage-translation", type=int, default=0,
+                   help="ADR 0007: restrict the candidates of that "
+                        "translation's language to the canonical windows it "
+                        "can render (e.g. 21 for npu); other languages are "
+                        "unaffected")
     p.add_argument("--json-out", default="")
     p.set_defaults(func=cmd_pipeline)
 

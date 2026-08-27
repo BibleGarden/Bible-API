@@ -20,6 +20,7 @@ os.environ.setdefault("API_KEY", "test-api-key")
 os.environ.setdefault("TWINKLER_SYSTEM_PROMPT", "Серверная система")
 os.environ.setdefault("TWINKLER_CLIENT_HMAC_KEY", "test-hmac-key")
 
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 import client_ip
@@ -242,6 +243,38 @@ def test_rejects_a_translation_of_another_language(selection_environment):
     assert response.status_code == 422
     assert "not available" in response.json()["detail"]
     selection_environment.assert_not_called()
+
+
+def test_rejects_a_translation_missing_from_the_renderable_catalogue(
+    monkeypatch, selection_environment
+):
+    """422 now means exactly one thing: not in this language's catalogue —
+    another language's, inactive, unknown, or unresolvable against the
+    canonical corpus."""
+    resources = scripture_select.CorpusResources(
+        index=SimpleNamespace(metas=[]), lexical={},
+        translations={"ru": [(1, "syn")]}, loaded_at=0.0,
+        psalm_maps=PSALM_MAPS, indexed={"ru": [(1, "syn")]}, primary={"ru": 1},
+    )
+    monkeypatch.setattr(scripture_select, "get_resources", lambda: resources)
+
+    response = post({"language": "ru", "topic": TOPIC, "translation": 11})
+
+    assert response.status_code == 422
+    assert response.json() == {
+        "detail": "Translation 11 is not available for ru"
+    }
+    selection_environment.assert_not_called()
+
+
+def test_a_422_repeats_nothing_but_the_code_the_caller_sent():
+    response = post({
+        "language": "ru", "topic": TOPIC, "user_replies": [REPLY],
+        "translation": 16,
+    })
+
+    assert response.status_code == 422
+    assert TOPIC not in response.text and REPLY not in response.text
 
 
 @pytest.mark.parametrize(
@@ -650,6 +683,28 @@ def test_a_span_the_server_refuses_is_dropped_not_clamped(monkeypatch):
         ).json()
 
 
+def test_the_primary_path_is_byte_for_byte_the_pre_catalogue_one(monkeypatch):
+    """Backward compatibility (ADR 0007): a request that names no
+    translation — or names the primary — goes through the same code as
+    before, so its body must equal the one the previous `build_response`
+    call produced (no `passage` argument, no filter)."""
+    final = make_final(highlight=(4, 4))
+    legacy = scripture_select.build_response(
+        final, "ru", 1, history_reset=False, psalm_maps=PSALM_MAPS
+    )
+    monkeypatch.setattr(
+        scripture_select, "_run_selection", Mock(return_value=final)
+    )
+
+    for payload in (
+        {"language": "ru", "topic": TOPIC},
+        {"language": "ru", "topic": TOPIC, "translation": 1},
+    ):
+        response = post(payload)
+        assert response.status_code == 200
+        assert response.json() == json.loads(legacy.model_dump_json())
+
+
 def test_without_a_highlight_the_response_is_byte_for_byte_the_old_one():
     """Backward compatibility: an absent highlight is an absent KEY."""
     body = post({"language": "ru", "topic": TOPIC}).json()
@@ -711,6 +766,406 @@ def test_the_highlight_never_leaks_the_prayer_context(monkeypatch, caplog):
     assert TOPIC not in response.text and REPLY not in response.text
     for secret in PRIVATE_STRINGS:
         assert secret not in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# Renderable catalogue, primary translation and the coverage filter (ADR 0007)
+# ---------------------------------------------------------------------------
+
+INDEXED = {"ru": [(1, "syn")], "en": [(16, "bsb"), (17, "webus")]}
+
+
+def catalogue_resources(**overrides):
+    defaults = dict(
+        index=SimpleNamespace(metas=[]),
+        lexical={},
+        translations={"ru": [(1, "syn"), (11, "bti")], "en": [(16, "bsb")]},
+        loaded_at=0.0,
+        psalm_maps=PSALM_MAPS,
+        indexed={"ru": [(1, "syn")], "en": [(16, "bsb")]},
+        primary={"ru": 1, "en": 16},
+        coverage={11: frozenset({"v3:19.023.001-006"})},
+    )
+    defaults.update(overrides)
+    return scripture_select.CorpusResources(**defaults)
+
+
+def test_primary_config_is_parsed_into_language_pairs():
+    assert scripture_select.parse_primary_config(" ru=syn , en=16 ") == {
+        "ru": "syn", "en": "16",
+    }
+    assert scripture_select.parse_primary_config("") == {}
+
+
+def test_a_malformed_primary_entry_is_ignored_not_fatal(caplog):
+    with caplog.at_level("WARNING"):
+        parsed = scripture_select.parse_primary_config("ru=syn,nonsense,=x")
+
+    assert parsed == {"ru": "syn"}
+    assert "malformed" in caplog.text
+
+
+def test_the_default_primary_is_deterministic():
+    """No configuration: the indexed translation with the lowest code —
+    identical to the previous 'first in index order' while each language has
+    a single indexed translation."""
+    assert scripture_select.resolve_primary_translations(INDEXED, "") == {
+        "ru": 1, "en": 16,
+    }
+
+
+@pytest.mark.parametrize("value", ["en=webus", "en=17"])
+def test_the_primary_can_be_configured_by_alias_or_by_code(value):
+    resolved = scripture_select.resolve_primary_translations(INDEXED, value)
+
+    assert resolved["en"] == 17
+    assert resolved["ru"] == 1, "unconfigured languages keep the default"
+
+
+def test_a_primary_that_is_not_indexed_falls_back_to_the_default(caplog):
+    """The primary IS the corpus: an unindexed translation cannot be one."""
+    with caplog.at_level("WARNING"):
+        resolved = scripture_select.resolve_primary_translations(
+            INDEXED, "ru=bti,de=xyz"
+        )
+
+    assert resolved == {"ru": 1, "en": 16}
+    assert "not indexed" in caplog.text
+    assert "no index" in caplog.text
+
+
+def test_the_coverage_filter_is_never_applied_to_the_primary():
+    """Backward compatibility: the primary path is the pre-ADR-0007 path,
+    with no filter in it at all."""
+    resources = catalogue_resources()
+
+    assert scripture_select.coverage_filter(resources, "ru", 1) is None
+    assert scripture_select.coverage_filter(resources, "ru", 11) == frozenset(
+        {"v3:19.023.001-006"}
+    )
+
+
+def test_a_selection_of_the_primary_passes_no_filter_to_the_pipeline(
+    monkeypatch, selection_environment
+):
+    monkeypatch.setattr(
+        scripture_select, "get_resources", lambda: catalogue_resources()
+    )
+
+    post({"language": "ru", "topic": TOPIC})
+    assert selection_environment.call_args.args[3] is None
+
+    post({"language": "ru", "topic": TOPIC, "translation": 1})
+    assert selection_environment.call_args.args[3] is None
+
+
+def test_a_selection_of_another_translation_is_restricted_to_its_coverage(
+    monkeypatch, selection_environment
+):
+    monkeypatch.setattr(
+        scripture_select, "get_resources", lambda: catalogue_resources()
+    )
+
+    post({"language": "ru", "topic": TOPIC, "translation": 11})
+
+    assert selection_environment.call_args.args[3] == frozenset(
+        {"v3:19.023.001-006"}
+    )
+
+
+def test_a_missing_coverage_set_refuses_every_window(caplog):
+    """Fix F4: a non-primary translation whose coverage set is missing is
+    fail-CLOSED. `None` would mean "no restriction" for exactly the
+    translation whose renderability was never established."""
+    resources = catalogue_resources(coverage={})
+
+    with caplog.at_level("WARNING"):
+        allowed = scripture_select.coverage_filter(resources, "ru", 11)
+
+    assert allowed == frozenset()
+    assert "No coverage set" in caplog.text
+    # ...and the primary is still unfiltered
+    assert scripture_select.coverage_filter(resources, "ru", 1) is None
+
+
+def test_an_empty_coverage_result_is_reported_as_coverage_empty(monkeypatch):
+    """Fix F1 through the public contract: the safe pool answered because
+    nothing retrieved exists in the requested translation."""
+    monkeypatch.setattr(
+        scripture_select, "get_resources", lambda: catalogue_resources()
+    )
+    monkeypatch.setattr(
+        scripture_select, "_run_selection",
+        Mock(return_value=make_final(
+            method="fallback_top1", fallback_reason="safe_pool",
+            source="safe_pool", selection_reason="coverage_empty",
+        )),
+    )
+    monkeypatch.setattr(
+        scripture_select, "_render_target_passage",
+        Mock(return_value=PassageText(
+            translation=11, alias="bti", book_number=19, chapter_number=22,
+            verse_number_start=1, verse_number_end=6, title=None,
+            text="Господь — Пастырь мой", verses=psalm_verses(),
+        )),
+    )
+
+    body = post({
+        "language": "ru", "topic": TOPIC, "translation": 11
+    }).json()
+
+    assert body["source"] == "safe_pool"
+    assert body["fallback_reason"] == "coverage_empty"
+
+
+def test_the_openapi_schema_publishes_the_coverage_fallback():
+    schema = client.get("/openapi.json").json()
+    reason = schema["components"]["schemas"]["FallbackReason"]
+
+    assert "coverage_empty" in reason["enum"]
+
+
+def test_a_primary_that_is_not_the_rerank_translation_is_reported(caplog):
+    """Fix F7 / ADR 0007 OQ2: the rerank prompt is `passages[0]` — index
+    insertion order. A configured primary that is a DIFFERENT indexed
+    translation means the AI reads one book and the client is served
+    another; it is accepted (it is indexed, so it needs no rendering) but
+    never silently."""
+    with caplog.at_level("WARNING"):
+        resolved = scripture_select.resolve_primary_translations(
+            INDEXED, "en=webus"
+        )
+
+    assert resolved["en"] == 17
+    assert "rerank prompt" in caplog.text
+    assert scripture_select.reference_translation(INDEXED, "en") == 16
+    assert scripture_select.reference_translation(INDEXED, "de") is None
+
+
+def test_rendering_is_refused_when_the_candidate_was_judged_elsewhere(caplog):
+    """Fix F7: the own-range rendering is only equivalent to the judged text
+    because the judged text is the reference translation's chunk. A candidate
+    whose prompt passage is another translation is refused, not rendered."""
+    with caplog.at_level("WARNING"):
+        with pytest.raises(scripture_select.ScriptureSelectUnavailable):
+            scripture_select._render_target_passage(
+                make_candidate(), 11, "bti", PSALM_MAPS, reference=99,
+            )
+
+    assert "not the language's reference" in caplog.text
+    assert PASSAGE_TEXT not in caplog.text
+
+
+def test_rendering_is_refused_when_the_candidate_has_no_prompt_passage(caplog):
+    """Fail-closed guard: `prompt_passage` returns None for a candidate with
+    no passages at all. That must refuse exactly like a mismatched reference
+    rather than fall through the `shown is not None` check and render the
+    own range unverified. Unreachable today (every candidate carries at
+    least the primary's passage), but the guard must not depend on that."""
+    candidate = make_candidate()
+    candidate.passages = []
+
+    with caplog.at_level("WARNING"):
+        with pytest.raises(scripture_select.ScriptureSelectUnavailable):
+            scripture_select._render_target_passage(
+                candidate, 11, "bti", PSALM_MAPS, reference=1,
+            )
+
+    assert "not the language's reference" in caplog.text
+    assert PASSAGE_TEXT not in caplog.text
+
+
+def test_rendering_is_skipped_when_the_time_budget_is_gone(monkeypatch):
+    """Fix F6: no extra DB round trip for a request that is already over
+    budget — the documented 503 instead."""
+    connect = Mock()
+    monkeypatch.setattr(scripture_select, "create_connection", connect)
+    expired = scripture_select.Deadline(0.0)
+
+    with pytest.raises(scripture_select.ScriptureSelectUnavailable):
+        scripture_select._render_target_passage(
+            make_candidate(), 11, "bti", PSALM_MAPS, reference=1,
+            deadline=expired,
+        )
+
+    connect.assert_not_called()
+
+
+def test_a_database_failure_while_rendering_is_a_503(monkeypatch, caplog):
+    """Fix F6: a MySQL error in the rendering is the same documented 503 as
+    every other database failure of this endpoint, not a bare 500."""
+    monkeypatch.setattr(
+        scripture_select, "get_resources", lambda: catalogue_resources()
+    )
+    monkeypatch.setattr(
+        scripture_select, "render_passage",
+        Mock(side_effect=RuntimeError("MySQL connection lost")),
+    )
+    monkeypatch.setattr(
+        scripture_select, "create_connection",
+        Mock(return_value=Mock()),
+    )
+
+    with caplog.at_level("WARNING"):
+        response = post({
+            "language": "ru", "topic": TOPIC, "translation": 11
+        })
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": "Scripture selection temporarily unavailable"
+    }
+    assert "MySQL connection lost" not in caplog.text
+    for secret in PRIVATE_STRINGS:
+        assert secret not in caplog.text
+
+
+def test_a_window_without_a_chunk_is_rendered_from_the_database(monkeypatch):
+    """A renderable translation that was never chunked gets its passage from
+    `translation_verses` for the same canonical window."""
+    rendered = PassageText(
+        translation=11, alias="bti", book_number=19, chapter_number=22,
+        verse_number_start=1, verse_number_end=6, title="Псалом",
+        text="Господь — Пастырь мой: ни в чем я нуждаться не буду.",
+        verses=psalm_verses(),
+    )
+    renderer = Mock(return_value=rendered)
+    monkeypatch.setattr(
+        scripture_select, "get_resources", lambda: catalogue_resources()
+    )
+    monkeypatch.setattr(scripture_select, "_render_target_passage", renderer)
+
+    body = post(
+        {"language": "ru", "topic": TOPIC, "translation": 11}
+    ).json()
+
+    assert body["passage"]["translation"] == 11
+    assert body["passage"]["translation_alias"] == "bti"
+    assert body["passage"]["text"] == rendered.text
+    assert body["canonical"]["canonical_id"] == "v3:19.023.001-006"
+    # the canonical window is the same one the pipeline chose
+    candidate = renderer.call_args.args[0]
+    assert candidate.canonical_id == "v3:19.023.001-006"
+    assert renderer.call_args.args[1:3] == (11, "bti")
+
+
+def test_an_unrenderable_window_is_an_error_not_another_translation(
+    monkeypatch
+):
+    """Grounding: the response carries the translation that was asked for or
+    no response at all."""
+    monkeypatch.setattr(
+        scripture_select, "get_resources", lambda: catalogue_resources()
+    )
+    monkeypatch.setattr(
+        scripture_select, "_render_target_passage", Mock(return_value=None)
+    )
+
+    response = post({"language": "ru", "topic": TOPIC, "translation": 11})
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": "Scripture selection temporarily unavailable"
+    }
+    assert PASSAGE_TEXT not in response.text
+
+
+def test_an_indexed_translation_is_served_from_its_own_chunk(monkeypatch):
+    """No re-rendering when the candidate already carries the translation:
+    the chunk text stays the source of truth."""
+    renderer = Mock()
+    monkeypatch.setattr(scripture_select, "_render_target_passage", renderer)
+
+    body = post({"language": "ru", "topic": TOPIC, "translation": 2}).json()
+
+    assert body["passage"]["text"] == "Другой перевод"
+    renderer.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# GET /api/scripture/v1/translations
+# ---------------------------------------------------------------------------
+
+def get_translations(api_key: str | None = "test-api-key"):
+    headers = {} if api_key is None else {"X-API-Key": api_key}
+    return client.get("/api/scripture/v1/translations", headers=headers)
+
+
+def test_the_catalogue_requires_the_api_key():
+    assert get_translations(api_key=None).status_code == 403
+    assert get_translations(api_key="wrong").status_code == 403
+
+
+def test_the_catalogue_lists_the_renderable_translations_by_language(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        scripture_select, "get_resources", lambda: catalogue_resources()
+    )
+
+    response = get_translations()
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "languages": [
+            {
+                "language": "en",
+                "translations": [
+                    {"code": 16, "alias": "bsb", "primary": True},
+                ],
+            },
+            {
+                "language": "ru",
+                "translations": [
+                    {"code": 1, "alias": "syn", "primary": True},
+                    {"code": 11, "alias": "bti", "primary": False},
+                ],
+            },
+        ]
+    }
+
+
+def test_the_catalogue_and_the_selection_can_never_disagree(monkeypatch):
+    """Both read the same cached object, so every listed code is accepted
+    and every unlisted one is refused."""
+    resources = catalogue_resources()
+    monkeypatch.setattr(scripture_select, "get_resources", lambda: resources)
+
+    listed = {
+        entry["code"]
+        for language in get_translations().json()["languages"]
+        if language["language"] == "ru"
+        for entry in language["translations"]
+    }
+
+    for code in listed:
+        assert scripture_select.resolve_translation(resources, "ru", code) == code
+    for code in (2, 16, 999):
+        with pytest.raises(HTTPException):
+            scripture_select.resolve_translation(resources, "ru", code)
+
+
+def test_the_catalogue_reports_503_without_a_corpus(monkeypatch):
+    def unavailable():
+        raise scripture_select.ScriptureSelectUnavailable("vector index is empty")
+
+    monkeypatch.setattr(scripture_select, "get_resources", unavailable)
+
+    response = get_translations()
+
+    assert response.status_code == 503
+    assert "vector index" not in response.text
+
+
+def test_the_catalogue_is_documented_in_openapi():
+    schema = app.openapi()
+    operation = schema["paths"]["/api/scripture/v1/translations"]["get"]
+
+    assert operation["tags"] == ["Scripture"]
+    assert operation["summary"]
+    assert {"200", "403", "503"} <= set(operation["responses"])
+    entry = schema["components"]["schemas"]["ScriptureTranslationModel"]
+    assert set(entry["properties"]) == {"code", "alias", "primary"}
 
 
 # ---------------------------------------------------------------------------
@@ -1125,3 +1580,244 @@ def test_empty_topic_returns_a_real_verse_range_of_the_translation(monkeypatch):
 
     expected = set(range(passage["verse_start"], passage["verse_end"] + 1))
     assert verses == expected, "returned range must exist in translation_verses"
+
+
+_LIVE_RESOURCES = None
+
+
+@pytest.fixture
+def live_resources(monkeypatch):
+    """The real corpus (vector index, BM25, Psalm maps, catalogue).
+
+    Loaded once for the whole module — it costs ~1.4 s and is exactly the
+    prayer-independent data the production process caches.
+    """
+    global _LIVE_RESOURCES
+    if _LIVE_RESOURCES is None:
+        _LIVE_RESOURCES = scripture_select._load_resources()
+    monkeypatch.setattr(
+        scripture_select, "get_resources", lambda: _LIVE_RESOURCES
+    )
+    return _LIVE_RESOURCES
+
+
+@pytest.mark.skipif(
+    not _database_available(), reason="needs the cep_public database"
+)
+def test_the_live_catalogue_covers_every_active_translation(live_resources):
+    """Every active translation of an indexed language is servable today."""
+    catalogue = {
+        language["language"]: [
+            (entry["code"], entry["alias"], entry["primary"])
+            for entry in language["translations"]
+        ]
+        for language in client.get(
+            "/api/scripture/v1/translations",
+            headers={"X-API-Key": "test-api-key"},
+        ).json()["languages"]
+    }
+
+    assert catalogue["ru"] == [(1, "syn", True), (11, "bti", False)]
+    assert catalogue["en"] == [
+        (16, "bsb", True), (17, "webus", False), (779, "webbe", False),
+    ]
+    assert catalogue["uk"] == [(20, "ubh", True), (21, "npu", False)]
+
+
+@pytest.mark.skipif(
+    not _database_available(), reason="needs the cep_public database"
+)
+def test_the_live_coverage_sets_are_the_documented_ones(live_resources):
+    """The numbers ADR 0007 publishes, after the reference-chunk filter of
+    fix F2 (which drops 17 en and 38 uk windows from what any non-indexed
+    translation may be offered; ru has none)."""
+    sizes = {
+        code: len(covered)
+        for code, covered in live_resources.coverage.items()
+    }
+
+    assert sizes == {11: 3830, 17: 3995, 779: 3995, 21: 1163}
+    # the primary of a language is never given a coverage set at all
+    assert set(sizes) & {1, 16, 20} == set()
+
+
+@pytest.mark.skipif(
+    not _database_available(), reason="needs the cep_public database"
+)
+@pytest.mark.parametrize(
+    ("language", "translation", "alias"),
+    [("ru", 11, "bti"), ("en", 17, "webus"), ("en", 779, "webbe"),
+     ("uk", 21, "npu")],
+)
+def test_a_translation_without_an_index_is_served_from_its_own_verses(
+    monkeypatch, live_resources, language, translation, alias
+):
+    """Acceptance of the whole feature, on live data and without Gemini: the
+    empty-topic (safe pool) path in a translation that was never chunked."""
+    from database import create_connection
+
+    monkeypatch.setattr(scripture_select, "_run_selection", REAL_RUN_SELECTION)
+
+    response = post({
+        "language": language, "topic": "", "translation": translation,
+    })
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["source"] == "safe_pool"
+    passage = body["passage"]
+    assert (passage["translation"], passage["translation_alias"]) == (
+        translation, alias
+    )
+    assert passage["text"].strip()
+    assert "highlight" not in body
+
+    connection = create_connection()
+    cursor = connection.cursor(dictionary=True)
+    try:
+        cursor.execute(
+            """
+            SELECT verse_number FROM translation_verses
+            WHERE translation = %s AND book_number = %s AND chapter_number = %s
+              AND verse_number BETWEEN %s AND %s AND TRIM(text) <> ''
+            """,
+            (
+                passage["translation"], passage["book_number"],
+                passage["chapter_number"], passage["verse_start"],
+                passage["verse_end"],
+            ),
+        )
+        verses = {row["verse_number"] for row in cursor.fetchall()}
+    finally:
+        cursor.close()
+        connection.close()
+
+    assert passage["verse_start"] in verses and passage["verse_end"] in verses
+
+
+@pytest.mark.skipif(
+    not _database_available(), reason="needs the cep_public database"
+)
+def test_a_narrowed_translation_still_has_a_safe_pool(live_resources):
+    """npu has neither the Old Testament outside the Psalms nor Lamentations,
+    so its pool is smaller — but not empty, which would make it unservable.
+
+    Pool 1.1.0 (Мария, 2026-08-28): the three added places are Psalms and New
+    Testament, i.e. inside npu, so it resolves 8 of the 9 — only Lamentations
+    3:22-23 is out of reach for it.
+    """
+    from retrieval import (
+        ScriptureRetriever, load_safe_pool, make_db_passage_loader,
+    )
+    from database import create_connection
+
+    connection = create_connection()
+    cursor = connection.cursor(dictionary=True)
+    try:
+        for language, code, expected in (
+            ("ru", 1, 9), ("ru", 11, 9), ("en", 16, 9), ("en", 17, 9),
+            ("en", 779, 9), ("uk", 21, 8), ("uk", 20, 9),
+        ):
+            retriever = ScriptureRetriever(
+                index=live_resources.index, embedder=None, rewriter=None,
+                load_passages=make_db_passage_loader(cursor),
+                allowed_canonical_ids=scripture_select.coverage_filter(
+                    live_resources, language, code
+                ),
+            )
+            resolved = retriever._resolve_pool_ids(language)
+            assert sum(1 for cid in resolved if cid) == expected, (
+                language, code
+            )
+        assert len(load_safe_pool()) == 9
+    finally:
+        cursor.close()
+        connection.close()
+
+
+@pytest.mark.skipif(
+    not _database_available(), reason="needs the cep_public database"
+)
+def test_a_psalm_highlight_is_carried_into_another_translation(
+    monkeypatch, live_resources
+):
+    """The cross-translation branch of `resolve_highlight` on live data.
+
+    Canonical Psalm 116:1-8 is chapter 114 in both `syn` and `bti`, but syn
+    merges canonical 116:8 and 116:9 into its verse 8 (versification
+    EXCEPTIONS). A highlight of syn marker 7 is canonical 116:7 and comes
+    back as bti 114:7; marker 8 expands to canonical 116:8-9, which reaches
+    past the window bti renders — and is then DROPPED rather than clamped.
+    """
+    from database import create_connection
+    from retrieval import make_db_verse_loader
+
+    connection = create_connection()
+    cursor = connection.cursor(dictionary=True)
+    try:
+        loader = make_db_verse_loader(cursor)
+        canonical_id = "v3:19.116.001-008"
+        verses = loader(1, [(canonical_id, 19, 114, 1, 8)])[canonical_id]
+    finally:
+        cursor.close()
+        connection.close()
+    assert len(verses) == 8
+
+    candidate = Candidate(
+        canonical_id=canonical_id, book_number=19, chapter_number=116,
+        verse_start=1, verse_end=8, score=0.7, best_variant=0,
+        variant_scores={0: 0.7},
+        passages=[
+            PassageText(
+                translation=1, alias="syn", book_number=19,
+                chapter_number=114, verse_number_start=1, verse_number_end=8,
+                title=None, text="", verses=verses,
+            )
+        ],
+    )
+
+    def select_with(indices):
+        monkeypatch.setattr(
+            scripture_select, "_run_selection",
+            Mock(return_value=make_final(candidate=candidate, highlight=indices)),
+        )
+        return post({
+            "language": "ru", "topic": TOPIC, "translation": 11,
+        }).json()
+
+    body = select_with((7, 7))
+    assert body["passage"]["translation_alias"] == "bti"
+    assert body["passage"]["chapter_number"] == 114
+    assert body["passage"]["text"].startswith("Любовью к Господу")
+    assert body["highlight"] == {
+        "canonical": {
+            "book_number": 19, "chapter_number": 116,
+            "verse_start": 7, "verse_end": 7,
+        },
+        "passage": {"chapter_number": 114, "verse_start": 7, "verse_end": 7},
+    }
+
+    # the merged verse maps onto a canonical range the bti window ends before
+    assert "highlight" not in select_with((8, 8))
+
+
+@pytest.mark.skipif(
+    not _database_available(), reason="needs the cep_public database"
+)
+def test_a_septuagint_shift_is_visible_in_the_response(
+    monkeypatch, live_resources
+):
+    """Canonical Psalm 23 is chapter 22 in bti and 23 in webus — the same
+    words under different numbers, both read from the database."""
+    monkeypatch.setattr(scripture_select, "_run_selection", REAL_RUN_SELECTION)
+
+    russian = post({"language": "ru", "topic": "", "translation": 11}).json()
+    english = post({"language": "en", "topic": "", "translation": 17}).json()
+
+    assert russian["canonical"]["canonical_id"] == "v3:19.023.001-006"
+    assert russian["canonical"]["chapter_number"] == 23
+    assert russian["passage"]["chapter_number"] == 22
+    assert "Пастырь" in russian["passage"]["text"]
+    assert english["canonical"]["chapter_number"] == 23
+    assert english["passage"]["chapter_number"] == 23
+    assert "shepherd" in english["passage"]["text"]

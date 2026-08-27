@@ -1,6 +1,6 @@
 {
   "name": "scripture-selection-quality-thresholds",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "status": "approved",
   "approved_by": "Мария",
   "approved_date": "2026-08-24",
@@ -19,6 +19,16 @@
     "unacceptable_share_max": 0.0,
     "sensitive_unacceptable_share_max": 0.0,
     "sensitive_relevant_share_min": 1.0,
+    "ungraded_review_required": true
+  },
+  "final_top1_coverage_restricted": {
+    "decision": "Мария, 2026-08-28 (ADR 0007, делегировано оркестратору): для прогонов с суженным пулом кандидатов (неполное покрытие перевода, например npu) пороги unacceptable и sensitive relevant-or-acceptable остаются такими же строгими, как в основном разделе, но sensitive_relevant смягчён до 0.8 — меньшая доля OT-кандидатов в суженном пуле объективно снижает шанс relevant-топ-1 по чувствительным сценариям, при этом acceptable остаётся обязательным минимумом (0 unacceptable, 100% relevant-or-acceptable).",
+    "relevant_share_min": 0.70,
+    "relevant_or_acceptable_share_min": 0.95,
+    "unacceptable_share_max": 0.0,
+    "sensitive_unacceptable_share_max": 0.0,
+    "sensitive_relevant_share_min": 0.8,
+    "sensitive_relevant_or_acceptable_share_min": 1.0,
     "ungraded_review_required": true
   },
   "diversity": {

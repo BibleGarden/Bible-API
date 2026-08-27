@@ -31,7 +31,8 @@ docker exec bible-api bash -c "cd /code && PYTHONPATH=app python3 extract-openap
 - **`version_check.py`** — App version check
 - **`import_data.py`** — Import data from Dashboard-API
 - **`twinkler_ai.py`** — Server-prompted Gemini integration with in-memory rate limiting
-- **`scripture_select.py`** — Public scripture-selection endpoint `POST /api/scripture/v1/select` over `retrieval.select_final` (see `architect/scripture-select.md`, `architect/adr/0006-scripture-select-api.md`)
+- **`scripture_select.py`** — Public scripture-selection endpoints `POST /api/scripture/v1/select` over `retrieval.select_final` and `GET /api/scripture/v1/translations` (renderable-translation catalogue); owns the process-local corpus cache: vector + BM25 indexes, Psalm maps, catalogue, coverage sets (see `architect/scripture-select.md`, `architect/adr/0006-scripture-select-api.md`, `architect/adr/0007-reference-translation-rendering.md`)
+- **`passage_render.py`** — renders a canonical passage window in a translation that has no chunk corpus (coordinates through `psalm_verse_mappings`, text from `translation_verses` with `chunking.build_text` semantics) and builds the per-translation coverage sets used to filter candidates before the rerank (ADR 0007)
 - **`rate_limit.py`** — Shared in-memory rolling-window limiter (Twinkler + scripture selection)
 - **`deadline.py`** — Per-request time budget threaded through the AI stages
 - **`prompt_safety.py`** — Neutralizes forged prompt data-block delimiters (invisible characters and angle-bracket look-alikes) in user text
@@ -101,5 +102,10 @@ RAG / scripture selection:
 - `SCRIPTURE_SELECT_TIMEOUT_SECONDS` (15) — total budget of one selection;
   `SCRIPTURE_INDEX_CACHE_SECONDS` (3600) — TTL of the in-process corpus cache,
   also dropped by `POST /api/cache/clear` (ADR 0006).
+- `SCRIPTURE_PRIMARY_TRANSLATIONS` (empty) — per-language default translation
+  of the selection endpoint, e.g. `ru=syn,en=bsb,uk=ubh` (`language=alias` or
+  `language=code`, comma separated). Must name an INDEXED translation;
+  entries that do not are ignored with a warning. Empty means the indexed
+  translation with the lowest code (ADR 0007).
 
 ### All API routes are under `/api` prefix

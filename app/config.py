@@ -107,6 +107,17 @@ SCRIPTURE_SELECT_TIMEOUT_SECONDS = max(
 SCRIPTURE_INDEX_CACHE_SECONDS = max(
     1, _get_int("SCRIPTURE_INDEX_CACHE_SECONDS", 3600)
 )
+# Which translation each language is served in when a selection request does
+# not name one (ADR 0006 open question 5, closed by ADR 0007). Format:
+# "ru=syn,en=bsb,uk=ubh" — comma separated `language=alias` or
+# `language=code` pairs; whitespace is ignored and an entry naming a
+# translation that is not INDEXED for that language is ignored with a
+# warning. Empty (the default) means: the indexed translation with the
+# lowest code, which is deterministic and — while every language has exactly
+# one indexed translation — identical to the previous "first in index order".
+SCRIPTURE_PRIMARY_TRANSLATIONS = os.getenv(
+    "SCRIPTURE_PRIMARY_TRANSLATIONS", ""
+)
 
 TWINKLER_SYSTEM_PROMPT = os.getenv("TWINKLER_SYSTEM_PROMPT", "").strip()
 TWINKLER_CLIENT_HMAC_KEY = os.getenv("TWINKLER_CLIENT_HMAC_KEY", "").strip()

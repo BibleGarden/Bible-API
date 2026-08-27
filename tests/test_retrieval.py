@@ -147,7 +147,12 @@ def test_safe_pool_file_matches_decision():
     # relevant/acceptable places of ru-009/en-006/uk-006 (Мария, вопрос 5)
     assert (19, 23, 1, 3) in coords     # Пс 23:1-3
     assert (40, 11, 28, 30) in coords   # Мф 11:28-30
-    assert len(pool) == 6
+    # pool 1.1.0 (Мария, 2026-08-28, ADR 0007 open question 1): three places
+    # every active translation carries, so an incomplete Bible keeps a pool
+    assert (19, 121, 1, 8) in coords    # Пс 121:1-8
+    assert (57, 4, 1, 9) in coords      # Флп 4:1-9
+    assert (40, 6, 25, 34) in coords    # Мф 6:25-34
+    assert len(pool) == 9
 
 
 def test_safe_pool_rotation_excludes_shown():
@@ -480,6 +485,120 @@ def test_retrieval_excludes_shown_and_blacklisted():
     assert "v3:13.001.001-004" not in ids
     assert "v3:19.127.003-005" not in ids
     assert ids[0] == "v3:45.001.017-017"
+
+
+def test_coverage_filter_drops_windows_the_translation_cannot_render():
+    """ADR 0007: a passage the requested translation does not fully contain
+    never reaches the reranker — the filter runs before it, on the fused
+    ranking, so the rerank prompt itself is untouched."""
+    embedder = FakeEmbedder({
+        "вариант": query_vector({
+            "v3:19.127.003-005": 0.9,    # outside the coverage set
+            "v3:45.001.017-017": 0.5,
+        }),
+    })
+    retriever = make_retriever(
+        embedder=embedder, rewriter=FakeRewriter(["вариант"]),
+        allowed_canonical_ids=frozenset({"v3:45.001.017-017"}),
+    )
+
+    result = retriever.select(SelectionRequest(language="ru", topic="тема"))
+
+    ids = [c.canonical_id for c in result.candidates]
+    assert ids == ["v3:45.001.017-017"]
+
+
+def test_without_a_coverage_set_nothing_is_filtered():
+    """The primary translation is served through the unfiltered path."""
+    embedder = FakeEmbedder({
+        "вариант": query_vector({
+            "v3:19.127.003-005": 0.9, "v3:45.001.017-017": 0.5,
+        }),
+    })
+    retriever = make_retriever(
+        embedder=embedder, rewriter=FakeRewriter(["вариант"]),
+        allowed_canonical_ids=None,
+    )
+
+    result = retriever.select(SelectionRequest(language="ru", topic="тема"))
+
+    ids = [c.canonical_id for c in result.candidates]
+    assert ids[:2] == ["v3:19.127.003-005", "v3:45.001.017-017"]
+    assert len(ids) > 2, "nothing but the blacklist may shorten the list"
+
+
+def test_safe_pool_is_filtered_by_coverage_too():
+    retriever = make_retriever(
+        allowed_canonical_ids=frozenset({"v3:40.011.028-030"})
+    )
+
+    result = retriever.select(SelectionRequest(language="ru"))
+
+    assert result.source == "safe_pool"
+    assert [c.canonical_id for c in result.candidates] == [
+        "v3:40.011.028-030"
+    ]
+
+
+def test_a_coverage_set_that_hides_the_retrieval_result_serves_the_safe_pool():
+    """ADR 0007 fix F1: the coverage filter can empty the ranking (npu on an
+    Old Testament topic). That is a narrowed pool, not a broken server — the
+    selection degrades to the safe pool, which is filtered by the SAME set
+    and is therefore renderable, and says so through `coverage_empty`."""
+    embedder = FakeEmbedder({
+        "вариант": query_vector({
+            "v3:19.127.003-005": 0.9,    # outside the coverage set
+            "v3:45.001.017-017": 0.5,    # outside the coverage set
+        }),
+    })
+    retriever = make_retriever(
+        embedder=embedder, rewriter=FakeRewriter(["вариант"]),
+        allowed_canonical_ids=frozenset({"v3:40.011.028-030"}),   # pool entry
+        # what the corpus does by itself: the ranking a query produces is a
+        # small slice of it, and none of that slice need be renderable here
+        fetch_k=2,
+    )
+
+    result = retriever.select(SelectionRequest(language="ru", topic="тема"))
+
+    assert result.source == "safe_pool"
+    assert result.fallback_reason == "coverage_empty"
+    assert [c.canonical_id for c in result.candidates] == [
+        "v3:40.011.028-030"
+    ]
+    assert result.query_variants == ["вариант"], (
+        "the variants were really searched; the pool answered afterwards"
+    )
+
+
+def test_an_unfiltered_selection_never_degrades_to_coverage_empty():
+    """The primary path is untouched: with no coverage set an empty ranking
+    stays an empty retrieval result (it cannot happen for lack of coverage)."""
+    embedder = FakeEmbedder({
+        "вариант": query_vector({"v3:13.001.001-004": 0.9}),   # blacklisted
+    })
+    retriever = make_retriever(
+        embedder=embedder, rewriter=FakeRewriter(["вариант"]),
+        allowed_canonical_ids=None,
+    )
+
+    result = retriever.select(SelectionRequest(language="ru", topic="тема"))
+
+    assert result.source == "retrieval"
+    assert result.fallback_reason is None
+
+
+def test_a_coverage_set_that_hides_everything_yields_no_candidates():
+    """The degenerate end of fix F1: when the coverage set hides the safe
+    pool as well there is nothing verified left, and the endpoint answers 503
+    rather than another translation's passage. Unreachable through the
+    catalogue, which drops a translation covering no window at all."""
+    retriever = make_retriever(allowed_canonical_ids=frozenset())
+
+    result = retriever.select(SelectionRequest(language="ru"))
+
+    assert result.source == "safe_pool"
+    assert result.candidates == []
 
 
 def test_rewrite_failure_falls_back_to_raw_query():
