@@ -773,20 +773,35 @@ def _grade_chunk(
 def _rerank_cached(
     scenario: dict, candidate_ids: list[str], candidate_texts: list[str],
     reranker, model: str, cache: dict, stats: dict,
+    key_verses: bool = True,
 ):
     """Reranker choice for one scenario, disk-cached like rewrites.
 
-    Returns (0-based index, reason) or None when the rerank failed (the
-    caller falls back to top-1, mirroring production select_final)."""
+    Returns (0-based index, reason, key_verse_start, key_verse_end) or None
+    when the rerank failed (the caller falls back to top-1, mirroring
+    production select_final). The key verses are the 1-based verse markers
+    of the highlight inside the chosen candidate (prompt v9)."""
     import hashlib
 
     from passage_rerank import RERANK_PROMPT_VERSION, PassageRerankError
 
     ids_hash = hashlib.sha1("|".join(candidate_ids).encode()).hexdigest()[:16]
-    key = (f"{model}|p{RERANK_PROMPT_VERSION}|{scenario['id']}|{ids_hash}")
+    # key_verses toggles the prompt variant (build_rerank_instruction) for
+    # the same RERANK_PROMPT_VERSION, so it must be part of the cache key
+    # too. Only the False case gets a suffix, so existing cache entries for
+    # the benchmarked key_verses=True path (the vast majority) keep hitting
+    # unchanged.
+    key = (
+        f"{model}|p{RERANK_PROMPT_VERSION}|{scenario['id']}|{ids_hash}"
+        if key_verses else
+        f"{model}|p{RERANK_PROMPT_VERSION}|{scenario['id']}|{ids_hash}|nomarkers"
+    )
     hit = cache["reranks"].get(key)
     if hit is not None:
-        return hit["index"], hit.get("reason", "")
+        return (
+            hit["index"], hit.get("reason", ""),
+            hit.get("key_verse_start"), hit.get("key_verse_end"),
+        )
     ctx = scenario["prayer_context"]
     stats["calls"] += 1
     try:
@@ -794,13 +809,199 @@ def _rerank_cached(
             topic=ctx["topic"],
             user_replies=list(ctx["user_replies"]),
             candidate_texts=candidate_texts,
+            key_verses=key_verses,
         )
     except PassageRerankError as exc:
         stats["failures"] += 1
         print(f"  [warn] rerank failed for {scenario['id']}: {exc}")
         return None
-    cache["reranks"][key] = {"index": choice.index, "reason": choice.reason}
-    return choice.index, choice.reason
+    cache["reranks"][key] = {
+        "index": choice.index,
+        "reason": choice.reason,
+        "key_verse_start": choice.key_verse_start,
+        "key_verse_end": choice.key_verse_end,
+    }
+    return (
+        choice.index, choice.reason,
+        choice.key_verse_start, choice.key_verse_end,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Key-verse highlight (rerank prompt v9): the reranker answers with verse
+# markers of the candidate the server rendered, so the benchmark needs the
+# same per-verse view of the corpus that production reads from MySQL.
+# Without a database the pipeline still runs — unnumbered candidates, no
+# highlights (exactly the production degradation).
+# ---------------------------------------------------------------------------
+
+def _load_chunk_verses(metas: list[ChunkMeta]) -> dict[tuple[int, str], list]:
+    """(translation, canonical_id) -> verses of that chunk, from MySQL."""
+    try:
+        from database import create_connection
+        from retrieval import VerseText
+    except Exception as exc:                      # pragma: no cover
+        print(f"  [warn] verse loading unavailable: {exc}")
+        return {}
+    try:
+        connection = create_connection()
+    except Exception as exc:
+        print(f"  [warn] verse loading unavailable: {type(exc).__name__} {exc}")
+        return {}
+    if connection is None:
+        print("  [warn] no database: candidates stay unnumbered, "
+              "no key-verse highlights")
+        return {}
+    cursor = connection.cursor(dictionary=True)
+    verses: dict[tuple[int, str], list] = {}
+    try:
+        by_translation: dict[int, list[ChunkMeta]] = {}
+        for meta in metas:
+            by_translation.setdefault(meta.translation, []).append(meta)
+        for code, chunk_metas in by_translation.items():
+            cursor.execute(
+                """
+                SELECT book_number, chapter_number, verse_number, text,
+                       start_paragraph
+                FROM translation_verses WHERE translation = %s
+                ORDER BY book_number, chapter_number, verse_number
+                """,
+                (code,),
+            )
+            by_chapter: dict[tuple[int, int], list[dict]] = {}
+            for row in cursor.fetchall():
+                by_chapter.setdefault(
+                    (row["book_number"], row["chapter_number"]), []
+                ).append(row)
+            for meta in chunk_metas:
+                verses[(code, meta.canonical_id)] = [
+                    VerseText(
+                        verse_number=row["verse_number"],
+                        text=row["text"].strip(),
+                        start_paragraph=bool(row["start_paragraph"]),
+                    )
+                    for row in by_chapter.get((meta.book, meta.chapter), ())
+                    if meta.vstart <= row["verse_number"] <= meta.vend
+                    and row["text"].strip()
+                ]
+    finally:
+        cursor.close()
+        connection.close()
+    return verses
+
+
+def _load_book_names() -> dict[int, dict[str, str]]:
+    """book number -> {language: short name}, for the review table."""
+    try:
+        from database import create_connection
+
+        connection = create_connection()
+    except Exception:
+        return {}
+    if connection is None:
+        return {}
+    cursor = connection.cursor(dictionary=True)
+    try:
+        cursor.execute(
+            "SELECT number, short_name_ru, short_name_en, short_name_uk "
+            "FROM bible_books"
+        )
+        return {
+            row["number"]: {
+                "ru": row["short_name_ru"],
+                "en": row["short_name_en"],
+                "uk": row["short_name_uk"],
+            }
+            for row in cursor.fetchall()
+        }
+    finally:
+        cursor.close()
+        connection.close()
+
+
+def _resolve_bench_highlight(
+    meta: ChunkMeta, verses: list, indices: tuple[int, int],
+    psalm_maps: dict[int, PsalmMap],
+) -> dict | None:
+    """Verse-marker span -> reference + verse text, or None (as production).
+
+    Mirrors retrieval._highlight_indices + passage_highlight.resolve_highlight
+    so the benchmark reports exactly what the endpoint would return.
+    """
+    from passage_highlight import VerseSpan, to_canonical_span
+    from passage_rerank import MAX_KEY_VERSES
+
+    start, end = indices
+    if start is None or end is None or not verses:
+        return None
+    if not 1 <= start <= end <= len(verses):
+        return None
+    if end - start + 1 > MAX_KEY_VERSES:
+        return None
+    chosen = verses[start - 1:end]
+    span = VerseSpan(
+        chapter=meta.chapter,
+        verse_start=chosen[0].verse_number,
+        verse_end=chosen[-1].verse_number,
+    )
+    canonical = to_canonical_span(
+        meta.book, span, psalm_maps.get(meta.translation)
+    )
+    if canonical is None:
+        return None
+    return {
+        "book": meta.book,
+        "chapter": span.chapter,
+        "verse_start": span.verse_start,
+        "verse_end": span.verse_end,
+        "canonical_chapter": canonical.chapter,
+        "canonical_verse_start": canonical.verse_start,
+        "canonical_verse_end": canonical.verse_end,
+        "text": " ".join(verse.text for verse in chosen),
+    }
+
+
+def _highlight_review_table(
+    rows: list[dict], scenarios: list[dict], books: dict[int, dict[str, str]]
+) -> None:
+    """Full per-scenario listing for the editor's manual review."""
+    by_id = {s["id"]: s for s in scenarios}
+    print("\n=== key-verse highlights (manual theological review) ===")
+    missing = [r["scenario_id"] for r in rows if not r.get("highlight")]
+    print(f"{len(rows) - len(missing)}/{len(rows)} scenarios carry a "
+          f"highlight" + (f"; without one: {', '.join(missing)}" if missing
+                          else ""))
+    for row in rows:
+        scenario = by_id.get(row["scenario_id"], {})
+        language = scenario.get("language", "")
+        topic = (scenario.get("prayer_context") or {}).get("topic", "")
+        print(f"\n  {row['scenario_id']} [{scenario.get('category', '?')}] "
+              f"{topic!r}")
+        print(f"    top-1 : {row['chosen']}  ({row['method']}, "
+              f"{row['grade']})")
+        highlight = row.get("highlight")
+        if not highlight:
+            print("    key   : —")
+            continue
+        book = books.get(highlight["book"], {}).get(
+            language, str(highlight["book"])
+        )
+        span = (
+            f"{highlight['verse_start']}"
+            if highlight["verse_start"] == highlight["verse_end"]
+            else f"{highlight['verse_start']}-{highlight['verse_end']}"
+        )
+        canonical_span = (
+            f"{highlight['canonical_verse_start']}"
+            if highlight["canonical_verse_start"]
+            == highlight["canonical_verse_end"]
+            else f"{highlight['canonical_verse_start']}"
+                 f"-{highlight['canonical_verse_end']}"
+        )
+        print(f"    key   : {book} {highlight['chapter']}:{span} "
+              f"(canonical {highlight['book']} "
+              f"{highlight['canonical_chapter']}:{canonical_span})")
+        print(f"    text  : {highlight['text']}")
 
 
 def _final_top1_report(label: str, rows: list[dict], thresholds: dict) -> None:
@@ -940,25 +1141,42 @@ def cmd_pipeline(args) -> None:
         from passage_rerank import GeminiPassageReranker
 
         rerank_model = args.rerank_model or RETRIEVAL_RERANK_MODEL
-        reranker = GeminiPassageReranker(api_key=api_key, model=rerank_model)
+        # Patient offline settings: a 429 burst in the middle of a run used
+        # to leave whole languages un-reranked (and re-running costs calls).
+        reranker = GeminiPassageReranker(
+            api_key=api_key, model=rerank_model, timeout=60.0, attempts=6
+        )
         rerank_rows = []
     fb_rank_rows: list[dict] = []    # retrieval rank-1 (interleave order)
     fb_score_rows: list[dict] = []   # best fused cosine
 
     # candidate text exactly as production shows it to the reranker
     # (retrieval._candidate_prompt_text: "title\ntext" of the primary
-    # translation)
-    chunk_prompt_text: dict[tuple[int, str], str] = {}
+    # translation, every verse prefixed with its [n] marker when the verses
+    # are available)
+    chunk_title: dict[tuple[int, str], str] = {}
+    chunk_text: dict[tuple[int, str], str] = {}
     with CHUNKS_FILE.open() as fh:
         for line in fh:
             row = json.loads(line)
-            title = (row.get("title") or "").strip()
-            chunk_prompt_text[(row["translation"], row["canonical_id"])] = (
-                f"{title}\n{row['text']}" if title else row["text"]
-            )
+            key = (row["translation"], row["canonical_id"])
+            chunk_title[key] = (row.get("title") or "").strip()
+            chunk_text[key] = row["text"]
+
+    chunk_verses = _load_chunk_verses(metas) if args.rerank else {}
+    book_names = _load_book_names() if args.rerank else {}
+
+    def prompt_text(code: int, canonical_id: str) -> str:
+        from retrieval import number_verses
+
+        key = (code, canonical_id)
+        verses = chunk_verses.get(key)
+        body = number_verses(verses) if verses else chunk_text[key]
+        title = chunk_title[key]
+        return f"{title}\n{body}" if title else body
 
     def top1_row(scenario: dict, cm: ChunkMeta, method: str,
-                 reason: str = "") -> dict:
+                 reason: str = "", highlight: dict | None = None) -> dict:
         _v, book, chapter, vs, ve = parse_canonical_id(cm.canonical_id)
         return {
             "scenario_id": scenario["id"],
@@ -968,6 +1186,7 @@ def cmd_pipeline(args) -> None:
                       f"(canonical {book} {chapter}:{vs}-{ve})",
             "method": method,
             "reason": reason,
+            "highlight": highlight,
         }
 
     lexical: dict[int, LexicalIndex] = {}
@@ -1105,20 +1324,34 @@ def cmd_pipeline(args) -> None:
                 top1_row(scenario, top_metas[best], "fallback_score"))
             if rerank_rows is not None:
                 texts_for_prompt = [
-                    chunk_prompt_text[(code, h.canonical_id)] for h in final
+                    prompt_text(code, h.canonical_id) for h in final
                 ]
                 got = _rerank_cached(
                     scenario, [h.canonical_id for h in final],
                     texts_for_prompt, reranker, rerank_model, cache,
                     rerank_stats,
+                    # mirrors production: without a database the candidates
+                    # carry no [n] markers, so the key-verse contract is not
+                    # asked for at all (retrieval.select_final does the same)
+                    key_verses=bool(chunk_verses),
                 )
                 if got is None or not 0 <= got[0] < len(top_metas):
                     # production fallback: any rerank failure -> rank-1
                     rerank_rows.append(
                         top1_row(scenario, top_metas[0], "fallback_rank1"))
                 else:
+                    chosen_meta = top_metas[got[0]]
                     rerank_rows.append(top1_row(
-                        scenario, top_metas[got[0]], "rerank", got[1]))
+                        scenario, chosen_meta, "rerank", got[1],
+                        highlight=_resolve_bench_highlight(
+                            chosen_meta,
+                            chunk_verses.get(
+                                (code, chosen_meta.canonical_id), []
+                            ),
+                            (got[2], got[3]),
+                            psalm_maps,
+                        ),
+                    ))
     finally:
         _save_pipeline_cache(cache)
         rewriter.close()
@@ -1139,6 +1372,7 @@ def cmd_pipeline(args) -> None:
         print(f"\nrerank: model={rerank_model} fresh_calls="
               f"{rerank_stats['calls']} failures={rerank_stats['failures']}")
         _final_top1_report(f"rerank {rerank_model}", rerank_rows, thresholds)
+        _highlight_review_table(rerank_rows, scenarios, book_names)
     _final_top1_report(
         "fallback rank-1 (retrieval order, no AI rerank)",
         fb_rank_rows, thresholds)

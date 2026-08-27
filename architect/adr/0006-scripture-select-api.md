@@ -45,8 +45,52 @@ Twinkler's `user` field (1..16000): that endpoint carries a whole free-form
 message, this one carries dialog metadata.
 
 Response: canonical coordinates + `canonical_id` (the repeat key the client
-stores), the exact title/text/coordinates of the chosen translation,
-`source`, `fallback_reason`, `history_reset`.
+stores), the exact title/text/coordinates of the chosen translation, an
+optional `highlight`, `source`, `fallback_reason`, `history_reset`.
+
+### The optional `highlight` field
+
+The rerank stage also marks the 1-3 key verses of the passage (ADR 0005
+prompt v9). The public shape mirrors the response's own two coordinate
+systems, because the client needs both — the canonical one to store or
+compare, the translation one to find the verses in the text it renders:
+
+```json
+"highlight": {
+  "canonical": {"book_number": 19, "chapter_number": 23,
+                "verse_start": 4, "verse_end": 4},
+  "passage":   {"chapter_number": 22, "verse_start": 4, "verse_end": 4}
+}
+```
+
+Three decisions:
+
+- **Optional, and absent rather than null.** Every fallback path, every
+  refused span and every unmappable coordinate answers without a highlight,
+  so a client must render the passage unchanged in that case. To keep the
+  previous contract byte-identical, the key is dropped entirely by a
+  `model_serializer` instead of serialising as `null` (`fallback_reason:
+  null` stays, it is published). A test asserts the no-highlight body has
+  exactly the six original keys.
+- **`passage` is always inside the returned passage.** The span the model
+  answers is re-validated three times (ADR 0005) and the last checks happen
+  here, in `build_response`: against the verses the reranker was actually
+  shown, and — when the translation served is not the one shown — against
+  the served passage's own chapter and verse range, since the mapped span
+  is built from a versification table rather than from that passage's
+  verses. Nothing is ever clamped into range: out of range means no
+  highlight at all.
+- **Coordinates come from the versification table, not from arithmetic.**
+  `passage_highlight` converts through `psalm_verse_mappings` (ADR 0003):
+  outside the Psalms the two systems coincide, inside them they do not
+  (syn 22:4 is canonical 23:4; ubh 65:12 is canonical 65:11; syn 114:8 is
+  canonical 116:8-9). A Psalm whose mapping is missing gets no highlight.
+  The maps are corpus-derived and are cached with the vector index.
+  Consequence of the merged verses in that last example: `canonical` may
+  span MORE than 3 verses where the translation merges canonical ones
+  (3 marked verses syn 114:6-8 = canonical 116:6-9). The exact range is
+  published rather than truncated, so both systems name the same words;
+  the 1-3 rule is a statement about `passage` (ADR 0005).
 
 `FinalSelection.reason` — the model's diagnostic sentence — is
 **not** returned. ADR 0005 left showing an explanation to users as an open
@@ -149,8 +193,9 @@ quality trade, not a free one).
 
 ### Caching
 
-Cached: the vector index and the per-language BM25 index — derived only
-from the corpus, identical for every request, ~45 MB, ~0.94 s to build.
+Cached: the vector index, the per-language BM25 index and the Psalm
+versification maps — all derived only from the corpus, identical for every
+request, ~45 MB, ~0.94 s to build.
 Process-local with a TTL (`SCRIPTURE_INDEX_CACHE_SECONDS`, default 1 h) and
 dropped immediately by `POST /api/cache/clear` (so an index rebuild can be
 published without a restart).
@@ -274,7 +319,12 @@ re-run).
 
 - New modules: `app/scripture_select.py` (endpoint), `app/deadline.py`
   (time budget), `app/rate_limit.py` (shared limiter),
-  `app/prompt_safety.py` (delimiter hermetisation).
+  `app/prompt_safety.py` (delimiter hermetisation),
+  `app/passage_highlight.py` (key-verse coordinates).
+- The selection now runs one extra query per request
+  (`translation_verses` for the candidate chunks) so the rerank prompt can
+  carry verse markers. Without it the endpoint still works and simply
+  returns no `highlight`.
 - New env vars: `SCRIPTURE_SELECT_REQUESTS_PER_MINUTE`,
   `SCRIPTURE_SELECT_REQUESTS_PER_CLIENT_PER_MINUTE`,
   `SCRIPTURE_SELECT_TIMEOUT_SECONDS`, `SCRIPTURE_INDEX_CACHE_SECONDS`.
@@ -290,7 +340,9 @@ re-run).
 ## Open questions
 
 1. Product: should `reason` (or any explanation) ever be shown? Until
-   decided, it stays server-side. (Inherited from ADR 0005.)
+   decided, it stays server-side. (Inherited from ADR 0005.) `highlight` is
+   the first piece of the model's judgement that IS returned — but as
+   coordinates the server verified, never as words.
 2. Safe-pool size (6 places) is small for long exclusion histories — with
    `history_reset` the client now has a defined way to start over, but a
    heavy user still cycles the pool quickly (ADR 0004 open question 3).

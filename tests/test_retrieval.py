@@ -363,6 +363,24 @@ def fake_loader(translation_code: int, canonical_ids: list[str]):
     return rows
 
 
+def fake_verse_loader(translation_code: int, chunk_ranges):
+    """Verses of the requested chunk ranges, mirroring the DB loader shape."""
+    from retrieval import VerseText
+
+    loaded = {}
+    for canonical_id, _book, _chapter, first, last in chunk_ranges:
+        loaded[canonical_id] = [
+            VerseText(
+                verse_number=number,
+                text=f"стих {number} из {canonical_id} перевода "
+                     f"{translation_code}",
+                start_paragraph=number == first,
+            )
+            for number in range(first, last + 1)
+        ]
+    return loaded
+
+
 def make_retriever(embedder=None, rewriter=None, index=None, **kwargs):
     return ScriptureRetriever(
         index=index or make_index(),
@@ -576,23 +594,39 @@ from retrieval import _candidate_prompt_text  # noqa: E402
 
 
 class FakeReranker:
-    def __init__(self, index: int = 0, reason: str = "fits", error=None):
+    def __init__(
+        self,
+        index: int = 0,
+        reason: str = "fits",
+        error=None,
+        key_verses: tuple[int | None, int | None] = (None, None),
+    ):
         self.index = index
         self.reason = reason
         self.error = error
+        self.key_verses = key_verses
         self.calls: list[dict] = []
         self.deadlines: list = []
 
-    def choose(self, topic, user_replies, candidate_texts, deadline=None):
+    def choose(
+        self, topic, user_replies, candidate_texts, deadline=None,
+        key_verses=True,
+    ):
         self.deadlines.append(deadline)
         self.calls.append({
             "topic": topic,
             "user_replies": list(user_replies),
             "candidate_texts": list(candidate_texts),
+            "key_verses_asked": key_verses,
         })
         if self.error is not None:
             raise self.error
-        return RerankChoice(index=self.index, reason=self.reason)
+        return RerankChoice(
+            index=self.index,
+            reason=self.reason,
+            key_verse_start=self.key_verses[0],
+            key_verse_end=self.key_verses[1],
+        )
 
 
 def make_final_retriever(reranker, **kwargs):
@@ -713,6 +747,277 @@ def test_candidate_prompt_text_prefers_title_and_primary_translation():
     assert _candidate_prompt_text(top) == (
         "Дети — наследие\nТекст v3:19.127.003-005 перевода 1"
     )
+
+
+# ---------------------------------------------------------------------------
+# Key-verse highlight (rerank prompt v7)
+# ---------------------------------------------------------------------------
+
+from retrieval import (  # noqa: E402
+    Candidate,
+    PassageText,
+    VerseText,
+    number_verses,
+)
+
+
+def make_highlight_retriever(reranker, **kwargs):
+    return make_final_retriever(
+        reranker, load_verses=fake_verse_loader, **kwargs
+    )
+
+
+def test_verses_are_resolved_for_the_passage_shown_to_the_reranker():
+    final = make_highlight_retriever(FakeReranker()).select_final(final_request())
+
+    top = final.selection.candidates[0]
+    assert [v.verse_number for v in top.passages[0].verses] == [3, 4, 5]
+    assert top.passages[0].verses[0].text.endswith("перевода 1")
+
+
+def test_only_the_prompt_passage_is_numbered(monkeypatch):
+    """m7: the other translations of a candidate are never rendered into a
+    prompt and their verses are never indexed, so they are not loaded."""
+    asked: list[int] = []
+
+    def counting_loader(translation_code, chunk_ranges):
+        asked.append(translation_code)
+        return fake_verse_loader(translation_code, chunk_ranges)
+
+    embedder = FakeEmbedder({
+        "вариант": query_vector({"v3:19.023.001-003": 0.9}),
+    })
+    retriever = make_retriever(
+        index=make_index(translations=(1, 2)),
+        embedder=embedder,
+        rewriter=FakeRewriter(["вариант"]),
+        load_verses=counting_loader,
+    )
+
+    result = retriever.select(SelectionRequest(language="ru", topic="тема"))
+
+    top = result.candidates[0]
+    assert [p.alias for p in top.passages] == ["tr1", "tr2"]
+    assert top.passages[0].verses, "the prompt passage carries its verses"
+    assert top.passages[1].verses == []
+    assert asked == [1], "one verse query, for the prompt translation only"
+
+
+def test_one_translation_failing_keeps_the_verses_of_the_others(caplog):
+    """m7: a partial failure must not throw away what was already loaded."""
+    def half_broken(translation_code, chunk_ranges):
+        if translation_code == 2:
+            raise RuntimeError("verses unavailable")
+        return fake_verse_loader(translation_code, chunk_ranges)
+
+    retriever = make_retriever(load_verses=half_broken)
+
+    with caplog.at_level("WARNING"):
+        loaded = retriever._resolve_verses({
+            1: [("v3:19.127.003-005", 19, 127, 3, 5)],
+            2: [("v3:19.127.003-005", 19, 127, 3, 5)],
+        })
+
+    assert set(loaded) == {1}
+    assert loaded[1]["v3:19.127.003-005"][0].verse_number == 3
+    assert "RuntimeError" in caplog.text
+
+
+def test_the_prompt_numbers_every_verse_of_the_candidate():
+    reranker = FakeReranker()
+
+    make_highlight_retriever(reranker).select_final(final_request())
+
+    text = reranker.calls[0]["candidate_texts"][0]
+    assert text.startswith("Дети — наследие\n[1] стих 3 ")
+    assert "[2] стих 4" in text and "[3] стих 5" in text
+
+
+def test_numbering_keeps_the_paragraph_structure_of_the_chunk_text():
+    verses = [
+        VerseText(1, "первый", start_paragraph=True),
+        VerseText(2, "второй"),
+        VerseText(3, "третий", start_paragraph=True),
+    ]
+
+    assert number_verses(verses) == "[1] первый [2] второй\n\n[3] третий"
+
+
+def test_literal_brackets_in_scripture_cannot_pass_for_markers():
+    """m4: syn Gen 5/7/11 carry literal textual variants like «[27]». Only
+    the server's own markers may look like markers in the prompt."""
+    verses = [
+        VerseText(11, "в шестисотый год [27] жизни Ноевой", start_paragraph=True),
+        VerseText(12, "и лился дождь [ 40 ] дней"),
+    ]
+
+    numbered = number_verses(verses)
+
+    assert numbered.startswith("[1] в шестисотый год (27) жизни Ноевой")
+    assert "( 40 )" in numbered or "(40)" in numbered
+    assert numbered.count("[") == 2, "only the two server markers remain"
+
+
+def test_without_a_verse_loader_the_prompt_keeps_the_plain_chunk_text():
+    reranker = FakeReranker()
+
+    final = make_final_retriever(reranker).select_final(final_request())
+
+    assert "[1]" not in reranker.calls[0]["candidate_texts"][0]
+    assert final.highlight is None
+
+
+def test_unnumbered_candidates_are_not_asked_for_key_verses():
+    """m6: with no markers in the prompt the key-verse contract is dropped
+    instead of forcing the model to invent marker numbers."""
+    reranker = FakeReranker()
+
+    make_final_retriever(reranker).select_final(final_request())
+
+    assert reranker.calls[0]["key_verses_asked"] is False
+
+
+def test_numbered_candidates_are_asked_for_key_verses():
+    reranker = FakeReranker()
+
+    make_highlight_retriever(reranker).select_final(final_request())
+
+    assert reranker.calls[0]["key_verses_asked"] is True
+
+
+def test_a_failing_verse_loader_costs_only_the_highlight(caplog):
+    def broken(_code, _ranges):
+        raise RuntimeError("verses unavailable")
+
+    with caplog.at_level("WARNING"):
+        final = make_final_retriever(
+            FakeReranker(index=1, key_verses=(1, 1)), load_verses=broken
+        ).select_final(final_request())
+
+    assert final.method == "rerank"
+    assert final.candidate.canonical_id == "v3:09.001.027-028"
+    assert final.highlight is None
+    assert "Благодарность" not in caplog.text
+
+
+def test_select_final_returns_the_validated_key_verse_span():
+    reranker = FakeReranker(index=0, key_verses=(2, 3))
+
+    final = make_highlight_retriever(reranker).select_final(final_request())
+
+    assert final.method == "rerank"
+    assert final.highlight == (2, 3)
+
+
+@pytest.mark.parametrize(
+    "key_verses",
+    [
+        (None, None),   # the model did not answer them
+        (0, 1),         # below the first marker
+        (1, 4),         # past the last marker of a 3-verse candidate
+        (4, 4),
+        (3, 2),         # reversed
+        (1, None),      # half an answer
+    ],
+)
+def test_an_out_of_bounds_span_drops_only_the_highlight(key_verses):
+    reranker = FakeReranker(index=0, key_verses=key_verses)
+
+    final = make_highlight_retriever(reranker).select_final(final_request())
+
+    assert final.method == "rerank"
+    assert final.candidate.canonical_id == "v3:19.127.003-005"
+    assert final.highlight is None
+
+
+def test_a_span_longer_than_three_verses_is_refused_even_when_it_fits():
+    """The 1-3 verse rule is a product decision, not a bounds check: a span
+    that lies entirely inside a long passage is still refused."""
+    from retrieval import _highlight_indices
+
+    candidate = Candidate(
+        canonical_id="v3:19.119.001-008", book_number=19, chapter_number=119,
+        verse_start=1, verse_end=8, score=0.5, best_variant=0,
+        variant_scores={}, passages=[
+            PassageText(
+                translation=1, alias="syn", book_number=19,
+                chapter_number=119, verse_number_start=1, verse_number_end=8,
+                title=None, text="…",
+                verses=[VerseText(n, f"стих {n}") for n in range(1, 9)],
+            )
+        ],
+    )
+
+    assert _highlight_indices(
+        candidate, RerankChoice(0, "r", key_verse_start=2, key_verse_end=4)
+    ) == (2, 4)
+    assert _highlight_indices(
+        candidate, RerankChoice(0, "r", key_verse_start=2, key_verse_end=5)
+    ) is None
+
+
+def test_fallback_paths_never_carry_a_highlight():
+    error = FakeReranker(error=PassageRerankError("rerank request failed"))
+    assert make_highlight_retriever(error).select_final(
+        final_request()
+    ).highlight is None
+
+    assert make_highlight_retriever(None).select_final(
+        final_request()
+    ).highlight is None
+
+    pool = make_retriever(
+        reranker=FakeReranker(key_verses=(1, 1)), load_verses=fake_verse_loader
+    ).select_final(SelectionRequest(language="ru"))
+    assert pool.selection.source == "safe_pool"
+    assert pool.highlight is None
+
+
+def test_the_db_verse_loader_reads_the_chunk_ranges_in_order():
+    from retrieval import make_db_verse_loader
+
+    class FakeCursor:
+        def __init__(self):
+            self.sql = ""
+            self.params = None
+
+        def execute(self, sql, params=None):
+            self.sql = sql
+            self.params = params
+
+        def fetchall(self):
+            return [
+                {"book_number": 19, "chapter_number": 22, "verse_number": 1,
+                 "text": " Господь — Пастырь мой ", "start_paragraph": 1},
+                {"book_number": 19, "chapter_number": 22, "verse_number": 2,
+                 "text": "Он покоит меня", "start_paragraph": 0},
+                {"book_number": 19, "chapter_number": 22, "verse_number": 3,
+                 "text": "   ", "start_paragraph": 0},     # empty: dropped
+                {"book_number": 43, "chapter_number": 14, "verse_number": 27,
+                 "text": "Мир оставляю вам", "start_paragraph": 1},
+            ]
+
+    cursor = FakeCursor()
+    loaded = make_db_verse_loader(cursor)(1, [
+        ("v3:19.023.001-003", 19, 22, 1, 3),
+        ("v3:43.014.027-027", 43, 14, 27, 27),
+    ])
+
+    assert cursor.params[0] == 1
+    assert [v.verse_number for v in loaded["v3:19.023.001-003"]] == [1, 2]
+    assert loaded["v3:19.023.001-003"][0].text == "Господь — Пастырь мой"
+    assert loaded["v3:19.023.001-003"][0].start_paragraph is True
+    assert [v.text for v in loaded["v3:43.014.027-027"]] == ["Мир оставляю вам"]
+
+
+def test_the_db_verse_loader_asks_nothing_without_ranges():
+    from retrieval import make_db_verse_loader
+
+    class Boom:
+        def execute(self, *args, **kwargs):
+            raise AssertionError("no query for an empty range list")
+
+    assert make_db_verse_loader(Boom())(1, []) == {}
 
 
 # ---------------------------------------------------------------------------

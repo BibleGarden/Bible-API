@@ -32,6 +32,8 @@ from retrieval import (
     ScriptureRetriever,
     SelectionRequest,
     make_db_passage_loader,
+    make_db_verse_loader,
+    prompt_passage,
 )
 from vector_index import load_index
 
@@ -57,6 +59,7 @@ def cmd_select(args) -> int:
             rewriter=rewriter,
             reranker=reranker if args.final else None,
             load_passages=make_db_passage_loader(cursor),
+            load_verses=make_db_verse_loader(cursor),
             lexical_indexes=lexical,
         )
         request = SelectionRequest(
@@ -83,6 +86,18 @@ def cmd_select(args) -> int:
                  if final.fallback_reason else ""))
         if final.reason:
             print(f"final reason (diagnostic): {final.reason}")
+        shown = (
+            prompt_passage(final.candidate) if final.candidate else None
+        )
+        if final.highlight and shown is not None:
+            start, end = final.highlight
+            verses = shown.verses[start - 1:end]
+            print(
+                f"key verses: {shown.book_number} {shown.chapter_number}:"
+                f"{verses[0].verse_number}-{verses[-1].verse_number} "
+                f"(markers {start}-{end})"
+            )
+            print("  " + " ".join(verse.text for verse in verses))
     print(f"source: {result.source}"
           + (f" (fallback: {result.fallback_reason})"
              if result.fallback_reason else ""))

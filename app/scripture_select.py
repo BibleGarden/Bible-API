@@ -4,7 +4,9 @@ Public scripture-selection API for the mobile app (ClickUp 86cb8vw1m).
 `POST /api/scripture/v1/select` turns a prayer context (topic + the replies
 the person picked in the Twinkler dialog) into ONE Bible passage: canonical
 coordinates, the exact text of the chosen translation from `cep_public`,
-and a stable canonical ID the client stores to avoid repeats.
+a stable canonical ID the client stores to avoid repeats, and optionally
+the key verses to emphasise inside it (`highlight`, ADR 0005 prompt v9 —
+numbers only, resolved against the versification table).
 
 Everything behind it already exists and is benchmarked: the retrieval
 pipeline (ADR 0004) and the grounded rerank (ADR 0005). This module is the
@@ -34,7 +36,7 @@ import logging
 import re
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Annotated
 
@@ -42,7 +44,14 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    model_serializer,
+)
+from pydantic.json_schema import SkipJsonSchema
 from starlette.concurrency import run_in_threadpool
 
 from auth import RequireAPIKey
@@ -57,6 +66,7 @@ from config import (
 from database import create_connection
 from deadline import Deadline
 from lexical_index import load_lexical_indexes
+from passage_highlight import load_psalm_maps, resolve_highlight
 from passage_rerank import GeminiPassageReranker
 from query_rewrite import REWRITE_VARIANTS, GeminiQueryRewriter
 from embeddings import GeminiEmbeddingClient
@@ -66,6 +76,8 @@ from retrieval import (
     ScriptureRetriever,
     SelectionRequest,
     make_db_passage_loader,
+    make_db_verse_loader,
+    prompt_passage,
     split_exclusions,
 )
 from vector_index import load_index
@@ -224,10 +236,66 @@ class PassageModel(BaseModel):
     text: str = Field(description="Exact passage text from the database")
 
 
+class HighlightCanonical(BaseModel):
+    """Canonical (english-masoretic) coordinates of the key verses."""
+
+    book_number: int = Field(description="Bible book number", examples=[19])
+    chapter_number: int = Field(description="Canonical chapter", examples=[23])
+    verse_start: int = Field(
+        description=(
+            "First canonical verse of the highlight (0 is a Psalm "
+            "superscription, which the canon does not number)"
+        ),
+        examples=[4],
+    )
+    verse_end: int = Field(description="Last canonical verse", examples=[4])
+
+
+class HighlightPassage(BaseModel):
+    """The same key verses in the returned translation's own numbering."""
+
+    chapter_number: int = Field(
+        description="Chapter in the translation's own numbering", examples=[22]
+    )
+    verse_start: int = Field(description="First verse in the translation")
+    verse_end: int = Field(description="Last verse in the translation")
+
+
+class HighlightModel(BaseModel):
+    """Key verses inside `passage` — 1 to 3 verses carrying its central
+    thought for this prayer, chosen by the same grounded AI call that chose
+    the passage. `passage` coordinates are always a real sub-range of the
+    returned passage.
+
+    `canonical` describes the same text in the canonical numbering and MAY
+    span more than 3 verses: a translation verse that merges several
+    canonical ones expands when converted (syn 114:8 alone is canonical
+    116:8-9). The exact canonical range is kept rather than truncated, so
+    both coordinate systems point at the same words (ADR 0005)."""
+
+    canonical: HighlightCanonical
+    passage: HighlightPassage
+
+
 class SelectResponse(BaseModel):
     language: Language
     canonical: CanonicalRange
     passage: PassageModel
+    # SkipJsonSchema keeps the None out of the PUBLISHED schema while the
+    # runtime type stays optional: the serializer below omits the key
+    # entirely when there is no highlight, so `null` is not a value this
+    # endpoint can ever return and OpenAPI should not advertise it.
+    highlight: HighlightModel | SkipJsonSchema[None] = Field(
+        default=None,
+        description=(
+            "Key verses to emphasise inside the passage, in canonical and "
+            "in translation coordinates. The KEY IS ABSENT ENTIRELY (never "
+            "present with a null value) whenever no highlight was produced "
+            "— the AI stage did not decide, answered a span the server "
+            "refused, or the passage came from a fallback. Clients must "
+            "render the passage unchanged in that case."
+        ),
+    )
     source: SelectionSource = Field(
         description=(
             "`rerank` — the AI chose among verified candidates; "
@@ -247,6 +315,20 @@ class SelectResponse(BaseModel):
             "stored history and keep only IDs returned from now on."
         )
     )
+
+    @model_serializer(mode="wrap")
+    def _drop_absent_highlight(self, handler):
+        """Omit `highlight` entirely when there is none.
+
+        Backward compatibility: a client written against the previous
+        contract must receive the exact same bytes it did before, so an
+        absent highlight is an absent KEY, not a `null` (unlike
+        `fallback_reason`, whose null is part of the published contract).
+        """
+        payload = handler(self)
+        if payload.get("highlight") is None:
+            payload.pop("highlight", None)
+        return payload
 
 
 class ErrorResponse(BaseModel):
@@ -388,6 +470,7 @@ class CorpusResources:
     lexical: dict                      # language -> lexical_index.LexicalIndex
     translations: dict                 # language -> [(code, alias), ...]
     loaded_at: float
+    psalm_maps: dict = field(default_factory=dict)  # translation -> PsalmMap
 
 
 _resources_lock = threading.Lock()
@@ -406,6 +489,16 @@ def _load_resources() -> CorpusResources:
                 "vector index is empty (run app/index_cli.py rebuild)"
             )
         lexical = load_lexical_indexes(cursor, CHUNKING_VERSION)
+        try:
+            psalm_maps = load_psalm_maps(cursor)
+        except Exception as error:
+            # The highlight of a Psalm needs the versification table; the
+            # rest of the endpoint does not. Category only.
+            logger.warning(
+                "Psalm versification mapping unavailable: %s",
+                type(error).__name__,
+            )
+            psalm_maps = {}
     finally:
         cursor.close()
         connection.close()
@@ -421,6 +514,7 @@ def _load_resources() -> CorpusResources:
         lexical=lexical,
         translations=translations,
         loaded_at=time.monotonic(),
+        psalm_maps=psalm_maps,
     )
 
 
@@ -537,6 +631,7 @@ def _run_selection(
             rewriter=rewriter,
             reranker=reranker,
             load_passages=make_db_passage_loader(cursor),
+            load_verses=make_db_verse_loader(cursor),
             lexical_indexes=resources.lexical,
             # Independent round trips: embed the variants concurrently.
             embed_workers=REWRITE_VARIANTS,
@@ -562,11 +657,55 @@ def _fallback_reason(value: str | None) -> FallbackReason | None:
         return None
 
 
+def build_highlight(
+    final: FinalSelection,
+    passage,
+    psalm_maps: dict | None,
+) -> HighlightModel | None:
+    """Public highlight of the chosen passage, or None.
+
+    `final.highlight` is a validated span of verse markers inside the
+    passage the reranker was shown; `passage_highlight.resolve_highlight`
+    turns it into canonical coordinates and into the numbering of the
+    translation actually returned (they differ for Psalms). Anything that
+    cannot be mapped exactly yields None — an absent highlight is always a
+    valid answer, a guessed one never is.
+    """
+    if final.candidate is None or final.highlight is None:
+        return None
+    shown = prompt_passage(final.candidate)
+    if shown is None:
+        return None
+    resolved = resolve_highlight(
+        book_number=final.candidate.book_number,
+        prompt_passage=shown,
+        target_passage=passage,
+        indices=final.highlight,
+        psalm_maps=psalm_maps,
+    )
+    if resolved is None:
+        return None
+    return HighlightModel(
+        canonical=HighlightCanonical(
+            book_number=final.candidate.book_number,
+            chapter_number=resolved.canonical.chapter,
+            verse_start=resolved.canonical.verse_start,
+            verse_end=resolved.canonical.verse_end,
+        ),
+        passage=HighlightPassage(
+            chapter_number=resolved.passage.chapter,
+            verse_start=resolved.passage.verse_start,
+            verse_end=resolved.passage.verse_end,
+        ),
+    )
+
+
 def build_response(
     final: FinalSelection,
     language: str,
     translation: int,
     history_reset: bool,
+    psalm_maps: dict | None = None,
 ) -> SelectResponse:
     """Map the internal selection onto the public contract.
 
@@ -613,6 +752,7 @@ def build_response(
             title=passage.title,
             text=passage.text,
         ),
+        highlight=build_highlight(final, passage, psalm_maps),
         source=source,
         fallback_reason=_fallback_reason(reason),
         history_reset=history_reset,
@@ -633,6 +773,13 @@ def build_response(
         "translation taken from the database — the AI stage only picks "
         "among candidates the server retrieved, it never produces "
         "scripture text or references itself.\n\n"
+        "`highlight` is optional: when the AI stage also marked the key "
+        "verses of the passage (1-3 verses), it carries their canonical "
+        "and translation coordinates — the translation ones always inside "
+        "the returned passage, while the canonical range can be wider "
+        "where the translation merges canonical verses. The field is "
+        "omitted entirely when there is no highlight; the passage is then "
+        "rendered as before.\n\n"
         "Degradation is part of the contract, not an error: when the AI "
         "choice is unavailable the retrieval top candidate is served "
         "(`source=retrieval_fallback`), and when retrieval itself cannot "
@@ -716,6 +863,7 @@ async def scripture_select(
             request.language.value,
             translation,
             history_reset=bool(stale),
+            psalm_maps=resources.psalm_maps,
         )
     except ScriptureSelectUnavailable as error:
         logger.warning("Scripture selection unavailable: %s", error)

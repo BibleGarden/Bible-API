@@ -45,6 +45,13 @@ Response:
     "title": "Псалом Давида",
     "text": "Господь — Пастырь мой; я ни в чем не буду нуждаться…"
   },
+  "highlight": {
+    "canonical": {
+      "book_number": 19, "chapter_number": 23,
+      "verse_start": 4, "verse_end": 4
+    },
+    "passage": {"chapter_number": 22, "verse_start": 4, "verse_end": 4}
+  },
   "source": "rerank",
   "fallback_reason": null,
   "history_reset": false
@@ -58,6 +65,38 @@ from the database; the AI stage only picks among candidates the server
 retrieved and can never introduce a passage, a reference or scripture text
 of its own.
 
+## Key verses (`highlight`)
+
+The same AI call also marks the 1 to 3 verses carrying the central thought
+of the passage for this prayer, so the client can emphasise them. Both
+coordinate systems are given, in the same shape as above: `canonical` for
+storing and comparing, `passage` for locating the verses inside the text
+just returned. The `passage` range is always a real sub-range of the
+passage returned, and never longer than 3 verses. `canonical` names the
+same words and can be slightly wider: where the translation merges verses
+the canon numbers separately, one translation verse maps onto several
+canonical ones (syn 114:8 is canonical 116:8-9), so a 3-verse highlight can
+have a 4-verse canonical range. Render from `passage`, store `canonical`.
+
+`highlight` is **optional and additive**: when there is no highlight the
+key is ABSENT (not `null`), and the rest of the response is byte-for-byte
+what it was before the field existed. Clients must then render the passage
+unchanged. There is no highlight when
+
+- the passage came from any fallback (`source` is not `rerank`);
+- the AI did not answer the key verses, or answered a range the server
+  refused (outside the passage, reversed, longer than 3 verses);
+- the coordinates cannot be mapped exactly — a Psalm whose versification
+  mapping is missing, a highlighted Psalm superscription, which the
+  canonical numbering does not number, or a span that lands outside the
+  passage after being converted into the numbering of a translation other
+  than the one the AI stage read.
+
+Like the passage itself, the highlight is numbers only: the model answers
+with positions of verses the server put in front of it, and the server
+resolves them against the database and the Psalm versification table. No
+verse text ever comes from the model.
+
 Store `canonical.canonical_id` and send the accumulated list back in
 `exclude_canonical_ids` to avoid repeats.
 
@@ -70,7 +109,7 @@ Degradation is part of the contract, not an error:
 
 | `source` | `fallback_reason` | when |
 |---|---|---|
-| `rerank` | `null` | the AI chose among the retrieved candidates |
+| `rerank` | `null` | the AI chose among the retrieved candidates (the only source that can carry a `highlight`) |
 | `retrieval_fallback` | `rerank_failed` | the AI choice failed (timeout, transport, malformed answer) |
 | `retrieval_fallback` | `no_reranker` | the rerank stage is not configured |
 | `retrieval_fallback` | `deadline` | the time budget ran out before the AI choice |
@@ -148,10 +187,10 @@ categories only.
 
 ## Caching
 
-The vector index and the per-language BM25 index are cached in the process
-for `SCRIPTURE_INDEX_CACHE_SECONDS` (default 1 hour, minimum 1 second) —
-they depend only on the corpus, cost ~0.9 s to build and are identical for
-every request. `POST /api/cache/clear` drops them immediately, so a rebuilt
+The vector index, the per-language BM25 index and the Psalm versification
+maps are cached in the process for `SCRIPTURE_INDEX_CACHE_SECONDS` (default
+1 hour, minimum 1 second) — they depend only on the corpus, cost ~0.9 s to
+build and are identical for every request. `POST /api/cache/clear` drops them immediately, so a rebuilt
 index can be published without restarting the service. If a refresh fails,
 the previous copy keeps being served (a 503 only happens when there is no
 cached corpus at all). Nothing derived from a request — rewrites,

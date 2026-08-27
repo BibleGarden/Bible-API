@@ -35,7 +35,9 @@ Pipeline (ScriptureRetriever.select):
 select_final adds the grounded rerank stage on top (ClickUp 86cb8vw1h,
 architect/adr/0005-grounded-passage-rerank.md): Gemini chooses the best
 candidate STRICTLY from the server's list (validated index answer,
-app/passage_rerank.py); on any AI failure the retrieval top-1 is served.
+app/passage_rerank.py) and marks the 1-3 key verses inside it as a span of
+the verse markers the server rendered; on any AI failure the retrieval
+top-1 is served, on an invalid span only the highlight is dropped.
 
 Both entry points accept an optional `deadline.Deadline` — the public
 endpoint's time budget (ADR 0006). Stages are skipped once it is gone
@@ -58,7 +60,7 @@ from pathlib import Path
 
 from deadline import Deadline
 from embeddings import EmbeddingUnavailable
-from passage_rerank import PassageRerankError
+from passage_rerank import MAX_KEY_VERSES, PassageRerankError
 from query_rewrite import QueryRewriteError, build_search_query
 
 logger = logging.getLogger(__name__)
@@ -386,6 +388,14 @@ class SelectionRequest:
     top_k: int = 10
 
 
+@dataclass(frozen=True)
+class VerseText:
+    """One verse of a chunk, in the translation's own numbering."""
+    verse_number: int
+    text: str
+    start_paragraph: bool = False
+
+
 @dataclass
 class PassageText:
     """One translation's rendering of a candidate chunk."""
@@ -397,6 +407,10 @@ class PassageText:
     verse_number_end: int
     title: str | None
     text: str
+    # The same text split back into its verses (empty when the caller did
+    # not provide a verse loader). It is what the rerank prompt numbers with
+    # [n] markers, and what a returned key-verse span indexes into.
+    verses: list[VerseText] = field(default_factory=list)
 
 
 @dataclass
@@ -438,6 +452,11 @@ class FinalSelection:
     # "safe_pool" | "rerank_failed" | "deadline" | "no_candidates"
     fallback_reason: str | None
     selection: SelectionResult
+    # Validated 1-based verse marker span of the key verses inside the
+    # chosen candidate's prompt passage, or None (no rerank, no verses, or
+    # a span the server refused). Coordinates are resolved one layer up,
+    # by app/passage_highlight.py.
+    highlight: tuple[int, int] | None = None
 
 
 class ScriptureRetriever:
@@ -452,6 +471,14 @@ class ScriptureRetriever:
     load_passages   - callable(translation_code: int, canonical_ids: list[str])
                       -> dict[canonical_id, PassageText-shaped dict]; the
                       production implementation reads translation_chunks.
+    load_verses     - optional callable(translation_code: int,
+                      list[(canonical_id, book, chapter, first, last)])
+                      -> dict[canonical_id, list[VerseText]]; called only for
+                      the passages actually shown to the reranker. Without it
+                      the rerank prompt carries unnumbered chunk texts, the
+                      key-verse contract is left out of the request and no
+                      highlight can be produced (make_db_verse_loader is the
+                      production one).
     lexical_indexes - optional {language: lexical_index.LexicalIndex} for the
                       hybrid BM25 signal (lexical_index.load_lexical_indexes).
 
@@ -476,6 +503,7 @@ class ScriptureRetriever:
         rewriter,
         load_passages,
         reranker=None,
+        load_verses=None,
         lexical_indexes: dict | None = None,
         blacklist: list[BlacklistRange] | None = None,
         safe_pool: list[SafePoolRef] | None = None,
@@ -490,6 +518,7 @@ class ScriptureRetriever:
         self.rewriter = rewriter
         self.reranker = reranker
         self.load_passages = load_passages
+        self.load_verses = load_verses
         self.lexical_indexes = lexical_indexes or {}
         self.blacklist = blacklist if blacklist is not None else load_genre_blacklist()
         self.safe_pool = safe_pool if safe_pool is not None else load_safe_pool()
@@ -552,6 +581,9 @@ class ScriptureRetriever:
         top-1 is served instead — never an error to the user path. An
         exhausted `deadline` degrades the same way (`fallback_reason`
         "deadline"), without starting the rerank call.
+
+        The same call also returns the key-verse span of the chosen
+        passage; an absent or invalid span only drops `highlight`.
         """
         selection = self.select(request, deadline)
         if not selection.candidates:
@@ -583,12 +615,19 @@ class ScriptureRetriever:
             _candidate_prompt_text(candidate)
             for candidate in selection.candidates
         ]
+        # Nothing was numbered -> no markers in the prompt: ask for the
+        # candidate only, never for a key-verse span the model would have to
+        # invent (it can drag the choice with it).
+        key_verses = any(
+            _is_numbered(candidate) for candidate in selection.candidates
+        )
         try:
             choice = self.reranker.choose(
                 topic=request.topic,
                 user_replies=list(request.user_replies),
                 candidate_texts=texts,
                 deadline=deadline,
+                key_verses=key_verses,
             )
         except PassageRerankError as exc:
             # failure category only — never the prayer context or model text
@@ -610,12 +649,14 @@ class ScriptureRetriever:
                 candidate=top1, reason=None, method="fallback_top1",
                 fallback_reason="rerank_failed", selection=selection,
             )
+        chosen = selection.candidates[choice.index]
         return FinalSelection(
-            candidate=selection.candidates[choice.index],
+            candidate=chosen,
             reason=choice.reason,
             method="rerank",
             fallback_reason=None,
             selection=selection,
+            highlight=_highlight_indices(chosen, choice),
         )
 
     # -- pipeline stages ----------------------------------------------------
@@ -766,6 +807,63 @@ class ScriptureRetriever:
                 chunks.setdefault(meta["canonical_id"], []).append(meta)
         return chunks
 
+    def _resolve_verses(
+        self, ranges: dict[int, list[tuple]]
+    ) -> dict[int, dict[str, list[VerseText]]]:
+        """Verses of the chunk ranges asked for, one query per translation.
+
+        Best effort by design: verses only power the key-verse highlight, so
+        a failing verse loader degrades to "no highlight" instead of failing
+        a selection that has verified passages already — and a translation
+        that fails takes only its own verses down, not the ones already
+        loaded for another.
+        """
+        if self.load_verses is None:
+            return {}
+        resolved: dict[int, dict[str, list[VerseText]]] = {}
+        for code, chunk_ranges in ranges.items():
+            try:
+                resolved[code] = self.load_verses(code, chunk_ranges)
+            except Exception as exc:      # category only — never the context
+                logger.warning(
+                    "candidate verse loading failed: %s", type(exc).__name__
+                )
+        return resolved
+
+    def _attach_prompt_verses(self, candidates: list[Candidate]) -> None:
+        """Number the passages the reranker will actually be shown.
+
+        Only the prompt passage of each candidate carries `[n]` markers and
+        only its verses are ever indexed by a key-verse answer, so only they
+        are loaded — the other translations of a candidate would be rows
+        nobody reads. Every candidate of a language normally shares one
+        primary translation, which makes this the single extra
+        `translation_verses` query per selection (ADR 0005).
+        """
+        if self.load_verses is None:
+            return
+        shown: list[tuple[str, PassageText]] = []
+        ranges: dict[int, list[tuple]] = {}
+        for candidate in candidates:
+            passage = prompt_passage(candidate)
+            if passage is None:
+                continue
+            shown.append((candidate.canonical_id, passage))
+            ranges.setdefault(passage.translation, []).append(
+                (
+                    candidate.canonical_id,
+                    passage.book_number,
+                    passage.chapter_number,
+                    passage.verse_number_start,
+                    passage.verse_number_end,
+                )
+            )
+        verses = self._resolve_verses(ranges)
+        for canonical_id, passage in shown:
+            passage.verses = list(
+                verses.get(passage.translation, {}).get(canonical_id, ())
+            )
+
     def _resolve_candidates(
         self, language: str, hits: list[FusedHit]
     ) -> list[Candidate]:
@@ -812,6 +910,7 @@ class ScriptureRetriever:
                     passages=passages,
                 )
             )
+        self._attach_prompt_verses(candidates)
         return candidates
 
     # -- safe pool -----------------------------------------------------------
@@ -870,16 +969,95 @@ class ScriptureRetriever:
         )
 
 
+def prompt_passage(candidate: Candidate) -> PassageText | None:
+    """The passage the reranker is shown: the language's primary corpus
+    translation (the first passage — index insertion order)."""
+    return candidate.passages[0] if candidate.passages else None
+
+
+# A handful of verses carry a literal "[27]"-style textual variant of their
+# own (27 verses of `syn`, all in four Genesis chunks; verified over the
+# whole corpus, chunk titles are free of brackets entirely). Left as they
+# are they would be indistinguishable from the markers this function adds,
+# and a low literal number would give the model an in-bounds but wrong
+# marker to answer with. They are rewritten to round brackets — PROMPT
+# RENDERING ONLY; the passage text served to the client passes nowhere near
+# this module.
+_LITERAL_MARKER_RE = re.compile(r"\[\s*(\d+)\s*\]")
+
+
+def _neutralize_literal_markers(text: str) -> str:
+    """Round brackets for a "[27]" the scripture text carries of its own."""
+    return _LITERAL_MARKER_RE.sub(r"(\1)", text)
+
+
+def number_verses(verses: list[VerseText]) -> str:
+    """Chunk text with a [n] marker before every verse.
+
+    Paragraph structure is rebuilt from the verses' own `start_paragraph`
+    flags (a blank line at every flagged verse), which reproduces the
+    stored chunk text of 11678 of 11960 chunks byte for byte. 278 (all
+    `ubh`) carry one paragraph break less than the stored text — same
+    words in the same order, one break short. The remaining 4 (all `syn`)
+    differ only because their literal "[n]" sequences are neutralised to
+    round brackets, so only the server's own markers look like markers —
+    a deliberate deviation from the stored text. So the reranker reads the
+    passage it always did, plus the markers its key-verse answer indexes
+    into. Empty verses are dropped by the loader, so marker n is always
+    the n-th verse of `verses`.
+    """
+    paragraphs: list[list[str]] = []
+    for number, verse in enumerate(verses, start=1):
+        piece = f"[{number}] {_neutralize_literal_markers(verse.text.strip())}"
+        if not paragraphs or verse.start_paragraph:
+            paragraphs.append([piece])
+        else:
+            paragraphs[-1].append(piece)
+    return "\n\n".join(" ".join(pieces) for pieces in paragraphs)
+
+
+def _is_numbered(candidate: Candidate) -> bool:
+    """Was this candidate rendered with [n] verse markers?"""
+    passage = prompt_passage(candidate)
+    return passage is not None and bool(passage.verses)
+
+
 def _candidate_prompt_text(candidate: Candidate) -> str:
     """Candidate text as shown to the reranker: primary translation's
-    title + text (the first passage is the language's primary corpus
-    translation — index insertion order)."""
-    if not candidate.passages:
+    title + verse-numbered text (the plain stored text when the verses of
+    the chunk are not available)."""
+    passage = prompt_passage(candidate)
+    if passage is None:
         return ""
-    passage = candidate.passages[0]
+    body = number_verses(passage.verses) if passage.verses else passage.text
     if passage.title:
-        return f"{passage.title}\n{passage.text}"
-    return passage.text
+        return f"{passage.title}\n{body}"
+    return body
+
+
+def _highlight_indices(
+    candidate: Candidate, choice
+) -> tuple[int, int] | None:
+    """Validate a model key-verse span against the candidate it belongs to.
+
+    The span must be a real, in-bounds range of the verses the server put
+    into the prompt for THIS candidate and at most MAX_KEY_VERSES long.
+    Anything else (missing fields, out of bounds, reversed, too long, no
+    verses loaded) returns None — the passage is served without a
+    highlight, the choice itself is untouched.
+    """
+    start = getattr(choice, "key_verse_start", None)
+    end = getattr(choice, "key_verse_end", None)
+    if start is None or end is None:
+        return None
+    passage = prompt_passage(candidate)
+    if passage is None or not passage.verses:
+        return None
+    if not 1 <= start <= end <= len(passage.verses):
+        return None
+    if end - start + 1 > MAX_KEY_VERSES:
+        return None
+    return (start, end)
 
 
 # ---------------------------------------------------------------------------
@@ -905,5 +1083,61 @@ def make_db_passage_loader(cursor):
             (translation_code, CHUNKING_VERSION, *unique_ids),
         )
         return {row["canonical_id"]: row for row in cursor.fetchall()}
+
+    return load
+
+
+def make_db_verse_loader(cursor):
+    """load_verses implementation over cep_public.translation_verses.
+
+    Takes the chunks' own display ranges (book, chapter, first/last verse of
+    the chunk TEXT, overlap verses included — exactly what
+    `translation_chunks` stores) and returns their verses in order. Empty
+    verses are dropped, mirroring chunking._build_text, so the n-th verse
+    here is the n-th verse of the rendered chunk text.
+    """
+
+    def load(translation_code: int, chunk_ranges) -> dict[str, list[VerseText]]:
+        unique = {
+            (canonical_id, book, chapter, first, last)
+            for canonical_id, book, chapter, first, last in chunk_ranges
+        }
+        if not unique:
+            return {}
+        ordered = sorted(unique)
+        conditions = " OR ".join(
+            ["(book_number = %s AND chapter_number = %s "
+             "AND verse_number BETWEEN %s AND %s)"] * len(ordered)
+        )
+        params: list = [translation_code]
+        for _cid, book, chapter, first, last in ordered:
+            params.extend((book, chapter, first, last))
+        cursor.execute(
+            f"""
+            SELECT book_number, chapter_number, verse_number, text,
+                   start_paragraph
+            FROM translation_verses
+            WHERE translation = %s AND ({conditions})
+            ORDER BY book_number, chapter_number, verse_number
+            """,
+            params,
+        )
+        by_chapter: dict[tuple[int, int], list[dict]] = {}
+        for row in cursor.fetchall():
+            by_chapter.setdefault(
+                (row["book_number"], row["chapter_number"]), []
+            ).append(row)
+        loaded: dict[str, list[VerseText]] = {}
+        for canonical_id, book, chapter, first, last in ordered:
+            loaded[canonical_id] = [
+                VerseText(
+                    verse_number=row["verse_number"],
+                    text=row["text"].strip(),
+                    start_paragraph=bool(row["start_paragraph"]),
+                )
+                for row in by_chapter.get((book, chapter), [])
+                if first <= row["verse_number"] <= last and row["text"].strip()
+            ]
+        return loaded
 
     return load

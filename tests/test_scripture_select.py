@@ -8,7 +8,9 @@ through the no-AI safe-pool path of the live integration test.
 
 import hashlib
 import hmac
+import json
 import os
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -32,7 +34,13 @@ from retrieval import (
     FinalSelection,
     PassageText,
     SelectionResult,
+    VerseText,
     split_exclusions,
+)
+from versification import (
+    PsalmMap,
+    build_psalm_map,
+    canonical_counts_with_extras,
 )
 
 client = TestClient(app)
@@ -40,10 +48,33 @@ client = TestClient(app)
 REAL_RUN_SELECTION = scripture_select._run_selection
 REAL_GET_RESOURCES = scripture_select.get_resources
 
+# Real Psalm versification maps of the indexed corpus, built from the same
+# fixture the versification tests use: the highlight of a Psalm is only
+# correct if the translation's own numbering is converted (ADR 0003).
+_MAX_VERSES = {
+    alias: {int(chapter): mx for chapter, mx in chapters.items()}
+    for alias, chapters in json.loads(
+        (Path(__file__).parent / "data" / "psalm_max_verses.json").read_text()
+    ).items()
+}
+_CANONICAL_COUNTS = canonical_counts_with_extras(_MAX_VERSES["bsb"])
+PSALM_MAPS = {
+    code: PsalmMap(
+        build_psalm_map(alias, _MAX_VERSES[alias], _CANONICAL_COUNTS)
+    )
+    # 1 syn (Septuagint numbering), 16 bsb (canonical), 20 ubh (Masoretic
+    # chapters, Hebrew verse numbering) — the production corpus
+    for code, alias in ((1, "syn"), (16, "bsb"), (20, "ubh"))
+}
+
 TOPIC = "Тревога перед операцией"
 REPLY = "Боюсь за исход"
 PASSAGE_TEXT = "Господь — Пастырь мой; я ни в чем не буду нуждаться."
 PRIVATE_STRINGS = (TOPIC, REPLY, PASSAGE_TEXT)
+
+
+def psalm_verses(numbers=range(1, 7)) -> list[VerseText]:
+    return [VerseText(verse_number=n, text=f"стих {n}") for n in numbers]
 
 
 def make_candidate(canonical_id: str = "v3:19.023.001-006") -> Candidate:
@@ -66,6 +97,7 @@ def make_candidate(canonical_id: str = "v3:19.023.001-006") -> Candidate:
                 verse_number_end=6,
                 title="Псалом Давида",
                 text=PASSAGE_TEXT,
+                verses=psalm_verses(),
             ),
             PassageText(
                 translation=2,
@@ -76,6 +108,7 @@ def make_candidate(canonical_id: str = "v3:19.023.001-006") -> Candidate:
                 verse_number_end=6,
                 title=None,
                 text="Другой перевод",
+                verses=psalm_verses(),
             ),
         ],
     )
@@ -88,6 +121,7 @@ def make_final(
     selection_reason: str | None = None,
     candidate: Candidate | None = -1,  # sentinel: default candidate
     reason: str = "Speaks to fear before surgery.",
+    highlight: tuple[int, int] | None = None,
 ) -> FinalSelection:
     if candidate == -1:
         candidate = make_candidate()
@@ -104,6 +138,7 @@ def make_final(
         method=method,
         fallback_reason=fallback_reason,
         selection=selection,
+        highlight=highlight,
     )
 
 
@@ -117,6 +152,7 @@ def selection_environment(monkeypatch):
         lexical={},
         translations={"ru": [(1, "syn"), (2, "rst")], "en": [(16, "bsb")]},
         loaded_at=0.0,
+        psalm_maps=PSALM_MAPS,
     )
     monkeypatch.setattr(scripture_select, "get_resources", lambda: resources)
     runner = Mock(return_value=make_final())
@@ -451,6 +487,233 @@ def test_unavailable_corpus_is_reported_as_503(monkeypatch, selection_environmen
 
 
 # ---------------------------------------------------------------------------
+# Key-verse highlight (optional, additive)
+# ---------------------------------------------------------------------------
+
+def select_with_highlight(monkeypatch, highlight, payload=None, **final_kwargs):
+    monkeypatch.setattr(
+        scripture_select, "_run_selection",
+        Mock(return_value=make_final(highlight=highlight, **final_kwargs)),
+    )
+    return post(payload or {"language": "ru", "topic": TOPIC})
+
+
+def test_highlight_carries_both_coordinate_systems(monkeypatch):
+    """The chosen chunk is canonical Psalm 23 rendered as syn 22; a
+    highlight of markers 4-4 is verse 4 in both — the Septuagint chapter
+    shift moves the chapter, not the verse."""
+    response = select_with_highlight(monkeypatch, (4, 4))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["highlight"] == {
+        "canonical": {
+            "book_number": 19, "chapter_number": 23,
+            "verse_start": 4, "verse_end": 4,
+        },
+        "passage": {"chapter_number": 22, "verse_start": 4, "verse_end": 4},
+    }
+
+
+def test_highlight_is_always_inside_the_returned_passage(monkeypatch):
+    body = select_with_highlight(monkeypatch, (2, 4)).json()
+
+    passage, highlight = body["passage"], body["highlight"]["passage"]
+    assert passage["chapter_number"] == highlight["chapter_number"]
+    assert passage["verse_start"] <= highlight["verse_start"]
+    assert highlight["verse_end"] <= passage["verse_end"]
+    assert highlight["verse_end"] - highlight["verse_start"] + 1 <= 3
+
+
+def test_a_septuagint_chunk_starting_mid_chapter_keeps_its_verse_numbers(
+    monkeypatch,
+):
+    """Markers are positions in the chunk, verse numbers are not: a chunk
+    that starts at syn 22:3 must highlight verse 4 for marker 2."""
+    candidate = make_candidate()
+    candidate.passages[0].verses = psalm_verses(range(3, 7))
+    candidate.passages[0].verse_number_start = 3
+
+    body = select_with_highlight(
+        monkeypatch, (2, 2), candidate=candidate
+    ).json()
+
+    assert body["highlight"]["passage"]["verse_start"] == 4
+    assert body["highlight"]["canonical"]["verse_start"] == 4
+
+
+def test_a_counted_superscription_shifts_the_canonical_numbers(monkeypatch):
+    """syn 3 counts the inscription as verse 1, the canon does not: syn 3:2
+    is canonical 3:1."""
+    candidate = make_candidate("v3:19.003.001-004")
+    candidate.chapter_number = 3
+    candidate.verse_start, candidate.verse_end = 1, 4
+    passage = candidate.passages[0]
+    passage.chapter_number = 3
+    passage.verse_number_start, passage.verse_number_end = 1, 5
+    passage.verses = psalm_verses(range(1, 6))
+
+    body = select_with_highlight(
+        monkeypatch, (2, 3), candidate=candidate
+    ).json()
+
+    assert body["highlight"]["passage"] == {
+        "chapter_number": 3, "verse_start": 2, "verse_end": 3,
+    }
+    assert body["highlight"]["canonical"] == {
+        "book_number": 19, "chapter_number": 3,
+        "verse_start": 1, "verse_end": 2,
+    }
+
+
+def test_a_ukrainian_psalm_uses_the_masoretic_chapter_and_shifted_verses(
+    monkeypatch, selection_environment
+):
+    """ubh keeps Masoretic chapter numbers but counts the superscription,
+    so only the verse numbers shift."""
+    candidate = make_candidate("v3:19.003.001-004")
+    candidate.chapter_number = 3
+    candidate.verse_start, candidate.verse_end = 1, 4
+    candidate.passages = [
+        PassageText(
+            translation=20, alias="ubh", book_number=19, chapter_number=3,
+            verse_number_start=1, verse_number_end=5, title=None,
+            text="Псалом", verses=psalm_verses(range(1, 6)),
+        )
+    ]
+    resources = scripture_select.CorpusResources(
+        index=SimpleNamespace(metas=[]), lexical={},
+        translations={"uk": [(20, "ubh")]}, loaded_at=0.0,
+        psalm_maps=PSALM_MAPS,
+    )
+    monkeypatch.setattr(scripture_select, "get_resources", lambda: resources)
+
+    body = select_with_highlight(
+        monkeypatch, (2, 2), payload={"language": "uk", "topic": TOPIC},
+        candidate=candidate,
+    ).json()
+
+    assert body["highlight"]["passage"] == {
+        "chapter_number": 3, "verse_start": 2, "verse_end": 2,
+    }
+    assert body["highlight"]["canonical"]["chapter_number"] == 3
+    assert body["highlight"]["canonical"]["verse_start"] == 1
+
+
+def test_outside_the_psalms_both_coordinate_systems_agree(monkeypatch):
+    candidate = make_candidate("v3:43.014.027-027")
+    candidate.book_number, candidate.chapter_number = 43, 14
+    candidate.verse_start, candidate.verse_end = 27, 27
+    candidate.passages = [
+        PassageText(
+            translation=1, alias="syn", book_number=43, chapter_number=14,
+            verse_number_start=27, verse_number_end=27, title=None,
+            text="Мир оставляю вам",
+            verses=[VerseText(27, "Мир оставляю вам")],
+        )
+    ]
+
+    body = select_with_highlight(
+        monkeypatch, (1, 1), candidate=candidate
+    ).json()
+
+    assert body["highlight"] == {
+        "canonical": {
+            "book_number": 43, "chapter_number": 14,
+            "verse_start": 27, "verse_end": 27,
+        },
+        "passage": {"chapter_number": 14, "verse_start": 27, "verse_end": 27},
+    }
+
+
+def test_a_psalm_without_a_stored_mapping_is_served_without_a_highlight(
+    monkeypatch,
+):
+    resources = scripture_select.CorpusResources(
+        index=SimpleNamespace(metas=[]), lexical={},
+        translations={"ru": [(1, "syn")]}, loaded_at=0.0, psalm_maps={},
+    )
+    monkeypatch.setattr(scripture_select, "get_resources", lambda: resources)
+
+    body = select_with_highlight(monkeypatch, (4, 4)).json()
+
+    assert "highlight" not in body
+    assert body["passage"]["text"] == PASSAGE_TEXT
+
+
+def test_a_span_the_server_refuses_is_dropped_not_clamped(monkeypatch):
+    """`build_response` re-checks the bounds: whatever the pipeline hands
+    over, the contract never grows a range out of it."""
+    for indices in ((0, 1), (5, 9), (3, 2)):
+        assert "highlight" not in select_with_highlight(
+            monkeypatch, indices
+        ).json()
+
+
+def test_without_a_highlight_the_response_is_byte_for_byte_the_old_one():
+    """Backward compatibility: an absent highlight is an absent KEY."""
+    body = post({"language": "ru", "topic": TOPIC}).json()
+
+    assert "highlight" not in body
+    assert set(body) == {
+        "language", "canonical", "passage", "source",
+        "fallback_reason", "history_reset",
+    }
+
+
+def test_openapi_does_not_advertise_a_null_highlight():
+    """n9: `null` is not a value this endpoint can return — the key is
+    omitted — so the published schema must not offer it either."""
+    schema = client.get("/openapi.json").json()
+    field = schema["components"]["schemas"]["SelectResponse"]["properties"][
+        "highlight"
+    ]
+
+    assert "anyOf" not in field
+    refs = json.dumps(field.get("allOf", field.get("$ref", "")))
+    assert "HighlightModel" in refs and "null" not in refs
+    # optional all the same: absent, never null
+    assert "highlight" not in schema["components"]["schemas"][
+        "SelectResponse"
+    ].get("required", [])
+    assert "KEY IS ABSENT ENTIRELY" in field.get("description", "")
+
+
+@pytest.mark.parametrize(
+    "final_kwargs",
+    [
+        {"method": "fallback_top1", "fallback_reason": "rerank_failed"},
+        {"method": "fallback_top1", "fallback_reason": "deadline"},
+        {
+            "method": "fallback_top1", "fallback_reason": "safe_pool",
+            "source": "safe_pool", "selection_reason": "empty_topic",
+        },
+    ],
+)
+def test_fallback_answers_carry_no_highlight(monkeypatch, final_kwargs):
+    """Nothing but a live AI choice may produce one — the fallbacks never
+    set it, and the response must not invent one."""
+    body = select_with_highlight(monkeypatch, None, **final_kwargs).json()
+
+    assert "highlight" not in body
+    assert body["passage"]["text"] == PASSAGE_TEXT
+
+
+def test_the_highlight_never_leaks_the_prayer_context(monkeypatch, caplog):
+    with caplog.at_level("DEBUG"):
+        response = select_with_highlight(
+            monkeypatch, (4, 4),
+            payload={"language": "ru", "topic": TOPIC, "user_replies": [REPLY]},
+        )
+
+    assert response.status_code == 200
+    assert "highlight" in response.json()
+    assert TOPIC not in response.text and REPLY not in response.text
+    for secret in PRIVATE_STRINGS:
+        assert secret not in caplog.text
+
+
+# ---------------------------------------------------------------------------
 # Exclusions and the chunking-version reset
 # ---------------------------------------------------------------------------
 
@@ -766,8 +1029,20 @@ def test_openapi_documents_the_public_contract():
     response_schema = schema["components"]["schemas"]["SelectResponse"]
     assert "reason" not in response_schema["properties"]
     assert set(response_schema["properties"]) == {
-        "language", "canonical", "passage", "source",
+        "language", "canonical", "passage", "highlight", "source",
         "fallback_reason", "history_reset",
+    }
+    # optional and additive: no client written against the previous
+    # contract has to change
+    assert "highlight" not in response_schema.get("required", [])
+    highlight = schema["components"]["schemas"]["HighlightModel"]
+    assert set(highlight["properties"]) == {"canonical", "passage"}
+    canonical = schema["components"]["schemas"]["HighlightCanonical"]
+    assert set(canonical["properties"]) == {
+        "book_number", "chapter_number", "verse_start", "verse_end",
+    }
+    assert set(schema["components"]["schemas"]["HighlightPassage"]["properties"]) == {
+        "chapter_number", "verse_start", "verse_end",
     }
 
 
