@@ -571,9 +571,33 @@ def test_a_coverage_set_that_hides_the_retrieval_result_serves_the_safe_pool():
     )
 
 
-def test_an_unfiltered_selection_never_degrades_to_coverage_empty():
-    """The primary path is untouched: with no coverage set an empty ranking
-    stays an empty retrieval result (it cannot happen for lack of coverage)."""
+def test_an_emptied_primary_ranking_is_ranking_empty_not_coverage_empty():
+    """The primary path degrades symmetrically, under its own category: with
+    no coverage set the ranking can still be emptied (here by the genre
+    blacklist), and blaming a filter that never ran would be a lie."""
+    embedder = FakeEmbedder({
+        "вариант": query_vector({"v3:13.001.001-004": 0.9}),   # blacklisted
+    })
+    retriever = make_retriever(
+        embedder=embedder, rewriter=FakeRewriter(["вариант"]),
+        allowed_canonical_ids=None,
+        fetch_k=1,
+    )
+
+    result = retriever.select(SelectionRequest(language="ru", topic="тема"))
+
+    assert result.source == "safe_pool"
+    assert result.fallback_reason == "ranking_empty"
+    assert result.candidates, "the pool answers rather than nothing at all"
+
+
+def test_a_blacklisted_top_hit_does_not_sink_retrieval_at_default_fetch_k():
+    """The guarantee the renamed test above no longer covers, since it now
+    forces fetch_k=1 to reach an emptied ranking: at the real default
+    (fetch_k=50, far larger than this synthetic corpus) a blacklisted top
+    hit alone does not empty the ranking, because fetch_k pulls in the rest
+    of the corpus behind it. Same fixture as the old
+    test_an_unfiltered_selection_never_degrades_to_coverage_empty."""
     embedder = FakeEmbedder({
         "вариант": query_vector({"v3:13.001.001-004": 0.9}),   # blacklisted
     })
@@ -586,6 +610,121 @@ def test_an_unfiltered_selection_never_degrades_to_coverage_empty():
 
     assert result.source == "retrieval"
     assert result.fallback_reason is None
+
+
+def test_a_short_exclusion_list_emptying_the_ranking_logs_a_warning(caplog):
+    """A fetch_k=50 ranking should never be emptied by a handful of
+    exclusions; when it happens anyway (here: zero exclusions, just the
+    blacklist) it's an operator anomaly, so it's logged at WARNING rather
+    than the routine INFO used for an ordinary exhausted history. The
+    message carries only the category and the exclusion count, never the
+    prayer topic."""
+    embedder = FakeEmbedder({
+        "вариант": query_vector({"v3:13.001.001-004": 0.9}),   # blacklisted
+    })
+    retriever = make_retriever(
+        embedder=embedder, rewriter=FakeRewriter(["вариант"]),
+        allowed_canonical_ids=None,
+        fetch_k=1,
+    )
+
+    with caplog.at_level("INFO"):
+        result = retriever.select(
+            SelectionRequest(language="ru", topic="Благодарность за дочку")
+        )
+
+    assert result.fallback_reason == "ranking_empty"
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert "ranking_empty" in warnings[0].message
+    assert "0" in warnings[0].message
+    assert "Благодарность" not in warnings[0].message
+    assert not [r for r in caplog.records if r.levelname == "INFO"]
+
+
+def test_exclusions_that_empty_the_primary_ranking_serve_the_safe_pool():
+    """The reachable case: a narrow topic plus a long repeat history leaves
+    the primary translation's ranking empty. That is an exhausted pool for
+    this topic, not a broken server — the safe pool answers."""
+    embedder = FakeEmbedder({
+        "вариант": query_vector({
+            "v3:19.127.003-005": 0.9, "v3:45.001.017-017": 0.5,
+        }),
+    })
+    retriever = make_retriever(
+        embedder=embedder, rewriter=FakeRewriter(["вариант"]),
+        allowed_canonical_ids=None,
+        fetch_k=2,
+    )
+
+    result = retriever.select(SelectionRequest(
+        language="ru", topic="тема",
+        exclude_canonical_ids=frozenset({
+            "v3:19.127.003-005", "v3:45.001.017-017",
+        }),
+    ))
+
+    assert result.source == "safe_pool"
+    assert result.fallback_reason == "ranking_empty"
+    assert result.candidates
+    assert "v3:19.127.003-005" not in [
+        c.canonical_id for c in result.candidates
+    ]
+    assert result.query_variants == ["вариант"], (
+        "the variants were really searched; the pool answered afterwards"
+    )
+
+
+def test_exclusions_that_also_cover_the_safe_pool_still_answer():
+    """The degenerate end on the primary path: even a history covering the
+    whole pool does not produce a refusal — `rotate_safe_pool` resets and
+    repeats a place, which is the documented behaviour of the rotation."""
+    retriever = make_retriever(
+        embedder=FakeEmbedder({
+            "вариант": query_vector({"v3:19.127.003-005": 0.9}),
+        }),
+        rewriter=FakeRewriter(["вариант"]),
+        fetch_k=1,
+    )
+    everything = frozenset(
+        {"v3:19.127.003-005"} | {
+            c.canonical_id
+            for c in retriever.select(
+                SelectionRequest(language="ru")
+            ).candidates
+        }
+    )
+
+    result = retriever.select(SelectionRequest(
+        language="ru", topic="тема", exclude_canonical_ids=everything,
+    ))
+
+    assert result.source == "safe_pool"
+    assert result.fallback_reason == "ranking_empty"
+    assert result.candidates, "the rotation resets instead of refusing"
+
+
+def test_an_emptied_primary_ranking_without_a_pool_yields_no_candidates():
+    """The unchanged 503 path: the safe pool is the only thing left to fall
+    back to, so when it resolves to nothing the request still ends in the
+    documented refusal rather than in an ungrounded answer."""
+    retriever = make_retriever(
+        embedder=FakeEmbedder({
+            "вариант": query_vector({"v3:13.001.001-004": 0.9}),  # blacklisted
+        }),
+        rewriter=FakeRewriter(["вариант"]),
+        safe_pool=[],
+        fetch_k=1,
+    )
+
+    final = retriever.select_final(
+        SelectionRequest(language="ru", topic="тема")
+    )
+
+    assert final.selection.source == "safe_pool"
+    assert final.selection.candidates == []
+    assert final.candidate is None
+    assert final.fallback_reason == "no_candidates"
 
 
 def test_a_coverage_set_that_hides_everything_yields_no_candidates():

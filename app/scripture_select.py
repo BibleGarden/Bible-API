@@ -155,6 +155,10 @@ class FallbackReason(str, Enum):
     # ADR 0007: retrieval ran, but nothing it found exists in the requested
     # (non-primary) translation, so the coverage-filtered safe pool answered.
     coverage_empty = "coverage_empty"
+    # ADR 0007 fix F1 on the primary path: retrieval ran on a fully covered
+    # translation and the caller's exclusions (or the genre blacklist) left
+    # its ranking empty, so the safe pool answered.
+    ranking_empty = "ranking_empty"
 
 
 class SelectRequest(BaseModel):
@@ -409,7 +413,12 @@ class SelectResponse(BaseModel):
             "coverage, the caller's exclusions and the genre blacklist had "
             "all narrowed the candidate pool, nothing was left in it, so the "
             "safe pool answered — it can only appear for a translation "
-            "other than the language's primary one."
+            "other than the language's primary one. `ranking_empty` is the "
+            "same outcome without a coverage filter: the caller's exclusions "
+            "or the genre blacklist emptied the ranking of a fully covered "
+            "translation, and the safe pool answered. A long "
+            "`exclude_canonical_ids` history on a narrow topic is the "
+            "expected cause; the client may keep sending the history."
         ),
     )
     history_reset: bool = Field(
@@ -1395,10 +1404,11 @@ def build_response(
         "run — empty topic, provider outage, exhausted time budget — or its "
         "candidates, once narrowed by the requested translation's coverage "
         "together with the caller's exclusions and the genre blacklist, "
-        "leave nothing to choose from (`coverage_empty`, possible only for "
-        "a non-primary translation of an incomplete Bible), a curated safe "
-        "pool is served (`source=safe_pool`). `fallback_reason` carries the "
-        "category.\n\n"
+        "leave nothing to choose from (`coverage_empty` for a non-primary "
+        "translation of an incomplete Bible, `ranking_empty` when there is "
+        "no coverage filter and the exclusions or the blacklist emptied the "
+        "ranking), a curated safe pool is served (`source=safe_pool`). "
+        "`fallback_reason` carries the category.\n\n"
         "Prayer topic, replies and the returned passage are never logged or "
         "stored in request statistics."
     ),

@@ -173,11 +173,13 @@ assertion that the response schema has no `reason` property).
 | `retrieval_fallback` | `rerank_failed` / `no_reranker` / `deadline` | retrieval's top-1 was served |
 | `safe_pool` | `empty_topic` / `ai_unavailable` / `deadline` | the curated no-AI list was served |
 
-ADR 0007 adds one more value to the last row, `coverage_empty`: retrieval
+ADR 0007 adds two more values to the last row. `coverage_empty`: retrieval
 ran, but the candidate pool — narrowed by the requested (non-primary)
 translation's coverage together with the caller's exclusions and the genre
 blacklist — was left with nothing, so the coverage-filtered safe pool
-answered.
+answered. `ranking_empty`: the same outcome where there is no coverage
+filter, i.e. the caller's exclusions or the genre blacklist emptied the
+ranking of a fully covered translation.
 
 A Gemini outage therefore never produces a 5xx: it degrades along the ADR
 0005 ladder. `503` is reserved for "no verified passage exists at all"

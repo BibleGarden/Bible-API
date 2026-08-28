@@ -181,10 +181,54 @@ construction.
 
 The category is new and public (`FallbackReason.coverage_empty`, OpenAPI
 `SelectResponse.fallback_reason`); it can never appear for a primary
-translation, which has no filter. Only when the coverage set hides the pool
-as well is there nothing verified left to serve, and the request ends in
-the documented 503 — unreachable through the catalogue, which drops a
-translation that covers no window.
+translation, which has no filter.
+
+**The primary path degrades the same way** (fix F1 extended). A coverage
+set is not the only filter that can empty a ranking: the caller's
+`exclude_canonical_ids` (up to 200 IDs) and the genre blacklist can between
+them remove every window a narrow topic ranks, on a fully covered
+translation with no coverage set at all. The condition is identical — a
+narrowed pool, not a broken server — so the answer is identical: the safe
+pool, `source=safe_pool`. The reason is reported under its own category,
+`fallback_reason=ranking_empty`, and NOT under `coverage_empty`: on the
+primary path there is no coverage filter, and naming one would blame a
+mechanism that never ran. The two categories are how the difference between
+"this Bible is incomplete" and "this client has exhausted the corpus for
+its topic" actually reaches anyone: the client sees it in the response's
+`fallback_reason`, and an operator sees it in the retrieval log line. It is
+NOT visible in the request statistics — `api_requests` (`app/middleware.py`)
+records only endpoint, method, status, timing, IP and user agent, never
+`fallback_reason` — so collapsing the categories would have cost the log,
+not a stats column. `ranking_empty` is likewise new and public, and needs
+the same client announcement `coverage_empty` did; both are additive values
+of an existing enum, and a client that does not know the value still
+receives a valid passage.
+
+**A caveat on what the category actually names.** The choice between the
+two is made on whether a coverage filter is ACTIVE
+(`self.allowed_canonical_ids is not None`), not on which filter is what
+actually emptied the ranking. A non-primary translation with full coverage
+of a topic, whose ranking is emptied purely by `exclude_canonical_ids` or
+the genre blacklist — coverage removing nothing — still reports
+`coverage_empty`, because it ran on the coverage-filtered path regardless.
+That is deliberate, not a bug to fix here: `coverage_empty` means "the pool
+emptied while a coverage restriction was in effect, under any combination
+of it with the other filters," and `ranking_empty` means "the pool emptied
+on the primary path, where no coverage filter runs at all." The category
+names the PATH the request took, not the single mechanism responsible, and
+the behavior described above is unchanged by this ADR.
+
+Only when the pool itself resolves to nothing is there nothing verified
+left to serve, and the request ends in the documented 503. Three things can
+reach that: a coverage set hiding every place (unreachable through the
+catalogue, which drops a translation covering no window), an empty pool
+file, or a non-empty pool file whose entries name windows that are not in
+the language's corpus at all — `_resolve_pool_ids` matches each ref against
+that language's own canonical windows before coverage is even applied, and
+a ref with no match resolves to `None` regardless (a data bug in
+`safe_pool.json`, not a translation gap). The caller's exclusions cannot
+cause it on their own, because `rotate_safe_pool` resets and repeats a
+place once the exclusions cover the whole pool.
 
 ### Rendering: the canonical window, read from `translation_verses`
 
@@ -273,7 +317,8 @@ renders — and is dropped.
   publishes it only after the corpus cache expires or is cleared.
 - A translation with no Psalm map, or covering nothing, is dropped from the
   catalogue with a warning instead of failing the corpus load.
-- New public `fallback_reason` value `coverage_empty` (see above).
+- New public `fallback_reason` values `coverage_empty` and `ranking_empty`
+  (see above); both need announcing to the mobile client.
 
 ### Why a missing Psalm map drops the whole translation
 

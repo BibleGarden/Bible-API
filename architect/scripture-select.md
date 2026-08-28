@@ -216,6 +216,7 @@ Degradation is part of the contract, not an error:
 | `safe_pool` | `ai_unavailable` | no query could be embedded (provider outage) |
 | `safe_pool` | `deadline` | the time budget ran out before retrieval could run |
 | `safe_pool` | `coverage_empty` | retrieval ran, but the candidate pool narrowed by the requested translation's coverage together with the caller's exclusions and the genre blacklist left nothing (only possible for a translation other than the language's primary — ADR 0007) |
+| `safe_pool` | `ranking_empty` | the same, without a coverage filter: retrieval ran and the caller's exclusions or the genre blacklist left the ranking empty (a long repeat history on a narrow topic; ADR 0007 fix F1 on the primary path) |
 
 The safe pool is a curated, versioned list of comforting passages
 (`app/data/safe_pool.json`, 9 places in version 1.1.0) rotated with the same
@@ -223,6 +224,14 @@ exclusion list. It is resolved through the requested translation's coverage
 set as well, so a pool place missing from an incomplete Bible is skipped
 rather than served from somewhere else: `npu` resolves 8 of the 9 places,
 every other active translation all 9.
+
+The rotation resets when the exclusion list covers every place the pool
+resolves to, so an exhaustive history makes the pool repeat a passage
+rather than refuse. 503 is therefore reached only when the pool resolves to
+nothing at all — a coverage set that hides every place, an empty pool file,
+or a non-empty pool file whose entries name windows absent from the
+language's corpus entirely (every entry resolves to `None`, a data bug
+rather than a translation gap) — never through `exclude_canonical_ids`.
 
 ## Errors
 

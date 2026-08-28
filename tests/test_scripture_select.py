@@ -1208,11 +1208,32 @@ def test_an_empty_coverage_result_is_reported_as_coverage_empty(monkeypatch):
     assert body["fallback_reason"] == "coverage_empty"
 
 
-def test_the_openapi_schema_publishes_the_coverage_fallback():
+def test_an_empty_primary_ranking_is_reported_as_ranking_empty(monkeypatch):
+    """The symmetric case through the public contract: no coverage filter is
+    involved, so the category names the emptied ranking, not the coverage."""
+    monkeypatch.setattr(
+        scripture_select, "get_resources", lambda: catalogue_resources()
+    )
+    monkeypatch.setattr(
+        scripture_select, "_run_selection",
+        Mock(return_value=make_final(
+            method="fallback_top1", fallback_reason="safe_pool",
+            source="safe_pool", selection_reason="ranking_empty",
+        )),
+    )
+
+    body = post({"language": "ru", "topic": TOPIC}).json()
+
+    assert body["source"] == "safe_pool"
+    assert body["fallback_reason"] == "ranking_empty"
+
+
+def test_the_openapi_schema_publishes_the_empty_pool_fallbacks():
     schema = client.get("/openapi.json").json()
     reason = schema["components"]["schemas"]["FallbackReason"]
 
     assert "coverage_empty" in reason["enum"]
+    assert "ranking_empty" in reason["enum"]
 
 
 def test_a_primary_that_is_not_the_rerank_translation_is_reported(caplog):

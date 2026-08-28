@@ -79,6 +79,13 @@ LEXICAL_K = 20
 MAX_PER_BOOK = 4
 MAX_PER_CHAPTER = 1
 
+# Below this many exclusions, an emptied primary ranking ("ranking_empty")
+# is logged as a warning rather than info: fetch_k (50) pulls far more
+# candidates than a short exclusion list could plausibly remove, so reaching
+# zero here looks like a stuck blacklist or a corrupted index, not an
+# exhausted repeat history — worth an operator's attention.
+RANKING_EMPTY_ANOMALY_THRESHOLD = 10
+
 _CANONICAL_ID_RE = re.compile(
     r"^v(?P<version>\d+):(?P<book>\d{2})\.(?P<chapter>\d{3})"
     r"\.(?P<start>\d{3})-(?P<end>\d{3})$"
@@ -437,7 +444,8 @@ class Candidate:
 class SelectionResult:
     candidates: list[Candidate]
     source: str                  # "retrieval" | "safe_pool"
-    # None | "empty_topic" | "ai_unavailable" | "deadline" | "coverage_empty"
+    # None | "empty_topic" | "ai_unavailable" | "deadline" |
+    # "coverage_empty" | "ranking_empty"
     fallback_reason: str | None
     query_variants: list[str]    # rewrite variants actually searched (+ raw)
     rewrite_failed: bool
@@ -498,7 +506,10 @@ class ScriptureRetriever:
                       filter is then not applied at all. When the filter
                       leaves the ranking empty, the selection degrades to the
                       safe pool (fallback_reason "coverage_empty") rather
-                      than to nothing at all.
+                      than to nothing at all; an unrestricted selection whose
+                      ranking is emptied by the exclusions and the blacklist
+                      alone degrades the same way, under the separate
+                      category "ranking_empty".
 
     include_raw_query=False by default: with working rewrites the raw query
     only wastes interleave slots (benchmark: 0.917 -> 0.958 hit@10 without
@@ -581,19 +592,41 @@ class ScriptureRetriever:
         filtered = self._filter(fused, request.exclude_canonical_ids)
         final = apply_diversity(filtered, request.top_k, self.max_per_book)
         candidates = self._resolve_candidates(request.language, final)
-        if not candidates and self.allowed_canonical_ids is not None:
-            # ADR 0007 fix F1: retrieval found nothing this translation can
-            # render (its coverage set hid the whole ranking — reachable for
-            # an incomplete Bible on an Old Testament topic). The safe pool
-            # is the same deterministic no-AI answer used when the provider
-            # is down, and it is filtered by the very same coverage set, so
-            # what it serves is renderable by construction. Answering 503
+        if not candidates:
+            # ADR 0007 fix F1, extended to the primary path: retrieval ran,
+            # but nothing it ranked survived the filters. The safe pool is
+            # the same deterministic no-AI answer used when the provider is
+            # down, and it is resolved through the very same coverage set,
+            # so what it serves is renderable by construction. Answering 503
             # here instead would fail a request the server can satisfy.
-            logger.info(
-                "retrieval produced no candidate inside the requested "
-                "translation's coverage; serving the safe pool"
+            #
+            # Two categories, because they mean different things to an
+            # operator and to the client: with a coverage set it is an
+            # incomplete Bible that narrowed the pool ("coverage_empty"),
+            # without one it is the caller's exclusion list (or the genre
+            # blacklist) exhausting a fully covered corpus for this topic
+            # ("ranking_empty"). Naming the latter "coverage_empty" would
+            # blame a filter that was never applied.
+            reason = (
+                "coverage_empty" if self.allowed_canonical_ids is not None
+                else "ranking_empty"
             )
-            result = self._safe_pool_result(request, "coverage_empty")
+            exclusion_count = len(request.exclude_canonical_ids)
+            # A short exclusion list emptying the primary ranking is the
+            # anomalous case (see RANKING_EMPTY_ANOMALY_THRESHOLD); a long
+            # one is an ordinary exhausted repeat history.
+            log = (
+                logger.warning
+                if reason == "ranking_empty"
+                and exclusion_count < RANKING_EMPTY_ANOMALY_THRESHOLD
+                else logger.info
+            )
+            log(
+                "retrieval produced no candidate (%s, %d exclusions); "
+                "serving the safe pool",
+                reason, exclusion_count,
+            )
+            result = self._safe_pool_result(request, reason)
             result.query_variants = searched_queries
             result.rewrite_failed = rewrite_failed
             return result
