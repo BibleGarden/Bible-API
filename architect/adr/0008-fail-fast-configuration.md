@@ -3,6 +3,13 @@
 Status: accepted (2026-08-29).
 Ticket: none — owner-directed policy change following the incident below.
 
+> Note (2026-08-30, ClickUp 86cbbmwjk): the AI routes named below were
+> renamed — `/api/twinkler/v1/complete` → `/api/ai/question`,
+> `/api/twinkler/v1/transcribe` → `/api/ai/transcribe`,
+> `/api/scripture/v1/select` → `/api/ai/scripture`. The `TWINKLER_*`
+> environment variables and every rule below are unchanged. Old path names
+> are kept in the historical text.
+
 ## Context
 
 Incident, 2026-08-29: `.env` set `GEMINI_MODEL=gemini-3.5-flash-lite`, and

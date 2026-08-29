@@ -3,6 +3,11 @@
 Status: accepted (2026-08-24).
 Ticket: ClickUp 86cb8vw1h
 
+> Note (2026-08-30, ClickUp 86cbbmwjk): the endpoint this stage serves was
+> renamed `POST /api/scripture/v1/select` → `POST /api/ai/scripture`. Paths
+> only — the decision below, its contract and its measurements are
+> unchanged. Old path names are kept in the historical text.
+
 ## Context
 
 The retrieval pipeline (ADR 0004) returns a top-10 of verified candidates —

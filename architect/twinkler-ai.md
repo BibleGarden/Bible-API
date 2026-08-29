@@ -2,7 +2,16 @@
 
 ## Public contract
 
-`POST /api/twinkler/v1/complete` accepts a JSON object with one required field:
+> **Renamed 2026-08-30 (ClickUp 86cbbmwjk).** These two routes were
+> `POST /api/twinkler/v1/complete` and `POST /api/twinkler/v1/transcribe`
+> until then: methods are not named after a client app (`twinkler`) or a
+> provider's jargon (`complete`), and the `v1` was never a real version.
+> Bodies, responses, headers, authentication and limits are unchanged — only
+> the paths moved. The old paths return 404; there are no aliases (a single
+> unpublished client, renamed in a paired mobile ticket). The module, the
+> handlers and the `TWINKLER_*` environment variables keep their names.
+
+`POST /api/ai/question` accepts a JSON object with one required field:
 
 ```json
 {"user": "User message"}
@@ -13,7 +22,7 @@ rejected. `user` must contain 1–16000 characters. The response is
 `{ "text": "..." }` on success. Documented errors are `403`, `429` with
 `Retry-After`, `502`, and `503`; FastAPI validation errors use `422`.
 
-`POST /api/twinkler/v1/transcribe` accepts `multipart/form-data` with a required
+`POST /api/ai/transcribe` accepts `multipart/form-data` with a required
 M4A `file` and an optional BCP 47 `locale`. The response is the same
 `{ "text": "..." }` shape. The locale is a weak disambiguation hint only; the
 recording is transcribed verbatim in its original language without translation

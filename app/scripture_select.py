@@ -1,7 +1,7 @@
 """
 Public scripture-selection API for the mobile app (ClickUp 86cb8vw1m).
 
-`POST /api/scripture/v1/select` turns a prayer context (topic + the replies
+`POST /api/ai/scripture` turns a prayer context (topic + the replies
 the person picked in the Twinkler dialog) into ONE Bible passage: canonical
 coordinates, the exact text of the chosen translation from `cep_public`,
 a stable canonical ID the client stores to avoid repeats, the passage's own
@@ -211,10 +211,10 @@ class SelectRequest(BaseModel):
         ge=1,
         description=(
             "Translation code to render the passage in. Defaults to the "
-            "language's primary translation. Must be one of the translations "
-            "`GET /api/scripture/v1/translations` lists for the language — "
-            "any active translation of a language whose corpus is indexed "
-            "can be served, not only the indexed one."
+            "language's primary translation. Must be a renderable "
+            "translation of the requested language — any active translation "
+            "of a language whose corpus is indexed can be served, not only "
+            "the indexed one."
         ),
     )
 
@@ -444,53 +444,6 @@ class SelectResponse(BaseModel):
         return payload
 
 
-class ScriptureTranslationModel(BaseModel):
-    """One translation the selection endpoint can render a passage in."""
-
-    code: int = Field(description="Translation code", examples=[1])
-    alias: str = Field(description="Translation alias", examples=["syn"])
-    primary: bool = Field(
-        description=(
-            "True for the translation served when `translation` is omitted. "
-            "Exactly one per language; it is also the translation the corpus "
-            "itself is indexed in."
-        )
-    )
-
-
-class LanguageTranslations(BaseModel):
-    """The renderable translations of one corpus language."""
-
-    language: Language
-    translations: list[ScriptureTranslationModel] = Field(
-        description="Primary first, then by code."
-    )
-
-
-class TranslationCatalogue(BaseModel):
-    """Answer of `GET /api/scripture/v1/translations`."""
-
-    model_config = ConfigDict(
-        json_schema_extra={
-            "example": {
-                "languages": [
-                    {
-                        "language": "ru",
-                        "translations": [
-                            {"code": 1, "alias": "syn", "primary": True},
-                            {"code": 11, "alias": "bti", "primary": False},
-                        ],
-                    }
-                ]
-            }
-        }
-    )
-
-    languages: list[LanguageTranslations] = Field(
-        description="Languages with an indexed corpus, in alphabetical order."
-    )
-
-
 class ErrorResponse(BaseModel):
     detail: str = Field(description="Public error message")
 
@@ -507,7 +460,7 @@ class ErrorResponse(BaseModel):
 # Twinkler routes keep FastAPI's default body — their contract is already
 # published and their field is a single free-form message.
 
-SANITIZED_VALIDATION_PATHS = frozenset({"/api/scripture/v1/select"})
+SANITIZED_VALIDATION_PATHS = frozenset({"/api/ai/scripture"})
 
 _SAFE_FIELD_RE = re.compile(r"^[A-Za-z0-9_.-]{1,40}$")
 _MAX_REPORTED_ERRORS = 3
@@ -1041,10 +994,9 @@ def resolve_translation(
     """Validate the requested translation or pick the language's primary.
 
     422 means one thing only: the code is not in the language's RENDERABLE
-    catalogue (`GET /api/scripture/v1/translations`) — it belongs to another
-    language, is inactive, is unknown, or cannot be resolved against the
-    canonical corpus. The message never repeats anything but the number the
-    caller already sent.
+    catalogue — it belongs to another language, is inactive, is unknown, or
+    cannot be resolved against the canonical corpus. The message never
+    repeats anything but the number the caller already sent.
     """
     available = resources.translations.get(language, [])
     if not available:
@@ -1384,10 +1336,10 @@ def build_response(
 
 
 @router.post(
-    "/scripture/v1/select",
+    "/ai/scripture",
     response_model=SelectResponse,
-    operation_id="scripture_select",
-    tags=["Scripture"],
+    operation_id="ai_scripture",
+    tags=["AI"],
     summary="Select one Bible passage for a prayer context",
     description=(
         "Returns a single passage chosen for the prayer context: canonical "
@@ -1433,8 +1385,7 @@ def build_response(
                 "Request validation failed: unknown field, oversized topic, "
                 "replies or exclusion list, malformed canonical ID, "
                 "unsupported language, or a translation that is not among "
-                "those available for the language (see "
-                "`GET /api/scripture/v1/translations`)"
+                "those available for the language"
             ),
         },
         429: {
@@ -1525,73 +1476,3 @@ async def scripture_select(
         raise HTTPException(
             status_code=503, detail="Scripture selection temporarily unavailable"
         ) from error
-
-
-def build_translation_catalogue(
-    resources: CorpusResources,
-) -> TranslationCatalogue:
-    """Public catalogue built from the cached corpus (no extra DB access)."""
-    languages = []
-    for language in sorted(resources.translations):
-        entries = resources.translations[language]
-        if not entries or language not in Language.__members__:
-            # A corpus language the request enum does not know cannot be
-            # asked for, so it is not part of the public catalogue either.
-            continue
-        primary = primary_translation(resources, language)
-        languages.append(
-            LanguageTranslations(
-                language=Language(language),
-                translations=[
-                    ScriptureTranslationModel(
-                        code=code, alias=alias, primary=code == primary
-                    )
-                    for code, alias in entries
-                ],
-            )
-        )
-    return TranslationCatalogue(languages=languages)
-
-
-@router.get(
-    "/scripture/v1/translations",
-    response_model=TranslationCatalogue,
-    operation_id="scripture_translations",
-    tags=["Scripture"],
-    summary="Translations the selection endpoint can render",
-    description=(
-        "Lists, per language, the translations `POST "
-        "/api/scripture/v1/select` accepts in its `translation` field, and "
-        "which one it uses when the field is omitted (`primary`).\n\n"
-        "A translation is listed when its language has an indexed corpus and "
-        "the server can resolve the canonical passage windows into it; a "
-        "code that is not listed is answered with 422 by the selection "
-        "endpoint. The list comes from the same cached corpus the selection "
-        "uses, so the two can never disagree; it changes only when the "
-        "corpus is rebuilt (`POST /api/cache/clear` publishes it "
-        "immediately).\n\n"
-        "Names, descriptions and audio voices of these translations are in "
-        "`GET /api/translations`, joined by `code`."
-    ),
-    responses={
-        403: {"model": ErrorResponse, "description": "Invalid or missing API key"},
-        503: {
-            "model": ErrorResponse,
-            "description": (
-                "The corpus is unavailable (database down or vector index "
-                "empty)"
-            ),
-        },
-    },
-)
-async def scripture_translations(
-    api_key: bool = RequireAPIKey,
-) -> TranslationCatalogue:
-    try:
-        resources = await run_in_threadpool(get_resources)
-    except ScriptureSelectUnavailable as error:
-        logger.warning("Scripture selection unavailable: %s", error)
-        raise HTTPException(
-            status_code=503, detail="Scripture selection temporarily unavailable"
-        ) from error
-    return build_translation_catalogue(resources)

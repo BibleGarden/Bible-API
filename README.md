@@ -24,12 +24,16 @@ The API will be available at `http://localhost:9084/api`.
 - `GET /api/audio/{translation}/{voice}/{book}/{chapter}.mp3` — audio files
 - `GET /api/about` — about page
 - `GET /api/version-check` — app version check
+- `POST /api/ai/question` — Gemini companion reply (see below)
+- `POST /api/ai/transcribe` — voice recording to text (see below)
+- `POST /api/ai/scripture` — contextual Bible passage selection
+  (`architect/scripture-select.md`)
 
 All endpoints require `X-API-Key` header.
 
 ### Twinkler AI
 
-`POST /api/twinkler/v1/complete` accepts `{ "user" }` and calls Gemini. The
+`POST /api/ai/question` accepts `{ "user" }` and calls Gemini. The
 system prompt and the Google AI Studio key are configured only on the server:
 
 ```dotenv
@@ -74,7 +78,7 @@ limiter before scaling the service horizontally.
 directly. `TWINKLER_CLIENT_HMAC_KEY` pseudonymizes client addresses and must be
 different from both API keys.
 
-`POST /api/twinkler/v1/transcribe` accepts `multipart/form-data` with a required
+`POST /api/ai/transcribe` accepts `multipart/form-data` with a required
 M4A `file` and an optional BCP 47 `locale` (for example, `ru-RU`). The locale is
 only a weak language hint: Gemini transcribes the recording verbatim in its
 original language and does not translate it. Files larger than 14 MiB are

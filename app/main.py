@@ -85,12 +85,11 @@ tags_metadata = [
         "description": "Cache management",
     },
     {
-        "name": "Twinkler",
-        "description": "AI companion for the Twinkler prayer app",
-    },
-    {
-        "name": "Scripture",
-        "description": "Contextual Bible passage selection for a prayer context",
+        "name": "AI",
+        "description": (
+            "Server-side AI: companion replies, voice transcription and "
+            "contextual Bible passage selection for a prayer context"
+        ),
     },
 ]
 

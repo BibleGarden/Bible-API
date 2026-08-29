@@ -21,10 +21,12 @@ EXCLUDED_STATUS_CODES = {403, 404}
 # selected passage can reach the stats table (ADR 0006: the passage alone
 # is not private, but combined with a client identity it would reveal what
 # the person prayed about).
+# Renamed on 2026-08-30 (ClickUp 86cbbmwjk); rows written before that date
+# carry the previous paths (/api/twinkler/v1/*, /api/scripture/v1/select).
 PRIVATE_PATHS = frozenset({
-    "/api/twinkler/v1/complete",
-    "/api/twinkler/v1/transcribe",
-    "/api/scripture/v1/select",
+    "/api/ai/question",
+    "/api/ai/transcribe",
+    "/api/ai/scripture",
 })
 
 # Normalize dynamic path segments for cleaner stats grouping

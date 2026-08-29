@@ -1,12 +1,20 @@
 # Scripture selection
 
-Public contract of `POST /api/scripture/v1/select` — contextual Bible
-passage selection for the prayer app — and of
-`GET /api/scripture/v1/translations`, which lists the translations it can
-render. Design decisions and measurements:
+Public contract of `POST /api/ai/scripture` — contextual Bible passage
+selection for the prayer app. Design decisions and measurements:
 `architect/adr/0006-scripture-select-api.md` and
 `architect/adr/0007-reference-translation-rendering.md`; the pipeline behind
 them is ADR 0004 (retrieval) and ADR 0005 (grounded rerank).
+
+> **Renamed 2026-08-30 (ClickUp 86cbbmwjk).** The endpoint was
+> `POST /api/scripture/v1/select` until then, and a companion
+> `GET /api/scripture/v1/translations` published the renderable-translation
+> catalogue. The catalogue was removed with the rename: the translation is
+> chosen once in the app, and the selection serves any active translation of
+> an indexed language anyway (ADR 0007), so a separate list had no consumer.
+> Request and response bodies, headers, authentication and limits are
+> unchanged — only the path moved. The old paths return 404; there are no
+> aliases (a single unpublished client, renamed in a paired mobile ticket).
 
 ## Public contract
 
@@ -29,7 +37,7 @@ are rejected.
 | `topic` | no (default `""`) | <= 500 characters; an empty topic is valid and served from the safe pool without any AI call |
 | `user_replies` | no | <= 10 items, <= 1000 characters each, <= 4000 characters in total; blank items are dropped |
 | `exclude_canonical_ids` | no | <= 200 items, each matching `v<version>:BB.CCC.VVV-VVV` |
-| `translation` | no | translation code; must be one of the codes `GET /api/scripture/v1/translations` lists for `language`; defaults to that language's `primary` |
+| `translation` | no | translation code; must be one of the codes accepted for `language` (see [Available translations](#available-translations)); defaults to that language's `primary` |
 
 Response:
 
@@ -112,31 +120,26 @@ language). Clients must fall back to `text` then.
 
 ## Available translations
 
-```
-GET /api/scripture/v1/translations
-```
+Every active translation of a language whose corpus is indexed is accepted
+in `translation`; anything else is rejected with 422. Today that is:
 
-```json
-{
-  "languages": [
-    {"language": "en", "translations": [
-      {"code": 16, "alias": "bsb", "primary": true},
-      {"code": 17, "alias": "webus", "primary": false},
-      {"code": 779, "alias": "webbe", "primary": false}]},
-    {"language": "ru", "translations": [
-      {"code": 1, "alias": "syn", "primary": true},
-      {"code": 11, "alias": "bti", "primary": false}]},
-    {"language": "uk", "translations": [
-      {"code": 20, "alias": "ubh", "primary": true},
-      {"code": 21, "alias": "npu", "primary": false}]}
-  ]
-}
-```
+| language | translations | primary |
+|---|---|---|
+| `en` | 16 `bsb`, 17 `webus`, 779 `webbe` | 16 `bsb` |
+| `ru` | 1 `syn`, 11 `bti` | 1 `syn` |
+| `uk` | 20 `ubh`, 21 `npu` | 20 `ubh` |
 
-Every code listed here is accepted in `translation`; anything else is
-rejected with 422. `primary` is the one served when the field is omitted.
-Names, descriptions and audio voices of the same translations are in
-`GET /api/translations`, joined by `code`.
+The primary is the one served when `translation` is omitted; it is also the
+translation the corpus is indexed in. The set follows the database and the
+`SCRIPTURE_PRIMARY_TRANSLATIONS` setting, so it changes when the corpus is
+rebuilt — it is not a published constant. Names, descriptions and audio
+voices of the same translations are in `GET /api/translations`, joined by
+`code`.
+
+Until 2026-08-30 this list was also served as `GET
+/api/scripture/v1/translations`. That endpoint was removed (ClickUp
+86cbbmwjk): the app picks its translation once, and the selection renders
+any accepted code, so nothing consumed the catalogue.
 
 The selection itself always runs over ONE indexed corpus per language (the
 primary), and the chosen canonical passage is then rendered in the
@@ -238,7 +241,7 @@ rather than a translation gap) — never through `exclude_canonical_ids`.
 | code | when |
 |---|---|
 | 403 | invalid or missing API key |
-| 422 | unknown field; oversized topic, reply, reply total or exclusion list; malformed canonical ID; unsupported language; a translation that is not listed for the language by `GET /api/scripture/v1/translations` (another language's, inactive, unknown, or not renderable from the canonical corpus) |
+| 422 | unknown field; oversized topic, reply, reply total or exclusion list; malformed canonical ID; unsupported language; a translation that is not accepted for the language (another language's, inactive, unknown, or not renderable from the canonical corpus) |
 | 429 | global or per-client request limit exceeded (with `Retry-After`) |
 | 503 | no verified passage can be produced: database unavailable, vector index empty (run `app/index_cli.py rebuild`), the rate limiter is misconfigured, the chosen passage cannot be rendered in the requested translation, or the time budget was already exhausted when the rendering would have started |
 
@@ -351,9 +354,6 @@ query rewrite is ~75 % of it. The six query embeddings run concurrently.
 
 ## Rate limiting and observability
 
-`GET /api/scripture/v1/translations` is a cached, prayer-independent read
-and has no rate limit of its own. The limits below are the selection's.
-
 Two 60-second windows, independent of the Twinkler budget because one
 selection costs ~8 provider calls:
 
@@ -374,6 +374,17 @@ agent. The prayer topic, the replies **and the selected passage** are never
 stored or logged: the reference alone is not private, but next to a client
 identity it would reveal what the person prayed about. Logs carry failure
 categories only.
+
+**The statistics history is split at the rename.** `app/middleware.py`
+stores the request path verbatim, so `api_requests` and
+`api_request_daily_stats` hold this endpoint under
+`/api/scripture/v1/select` up to 2026-08-30 and under `/api/ai/scripture`
+after it (likewise `/api/twinkler/v1/complete` → `/api/ai/question` and
+`/api/twinkler/v1/transcribe` → `/api/ai/transcribe`). The rows were
+deliberately NOT rewritten: they are an honest record of what was called.
+Any report spanning the boundary has to union the two names — the raw table
+keeps only 14 days, so the seam disappears from it by 2026-09-13 and
+survives only in the permanent daily aggregate.
 
 ## Caching
 

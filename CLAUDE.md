@@ -47,8 +47,8 @@ extra `-e` overrides are needed.
 - **`about.py`** — About page content
 - **`version_check.py`** — App version check
 - **`import_data.py`** — Import data from Dashboard-API
-- **`twinkler_ai.py`** — Server-prompted Gemini integration with in-memory rate limiting
-- **`scripture_select.py`** — Public scripture-selection endpoints `POST /api/scripture/v1/select` over `retrieval.select_final` and `GET /api/scripture/v1/translations` (renderable-translation catalogue); owns the process-local corpus cache: vector + BM25 indexes, Psalm maps, catalogue, coverage sets (see `architect/scripture-select.md`, `architect/adr/0006-scripture-select-api.md`, `architect/adr/0007-reference-translation-rendering.md`)
+- **`twinkler_ai.py`** — Server-prompted Gemini integration with in-memory rate limiting: `POST /api/ai/question` and `POST /api/ai/transcribe` (see `architect/twinkler-ai.md`)
+- **`scripture_select.py`** — Public scripture-selection endpoint `POST /api/ai/scripture` over `retrieval.select_final`; owns the process-local corpus cache: vector + BM25 indexes, Psalm maps, catalogue, coverage sets (see `architect/scripture-select.md`, `architect/adr/0006-scripture-select-api.md`, `architect/adr/0007-reference-translation-rendering.md`)
 - **`passage_render.py`** — renders a canonical passage window in a translation that has no chunk corpus (coordinates through `psalm_verse_mappings`, text from `translation_verses` with `chunking.build_text` semantics) and builds the per-translation coverage sets used to filter candidates before the rerank (ADR 0007)
 - **`rate_limit.py`** — Shared in-memory rolling-window limiter (Twinkler + scripture selection)
 - **`deadline.py`** — Per-request time budget threaded through the AI stages
@@ -115,7 +115,7 @@ the key could not reach, while `.env` said flash-lite everywhere.)
 
 `GEMINI_API_KEY` itself stays optional — without it the AI surface is "not
 configured", the AI endpoints answer with their own error and the rest of the
-API works as before, including `POST /api/scripture/v1/select`, which
+API works as before, including `POST /api/ai/scripture`, which
 degrades to the safe pool with `fallback_reason=ai_unavailable`. That answer
 still reads the vector index, which is why `EMBEDDING_MODEL` /
 `EMBEDDING_DIMENSIONS` are required with or without a key: they name the
@@ -175,3 +175,32 @@ RAG / scripture selection:
   translation with the lowest code (ADR 0007).
 
 ### All API routes are under `/api` prefix
+
+### AI routes renamed on 2026-08-30 (ClickUp 86cbbmwjk)
+
+`POST /api/twinkler/v1/complete` → `POST /api/ai/question`,
+`POST /api/twinkler/v1/transcribe` → `POST /api/ai/transcribe`,
+`POST /api/scripture/v1/select` → `POST /api/ai/scripture`. Paths only:
+bodies, responses, headers, authentication and rate limits are unchanged.
+The old paths return 404 — there are no aliases, because the only client is
+one unpublished app (Twinkler-Mobile, renamed in a paired ticket).
+`GET /api/scripture/v1/translations` was deleted outright: the app chooses
+its translation once and the selection renders any accepted code (ADR 0007),
+so the catalogue had no consumer.
+
+Everything the client sees in `/docs` was renamed with the paths: the three
+methods share one tag **`AI`** (the `Twinkler` and `Scripture` tags are
+gone), and their `operationId`s are `ai_question`, `ai_transcribe` and
+`ai_scripture`. The word "twinkler" no longer appears anywhere in the
+generated spec. No generated clients depended on the old IDs — the mobile
+client is handwritten.
+
+Deliberately NOT renamed (out of scope): the modules `twinkler_ai.py` and
+`scripture_select.py`, the handler functions, and the
+`TWINKLER_SYSTEM_PROMPT` / `TWINKLER_CLIENT_HMAC_KEY` variables — these are
+internal and invisible to API consumers.
+
+The request statistics store the path verbatim, so `api_requests` and
+`api_request_daily_stats` carry the old names before the rename and the new
+ones after it; the rows were not rewritten. A report crossing 2026-08-30
+must union both names (see `architect/scripture-select.md`).

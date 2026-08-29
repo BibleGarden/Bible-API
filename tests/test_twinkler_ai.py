@@ -48,7 +48,7 @@ def test_extracts_text_parts():
 
 def test_requires_api_key():
     response = client.post(
-        "/api/twinkler/v1/complete",
+        "/api/ai/question",
         json={"user": "Запрос"},
     )
     assert response.status_code == 403
@@ -59,7 +59,7 @@ def test_returns_generated_text(monkeypatch):
     monkeypatch.setattr(twinkler_ai, "complete", generated)
 
     response = client.post(
-        "/api/twinkler/v1/complete",
+        "/api/ai/question",
         headers={"X-API-Key": "test-api-key"},
         json={"user": "Запрос"},
     )
@@ -74,7 +74,7 @@ def test_ignores_forwarded_for_from_untrusted_peer(monkeypatch, allow_ai_request
     monkeypatch.setattr(twinkler_ai, "complete", generated)
 
     response = client.post(
-        "/api/twinkler/v1/complete",
+        "/api/ai/question",
         headers={
             "X-API-Key": "test-api-key",
             "X-Forwarded-For": "203.0.113.7",
@@ -92,7 +92,7 @@ def test_uses_forwarded_for_from_trusted_peer(monkeypatch, allow_ai_requests):
     monkeypatch.setattr(client_ip, "TRUSTED_PROXY_IPS", frozenset({"testclient"}))
 
     response = client.post(
-        "/api/twinkler/v1/complete",
+        "/api/ai/question",
         headers={
             "X-API-Key": "test-api-key",
             "X-Forwarded-For": "203.0.113.7, 192.0.2.1",
@@ -114,7 +114,7 @@ def test_uses_forwarded_for_from_trusted_peer(monkeypatch, allow_ai_requests):
 )
 def test_rejects_invalid_prompts(payload):
     response = client.post(
-        "/api/twinkler/v1/complete",
+        "/api/ai/question",
         headers={"X-API-Key": "test-api-key"},
         json=payload,
     )
@@ -127,7 +127,7 @@ def test_hides_provider_failure(monkeypatch):
     monkeypatch.setattr(twinkler_ai, "complete", generated)
 
     response = client.post(
-        "/api/twinkler/v1/complete",
+        "/api/ai/question",
         headers={"X-API-Key": "test-api-key"},
         json={"user": "Запрос"},
     )
@@ -152,12 +152,12 @@ def test_rate_limits_requests(monkeypatch):
     ]
 
     first_response = client.post(
-        "/api/twinkler/v1/complete",
+        "/api/ai/question",
         headers={"X-API-Key": "test-api-key"},
         json={"user": "Первый запрос"},
     )
     second_response = client.post(
-        "/api/twinkler/v1/complete",
+        "/api/ai/question",
         headers={"X-API-Key": "test-api-key"},
         json={"user": "Второй запрос"},
     )
@@ -186,7 +186,7 @@ def test_trailing_slash_is_recorded_without_request_body(monkeypatch):
     )
 
     response = client.post(
-        "/api/twinkler/v1/complete/",
+        "/api/ai/question/",
         headers={"X-API-Key": "test-api-key"},
         json={"user": "Запрос"},
         follow_redirects=False,
@@ -197,7 +197,7 @@ def test_trailing_slash_is_recorded_without_request_body(monkeypatch):
     args, kwargs = started_threads[0]
     assert args == ()
     assert kwargs["args"][0:3] == (
-        "/api/twinkler/v1/complete/",
+        "/api/ai/question/",
         "POST",
         307,
     )
@@ -211,7 +211,7 @@ def test_trailing_slash_is_recorded_without_request_body(monkeypatch):
 
 
 def test_openapi_documents_public_errors():
-    operation = app.openapi()["paths"]["/api/twinkler/v1/complete"]["post"]
+    operation = app.openapi()["paths"]["/api/ai/question"]["post"]
 
     assert {"200", "403", "422", "429", "502", "503"} <= set(
         operation["responses"]
@@ -340,7 +340,7 @@ def test_rate_limiter_fails_closed(monkeypatch):
 
 def test_transcription_requires_api_key():
     response = client.post(
-        "/api/twinkler/v1/transcribe",
+        "/api/ai/transcribe",
         files={"file": ("recording.m4a", b"audio", "audio/mp4")},
     )
 
@@ -352,7 +352,7 @@ def test_returns_transcript_with_soft_locale_hint(monkeypatch):
     monkeypatch.setattr(twinkler_ai, "transcribe", generated)
 
     response = client.post(
-        "/api/twinkler/v1/transcribe",
+        "/api/ai/transcribe",
         headers={"X-API-Key": "test-api-key"},
         files={"file": ("recording.m4a", b"m4a-bytes", "audio/mp4")},
         data={"locale": "ru-RU"},
@@ -372,7 +372,7 @@ def test_transcription_accepts_every_m4a_mime_spelling(monkeypatch, content_type
     monkeypatch.setattr(twinkler_ai, "transcribe", generated)
 
     response = client.post(
-        "/api/twinkler/v1/transcribe",
+        "/api/ai/transcribe",
         headers={"X-API-Key": "test-api-key"},
         files={"file": ("recording.m4a", b"m4a-bytes", content_type)},
     )
@@ -386,7 +386,7 @@ def test_transcription_locale_is_optional_and_m4a_has_safe_mime_fallback(monkeyp
     monkeypatch.setattr(twinkler_ai, "transcribe", generated)
 
     response = client.post(
-        "/api/twinkler/v1/transcribe",
+        "/api/ai/transcribe",
         headers={"X-API-Key": "test-api-key"},
         files={
             "file": (
@@ -407,7 +407,7 @@ def test_transcription_rejects_invalid_locale(monkeypatch, locale):
     monkeypatch.setattr(twinkler_ai, "transcribe", generated)
 
     response = client.post(
-        "/api/twinkler/v1/transcribe",
+        "/api/ai/transcribe",
         headers={"X-API-Key": "test-api-key"},
         files={"file": ("recording.m4a", b"audio", "audio/mp4")},
         data={"locale": locale},
@@ -422,7 +422,7 @@ def test_transcription_rejects_empty_audio(monkeypatch):
     monkeypatch.setattr(twinkler_ai, "transcribe", generated)
 
     response = client.post(
-        "/api/twinkler/v1/transcribe",
+        "/api/ai/transcribe",
         headers={"X-API-Key": "test-api-key"},
         files={"file": ("recording.m4a", b"", "audio/x-m4a")},
     )
@@ -437,7 +437,7 @@ def test_transcription_rejects_oversized_audio(monkeypatch):
     monkeypatch.setattr(twinkler_ai, "transcribe", generated)
 
     response = client.post(
-        "/api/twinkler/v1/transcribe",
+        "/api/ai/transcribe",
         headers={"X-API-Key": "test-api-key"},
         files={
             "file": (
@@ -466,7 +466,7 @@ def test_transcription_rejects_unsupported_audio(monkeypatch, filename, content_
     monkeypatch.setattr(twinkler_ai, "transcribe", generated)
 
     response = client.post(
-        "/api/twinkler/v1/transcribe",
+        "/api/ai/transcribe",
         headers={"X-API-Key": "test-api-key"},
         files={"file": (filename, b"audio", content_type)},
     )
@@ -481,7 +481,7 @@ def test_invalid_audio_does_not_consume_rate_limit(monkeypatch, allow_ai_request
     monkeypatch.setattr(twinkler_ai, "transcribe", generated)
 
     response = client.post(
-        "/api/twinkler/v1/transcribe",
+        "/api/ai/transcribe",
         headers={"X-API-Key": "test-api-key"},
         files={"file": ("recording.wav", b"audio", "audio/wav")},
     )
@@ -496,7 +496,7 @@ def test_transcription_hides_provider_failure(monkeypatch, caplog):
     monkeypatch.setattr(twinkler_ai, "transcribe", generated)
 
     response = client.post(
-        "/api/twinkler/v1/transcribe",
+        "/api/ai/transcribe",
         headers={"X-API-Key": "test-api-key"},
         files={"file": ("private-name.m4a", b"private audio", "audio/mp4")},
     )
@@ -572,7 +572,7 @@ def test_transcription_stats_are_pseudonymized_without_user_agent(monkeypatch):
     monkeypatch.setattr(twinkler_ai, "transcribe", AsyncMock(return_value="Текст"))
 
     response = client.post(
-        "/api/twinkler/v1/transcribe",
+        "/api/ai/transcribe",
         headers={
             "X-API-Key": "test-api-key",
             "User-Agent": "private-device-details",
@@ -590,7 +590,7 @@ def test_transcription_stats_are_pseudonymized_without_user_agent(monkeypatch):
         hashlib.sha256,
     ).hexdigest()[:40]
     assert kwargs["args"][:3] == (
-        "/api/twinkler/v1/transcribe",
+        "/api/ai/transcribe",
         "POST",
         200,
     )
@@ -600,7 +600,7 @@ def test_transcription_stats_are_pseudonymized_without_user_agent(monkeypatch):
 
 
 def test_openapi_documents_transcription_contract():
-    operation = app.openapi()["paths"]["/api/twinkler/v1/transcribe"]["post"]
+    operation = app.openapi()["paths"]["/api/ai/transcribe"]["post"]
 
     assert operation["requestBody"]["content"].keys() == {"multipart/form-data"}
     assert {"200", "403", "413", "415", "422", "429", "502", "503"} <= set(

@@ -3,6 +3,15 @@
 Status: accepted (2026-08-27).
 Ticket: follow-up of ClickUp 86cb8vw1m (ADR 0006 open question 5)
 
+> Note (2026-08-30, ClickUp 86cbbmwjk): `POST /api/scripture/v1/select` was
+> renamed to `POST /api/ai/scripture`, and the catalogue endpoint described
+> below (`GET /api/scripture/v1/translations`) was removed. This decision is
+> the reason it could go: since it, the selection renders any active
+> translation of an indexed language, so the client no longer needs to ask
+> which ones are servable. The rule the catalogue published still holds and
+> is documented in `architect/scripture-select.md`; only its HTTP surface is
+> gone. Old path names are kept in the historical text.
+
 ## Context
 
 `POST /api/scripture/v1/select` accepted only translations that carry an

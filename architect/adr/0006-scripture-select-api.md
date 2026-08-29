@@ -3,6 +3,14 @@
 Status: accepted (2026-08-24).
 Ticket: ClickUp 86cb8vw1m
 
+> Note (2026-08-30, ClickUp 86cbbmwjk): the routes decided here were renamed
+> — `POST /api/scripture/v1/select` → `POST /api/ai/scripture`, and the
+> companion `GET /api/scripture/v1/translations` was removed entirely (the
+> app picks its translation once; ADR 0007 makes every accepted code
+> renderable, so the catalogue had no consumer). Paths only: bodies,
+> responses, headers, authentication, limits and the privacy rules below are
+> unchanged. Old path names are kept in the historical text.
+
 ## Context
 
 ADR 0004 (retrieval) and ADR 0005 (grounded rerank) produce

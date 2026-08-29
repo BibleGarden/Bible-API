@@ -165,7 +165,7 @@ def post(payload: dict, api_key: str | None = "test-api-key", **kwargs):
     headers = {} if api_key is None else {"X-API-Key": api_key}
     headers.update(kwargs.pop("headers", {}))
     return client.post(
-        "/api/scripture/v1/select", headers=headers, json=payload, **kwargs
+        "/api/ai/scripture", headers=headers, json=payload, **kwargs
     )
 
 
@@ -374,7 +374,7 @@ def test_a_field_name_that_is_itself_prayer_text_is_not_echoed():
 
 def test_malformed_json_body_is_reported_without_the_body():
     response = client.post(
-        "/api/scripture/v1/select",
+        "/api/ai/scripture",
         headers={"X-API-Key": "test-api-key", "Content-Type": "application/json"},
         content=f'{{"language": "ru", "topic": "{TOPIC}"'.encode(),
     )
@@ -395,7 +395,7 @@ def test_validation_summary_is_capped():
 def test_twinkler_validation_body_is_unchanged():
     """Only this endpoint gets the sanitised body; Twinkler keeps its own."""
     response = client.post(
-        "/api/twinkler/v1/complete",
+        "/api/ai/question",
         headers={"X-API-Key": "test-api-key"},
         json={"user": "Запрос", "system": "клиентская система"},
     )
@@ -1394,89 +1394,33 @@ def test_an_indexed_translation_is_served_from_its_own_chunk(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# GET /api/scripture/v1/translations
+# Removed and renamed routes (ClickUp 86cbbmwjk, 2026-08-30)
 # ---------------------------------------------------------------------------
+# The renderable-translation catalogue was deleted outright: the translation
+# is chosen once in the app and the selection serves any active translation
+# of an indexed language (ADR 0007). The three AI routes moved under
+# `/api/ai/*`. The client is a single unpublished app, so there are no
+# aliases and no deprecation window — the old paths are simply gone.
 
-def get_translations(api_key: str | None = "test-api-key"):
-    headers = {} if api_key is None else {"X-API-Key": api_key}
-    return client.get("/api/scripture/v1/translations", headers=headers)
-
-
-def test_the_catalogue_requires_the_api_key():
-    assert get_translations(api_key=None).status_code == 403
-    assert get_translations(api_key="wrong").status_code == 403
-
-
-def test_the_catalogue_lists_the_renderable_translations_by_language(
-    monkeypatch,
-):
-    monkeypatch.setattr(
-        scripture_select, "get_resources", lambda: catalogue_resources()
+@pytest.mark.parametrize("method,path", [
+    ("GET", "/api/scripture/v1/translations"),
+    ("POST", "/api/scripture/v1/select"),
+    ("POST", "/api/twinkler/v1/complete"),
+    ("POST", "/api/twinkler/v1/transcribe"),
+])
+def test_the_retired_paths_are_gone(method, path):
+    response = client.request(
+        method, path, headers={"X-API-Key": "test-api-key"}
     )
 
-    response = get_translations()
-
-    assert response.status_code == 200
-    assert response.json() == {
-        "languages": [
-            {
-                "language": "en",
-                "translations": [
-                    {"code": 16, "alias": "bsb", "primary": True},
-                ],
-            },
-            {
-                "language": "ru",
-                "translations": [
-                    {"code": 1, "alias": "syn", "primary": True},
-                    {"code": 11, "alias": "bti", "primary": False},
-                ],
-            },
-        ]
-    }
+    assert response.status_code == 404
 
 
-def test_the_catalogue_and_the_selection_can_never_disagree(monkeypatch):
-    """Both read the same cached object, so every listed code is accepted
-    and every unlisted one is refused."""
-    resources = catalogue_resources()
-    monkeypatch.setattr(scripture_select, "get_resources", lambda: resources)
-
-    listed = {
-        entry["code"]
-        for language in get_translations().json()["languages"]
-        if language["language"] == "ru"
-        for entry in language["translations"]
-    }
-
-    for code in listed:
-        assert scripture_select.resolve_translation(resources, "ru", code) == code
-    for code in (2, 16, 999):
-        with pytest.raises(HTTPException):
-            scripture_select.resolve_translation(resources, "ru", code)
-
-
-def test_the_catalogue_reports_503_without_a_corpus(monkeypatch):
-    def unavailable():
-        raise scripture_select.ScriptureSelectUnavailable("vector index is empty")
-
-    monkeypatch.setattr(scripture_select, "get_resources", unavailable)
-
-    response = get_translations()
-
-    assert response.status_code == 503
-    assert "vector index" not in response.text
-
-
-def test_the_catalogue_is_documented_in_openapi():
+def test_the_translation_catalogue_is_absent_from_openapi():
     schema = app.openapi()
-    operation = schema["paths"]["/api/scripture/v1/translations"]["get"]
 
-    assert operation["tags"] == ["Scripture"]
-    assert operation["summary"]
-    assert {"200", "403", "503"} <= set(operation["responses"])
-    entry = schema["components"]["schemas"]["ScriptureTranslationModel"]
-    assert set(entry["properties"]) == {"code", "alias", "primary"}
+    assert "/api/scripture/v1/translations" not in schema["paths"]
+    assert "ScriptureTranslationModel" not in schema["components"]["schemas"]
 
 
 # ---------------------------------------------------------------------------
@@ -1621,7 +1565,7 @@ def test_statistics_store_no_prayer_context_no_passage_and_no_raw_client(
     expected_client = hmac.new(
         b"test-hmac-key", b"testclient", hashlib.sha256
     ).hexdigest()[:40]
-    assert logged[:3] == ("/api/scripture/v1/select", "POST", 200)
+    assert logged[:3] == ("/api/ai/scripture", "POST", 200)
     assert logged[4:] == (expected_client, "")
     recorded = repr(logged)
     for secret in PRIVATE_STRINGS + ("v3:19.023.001-006", "testclient",
@@ -1764,8 +1708,8 @@ def test_a_cold_cache_propagates_the_failure(monkeypatch):
 
 
 def test_middleware_pseudonymizes_every_prayer_endpoint():
-    assert "/api/scripture/v1/select" in middleware.PRIVATE_PATHS
-    assert "/api/twinkler/v1/complete" in middleware.PRIVATE_PATHS
+    assert "/api/ai/scripture" in middleware.PRIVATE_PATHS
+    assert "/api/ai/question" in middleware.PRIVATE_PATHS
 
 
 # ---------------------------------------------------------------------------
@@ -1774,9 +1718,9 @@ def test_middleware_pseudonymizes_every_prayer_endpoint():
 
 def test_openapi_documents_the_public_contract():
     schema = app.openapi()
-    operation = schema["paths"]["/api/scripture/v1/select"]["post"]
+    operation = schema["paths"]["/api/ai/scripture"]["post"]
 
-    assert operation["tags"] == ["Scripture"]
+    assert operation["tags"] == ["AI"]
     assert operation["summary"]
     assert "retrieval_fallback" in operation["description"]
     assert {"200", "403", "422", "429", "503"} <= set(operation["responses"])
@@ -1815,9 +1759,9 @@ def test_openapi_documents_the_public_contract():
 def test_twinkler_contract_is_unchanged():
     schema = app.openapi()
 
-    for path in ("/api/twinkler/v1/complete", "/api/twinkler/v1/transcribe"):
+    for path in ("/api/ai/question", "/api/ai/transcribe"):
         assert path in schema["paths"]
-    complete = schema["paths"]["/api/twinkler/v1/complete"]["post"]
+    complete = schema["paths"]["/api/ai/question"]["post"]
     assert {"200", "403", "422", "429", "502", "503"} <= set(complete["responses"])
 
 
@@ -1916,16 +1860,23 @@ def live_resources(monkeypatch):
     not _database_available(), reason="needs the cep_public database"
 )
 def test_the_live_catalogue_covers_every_active_translation(live_resources):
-    """Every active translation of an indexed language is servable today."""
+    """Every active translation of an indexed language is servable today.
+
+    Read from the cached corpus directly: the catalogue endpoint that used to
+    publish it was removed with ClickUp 86cbbmwjk, the invariant was not.
+    """
     catalogue = {
-        language["language"]: [
-            (entry["code"], entry["alias"], entry["primary"])
-            for entry in language["translations"]
+        language: [
+            (
+                code,
+                alias,
+                code == scripture_select.primary_translation(
+                    live_resources, language
+                ),
+            )
+            for code, alias in entries
         ]
-        for language in client.get(
-            "/api/scripture/v1/translations",
-            headers={"X-API-Key": "test-api-key"},
-        ).json()["languages"]
+        for language, entries in live_resources.translations.items()
     }
 
     assert catalogue["ru"] == [(1, "syn", True), (11, "bti", False)]

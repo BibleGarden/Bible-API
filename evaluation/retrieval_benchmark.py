@@ -1133,7 +1133,7 @@ def _coverage_allowed(
     Simulates the production candidate filter: the corpus stays the indexed
     translation of the language (the rerank prompt is unchanged), but only
     windows that fully exist in `translation_code` may be chosen — which is
-    what `POST /api/scripture/v1/select` does when the passage will be
+    what `POST /api/ai/scripture` does when the passage will be
     rendered in a translation that was never chunked.
 
     Returns (corpus translation code of that language, allowed canonical

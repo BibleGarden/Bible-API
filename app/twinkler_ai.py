@@ -215,11 +215,11 @@ async def transcribe(audio: bytes, mime_type: str, locale: str | None) -> str:
 
 
 @router.post(
-    "/twinkler/v1/complete",
+    "/ai/question",
     response_model=CompleteResponse,
-    operation_id="twinkler_complete",
-    tags=["Twinkler"],
-    summary="Generate a Twinkler companion response",
+    operation_id="ai_question",
+    tags=["AI"],
+    summary="Generate an AI companion response",
     description=(
         "Sends the user message to the server-configured Gemini model. System "
         "instructions and the Gemini API key are never exposed to the client."
@@ -257,11 +257,11 @@ async def twinkler_complete(
 
 
 @router.post(
-    "/twinkler/v1/transcribe",
+    "/ai/transcribe",
     response_model=CompleteResponse,
-    operation_id="twinkler_transcribe",
-    tags=["Twinkler"],
-    summary="Transcribe a Twinkler voice recording",
+    operation_id="ai_transcribe",
+    tags=["AI"],
+    summary="Transcribe a voice recording",
     description=(
         "Transcribes an M4A recording in its original language. The optional "
         "locale is used only as a weak language hint."

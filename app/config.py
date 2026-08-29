@@ -34,7 +34,7 @@ class ConfigError(RuntimeError):
 # EMBEDDING_MODEL / EMBEDDING_DIMENSIONS are the exception and are required
 # ALWAYS, key or no key: they do not name a provider call, they name the
 # vector index this service READS (`c{chunking}:{model}@{dims}` — ADR 0002).
-# The documented no-AI contract of `POST /api/scripture/v1/select` is a 200
+# The documented no-AI contract of `POST /api/ai/scripture` is a 200
 # from the safe pool with `fallback_reason=ai_unavailable`, and even that
 # answer is resolved through the loaded corpus. Making the pair conditional on
 # the key turned that 200 into a 503 ("vector index is empty"), because an
