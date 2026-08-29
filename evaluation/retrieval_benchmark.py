@@ -621,7 +621,10 @@ def cmd_stores(args) -> None:
 # flags cost nothing.
 # ---------------------------------------------------------------------------
 
-os.environ.setdefault("API_KEY", "benchmark")  # app/config.py requires it
+os.environ.setdefault("API_KEY", "benchmark")  # app/config.py requires it;
+# DB_*/EMBEDDING_* are not defaulted here — they come from the container's
+# real .env, which the benchmark relies on for its DB connection and index
+# version.
 
 PIPELINE_CACHE_FILE = DATA / "pipeline_cache.json"
 PIPELINE_DIMS = 768

@@ -267,6 +267,27 @@ response sets `history_reset: true` — the client should drop its stored
 history and keep only IDs returned from then on. Malformed IDs are a client
 bug and are rejected with 422.
 
+## Configuration
+
+The models of the three AI stages — `RETRIEVAL_REWRITE_MODEL` (rewrite),
+`EMBEDDING_MODEL` + `EMBEDDING_DIMENSIONS` (vector index) and
+`RETRIEVAL_RERANK_MODEL` (final choice) — have **no defaults in code**: a
+missing one aborts startup with an aggregated list of what is unset. Their
+values are pinned by the benchmark (ADR 0002, 0004, 0005) but must be spelled
+out in the environment; the 2026-08-29 degradation was invisible because a
+silent default sent the rewrite stage to a model the key could not reach.
+
+The two provider-call models are required only when `GEMINI_API_KEY` is set.
+`EMBEDDING_MODEL` and `EMBEDDING_DIMENSIONS` (positive) are required always:
+they name the stored index this endpoint READS, which the no-AI answer below
+also needs. Without them the index version would degrade to `c3:@0` — an
+index nobody ever wrote — and the documented safe-pool 200 would turn into a
+503.
+
+The operational parameters below (limits, TTL, timeout) stay optional and keep
+their defaults — but a non-numeric value in any of them is a startup error,
+never a silent fallback.
+
 ## Time budget
 
 One selection is bounded by `SCRIPTURE_SELECT_TIMEOUT_SECONDS` (default

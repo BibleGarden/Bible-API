@@ -1,38 +1,188 @@
 import os
+from collections.abc import Mapping
+
+
+class ConfigError(RuntimeError):
+    """Configuration is unusable; raised once with every problem found.
+
+    A RuntimeError subclass so existing callers that expected the old
+    `_require` failure keep catching it.
+    """
+
+
+# ---------------------------------------------------------------------------
+# Rule (2026-08-29): no silent fallbacks for settings that change behaviour.
+#
+# An unset *operational* parameter (limits, TTLs, timeouts) still falls back
+# to the documented default: those are tuning knobs, and their default is the
+# behaviour we intend. A *malformed* value never falls back — a typo in
+# `SCRIPTURE_SELECT_TIMEOUT_SECONDS=15s` used to be swallowed and the service
+# silently ran on 15.0 anyway.
+#
+# Model variables have no defaults at all. The scripture-selection incident of
+# 2026-08-29 was invisible precisely because `RETRIEVAL_REWRITE_MODEL`
+# defaulted to a model the owner had not configured and which the key could
+# not reach.
+#
+# Deliberate limitation of the requirement: the models of the *live provider
+# calls* are required only when `GEMINI_API_KEY` is set. Without the key that
+# whole surface is "not configured" — those endpoints already answer with
+# their own error and the rest of the API must keep working, so demanding
+# their model names would turn a supported deployment (Bible API without AI)
+# into a startup failure.
+#
+# EMBEDDING_MODEL / EMBEDDING_DIMENSIONS are the exception and are required
+# ALWAYS, key or no key: they do not name a provider call, they name the
+# vector index this service READS (`c{chunking}:{model}@{dims}` — ADR 0002).
+# The documented no-AI contract of `POST /api/scripture/v1/select` is a 200
+# from the safe pool with `fallback_reason=ai_unavailable`, and even that
+# answer is resolved through the loaded corpus. Making the pair conditional on
+# the key turned that 200 into a 503 ("vector index is empty"), because an
+# unset pair silently addressed the non-existent index version `c3:@0` — the
+# very class of bug this rule exists to prevent. Naming the index one reads is
+# not optional; there is no correct value to guess.
+# ---------------------------------------------------------------------------
+
+# Required in every deployment, whatever is configured. Blank counts as unset.
+ALWAYS_REQUIRED_VARS = (
+    "API_KEY",
+    "DB_HOST",
+    "DB_USER",
+    "DB_NAME",
+    "EMBEDDING_MODEL",
+    "EMBEDDING_DIMENSIONS",
+)
+# Must be PRESENT in the environment, but may be empty: MySQL accepts an empty
+# password (a local server with a passwordless user is a legitimate setup), so
+# `DB_PASSWORD=` is an explicit statement, while a missing variable is the
+# silence this rule forbids. Both the local and the production .env set a real
+# password today.
+PRESENCE_REQUIRED_VARS = ("DB_PASSWORD",)
+# Models of the live Gemini calls: required once AI is configured.
+AI_REQUIRED_VARS = (
+    "GEMINI_MODEL",
+    "GEMINI_TRANSCRIPTION_MODEL",
+    "RETRIEVAL_REWRITE_MODEL",
+    "RETRIEVAL_RERANK_MODEL",
+)
+
+
+def parse_int(name: str, raw: str | None, default: int) -> int:
+    """Unset/empty -> default; a non-numeric value -> ConfigError naming it."""
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        return int(raw.strip())
+    except ValueError:
+        raise ConfigError(
+            f"{name}: expected an integer, got {raw!r}"
+        ) from None
+
+
+def parse_float(name: str, raw: str | None, default: float) -> float:
+    """Unset/empty -> default; a non-numeric value -> ConfigError naming it."""
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        return float(raw.strip())
+    except ValueError:
+        raise ConfigError(
+            f"{name}: expected a number, got {raw!r}"
+        ) from None
+
+
+def missing_required_vars(env: Mapping[str, str]) -> list[str]:
+    """Names of variables that must be set for this environment, but are not.
+
+    Pure function over an environment mapping, so it is testable without
+    reimporting the module. `ALWAYS_REQUIRED_VARS` must be non-blank,
+    `PRESENCE_REQUIRED_VARS` must merely exist, and `AI_REQUIRED_VARS` are
+    added when `GEMINI_API_KEY` is set (see the limitation note above).
+    """
+    missing = [
+        name for name in ALWAYS_REQUIRED_VARS if not env.get(name, "").strip()
+    ]
+    missing.extend(name for name in PRESENCE_REQUIRED_VARS if name not in env)
+    if env.get("GEMINI_API_KEY", "").strip():
+        missing.extend(
+            name for name in AI_REQUIRED_VARS if not env.get(name, "").strip()
+        )
+    return missing
+
+
+def invalid_required_values(env: Mapping[str, str]) -> list[str]:
+    """Problems with values that ARE set but cannot be used, as messages.
+
+    Non-numeric values are not reported here — `parse_int`/`parse_float`
+    already name them while reading. This is the range check the type alone
+    does not give: `EMBEDDING_DIMENSIONS=0` parses fine and then produces the
+    index version `...@0` and an `outputDimensionality: 0` request.
+    """
+    problems = []
+    raw = env.get("EMBEDDING_DIMENSIONS", "").strip()
+    if raw:
+        try:
+            dims = int(raw)
+        except ValueError:
+            dims = None  # reported by parse_int, not twice
+        if dims is not None and dims < 1:
+            problems.append(
+                f"EMBEDDING_DIMENSIONS: expected a positive integer, got {dims}"
+            )
+    return problems
+
+
+# Problems collected while parsing, reported together by _validate() below.
+_problems: list[str] = []
 
 
 def _get_int(name: str, default: int) -> int:
-    raw = os.getenv(name)
-    if raw is None or raw == "":
-        return default
     try:
-        return int(raw)
-    except ValueError:
+        return parse_int(name, os.getenv(name), default)
+    except ConfigError as exc:
+        _problems.append(str(exc))
         return default
 
 
 def _get_float(name: str, default: float) -> float:
-    raw = os.getenv(name)
-    if raw is None or raw == "":
-        return default
     try:
-        return float(raw)
-    except ValueError:
+        return parse_float(name, os.getenv(name), default)
+    except ConfigError as exc:
+        _problems.append(str(exc))
         return default
 
 
-def _require(name: str) -> str:
-    value = os.getenv(name, "")
-    if value is None or value.strip() == "":
-        raise RuntimeError(f"Missing required environment variable: {name}")
-    return value
+def _validate(env: Mapping[str, str], problems: list[str]) -> None:
+    """Raise one ConfigError listing every problem, or return silently."""
+    reasons = [
+        f"{name} is required"
+        + (
+            " when GEMINI_API_KEY is set (no default: the model must be named"
+            " explicitly)"
+            if name in AI_REQUIRED_VARS
+            else ""
+        )
+        for name in missing_required_vars(env)
+    ]
+    reasons.extend(invalid_required_values(env))
+    reasons.extend(problems)
+    if reasons:
+        raise ConfigError(
+            "Invalid configuration ("
+            f"{len(reasons)} problem{'s' if len(reasons) > 1 else ''}):\n"
+            + "\n".join(f"  - {reason}" for reason in reasons)
+        )
 
 
-DB_HOST = os.getenv("DB_HOST", "localhost")
+# Database. Host, user, name and password carry no defaults: "localhost /
+# root / cep_public" silently pointed a misconfigured deployment at whatever
+# database happened to answer. DB_PORT keeps its default (3306 is the port of
+# the protocol, not a choice about which data is served).
+DB_HOST = os.getenv("DB_HOST", "")
 DB_PORT = _get_int("DB_PORT", 3306)
-DB_USER = os.getenv("DB_USER", "root")
+DB_USER = os.getenv("DB_USER", "")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "")
-DB_NAME = os.getenv("DB_NAME", "cep_public")
+DB_NAME = os.getenv("DB_NAME", "")
 
 # Path to MP3 files storage (inside container)
 MP3_FILES_PATH = os.getenv("MP3_FILES_PATH", "audio")
@@ -41,20 +191,19 @@ MP3_FILES_PATH = os.getenv("MP3_FILES_PATH", "audio")
 AUDIO_BASE_URL = os.getenv("AUDIO_BASE_URL", "http://localhost:8000")
 
 # API Authorization settings (required)
-API_KEY = _require("API_KEY")
+API_KEY = os.getenv("API_KEY", "")
 
 # Admin API connection settings (for import)
 ADMIN_API_URL = os.getenv("ADMIN_API_URL", "http://dashboard-api:8000")
 ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "")
 
 # Gemini API for the Twinkler prayer companion. Optional at startup so the
-# rest of Bible API remains available when AI is not configured.
+# rest of Bible API remains available when AI is not configured. When it IS
+# set, the provider-call models below must be named explicitly — empty strings
+# there mean "AI not configured" and are only reachable without the key.
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.7-flash")
-GEMINI_TRANSCRIPTION_MODEL = os.getenv(
-    "GEMINI_TRANSCRIPTION_MODEL",
-    "gemini-3.5-flash-lite",
-)
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "")
+GEMINI_TRANSCRIPTION_MODEL = os.getenv("GEMINI_TRANSCRIPTION_MODEL", "")
 GEMINI_REQUESTS_PER_MINUTE = max(1, _get_int("GEMINI_REQUESTS_PER_MINUTE", 10))
 GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE = min(
     GEMINI_REQUESTS_PER_MINUTE,
@@ -62,23 +211,27 @@ GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE = min(
 )
 # Embedding model for the scripture-selection RAG index (see
 # architect/adr/0002-embedding-model-and-vector-store.md). Uses the same
-# GEMINI_API_KEY as the Twinkler endpoints.
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "gemini-embedding-001")
-EMBEDDING_DIMENSIONS = _get_int("EMBEDDING_DIMENSIONS", 768)
+# GEMINI_API_KEY as the Twinkler endpoints. Model and dimensions are a pair:
+# together they version the stored vectors, so neither may be guessed — and
+# both are required even without a key, because the read path (including the
+# no-AI safe-pool answer) has to name the index it loads. The 0 default is
+# unreachable: _validate() rejects a missing or non-positive value.
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "")
+EMBEDDING_DIMENSIONS = _get_int("EMBEDDING_DIMENSIONS", 0)
 # Model for LLM query reformulation in the retrieval pipeline (see
-# architect/adr/0004-retrieval-pipeline.md). Deliberately NOT defaulting to
+# architect/adr/0004-retrieval-pipeline.md). Deliberately NOT following
 # GEMINI_MODEL: the benchmark passes the retrieval thresholds only with
 # gemini-3.7-flash rewrites (gemini-3.5-flash-lite fails recall@10 and MRR).
-RETRIEVAL_REWRITE_MODEL = os.getenv("RETRIEVAL_REWRITE_MODEL", "gemini-3.7-flash")
+# The value is pinned by that benchmark but must be spelled out in the
+# environment — a default here hid a broken model behind a working config.
+RETRIEVAL_REWRITE_MODEL = os.getenv("RETRIEVAL_REWRITE_MODEL", "")
 # Model for the grounded passage rerank (final choice among retrieval
 # candidates, see architect/adr/0005-grounded-passage-rerank.md). Pinned by
 # the final_top1 benchmark: gemini-3.5-flash-lite passes every threshold on
 # both rerank prompt versions (gemini-3.7-flash ties on v2 only) and is the
 # cheaper/faster stage. Independent from GEMINI_MODEL and
 # RETRIEVAL_REWRITE_MODEL so each stage can be tuned separately.
-RETRIEVAL_RERANK_MODEL = os.getenv(
-    "RETRIEVAL_RERANK_MODEL", "gemini-3.5-flash-lite"
-)
+RETRIEVAL_RERANK_MODEL = os.getenv("RETRIEVAL_RERANK_MODEL", "")
 
 # Public scripture-selection endpoint (see
 # architect/adr/0006-scripture-select-api.md). Its own rate-limit budget:
@@ -126,3 +279,7 @@ TRUSTED_PROXY_IPS = frozenset(
     for value in os.getenv("TRUSTED_PROXY_IPS", "").split(",")
     if value.strip()
 )
+
+# Fail fast: one aggregated error with everything that is wrong, so a broken
+# deployment is fixed in a single pass instead of one variable per restart.
+_validate(os.environ, _problems)

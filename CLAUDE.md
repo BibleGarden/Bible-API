@@ -20,6 +20,23 @@ docker compose down
 docker exec bible-api bash -c "cd /code && PYTHONPATH=app python3 extract-openapi.py app.main:app"
 ```
 
+### Tests
+Only `app/` is bind-mounted, so `tests/` and `evaluation/` must be copied into
+the container (trailing `/.` — plain `docker cp tests` nests it into
+`/code/tests/tests`; recreating the container resets both directories to the
+image contents):
+```bash
+docker cp tests/. bible-api:/code/tests
+docker cp evaluation/. bible-api:/code/evaluation
+docker exec -e API_KEY=test-api-key \
+  -e TWINKLER_SYSTEM_PROMPT="Серверная система" \
+  -e TWINKLER_CLIENT_HMAC_KEY=test-hmac-key \
+  bible-api pytest -q
+```
+`tests/conftest.py` supplies the model and DB variables the fail-fast config
+now requires (via `setdefault`, so real values still win), which is why no
+extra `-e` overrides are needed.
+
 ## Architecture
 
 ### Application Structure (`app/`)
@@ -77,24 +94,57 @@ canonical english-masoretic coordinates, produced by
 
 ### Environment
 
-Required env vars: `API_KEY`, `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`, `AUDIO_DIR` (host path), `MP3_FILES_PATH` (container path).
-Optional: `ADMIN_API_URL`, `ADMIN_API_KEY` (for import), `GEMINI_API_KEY`,
-`GEMINI_MODEL`, `GEMINI_TRANSCRIPTION_MODEL`, `GEMINI_REQUESTS_PER_MINUTE`,
+**No silent defaults.** `app/config.py` fails fast: a missing required
+variable, or a non-numeric value in any numeric variable, aborts startup with
+a single `ConfigError` listing *every* problem at once (not one per restart).
+An unset *operational* parameter still falls back to its documented default —
+those are tuning knobs. Model names never do.
+
+**Enforced always** (startup fails when unset or blank): `API_KEY`,
+`DB_HOST`, `DB_USER`, `DB_NAME`, `EMBEDDING_MODEL`, `EMBEDDING_DIMENSIONS`
+(must be ≥ 1). `DB_PASSWORD` must be *present* but may be empty (`DB_PASSWORD=`
+is an explicit statement; MySQL accepts a passwordless user — both the local
+and the production `.env` set a real password today). `DB_PORT` keeps its
+default 3306; a non-numeric value is an error.
+
+**Enforced when `GEMINI_API_KEY` is set** (no defaults in code): `GEMINI_MODEL`,
+`GEMINI_TRANSCRIPTION_MODEL`, `RETRIEVAL_REWRITE_MODEL`,
+`RETRIEVAL_RERANK_MODEL`. (Reason: on 2026-08-29 a default
+`RETRIEVAL_REWRITE_MODEL=gemini-3.7-flash` sent the rewrite stage to a model
+the key could not reach, while `.env` said flash-lite everywhere.)
+
+`GEMINI_API_KEY` itself stays optional — without it the AI surface is "not
+configured", the AI endpoints answer with their own error and the rest of the
+API works as before, including `POST /api/scripture/v1/select`, which
+degrades to the safe pool with `fallback_reason=ai_unavailable`. That answer
+still reads the vector index, which is why `EMBEDDING_MODEL` /
+`EMBEDDING_DIMENSIONS` are required with or without a key: they name the
+index version (`c{chunking}:{model}@{dims}`), not a provider call.
+
+**Operational, keep their defaults** (a malformed value is still an error):
+`MP3_FILES_PATH` (`audio`), `AUDIO_BASE_URL` (`http://localhost:8000`),
+`ADMIN_API_URL`, `ADMIN_API_KEY` (for import), `GEMINI_REQUESTS_PER_MINUTE`,
 `GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE`, `TWINKLER_SYSTEM_PROMPT`,
-`TWINKLER_CLIENT_HMAC_KEY`, and `TRUSTED_PROXY_IPS`. `GEMINI_API_KEY`,
-`TWINKLER_SYSTEM_PROMPT`, and `TWINKLER_CLIENT_HMAC_KEY` must be set for Twinkler
-AI calls. The limiters are process-local, so production uses a single API worker.
+`TWINKLER_CLIENT_HMAC_KEY`, `TRUSTED_PROXY_IPS` and the `SCRIPTURE_*` knobs
+below. `AUDIO_DIR` is read by docker-compose, not by the application.
+`GEMINI_API_KEY`, `TWINKLER_SYSTEM_PROMPT`, and `TWINKLER_CLIENT_HMAC_KEY`
+must be set for Twinkler AI calls. The limiters are process-local, so
+production uses a single API worker.
 
 RAG / scripture selection:
 
-- `EMBEDDING_MODEL` (default `gemini-embedding-001`) and `EMBEDDING_DIMENSIONS`
-  (default 768) configure the vector index; changing them changes the index
-  version and requires `python app/index_cli.py rebuild`.
-- `RETRIEVAL_REWRITE_MODEL` (default `gemini-3.7-flash`) — LLM query
-  reformulation, the dominant quality lever; pinned by the benchmark and
-  deliberately independent of `GEMINI_MODEL` (ADR 0004).
-- `RETRIEVAL_RERANK_MODEL` (default `gemini-3.5-flash-lite`) — grounded choice
-  of the final passage among candidates; pinned by the benchmark (ADR 0005).
+- `EMBEDDING_MODEL` (`gemini-embedding-001`) and `EMBEDDING_DIMENSIONS`
+  (768) configure the vector index — required as a pair in every deployment;
+  changing them changes the index version and requires
+  `python app/index_cli.py rebuild`. `index_cli rebuild` also refuses to run
+  without `GEMINI_API_KEY` (it would delete every stale-version row before
+  discovering it cannot embed anything).
+- `RETRIEVAL_REWRITE_MODEL` (`gemini-3.7-flash`) — LLM query
+  reformulation, the dominant quality lever; value pinned by the benchmark,
+  deliberately independent of `GEMINI_MODEL`, and required (ADR 0004).
+- `RETRIEVAL_RERANK_MODEL` (`gemini-3.5-flash-lite`) — grounded choice
+  of the final passage among candidates; value pinned by the benchmark,
+  required (ADR 0005).
 - `SCRIPTURE_SELECT_REQUESTS_PER_MINUTE` (10),
   `SCRIPTURE_SELECT_REQUESTS_PER_CLIENT_PER_MINUTE` (3) — the selection
   endpoint's own rate-limit budget (separate from the Twinkler one; it reuses

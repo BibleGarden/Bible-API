@@ -34,8 +34,9 @@ Provider timeouts, HTTP errors, malformed responses and empty output are
 returned to the client as `502 AI service unavailable` without provider
 details. Missing server configuration has the same public response.
 
-Transcription uses `GEMINI_TRANSCRIPTION_MODEL` (default
-`gemini-3.5-flash-lite`) and the same configured Gemini API key. The M4A bytes
+Transcription uses `GEMINI_TRANSCRIPTION_MODEL` (required whenever
+`GEMINI_API_KEY` is set; no default in code) and the same configured Gemini
+API key. The M4A bytes
 are base64-encoded into an `inline_data` part alongside a server-controlled
 verbatim-transcription instruction. `audio/mp4`, `audio/x-m4a` and `audio/m4a`
 are accepted;

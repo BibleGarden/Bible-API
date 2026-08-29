@@ -1,0 +1,186 @@
+# ADR 0008: Fail-fast configuration validation
+
+Status: accepted (2026-08-29).
+Ticket: none — owner-directed policy change following the incident below.
+
+## Context
+
+Incident, 2026-08-29: `.env` set `GEMINI_MODEL=gemini-3.5-flash-lite`, and
+the owner believed the whole application ran on that model. The retrieval
+rewrite stage (ADR 0004) reads a separate variable,
+`RETRIEVAL_REWRITE_MODEL`, which was unset; `app/config.py` defaulted it in
+code to `gemini-3.7-flash`. The key could not reach that model, so the
+rewrite stage started failing while `GEMINI_MODEL`-driven calls (Twinkler)
+kept working on flash-lite. Nothing in the deployment declared "the rewrite
+stage runs on a different model than you think" — the degradation had to be
+found by reading code, not configuration.
+
+The general failure is not this one variable. A code-level default for a
+setting that changes *behaviour* — which model answers a request, which
+database is written to — turns a missing environment variable into a silent
+choice the deployer never made and cannot see by reading `.env`. The owner's
+rule going forward: **no fallback may hide a configuration problem.** A
+fallback is fine when it names the one behaviour the service intentionally
+runs with when a value is absent (an operational default); it is not fine
+when it silently substitutes a different, unreviewed behaviour for a value
+that was supposed to be set.
+
+## Decision
+
+### Validate everything at import, fail with one aggregated error
+
+`app/config.py` validates the environment as it is imported (`_validate()`,
+called at module load). If anything is wrong, the module raises `ConfigError`
+— a `RuntimeError` subclass, so it also aborts application startup — with
+every problem it found, not just the first:
+
+```
+Invalid configuration (3 problems):
+  - RETRIEVAL_REWRITE_MODEL is required when GEMINI_API_KEY is set (no default: the model must be named explicitly)
+  - EMBEDDING_DIMENSIONS is required
+  - GEMINI_REQUESTS_PER_MINUTE: expected an integer, got 'many'
+```
+
+One error listing everything means a broken deployment is fixed in a single
+edit-and-restart cycle instead of one variable discovered per restart.
+
+### Three classes of variable
+
+- **`ALWAYS_REQUIRED_VARS`** — `API_KEY`, `DB_HOST`, `DB_USER`, `DB_NAME`,
+  `EMBEDDING_MODEL`, `EMBEDDING_DIMENSIONS`. Must be set and non-blank in
+  every deployment; a blank value counts as unset. `localhost` / `root` /
+  `cep_public` were exactly the kind of guessable-but-wrong defaults this
+  rule exists to remove — a misconfigured deployment used to silently point
+  at whatever database happened to answer.
+- **`PRESENCE_REQUIRED_VARS`** — `DB_PASSWORD`. Must be *present* in the
+  environment, but is allowed to be empty: MySQL accepts a passwordless
+  user, so `DB_PASSWORD=` is a legitimate, explicit statement. A variable
+  that is simply absent is the silence this ADR forbids; both the local and
+  the production `.env` set a real password today regardless.
+- **`AI_REQUIRED_VARS`** — `GEMINI_MODEL`, `GEMINI_TRANSCRIPTION_MODEL`,
+  `RETRIEVAL_REWRITE_MODEL`, `RETRIEVAL_RERANK_MODEL`. Required only when
+  `GEMINI_API_KEY` is set. Without a key the whole AI surface is "not
+  configured": the AI endpoints already answer with their own error and the
+  rest of the API must keep working, so demanding these model names would
+  turn a supported deployment (Bible API without AI) into a startup
+  failure. With a key, every model these calls can reach must be spelled
+  out — none of them defaults in code, because a default here is exactly
+  what hid the 2026-08-29 model mismatch.
+
+  `EMBEDDING_MODEL` / `EMBEDDING_DIMENSIONS` are deliberately **not** in
+  this conditional class, even though they also name a Gemini concept. They
+  do not name a live provider call; they name the vector index this service
+  *reads* (`c{chunking}:{model}@{dims}`, ADR 0002) and are required in
+  `ALWAYS_REQUIRED_VARS`. The documented no-AI contract of
+  `POST /api/scripture/v1/select` is a 200 from the safe pool with
+  `fallback_reason=ai_unavailable` (ADR 0004/0006), and even that answer is
+  resolved through the loaded corpus — making the pair conditional on the
+  key would silently address the version `c3:@0`, an index nobody ever
+  wrote, and turn the documented 200 into a 503 ("vector index is empty").
+  That is the same class of bug this whole ADR exists to prevent, just one
+  hop removed from a provider call.
+
+### Operational parameters keep their defaults — but not their typos
+
+Limits, TTLs, timeouts and `DB_PORT` are tuning knobs, not identity
+decisions: `SCRIPTURE_SELECT_TIMEOUT_SECONDS=15` unset is a deliberate,
+reviewed operating point, not a guess. `parse_int` / `parse_float` return the
+documented default when a variable is unset or blank. But a value that *is*
+set and cannot be parsed is a `ConfigError` naming the variable and the raw
+value, never a silent fallback to the default — a typo like
+`SCRIPTURE_INDEX_CACHE_SECONDS=3600s` used to be swallowed and the service
+silently ran on the default anyway, exactly the invisibility this ADR
+targets. `invalid_required_values()` adds a second layer for values that
+parse but are out of range: `EMBEDDING_DIMENSIONS=0` parses as a valid `int`
+and would otherwise reach `current_embedding_version()` and produce an
+`outputDimensionality: 0` request.
+
+### Defense in depth: `IndexVersionUnavailable`
+
+Even with `EMBEDDING_MODEL` / `EMBEDDING_DIMENSIONS` in
+`ALWAYS_REQUIRED_VARS`, `app/vector_index.py` does not trust callers to have
+gone through `config.py` — `current_embedding_version()` re-checks its
+`model`/`dims` arguments and raises `IndexVersionUnavailable` rather than
+build the string `c3:@0` from an empty model or non-positive dimensions.
+`c3:@0` reads as a legitimate-looking version that simply has no rows: a
+read against it looks like "the index is empty", and a *rebuild* against it
+would mark every stored row of every real version stale and delete them
+before failing to embed a single new one. `python app/index_cli.py rebuild`
+therefore refuses before touching any row — both when `GEMINI_API_KEY` is
+absent (a rebuild must embed every chunk through the API) and when
+`IndexVersionUnavailable` is raised — and the read paths (`status`, `search`,
+`scripture_select._load_resources`) let the exception surface as a clear
+refusal instead of an empty-index diagnosis. In production this branch is
+unreachable — config guarantees the pair is valid before either module runs
+— but a CLI or an import path that ever bypasses `config.py` must still fail
+loudly instead of quietly corrupting the index.
+
+## Alternatives considered
+
+**(B) Always start; answer 503 from the AI endpoints only.** Keep the
+service startable with an incomplete AI configuration and have
+`/api/twinkler/v1/*` and `/api/scripture/v1/select` report the missing
+variable names in a 503, without touching the read/audio endpoints that
+need no AI. Rejected by the owner on 2026-08-29: a booted-but-degraded
+container is easy not to notice, especially for a variable nobody is
+actively testing (the incident variable is only exercised by the rewrite
+stage of one endpoint). Failing at import makes the problem visible at the
+moment it is introduced — at deploy time, in the deploy log — rather than
+at the moment a user happens to hit the affected endpoint. A crashed
+container cannot be missed; a healthy-looking container quietly returning
+502/503 to a fraction of requests can be, and was.
+
+This has a real cost, stated plainly: with `restart: always` (the
+production compose policy), an incomplete production `.env` puts the
+*entire* API into a restart-crash loop, not just the AI surface, until the
+missing variable is fixed — worse than option B's partial degradation for
+that window. The mitigation is procedural, not architectural: production
+deploys go through a checklist of the required variables (see the deploy
+ticket) before `docker compose up -d` runs against a changed `.env`. The
+owner's judgment is that an unmissable, fully-down failure with a clear
+aggregated error beats a partially-working service whose broken part has
+to be discovered by using it.
+
+## Consequences
+
+- A deploy with an incomplete or malformed `.env` never starts; the
+  container log shows every problem at once instead of one crash-and-fix
+  cycle per missing variable.
+- Production deploys that touch `.env` require the variable checklist in
+  the deploy ticket to be re-checked first — this ADR trades runtime
+  invisibility for a deploy-time precondition. `restart: always` means a
+  bad `.env` restart-loops the whole API, not only the AI surface, until
+  fixed.
+- "Deploy without AI" remains a fully supported configuration: omitting
+  `GEMINI_API_KEY` starts the service normally with the AI endpoints
+  reporting their own "not configured" error and everything else — reading,
+  audio, scripture selection via the safe pool — working as documented.
+  Nothing in this ADR requires a Gemini key to exist.
+- `EMBEDDING_MODEL` / `EMBEDDING_DIMENSIONS` are required in every
+  deployment, key or no key — a stricter bar than the other AI-shaped
+  variables, justified above and covered by
+  `tests/test_config.py::test_embedding_pair_is_required_even_without_a_key`.
+- `tests/conftest.py` sets every required variable via `os.environ.setdefault`
+  before any test module imports `config`, so the suite runs regardless of
+  what the container's real `.env` contains; a real value already present
+  still wins.
+- Tooling that imports `app/config.py` (CLIs, the benchmark) inherits the
+  same fail-fast behaviour and must set the required variables the same way
+  tests do — see `evaluation/retrieval_benchmark.py`'s `API_KEY` default and
+  the nit fixed alongside this ADR in `app/retrieval_cli.py`.
+- Extends ADR 0002 (`EMBEDDING_MODEL`/`EMBEDDING_DIMENSIONS` already had no
+  code default, for the same "names an index, not a knob" reason), ADR 0004
+  (`RETRIEVAL_REWRITE_MODEL`, the variable at the center of the incident)
+  and ADR 0005 (`RETRIEVAL_RERANK_MODEL`) by making the requirement a single
+  enforced policy instead of three independent conventions.
+
+## Open questions
+
+1. The deploy checklist mitigating the restart-loop cost lives in the
+   deploy ticket, outside this repo — consider moving it into
+   `infrastructure.md` (the `cep` monorepo) so it survives independently of
+   any single ticket.
+2. `AI_REQUIRED_VARS` is gated on `GEMINI_API_KEY` alone. If a future
+   deployment ever wants AI partially configured (e.g. transcription but not
+   rewrite), the current all-or-nothing gate would need to be split — no
+   such deployment exists today.

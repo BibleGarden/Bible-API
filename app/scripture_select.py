@@ -90,7 +90,7 @@ from retrieval import (
     prompt_passage,
     split_exclusions,
 )
-from vector_index import load_index
+from vector_index import IndexVersionUnavailable, load_index
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -883,7 +883,14 @@ def _load_resources() -> CorpusResources:
         raise ScriptureSelectUnavailable("database is not available")
     cursor = connection.cursor(dictionary=True)
     try:
-        index = load_index(cursor)
+        try:
+            index = load_index(cursor)
+        except IndexVersionUnavailable as error:
+            # Not "the index is empty, rebuild it": nothing is wrong with the
+            # stored corpus, this deployment simply does not name which index
+            # version it reads. Pointing at `rebuild` here would send an
+            # operator to a command that re-embeds the whole corpus.
+            raise ScriptureSelectUnavailable(str(error)) from error
         if not len(index):
             raise ScriptureSelectUnavailable(
                 "vector index is empty (run app/index_cli.py rebuild)"

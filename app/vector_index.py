@@ -54,12 +54,30 @@ class MissingChunksError(RuntimeError):
     CHUNKING_VERSION — a plain rebuild would silently delete the index."""
 
 
+class IndexVersionUnavailable(RuntimeError):
+    """There is no index version to read or write: the embedding model or its
+    dimensions are unconfigured. Fail here rather than address a version
+    nobody ever wrote (`c3:@0`), which reads as an empty index and, in a
+    rebuild, would mark every stored row stale and delete it."""
+
+
 def current_embedding_version(
     model: str = EMBEDDING_MODEL,
     dims: int = EMBEDDING_DIMENSIONS,
     chunking_version: int = CHUNKING_VERSION,
 ) -> str:
-    """Index version = chunking algorithm version + embedding model id + dims."""
+    """Index version = chunking algorithm version + embedding model id + dims.
+
+    Refuses to build a version out of an unset model or non-positive
+    dimensions: config makes both required, so this is the second line of
+    defence for callers that pass values in explicitly.
+    """
+    if not str(model).strip() or int(dims) < 1:
+        raise IndexVersionUnavailable(
+            "embedding model/dimensions are not configured "
+            f"(EMBEDDING_MODEL={model!r}, EMBEDDING_DIMENSIONS={dims!r}); "
+            "no index version can be derived"
+        )
     return f"c{chunking_version}:{model}@{dims}"
 
 

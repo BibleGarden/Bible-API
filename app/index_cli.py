@@ -30,9 +30,11 @@ import argparse
 import sys
 import time
 
+from config import GEMINI_API_KEY
 from database import create_connection
 from embeddings import EmbeddingUnavailable, GeminiEmbeddingClient
 from vector_index import (
+    IndexVersionUnavailable,
     MissingChunksError,
     current_embedding_version,
     load_index,
@@ -70,7 +72,22 @@ def resolve_translations(cursor, spec: str | None) -> list[dict]:
 
 
 def cmd_rebuild(connection, cursor, args) -> int:
-    version = current_embedding_version()
+    # Refuse BEFORE any row is touched. A rebuild deletes every embedding
+    # whose version differs from the target one, so an unresolvable target
+    # version (or a key that cannot embed anything) would wipe the index and
+    # only then fail on the first API call.
+    if not GEMINI_API_KEY:
+        print(
+            "GEMINI_API_KEY is not configured — a rebuild has to embed every "
+            "chunk through the Gemini API. Nothing was changed.",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        version = current_embedding_version()
+    except IndexVersionUnavailable as exc:
+        print(f"REFUSED: {exc}. Nothing was changed.", file=sys.stderr)
+        return 1
     translations = resolve_translations(cursor, args.translations)
     if not translations:
         print("No chunked translations found — run app/chunk_cli.py first")
@@ -97,8 +114,9 @@ def cmd_rebuild(connection, cursor, args) -> int:
             except EmbeddingUnavailable as exc:
                 print(f"  ABORTED: {exc}", file=sys.stderr)
                 print(
-                    "  Already-stored embeddings are untouched; "
-                    "re-run to continue from where it stopped.",
+                    "  Embeddings of the current index version are kept "
+                    "(rows of an outdated version may already have been "
+                    "removed); re-run to continue from where it stopped.",
                     file=sys.stderr,
                 )
                 return 1
@@ -211,6 +229,11 @@ def main(argv: list[str] | None = None) -> int:
     cursor = connection.cursor(dictionary=True)
     try:
         return args.func(connection, cursor, args)
+    except IndexVersionUnavailable as exc:
+        # Only reachable for the read-only commands; cmd_rebuild refuses
+        # earlier, before it can touch a row.
+        print(f"{exc}", file=sys.stderr)
+        return 1
     finally:
         cursor.close()
         connection.close()

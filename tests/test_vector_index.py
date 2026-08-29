@@ -17,11 +17,14 @@ from embeddings import (
     GeminiEmbeddingClient,
     normalize,
 )
+import vector_index
 from vector_index import (
+    IndexVersionUnavailable,
     InMemoryVectorIndex,
     MissingChunksError,
     build_embedding_text,
     current_embedding_version,
+    load_index,
     pack_vector,
     plan_reindex,
     reindex_translation,
@@ -43,6 +46,50 @@ def test_embedding_version_changes_with_each_component():
     assert current_embedding_version("other", 768, 1) != base
     assert current_embedding_version("m", 512, 1) != base
     assert current_embedding_version("m", 768, 2) != base
+
+
+@pytest.mark.parametrize(
+    ("model", "dims"),
+    [("", 768), ("   ", 768), ("gemini-embedding-001", 0),
+     ("gemini-embedding-001", -1)],
+)
+def test_embedding_version_refuses_unconfigured_model_or_dims(model, dims):
+    """`c3:@0` is not a version — it addresses an index nobody ever wrote, so
+    a read finds nothing and a rebuild would delete everything as stale."""
+    with pytest.raises(IndexVersionUnavailable):
+        current_embedding_version(model, dims, 3)
+
+
+class RecordingCursor:
+    """Minimal cursor double: records statements, returns no rows."""
+
+    def __init__(self):
+        self.statements = []
+
+    def execute(self, sql, params=None):
+        self.statements.append((" ".join(sql.split()), params))
+
+    def fetchall(self):
+        return []
+
+
+def test_load_index_queries_a_fully_specified_version():
+    """Regression guard for the keyless contract: the index version describes
+    the STORED corpus, so it must not depend on GEMINI_API_KEY (config
+    requires EMBEDDING_MODEL/DIMENSIONS with or without a key). When it did,
+    a keyless deployment queried `c3:@0`, got an empty index and answered 503
+    instead of the documented safe-pool 200 (`ai_unavailable`)."""
+    cursor = RecordingCursor()
+
+    index = load_index(cursor)
+
+    assert len(index) == 0
+    (_sql, params), = cursor.statements
+    version, = params
+    assert version == f"c{vector_index.CHUNKING_VERSION}:" \
+        f"{vector_index.EMBEDDING_MODEL}@{vector_index.EMBEDDING_DIMENSIONS}"
+    assert vector_index.EMBEDDING_MODEL.strip()
+    assert vector_index.EMBEDDING_DIMENSIONS >= 1
 
 
 def test_build_embedding_text_includes_title():

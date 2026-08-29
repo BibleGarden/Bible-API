@@ -36,7 +36,14 @@ def main() -> None:
         np.load(rb.emb_path("gemini", "title_text")), rb.PIPELINE_DIMS)
     cache = rb._load_pipeline_cache()
     api_key = rb.require_api_key()
-    model = rb._dotenv_value("GEMINI_MODEL", "gemini-3.5-flash-lite")
+    # No default: a diagnosis that silently runs on another model than the
+    # deployment does is worse than no diagnosis (the 2026-08-29 incident).
+    model = rb._dotenv_value("GEMINI_MODEL")
+    if not model:
+        raise SystemExit(
+            "GEMINI_MODEL is not set (environment or .env) — set it to the "
+            "model this diagnosis should reproduce."
+        )
 
     from query_rewrite import REWRITE_PROMPT_VERSION
 

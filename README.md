@@ -36,12 +36,25 @@ system prompt and the Google AI Studio key are configured only on the server:
 GEMINI_API_KEY=your-google-ai-studio-key
 GEMINI_MODEL=gemini-3.7-flash
 GEMINI_TRANSCRIPTION_MODEL=gemini-3.5-flash-lite
+EMBEDDING_MODEL=gemini-embedding-001
+EMBEDDING_DIMENSIONS=768
+RETRIEVAL_REWRITE_MODEL=gemini-3.7-flash
+RETRIEVAL_RERANK_MODEL=gemini-3.5-flash-lite
 GEMINI_REQUESTS_PER_MINUTE=10
 GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE=3
 TWINKLER_SYSTEM_PROMPT=Your server-controlled companion instructions
 TWINKLER_CLIENT_HMAC_KEY=generate-a-separate-random-secret
 TRUSTED_PROXY_IPS=127.0.0.1
 ```
+
+There are no defaults for the model names in the code. Once `GEMINI_API_KEY`
+is set, `GEMINI_MODEL`, `GEMINI_TRANSCRIPTION_MODEL`,
+`RETRIEVAL_REWRITE_MODEL` and `RETRIEVAL_RERANK_MODEL` must be set too, or the
+service refuses to start and prints all the missing ones at once.
+`EMBEDDING_MODEL` and `EMBEDDING_DIMENSIONS` are required with or without a
+key: they name the vector index the service reads, not a provider call.
+Without `GEMINI_API_KEY` the AI endpoints simply report that AI is not
+configured and the rest of the API runs normally.
 
 The Google key must never be included in the mobile application. Before a
 production deployment, also set a hard quota for the key in Google AI Studio;

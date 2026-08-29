@@ -239,9 +239,13 @@ python app/index_cli.py status
 python app/index_cli.py search --query "..." [--translation syn|--language ru]
 ```
 
-New optional env vars: `EMBEDDING_MODEL=gemini-embedding-001`,
-`EMBEDDING_DIMENSIONS=768`. Reuses `GEMINI_API_KEY`. New runtime dependency:
-`numpy` (added to requirements.txt).
+New env vars: `EMBEDDING_MODEL=gemini-embedding-001`,
+`EMBEDDING_DIMENSIONS=768`. They have no defaults in code and are required in
+every deployment, with or without `GEMINI_API_KEY`: the pair versions the
+stored vectors, so a guessed value would silently address an index nobody
+wrote (`c3:@0` — an empty read, and a destructive rebuild). Dimensions must be
+positive. Reuses `GEMINI_API_KEY`. New runtime dependency: `numpy` (added to
+requirements.txt).
 
 ## Consequences
 

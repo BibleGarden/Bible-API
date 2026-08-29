@@ -74,7 +74,9 @@ categories — enforced by tests.
 
 ### Model choice
 
-`RETRIEVAL_RERANK_MODEL` (new env var, default `gemini-3.5-flash-lite`) —
+`RETRIEVAL_RERANK_MODEL` (new env var, no default in code: required whenever
+`GEMINI_API_KEY` is set; value pinned by the benchmark to
+`gemini-3.5-flash-lite`) —
 independent of `GEMINI_MODEL` and `RETRIEVAL_REWRITE_MODEL`, pinned by the
 benchmark below: flash-lite passes every final_top1 threshold on BOTH
 rerank prompt versions (gemini-3.7-flash ties on v2, fails sensitive on

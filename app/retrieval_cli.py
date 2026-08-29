@@ -21,6 +21,7 @@ Usage (inside the bible-api container):
 from __future__ import annotations
 
 import argparse
+import sys
 
 from chunking import CHUNKING_VERSION
 from database import create_connection
@@ -35,7 +36,7 @@ from retrieval import (
     make_db_verse_loader,
     prompt_passage,
 )
-from vector_index import load_index
+from vector_index import IndexVersionUnavailable, load_index
 
 
 def cmd_select(args) -> int:
@@ -44,7 +45,18 @@ def cmd_select(args) -> int:
         print("Cannot connect to the database")
         return 1
     cursor = connection.cursor(dictionary=True)
-    index = load_index(cursor)
+    try:
+        index = load_index(cursor)
+    except IndexVersionUnavailable as exc:
+        # Practically unreachable: config.py requires EMBEDDING_MODEL /
+        # EMBEDDING_DIMENSIONS to be a valid pair before this module even
+        # imports. Kept so the CLI dies cleanly rather than with a raw
+        # traceback if that guarantee is ever bypassed (see
+        # architect/adr/0008-fail-fast-configuration.md).
+        print(f"{exc}", file=sys.stderr)
+        cursor.close()
+        connection.close()
+        return 1
     if not len(index):
         print("Vector index is empty — run app/index_cli.py rebuild first")
         return 1

@@ -53,7 +53,8 @@ Modules (all in `app/`):
 1. **Raw query** = topic + replies. Empty -> safe pool (`empty_topic`),
    zero Gemini calls.
 2. **Rewrite** (the main quality lever): Gemini
-   (`RETRIEVAL_REWRITE_MODEL`, default gemini-3.7-flash, temperature 0,
+   (`RETRIEVAL_REWRITE_MODEL`, pinned by the benchmark to gemini-3.7-flash
+   and set explicitly in the environment, temperature 0,
    JSON output, prompt v7) recalls well-known passages fitting the
    situation and writes 6 near-quote paraphrases in the register of the
    indexed translation (syn/bsb/ubh), ordered most-central-first, each a
@@ -181,7 +182,10 @@ parallel embedding is an obvious later optimisation).
 - The reranker (86cb8vw1h) receives a top-10 that already passes the
   retrieval thresholds, with per-candidate diagnostics (fused score, best
   variant, per-variant scores) and per-translation exact texts.
-- New env var: `RETRIEVAL_REWRITE_MODEL` (default gemini-3.7-flash).
+- New env var: `RETRIEVAL_REWRITE_MODEL`. Value pinned by the benchmark to
+  gemini-3.7-flash, but it has no default in `app/config.py`: it is required
+  whenever `GEMINI_API_KEY` is set (a default here once hid an unreachable
+  model behind a config the owner believed was flash-lite everywhere).
   New data files: `app/data/genre_blacklist.json`, `app/data/safe_pool.json`
   (versioned; edits require re-running the benchmark).
 - The lexical index rebuilds in-process at load from `translation_chunks`
