@@ -741,6 +741,30 @@ def _scenario_rewrites(
     return queries
 
 
+def _load_external_rewrites(path: str) -> tuple[dict[str, list[str]], dict]:
+    """Rewrite variants produced OUTSIDE this benchmark (external model).
+
+    File format (see bench_data/qwen_rewrites_v070.json):
+        {"meta": {"model": ..., "rewrite_prompt_version": 7, ...},
+         "scenarios": [{"id": ..., "variants": [...], "error": null}, ...]}
+
+    A scenario whose entry is missing, errored, or carries an empty variant
+    list is treated exactly like a live rewrite failure (the caller degrades
+    to the raw query, as production does on `rewrite_failed`). Using this
+    option makes the rewrite stage fully offline: no rewrite provider is
+    constructed and no rewrite call is issued.
+    """
+    payload = json.loads(Path(path).read_text())
+    meta = payload.get("meta", {})
+    by_id: dict[str, list[str]] = {}
+    for row in payload.get("scenarios", []):
+        variants = [q for q in (row.get("variants") or []) if q and q.strip()]
+        if row.get("error") or not variants:
+            continue
+        by_id[row["id"]] = variants
+    return by_id, meta
+
+
 def _evaluate_topk(
     scenario: dict,
     top_metas: list[ChunkMeta],
@@ -1239,12 +1263,24 @@ def cmd_pipeline(args) -> None:
 
     from config import RETRIEVAL_REWRITE_MODEL
 
-    rewrite_model = args.rewrite_model or RETRIEVAL_REWRITE_MODEL
-    rewriter = GeminiQueryRewriter(
-        api_key=require_rewrite_api_key(),
-        model=rewrite_model,
-        variants=args.variants,
-    )
+    # External rewrites (--rewrites-file): the rewrite stage runs entirely
+    # from disk. No rewriter is constructed at all, so the run cannot reach a
+    # rewrite provider even by accident.
+    external_rewrites: dict[str, list[str]] = {}
+    rewriter = None
+    if args.rewrites_file:
+        external_rewrites, ext_meta = _load_external_rewrites(args.rewrites_file)
+        rewrite_model = args.rewrite_model or (
+            f"file:{ext_meta.get('model', Path(args.rewrites_file).stem)}"
+        )
+    else:
+        rewrite_model = args.rewrite_model or RETRIEVAL_REWRITE_MODEL
+        if not args.no_rewrite:
+            rewriter = GeminiQueryRewriter(
+                api_key=require_rewrite_api_key(),
+                model=rewrite_model,
+                variants=args.variants,
+            )
 
     # --- final top-1 stage: rerank (optional) + fallback policies (free)
     reranker = None
@@ -1387,7 +1423,14 @@ def cmd_pipeline(args) -> None:
 
             # --- rewrite (unless ablated)
             queries: list[str] = []
-            if not args.no_rewrite:
+            if args.rewrites_file and not args.no_rewrite:
+                queries = list(external_rewrites.get(scenario["id"], []))
+                if not queries:
+                    # same degradation path as a live QueryRewriteError
+                    rewrite_failures += 1
+                    print(f"  [warn] rewrite missing/failed for "
+                          f"{scenario['id']} in {args.rewrites_file}")
+            elif not args.no_rewrite:
                 try:
                     queries = _scenario_rewrites(
                         scenario, rewriter, rewrite_model, args.variants,
@@ -1473,7 +1516,8 @@ def cmd_pipeline(args) -> None:
                     ))
     finally:
         _save_pipeline_cache(cache)
-        rewriter.close()
+        if rewriter is not None:
+            rewriter.close()
         if reranker is not None:
             reranker.close()
 
@@ -1574,6 +1618,13 @@ def main() -> None:
                         "(default: production RETRIEVAL_RERANK_MODEL)")
     p.add_argument("--cache-tag", default="",
                    help="extra rewrite-cache key part (stability re-sampling)")
+    p.add_argument("--rewrites-file", default="",
+                   help="JSON with rewrite variants produced by an EXTERNAL "
+                        "model ({meta, scenarios:[{id, variants, error}]}); "
+                        "the rewrite stage then runs fully offline — no "
+                        "rewrite provider is constructed or called. Scenarios "
+                        "with an error/empty variants degrade to the raw "
+                        "query, exactly like a live rewrite failure")
     p.add_argument("--coverage-translation", type=int, default=0,
                    help="ADR 0007: restrict the candidates of that "
                         "translation's language to the canonical windows it "
