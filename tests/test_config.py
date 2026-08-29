@@ -29,10 +29,10 @@ ALWAYS_REQUIRED = [
 ]
 PRESENCE_REQUIRED = ["DB_PASSWORD"]
 AI_REQUIRED = [
-    "GEMINI_MODEL",
-    "GEMINI_TRANSCRIPTION_MODEL",
-    "RETRIEVAL_REWRITE_MODEL",
-    "RETRIEVAL_RERANK_MODEL",
+    "AI_QUESTION_MODEL",
+    "AI_TRANSCRIBE_MODEL",
+    "AI_SCRIPTURE_REWRITE_MODEL",
+    "AI_SCRIPTURE_RERANK_MODEL",
 ]
 
 # The minimum a deployment without AI must set.
@@ -49,10 +49,10 @@ BASE_ENV = {
 AI_ENV = dict(
     BASE_ENV,
     GEMINI_API_KEY="gemini-key",
-    GEMINI_MODEL="gemini-3.5-flash-lite",
-    GEMINI_TRANSCRIPTION_MODEL="gemini-3.5-flash-lite",
-    RETRIEVAL_REWRITE_MODEL="gemini-3.7-flash",
-    RETRIEVAL_RERANK_MODEL="gemini-3.5-flash-lite",
+    AI_QUESTION_MODEL="gemini-3.5-flash-lite",
+    AI_TRANSCRIBE_MODEL="gemini-3.5-flash-lite",
+    AI_SCRIPTURE_REWRITE_MODEL="gemini-3.7-flash",
+    AI_SCRIPTURE_RERANK_MODEL="gemini-3.5-flash-lite",
 )
 
 
@@ -70,8 +70,8 @@ def test_parse_int_reads_value():
 
 def test_parse_int_rejects_garbage_naming_the_variable():
     with pytest.raises(config.ConfigError) as exc:
-        config.parse_int("SCRIPTURE_INDEX_CACHE_SECONDS", "3600s", 3600)
-    assert "SCRIPTURE_INDEX_CACHE_SECONDS" in str(exc.value)
+        config.parse_int("AI_SCRIPTURE_INDEX_CACHE_SECONDS", "3600s", 3600)
+    assert "AI_SCRIPTURE_INDEX_CACHE_SECONDS" in str(exc.value)
     assert "3600s" in str(exc.value)
 
 
@@ -86,8 +86,8 @@ def test_parse_float_reads_value():
 
 def test_parse_float_rejects_garbage_naming_the_variable():
     with pytest.raises(config.ConfigError) as exc:
-        config.parse_float("SCRIPTURE_SELECT_TIMEOUT_SECONDS", "fast", 15.0)
-    assert "SCRIPTURE_SELECT_TIMEOUT_SECONDS" in str(exc.value)
+        config.parse_float("AI_SCRIPTURE_TIMEOUT_SECONDS", "fast", 15.0)
+    assert "AI_SCRIPTURE_TIMEOUT_SECONDS" in str(exc.value)
 
 
 def test_config_error_is_runtime_error():
@@ -159,8 +159,8 @@ def test_fully_configured_ai_environment_has_no_missing_vars():
 
 
 def test_blank_model_var_counts_as_missing():
-    env = dict(AI_ENV, RETRIEVAL_REWRITE_MODEL="  ")
-    assert config.missing_required_vars(env) == ["RETRIEVAL_REWRITE_MODEL"]
+    env = dict(AI_ENV, AI_SCRIPTURE_REWRITE_MODEL="  ")
+    assert config.missing_required_vars(env) == ["AI_SCRIPTURE_REWRITE_MODEL"]
 
 
 # --- value ranges ----------------------------------------------------------
@@ -188,14 +188,14 @@ def test_non_numeric_dimensions_are_left_to_the_parser():
 
 
 def test_rewrite_key_is_used_when_set():
-    env = dict(AI_ENV, RETRIEVAL_REWRITE_API_KEY="paid-key")
+    env = dict(AI_ENV, AI_SCRIPTURE_REWRITE_API_KEY="paid-key")
     assert config.resolve_rewrite_api_key(env) == "paid-key"
     # ...and it does not leak into the shared key.
     assert env["GEMINI_API_KEY"] == "gemini-key"
 
 
 def test_rewrite_key_is_stripped():
-    env = dict(AI_ENV, RETRIEVAL_REWRITE_API_KEY="  paid-key\n")
+    env = dict(AI_ENV, AI_SCRIPTURE_REWRITE_API_KEY="  paid-key\n")
     assert config.resolve_rewrite_api_key(env) == "paid-key"
 
 
@@ -204,7 +204,7 @@ def test_unset_or_blank_rewrite_key_falls_back_to_the_shared_key(value):
     # The documented operational default: one key pays for every stage.
     env = dict(AI_ENV)
     if value is not None:
-        env["RETRIEVAL_REWRITE_API_KEY"] = value
+        env["AI_SCRIPTURE_REWRITE_API_KEY"] = value
     assert config.resolve_rewrite_api_key(env) == "gemini-key"
 
 
@@ -228,27 +228,27 @@ def test_the_shared_key_is_stripped_too():
 def test_rewrite_key_without_a_shared_key_is_a_configuration_error():
     # Paying for the rewrite of a pipeline whose embeddings and rerank have
     # no key at all is never what the deployer meant.
-    env = dict(BASE_ENV, RETRIEVAL_REWRITE_API_KEY="paid-key")
+    env = dict(BASE_ENV, AI_SCRIPTURE_REWRITE_API_KEY="paid-key")
     problems = config.invalid_required_values(env)
     assert len(problems) == 1
-    assert "RETRIEVAL_REWRITE_API_KEY" in problems[0]
+    assert "AI_SCRIPTURE_REWRITE_API_KEY" in problems[0]
     assert "GEMINI_API_KEY" in problems[0]
 
 
 @pytest.mark.parametrize("value", ["", "   "])
 def test_blank_rewrite_key_without_a_shared_key_is_not_an_error(value):
     # Blank means unset, and "no AI configured" stays a supported deployment.
-    env = dict(BASE_ENV, RETRIEVAL_REWRITE_API_KEY=value)
+    env = dict(BASE_ENV, AI_SCRIPTURE_REWRITE_API_KEY=value)
     assert config.invalid_required_values(env) == []
 
 
 def test_rewrite_key_problem_joins_the_aggregated_error():
-    env = dict(BASE_ENV, RETRIEVAL_REWRITE_API_KEY="paid-key")
+    env = dict(BASE_ENV, AI_SCRIPTURE_REWRITE_API_KEY="paid-key")
     del env["DB_NAME"]
     with pytest.raises(config.ConfigError) as exc:
         config._validate(env, [])
     message = str(exc.value)
-    assert "RETRIEVAL_REWRITE_API_KEY" in message
+    assert "AI_SCRIPTURE_REWRITE_API_KEY" in message
     assert "DB_NAME" in message
     assert "2 problems" in message
 
@@ -258,14 +258,14 @@ def test_rewrite_key_problem_joins_the_aggregated_error():
 
 def test_validate_lists_every_problem_at_once():
     env = dict(AI_ENV)
-    del env["RETRIEVAL_REWRITE_MODEL"]
+    del env["AI_SCRIPTURE_REWRITE_MODEL"]
     del env["EMBEDDING_DIMENSIONS"]
     with pytest.raises(config.ConfigError) as exc:
-        config._validate(env, ["GEMINI_REQUESTS_PER_MINUTE: expected an integer, got 'many'"])
+        config._validate(env, ["AI_REQUESTS_PER_MINUTE: expected an integer, got 'many'"])
     message = str(exc.value)
-    assert "RETRIEVAL_REWRITE_MODEL" in message
+    assert "AI_SCRIPTURE_REWRITE_MODEL" in message
     assert "EMBEDDING_DIMENSIONS" in message
-    assert "GEMINI_REQUESTS_PER_MINUTE" in message
+    assert "AI_REQUESTS_PER_MINUTE" in message
     assert "3 problems" in message
 
 
@@ -278,7 +278,7 @@ def test_validate_passes_on_a_complete_environment():
 
 def _reload_config(monkeypatch, env):
     for name in (*ALWAYS_REQUIRED, *PRESENCE_REQUIRED, *AI_REQUIRED,
-                 "GEMINI_API_KEY", "RETRIEVAL_REWRITE_API_KEY", "DB_PORT"):
+                 "GEMINI_API_KEY", "AI_SCRIPTURE_REWRITE_API_KEY", "DB_PORT"):
         monkeypatch.delenv(name, raising=False)
     for name, value in env.items():
         monkeypatch.setenv(name, value)
@@ -296,8 +296,8 @@ def test_import_succeeds_without_gemini_key(monkeypatch):
     module = _reload_config(monkeypatch, BASE_ENV)
     assert module.GEMINI_API_KEY == ""
     # "AI not configured": empty provider models, never a guessed one.
-    assert module.GEMINI_MODEL == ""
-    assert module.RETRIEVAL_REWRITE_MODEL == ""
+    assert module.AI_QUESTION_MODEL == ""
+    assert module.AI_SCRIPTURE_REWRITE_MODEL == ""
     # But the index this deployment reads is still named — that is what keeps
     # the documented keyless safe-pool answer working.
     assert module.EMBEDDING_MODEL == "gemini-embedding-001"
@@ -356,25 +356,25 @@ def test_import_fails_on_missing_db_variables(monkeypatch):
 
 
 def test_import_fails_on_non_numeric_value(monkeypatch):
-    env = dict(AI_ENV, SCRIPTURE_INDEX_CACHE_SECONDS="1h")
+    env = dict(AI_ENV, AI_SCRIPTURE_INDEX_CACHE_SECONDS="1h")
     with pytest.raises(RuntimeError) as exc:
         _reload_config(monkeypatch, env)
-    assert "SCRIPTURE_INDEX_CACHE_SECONDS" in str(exc.value)
+    assert "AI_SCRIPTURE_INDEX_CACHE_SECONDS" in str(exc.value)
 
 
 def test_import_reports_missing_models_and_bad_numbers_together(monkeypatch):
-    env = dict(AI_ENV, SCRIPTURE_SELECT_TIMEOUT_SECONDS="fifteen")
-    del env["RETRIEVAL_RERANK_MODEL"]
+    env = dict(AI_ENV, AI_SCRIPTURE_TIMEOUT_SECONDS="fifteen")
+    del env["AI_SCRIPTURE_RERANK_MODEL"]
     with pytest.raises(RuntimeError) as exc:
         _reload_config(monkeypatch, env)
     message = str(exc.value)
-    assert "RETRIEVAL_RERANK_MODEL" in message
-    assert "SCRIPTURE_SELECT_TIMEOUT_SECONDS" in message
+    assert "AI_SCRIPTURE_RERANK_MODEL" in message
+    assert "AI_SCRIPTURE_TIMEOUT_SECONDS" in message
 
 
 def test_import_resolves_the_rewrite_key_to_the_dedicated_one(monkeypatch):
     module = _reload_config(
-        monkeypatch, dict(AI_ENV, RETRIEVAL_REWRITE_API_KEY="paid-key")
+        monkeypatch, dict(AI_ENV, AI_SCRIPTURE_REWRITE_API_KEY="paid-key")
     )
     assert module.REWRITE_API_KEY == "paid-key"
     # Every other stage keeps billing the shared key.
@@ -389,13 +389,13 @@ def test_import_resolves_the_rewrite_key_to_the_shared_one(monkeypatch):
 def test_import_fails_on_a_rewrite_key_without_a_shared_key(monkeypatch):
     with pytest.raises(RuntimeError) as exc:
         _reload_config(
-            monkeypatch, dict(BASE_ENV, RETRIEVAL_REWRITE_API_KEY="paid-key")
+            monkeypatch, dict(BASE_ENV, AI_SCRIPTURE_REWRITE_API_KEY="paid-key")
         )
-    assert "RETRIEVAL_REWRITE_API_KEY" in str(exc.value)
+    assert "AI_SCRIPTURE_REWRITE_API_KEY" in str(exc.value)
 
 
 def test_import_succeeds_on_a_fully_configured_environment(monkeypatch):
     module = _reload_config(monkeypatch, AI_ENV)
-    assert module.RETRIEVAL_REWRITE_MODEL == "gemini-3.7-flash"
-    assert module.RETRIEVAL_RERANK_MODEL == "gemini-3.5-flash-lite"
+    assert module.AI_SCRIPTURE_REWRITE_MODEL == "gemini-3.7-flash"
+    assert module.AI_SCRIPTURE_RERANK_MODEL == "gemini-3.5-flash-lite"
     assert module.EMBEDDING_DIMENSIONS == 768

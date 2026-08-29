@@ -27,7 +27,7 @@ import time
 
 import httpx
 
-from config import RETRIEVAL_REWRITE_MODEL, REWRITE_API_KEY
+from config import AI_SCRIPTURE_REWRITE_MODEL, REWRITE_API_KEY
 from deadline import Deadline, request_timeout, sleep_budget
 from prompt_safety import neutralize_prompt_markers
 
@@ -159,13 +159,13 @@ class GeminiQueryRewriter:
 
     def __init__(
         self,
-        # Resolved at import: RETRIEVAL_REWRITE_API_KEY when the deployment
+        # Resolved at import: AI_SCRIPTURE_REWRITE_API_KEY when the deployment
         # bills this stage separately, GEMINI_API_KEY otherwise (config.
         # resolve_rewrite_api_key). Every production creation point —
         # scripture_select._gemini_clients, retrieval_cli — takes this
         # default, so the key is chosen in exactly one place.
         api_key: str = REWRITE_API_KEY,
-        model: str = RETRIEVAL_REWRITE_MODEL,
+        model: str = AI_SCRIPTURE_REWRITE_MODEL,
         http_client: httpx.Client | None = None,
         variants: int = REWRITE_VARIANTS,
         timeout: float = 20.0,
@@ -210,7 +210,7 @@ class GeminiQueryRewriter:
         if not self.api_key:
             raise QueryRewriteError(
                 "rewrite API key is not configured "
-                "(RETRIEVAL_REWRITE_API_KEY or GEMINI_API_KEY)"
+                "(AI_SCRIPTURE_REWRITE_API_KEY or GEMINI_API_KEY)"
             )
         if not _MODEL_PATTERN.fullmatch(self.model):
             raise QueryRewriteError("rewrite model name contains invalid characters")

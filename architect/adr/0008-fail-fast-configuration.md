@@ -6,18 +6,40 @@ Ticket: none — owner-directed policy change following the incident below.
 > Note (2026-08-30, ClickUp 86cbbmwjk): the AI routes named below were
 > renamed — `/api/twinkler/v1/complete` → `/api/ai/question`,
 > `/api/twinkler/v1/transcribe` → `/api/ai/transcribe`,
-> `/api/scripture/v1/select` → `/api/ai/scripture`. The `TWINKLER_*`
-> environment variables and every rule below are unchanged. Old path names
-> are kept in the historical text.
+> `/api/scripture/v1/select` → `/api/ai/scripture`. Old path names are kept
+> in the historical text.
+
+> Note (2026-08-30, ClickUp 86cbbmy8d): the AI environment variables were
+> renamed to mirror the method each one configures (`GEMINI_MODEL` →
+> `AI_QUESTION_MODEL`, `GEMINI_TRANSCRIPTION_MODEL` → `AI_TRANSCRIBE_MODEL`,
+> `RETRIEVAL_*`/`SCRIPTURE_SELECT_*`/`SCRIPTURE_*` → `AI_SCRIPTURE_*`,
+> `GEMINI_REQUESTS_PER_*` → `AI_REQUESTS_PER_*`, `TWINKLER_CLIENT_HMAC_KEY` →
+> `AI_CLIENT_HMAC_KEY`, `MP3_FILES_PATH` → `AUDIO_FILES_PATH`). **The rules
+> and the three classes below are unchanged; only the names in them are new**,
+> and the incident that produced this ADR was reported against the former
+> `RETRIEVAL_REWRITE_MODEL`. Deliberately, no old name is accepted as an
+> alias — under this ADR that is a feature, not an omission: any place the
+> rename missed aborts the start naming the variable it wants, which is the
+> aggregated error this document specifies.
+>
+> One variable left the classification entirely rather than being renamed:
+> `TWINKLER_SYSTEM_PROMPT`, previously an operational parameter with an empty
+> default. A prompt is product behaviour, so an *environment* default for it
+> was the very thing this ADR objects to — an unset value silently produced a
+> different answer (a 502 instead of a reply), and two deployments could run
+> different prompts with identical, valid-looking configuration. It is now the
+> reviewed, versioned code constant `question_prompt.QUESTION_PROMPT`. Moving
+> it out of the environment removes a whole class of misconfiguration instead
+> of validating it: see `architect/twinkler-ai.md`.
 
 ## Context
 
-Incident, 2026-08-29: `.env` set `GEMINI_MODEL=gemini-3.5-flash-lite`, and
+Incident, 2026-08-29: `.env` set `AI_QUESTION_MODEL=gemini-3.5-flash-lite`, and
 the owner believed the whole application ran on that model. The retrieval
 rewrite stage (ADR 0004) reads a separate variable,
-`RETRIEVAL_REWRITE_MODEL`, which was unset; `app/config.py` defaulted it in
+`AI_SCRIPTURE_REWRITE_MODEL`, which was unset; `app/config.py` defaulted it in
 code to `gemini-3.7-flash`. The key could not reach that model, so the
-rewrite stage started failing while `GEMINI_MODEL`-driven calls (Twinkler)
+rewrite stage started failing while `AI_QUESTION_MODEL`-driven calls (Twinkler)
 kept working on flash-lite. Nothing in the deployment declared "the rewrite
 stage runs on a different model than you think" — the degradation had to be
 found by reading code, not configuration.
@@ -43,9 +65,9 @@ every problem it found, not just the first:
 
 ```
 Invalid configuration (3 problems):
-  - RETRIEVAL_REWRITE_MODEL is required when GEMINI_API_KEY is set (no default: the model must be named explicitly)
+  - AI_SCRIPTURE_REWRITE_MODEL is required when GEMINI_API_KEY is set (no default: the model must be named explicitly)
   - EMBEDDING_DIMENSIONS is required
-  - GEMINI_REQUESTS_PER_MINUTE: expected an integer, got 'many'
+  - AI_REQUESTS_PER_MINUTE: expected an integer, got 'many'
 ```
 
 One error listing everything means a broken deployment is fixed in a single
@@ -64,8 +86,8 @@ edit-and-restart cycle instead of one variable discovered per restart.
   user, so `DB_PASSWORD=` is a legitimate, explicit statement. A variable
   that is simply absent is the silence this ADR forbids; both the local and
   the production `.env` set a real password today regardless.
-- **`AI_REQUIRED_VARS`** — `GEMINI_MODEL`, `GEMINI_TRANSCRIPTION_MODEL`,
-  `RETRIEVAL_REWRITE_MODEL`, `RETRIEVAL_RERANK_MODEL`. Required only when
+- **`AI_REQUIRED_VARS`** — `AI_QUESTION_MODEL`, `AI_TRANSCRIBE_MODEL`,
+  `AI_SCRIPTURE_REWRITE_MODEL`, `AI_SCRIPTURE_RERANK_MODEL`. Required only when
   `GEMINI_API_KEY` is set. Without a key the whole AI surface is "not
   configured": the AI endpoints already answer with their own error and the
   rest of the API must keep working, so demanding these model names would
@@ -87,10 +109,10 @@ edit-and-restart cycle instead of one variable discovered per restart.
   That is the same class of bug this whole ADR exists to prevent, just one
   hop removed from a provider call.
 
-### Addendum (2026-08-29): `RETRIEVAL_REWRITE_API_KEY`
+### Addendum (2026-08-29): `AI_SCRIPTURE_REWRITE_API_KEY`
 
 The retrieval rewrite stage may bill its own key
-(`RETRIEVAL_REWRITE_API_KEY`, optional; ADR 0004): it is pinned to
+(`AI_SCRIPTURE_REWRITE_API_KEY`, optional; ADR 0004): it is pinned to
 gemini-3.7-flash, whose free daily quota the traffic exhausts, while the
 embedding and rerank stages live on free lite-model quotas. Unset or blank
 means the stage uses `GEMINI_API_KEY` — the behaviour every deployment had
@@ -112,7 +134,7 @@ pure function, `config.resolve_rewrite_api_key()`, feeding the single
 constant `config.REWRITE_API_KEY` that `GeminiQueryRewriter` defaults to.
 
 The asymmetric configuration *is* rejected, and joins the aggregated list
-from `invalid_required_values()`: `RETRIEVAL_REWRITE_API_KEY` set while
+from `invalid_required_values()`: `AI_SCRIPTURE_REWRITE_API_KEY` set while
 `GEMINI_API_KEY` is empty buys the first stage of a pipeline whose
 embeddings and rerank have no key at all — a state no deployer means to be
 in, and one that would otherwise surface as a puzzling half-working
@@ -122,12 +144,12 @@ what that function reports.
 ### Operational parameters keep their defaults — but not their typos
 
 Limits, TTLs, timeouts and `DB_PORT` are tuning knobs, not identity
-decisions: `SCRIPTURE_SELECT_TIMEOUT_SECONDS=15` unset is a deliberate,
+decisions: `AI_SCRIPTURE_TIMEOUT_SECONDS=15` unset is a deliberate,
 reviewed operating point, not a guess. `parse_int` / `parse_float` return the
 documented default when a variable is unset or blank. But a value that *is*
 set and cannot be parsed is a `ConfigError` naming the variable and the raw
 value, never a silent fallback to the default — a typo like
-`SCRIPTURE_INDEX_CACHE_SECONDS=3600s` used to be swallowed and the service
+`AI_SCRIPTURE_INDEX_CACHE_SECONDS=3600s` used to be swallowed and the service
 silently ran on the default anyway, exactly the invisibility this ADR
 targets. `invalid_required_values()` adds a second layer for values that
 parse but are out of range: `EMBEDDING_DIMENSIONS=0` parses as a valid `int`
@@ -209,8 +231,8 @@ to be discovered by using it.
   the nit fixed alongside this ADR in `app/retrieval_cli.py`.
 - Extends ADR 0002 (`EMBEDDING_MODEL`/`EMBEDDING_DIMENSIONS` already had no
   code default, for the same "names an index, not a knob" reason), ADR 0004
-  (`RETRIEVAL_REWRITE_MODEL`, the variable at the center of the incident)
-  and ADR 0005 (`RETRIEVAL_RERANK_MODEL`) by making the requirement a single
+  (`AI_SCRIPTURE_REWRITE_MODEL`, the variable at the center of the incident)
+  and ADR 0005 (`AI_SCRIPTURE_RERANK_MODEL`) by making the requirement a single
   enforced policy instead of three independent conventions.
 
 ## Open questions

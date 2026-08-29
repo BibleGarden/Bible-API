@@ -4,7 +4,7 @@ from ipaddress import ip_address
 
 from starlette.requests import Request
 
-from config import TWINKLER_CLIENT_HMAC_KEY, TRUSTED_PROXY_IPS
+from config import AI_CLIENT_HMAC_KEY, TRUSTED_PROXY_IPS
 
 
 def resolve_client_ip(request: Request) -> str:
@@ -21,10 +21,10 @@ def resolve_client_ip(request: Request) -> str:
 
 
 def pseudonymize_twinkler_client(client_ip: str) -> str:
-    if not TWINKLER_CLIENT_HMAC_KEY:
-        raise RuntimeError("TWINKLER_CLIENT_HMAC_KEY is not configured")
+    if not AI_CLIENT_HMAC_KEY:
+        raise RuntimeError("AI_CLIENT_HMAC_KEY is not configured")
     return hmac.new(
-        TWINKLER_CLIENT_HMAC_KEY.encode("utf-8"),
+        AI_CLIENT_HMAC_KEY.encode("utf-8"),
         client_ip.encode("utf-8"),
         hashlib.sha256,
     ).hexdigest()

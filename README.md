@@ -31,36 +31,47 @@ The API will be available at `http://localhost:9084/api`.
 
 All endpoints require `X-API-Key` header.
 
-### Twinkler AI
+### AI endpoints
 
-`POST /api/ai/question` accepts `{ "user" }` and calls Gemini. The
-system prompt and the Google AI Studio key are configured only on the server:
+`POST /api/ai/question` accepts `{ "user" }` and calls Gemini. The system
+prompt is applied server-side and the Google AI Studio key never leaves the
+server:
 
 ```dotenv
 GEMINI_API_KEY=your-google-ai-studio-key
-GEMINI_MODEL=gemini-3.7-flash
-GEMINI_TRANSCRIPTION_MODEL=gemini-3.5-flash-lite
+AI_QUESTION_MODEL=gemini-3.7-flash
+AI_TRANSCRIBE_MODEL=gemini-3.5-flash-lite
 EMBEDDING_MODEL=gemini-embedding-001
 EMBEDDING_DIMENSIONS=768
-RETRIEVAL_REWRITE_MODEL=gemini-3.7-flash
-RETRIEVAL_RERANK_MODEL=gemini-3.5-flash-lite
-GEMINI_REQUESTS_PER_MINUTE=10
-GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE=3
-TWINKLER_SYSTEM_PROMPT=Your server-controlled companion instructions
-TWINKLER_CLIENT_HMAC_KEY=generate-a-separate-random-secret
+AI_SCRIPTURE_REWRITE_MODEL=gemini-3.7-flash
+AI_SCRIPTURE_RERANK_MODEL=gemini-3.5-flash-lite
+AI_REQUESTS_PER_MINUTE=10
+AI_REQUESTS_PER_CLIENT_PER_MINUTE=3
+AI_CLIENT_HMAC_KEY=generate-a-separate-random-secret
 TRUSTED_PROXY_IPS=127.0.0.1
 ```
 
+The system prompt is **not** configurable: it is the versioned constant
+`QUESTION_PROMPT` in `app/question_prompt.py`. It is product behaviour, is
+reviewed and diffed like the rest of the code, and cannot drift between
+environments. Changing it means editing that file and bumping
+`QUESTION_PROMPT_VERSION`.
+
 There are no defaults for the model names in the code. Once `GEMINI_API_KEY`
-is set, `GEMINI_MODEL`, `GEMINI_TRANSCRIPTION_MODEL`,
-`RETRIEVAL_REWRITE_MODEL` and `RETRIEVAL_RERANK_MODEL` must be set too, or the
+is set, `AI_QUESTION_MODEL`, `AI_TRANSCRIBE_MODEL`,
+`AI_SCRIPTURE_REWRITE_MODEL` and `AI_SCRIPTURE_RERANK_MODEL` must be set too, or the
 service refuses to start and prints all the missing ones at once.
 `EMBEDDING_MODEL` and `EMBEDDING_DIMENSIONS` are required with or without a
 key: they name the vector index the service reads, not a provider call.
 Without `GEMINI_API_KEY` the AI endpoints simply report that AI is not
-configured and the rest of the API runs normally.
+configured and the rest of the API runs normally: `/api/ai/question` and
+`/api/ai/transcribe` answer `502`, `/api/ai/scripture` degrades to the safe
+pool with `fallback_reason=ai_unavailable`. Two variables, and only these
+two, decide whether the AI surface is usable — `GEMINI_API_KEY` (missing →
+`502`) and `AI_CLIENT_HMAC_KEY` (missing → `503`, because the per-client
+rate limiter fails closed rather than silently dropping its limit).
 
-`RETRIEVAL_REWRITE_API_KEY` is optional and applies to the retrieval rewrite
+`AI_SCRIPTURE_REWRITE_API_KEY` is optional and applies to the retrieval rewrite
 stage only — set it to bill that one stage (the only one whose model exhausts
 its free daily quota) to a separate, paid key; leave it out and rewrites use
 `GEMINI_API_KEY` like every other call. Setting it without `GEMINI_API_KEY`
@@ -75,7 +86,7 @@ limiter before scaling the service horizontally.
 
 `TRUSTED_PROXY_IPS` must contain only direct reverse-proxy peers whose
 `X-Forwarded-For` header is trusted. Leave it empty when the API is exposed
-directly. `TWINKLER_CLIENT_HMAC_KEY` pseudonymizes client addresses and must be
+directly. `AI_CLIENT_HMAC_KEY` pseudonymizes client addresses and must be
 different from both API keys.
 
 `POST /api/ai/transcribe` accepts `multipart/form-data` with a required

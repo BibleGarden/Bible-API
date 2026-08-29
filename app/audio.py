@@ -9,7 +9,7 @@ from pathlib import Path
 from datetime import datetime
 import os
 
-from config import MP3_FILES_PATH, AUDIO_BASE_URL
+from config import AUDIO_FILES_PATH, AUDIO_BASE_URL
 from auth import RequireAPIKey, verify_api_key_query
 from database import create_connection
 from models import AudioFileNotFoundError
@@ -218,7 +218,7 @@ def validate_audio_path(translation: str, voice: str, book: str, chapter: str) -
                 detail=f"Invalid {param_name} parameter: contains unsafe characters"
             )
 
-    return Path(MP3_FILES_PATH) / translation / voice / "mp3" / book / f"{chapter}.mp3"
+    return Path(AUDIO_FILES_PATH) / translation / voice / "mp3" / book / f"{chapter}.mp3"
 
 
 @router.get("/{translation}/{voice}/{book}/{chapter}.mp3", tags=["Audio"])

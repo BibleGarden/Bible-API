@@ -28,14 +28,17 @@ image contents):
 ```bash
 docker cp tests/. bible-api:/code/tests
 docker cp evaluation/. bible-api:/code/evaluation
-docker exec -e API_KEY=test-api-key \
-  -e TWINKLER_SYSTEM_PROMPT="Серверная система" \
-  -e TWINKLER_CLIENT_HMAC_KEY=test-hmac-key \
+docker exec -e API_KEY=test-api-key -e AI_CLIENT_HMAC_KEY=test-hmac-key \
   bible-api pytest -q
 ```
 `tests/conftest.py` supplies the model and DB variables the fail-fast config
 now requires (via `setdefault`, so real values still win), which is why no
-extra `-e` overrides are needed.
+extra `-e` overrides are needed. The two that remain are *not* redundant:
+`conftest` uses `setdefault`, so the container's real `.env` values for
+`API_KEY` and `AI_CLIENT_HMAC_KEY` would win and the auth/pseudonym
+assertions (which expect `test-api-key` / `test-hmac-key`) would fail with
+403. The `TWINKLER_SYSTEM_PROMPT` override was dropped on 2026-08-30: the
+system prompt is a code constant now, not an environment value.
 
 ## Architecture
 
@@ -48,6 +51,7 @@ extra `-e` overrides are needed.
 - **`version_check.py`** — App version check
 - **`import_data.py`** — Import data from Dashboard-API
 - **`twinkler_ai.py`** — Server-prompted Gemini integration with in-memory rate limiting: `POST /api/ai/question` and `POST /api/ai/transcribe` (see `architect/twinkler-ai.md`)
+- **`question_prompt.py`** — the system prompt of `POST /api/ai/question` as a versioned constant (`QUESTION_PROMPT`, `QUESTION_PROMPT_VERSION`), the way `query_rewrite`/`passage_rerank` version theirs; moved out of `TWINKLER_SYSTEM_PROMPT` on 2026-08-30
 - **`scripture_select.py`** — Public scripture-selection endpoint `POST /api/ai/scripture` over `retrieval.select_final`; owns the process-local corpus cache: vector + BM25 indexes, Psalm maps, catalogue, coverage sets (see `architect/scripture-select.md`, `architect/adr/0006-scripture-select-api.md`, `architect/adr/0007-reference-translation-rendering.md`)
 - **`passage_render.py`** — renders a canonical passage window in a translation that has no chunk corpus (coordinates through `psalm_verse_mappings`, text from `translation_verses` with `chunking.build_text` semantics) and builds the per-translation coverage sets used to filter candidates before the rerank (ADR 0007)
 - **`rate_limit.py`** — Shared in-memory rolling-window limiter (Twinkler + scripture selection)
@@ -107,10 +111,10 @@ is an explicit statement; MySQL accepts a passwordless user — both the local
 and the production `.env` set a real password today). `DB_PORT` keeps its
 default 3306; a non-numeric value is an error.
 
-**Enforced when `GEMINI_API_KEY` is set** (no defaults in code): `GEMINI_MODEL`,
-`GEMINI_TRANSCRIPTION_MODEL`, `RETRIEVAL_REWRITE_MODEL`,
-`RETRIEVAL_RERANK_MODEL`. (Reason: on 2026-08-29 a default
-`RETRIEVAL_REWRITE_MODEL=gemini-3.7-flash` sent the rewrite stage to a model
+**Enforced when `GEMINI_API_KEY` is set** (no defaults in code): `AI_QUESTION_MODEL`,
+`AI_TRANSCRIBE_MODEL`, `AI_SCRIPTURE_REWRITE_MODEL`,
+`AI_SCRIPTURE_RERANK_MODEL`. (Reason: on 2026-08-29 a default
+`AI_SCRIPTURE_REWRITE_MODEL=gemini-3.7-flash` sent the rewrite stage to a model
 the key could not reach, while `.env` said flash-lite everywhere.)
 
 `GEMINI_API_KEY` itself stays optional — without it the AI surface is "not
@@ -122,15 +126,18 @@ still reads the vector index, which is why `EMBEDDING_MODEL` /
 index version (`c{chunking}:{model}@{dims}`), not a provider call.
 
 **Operational, keep their defaults** (a malformed value is still an error):
-`MP3_FILES_PATH` (`audio`), `AUDIO_BASE_URL` (`http://localhost:8000`),
-`ADMIN_API_URL`, `ADMIN_API_KEY` (for import), `GEMINI_REQUESTS_PER_MINUTE`,
-`GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE`, `TWINKLER_SYSTEM_PROMPT`,
-`TWINKLER_CLIENT_HMAC_KEY`, `TRUSTED_PROXY_IPS` and the `SCRIPTURE_*` knobs
-below. `AUDIO_DIR` is read by docker-compose, not by the application.
-`GEMINI_API_KEY`, `TWINKLER_SYSTEM_PROMPT`, and `TWINKLER_CLIENT_HMAC_KEY`
-must be set for Twinkler AI calls. `RETRIEVAL_REWRITE_API_KEY` is optional
-and affects the rewrite stage only (see below). The limiters are process-local, so
-production uses a single API worker.
+`AUDIO_FILES_PATH` (`audio`), `AUDIO_BASE_URL` (`http://localhost:8000`),
+`ADMIN_API_URL`, `ADMIN_API_KEY` (for import), `AI_REQUESTS_PER_MINUTE`,
+`AI_REQUESTS_PER_CLIENT_PER_MINUTE`, `AI_CLIENT_HMAC_KEY`,
+`TRUSTED_PROXY_IPS` and the `AI_SCRIPTURE_*` knobs below. `AUDIO_DIR` is read
+by docker-compose, not by the application.
+
+Exactly two variables decide whether the AI surface works:
+`GEMINI_API_KEY` (unset → `/api/ai/question` and `/api/ai/transcribe` answer
+`502`) and `AI_CLIENT_HMAC_KEY` (unset → `503`, the per-client limiter fails
+closed rather than dropping the limit). `AI_SCRIPTURE_REWRITE_API_KEY` is
+optional and affects the rewrite stage only (see below). The limiters are
+process-local, so production uses a single API worker.
 
 RAG / scripture selection:
 
@@ -140,10 +147,10 @@ RAG / scripture selection:
   `python app/index_cli.py rebuild`. `index_cli rebuild` also refuses to run
   without `GEMINI_API_KEY` (it would delete every stale-version row before
   discovering it cannot embed anything).
-- `RETRIEVAL_REWRITE_MODEL` (`gemini-3.7-flash`) — LLM query
+- `AI_SCRIPTURE_REWRITE_MODEL` (`gemini-3.7-flash`) — LLM query
   reformulation, the dominant quality lever; value pinned by the benchmark,
-  deliberately independent of `GEMINI_MODEL`, and required (ADR 0004).
-- `RETRIEVAL_REWRITE_API_KEY` (optional, no default) — API key for the
+  deliberately independent of `AI_QUESTION_MODEL`, and required (ADR 0004).
+- `AI_SCRIPTURE_REWRITE_API_KEY` (optional, no default) — API key for the
   **rewrite stage only**. Set: rewrites bill this key; unset or blank:
   rewrites bill `GEMINI_API_KEY` (one shared key — the previous behaviour and
   an operational default, not a hidden fallback: the *configured* behaviour
@@ -158,17 +165,17 @@ RAG / scripture selection:
   whose other stages have no key at all). Resolved once in
   `config.resolve_rewrite_api_key` → `config.REWRITE_API_KEY`, which is the
   default argument of `GeminiQueryRewriter`.
-- `RETRIEVAL_RERANK_MODEL` (`gemini-3.5-flash-lite`) — grounded choice
+- `AI_SCRIPTURE_RERANK_MODEL` (`gemini-3.5-flash-lite`) — grounded choice
   of the final passage among candidates; value pinned by the benchmark,
   required (ADR 0005).
-- `SCRIPTURE_SELECT_REQUESTS_PER_MINUTE` (10),
-  `SCRIPTURE_SELECT_REQUESTS_PER_CLIENT_PER_MINUTE` (3) — the selection
+- `AI_SCRIPTURE_REQUESTS_PER_MINUTE` (10),
+  `AI_SCRIPTURE_REQUESTS_PER_CLIENT_PER_MINUTE` (3) — the selection
   endpoint's own rate-limit budget (separate from the Twinkler one; it reuses
-  `TWINKLER_CLIENT_HMAC_KEY` for pseudonyms).
-- `SCRIPTURE_SELECT_TIMEOUT_SECONDS` (15) — total budget of one selection;
-  `SCRIPTURE_INDEX_CACHE_SECONDS` (3600) — TTL of the in-process corpus cache,
+  `AI_CLIENT_HMAC_KEY` for pseudonyms).
+- `AI_SCRIPTURE_TIMEOUT_SECONDS` (15) — total budget of one selection;
+  `AI_SCRIPTURE_INDEX_CACHE_SECONDS` (3600) — TTL of the in-process corpus cache,
   also dropped by `POST /api/cache/clear` (ADR 0006).
-- `SCRIPTURE_PRIMARY_TRANSLATIONS` (empty) — per-language default translation
+- `AI_SCRIPTURE_PRIMARY_TRANSLATIONS` (empty) — per-language default translation
   of the selection endpoint, e.g. `ru=syn,en=bsb,uk=ubh` (`language=alias` or
   `language=code`, comma separated). Must name an INDEXED translation;
   entries that do not are ignored with a warning. Empty means the indexed
@@ -196,9 +203,56 @@ generated spec. No generated clients depended on the old IDs — the mobile
 client is handwritten.
 
 Deliberately NOT renamed (out of scope): the modules `twinkler_ai.py` and
-`scripture_select.py`, the handler functions, and the
-`TWINKLER_SYSTEM_PROMPT` / `TWINKLER_CLIENT_HMAC_KEY` variables — these are
-internal and invisible to API consumers.
+`scripture_select.py` and the handler functions — these are internal and
+invisible to API consumers. The environment variables were renamed the
+following day (below).
+
+### Env variables renamed on 2026-08-30 (ClickUp 86cbbmy8d)
+
+Names now mirror the method they configure: `AI_*` for the whole AI surface,
+`AI_SCRIPTURE_*` for the selection pipeline only.
+
+| Old | New |
+| --- | --- |
+| `GEMINI_MODEL` | `AI_QUESTION_MODEL` |
+| `GEMINI_TRANSCRIPTION_MODEL` | `AI_TRANSCRIBE_MODEL` |
+| `GEMINI_REQUESTS_PER_MINUTE` | `AI_REQUESTS_PER_MINUTE` |
+| `GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE` | `AI_REQUESTS_PER_CLIENT_PER_MINUTE` |
+| `TWINKLER_CLIENT_HMAC_KEY` | `AI_CLIENT_HMAC_KEY` |
+| `RETRIEVAL_REWRITE_MODEL` | `AI_SCRIPTURE_REWRITE_MODEL` |
+| `RETRIEVAL_RERANK_MODEL` | `AI_SCRIPTURE_RERANK_MODEL` |
+| `RETRIEVAL_REWRITE_API_KEY` | `AI_SCRIPTURE_REWRITE_API_KEY` |
+| `SCRIPTURE_SELECT_REQUESTS_PER_MINUTE` | `AI_SCRIPTURE_REQUESTS_PER_MINUTE` |
+| `SCRIPTURE_SELECT_REQUESTS_PER_CLIENT_PER_MINUTE` | `AI_SCRIPTURE_REQUESTS_PER_CLIENT_PER_MINUTE` |
+| `SCRIPTURE_SELECT_TIMEOUT_SECONDS` | `AI_SCRIPTURE_TIMEOUT_SECONDS` |
+| `SCRIPTURE_INDEX_CACHE_SECONDS` | `AI_SCRIPTURE_INDEX_CACHE_SECONDS` |
+| `SCRIPTURE_PRIMARY_TRANSLATIONS` | `AI_SCRIPTURE_PRIMARY_TRANSLATIONS` |
+| `MP3_FILES_PATH` | `AUDIO_FILES_PATH` |
+| `TWINKLER_SYSTEM_PROMPT` | **deleted** — now `app/question_prompt.py` |
+
+Unchanged: `API_KEY`, `DB_*`, `ADMIN_API_URL/KEY`, `GEMINI_API_KEY`,
+`EMBEDDING_MODEL`, `EMBEDDING_DIMENSIONS`, `TRUSTED_PROXY_IPS`,
+`AUDIO_BASE_URL`, `AUDIO_DIR` (docker-compose host path), `OPENROUTER_API_KEY`
+(benchmark only).
+
+Values were **not** touched, only keys — in particular the HMAC key, so
+client pseudonyms in `api_requests` stay stable across the rename (the digest
+is keyed by the value; the variable name never enters it). There are no
+aliases for the old names on purpose: a place the rename missed aborts
+startup naming the variable it wants, which is ADR 0008's aggregated error
+doing its job. Production `.env` is rebuilt with the new names at deploy time
+(checklist 86cb8wdp4), not by this change.
+
+**`TWINKLER_SYSTEM_PROMPT` is gone.** The system prompt of
+`/api/ai/question` is the versioned constant `QUESTION_PROMPT` in
+`app/question_prompt.py` (`QUESTION_PROMPT_VERSION = 1`), carried over from
+the local `.env` byte for byte. A prompt is product behaviour, not a
+deployment knob: as a variable it could silently differ between local and
+production and every test run had to inject a stand-in. It is public from
+this date (public repository, owner-approved: never a secret, no key
+material). The old runtime guards "prompt is not configured" / "too long"
+were removed from `complete()` — a reviewed literal cannot violate them —
+and their invariants are asserted in `tests/test_twinkler_ai.py` instead.
 
 The request statistics store the path verbatim, so `api_requests` and
 `api_request_daily_stats` carry the old names before the rename and the new

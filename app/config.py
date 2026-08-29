@@ -16,11 +16,11 @@ class ConfigError(RuntimeError):
 # An unset *operational* parameter (limits, TTLs, timeouts) still falls back
 # to the documented default: those are tuning knobs, and their default is the
 # behaviour we intend. A *malformed* value never falls back — a typo in
-# `SCRIPTURE_SELECT_TIMEOUT_SECONDS=15s` used to be swallowed and the service
+# `AI_SCRIPTURE_TIMEOUT_SECONDS=15s` used to be swallowed and the service
 # silently ran on 15.0 anyway.
 #
 # Model variables have no defaults at all. The scripture-selection incident of
-# 2026-08-29 was invisible precisely because `RETRIEVAL_REWRITE_MODEL`
+# 2026-08-29 was invisible precisely because `AI_SCRIPTURE_REWRITE_MODEL`
 # defaulted to a model the owner had not configured and which the key could
 # not reach.
 #
@@ -41,6 +41,14 @@ class ConfigError(RuntimeError):
 # unset pair silently addressed the non-existent index version `c3:@0` — the
 # very class of bug this rule exists to prevent. Naming the index one reads is
 # not optional; there is no correct value to guess.
+#
+# Naming (2026-08-30, ClickUp 86cbbmy8d): the AI variables mirror the method
+# they configure — `AI_*` for the whole AI surface, `AI_SCRIPTURE_*` for the
+# selection pipeline only. The names in this file are the new ones throughout;
+# the 2026-08-29 incident above was reported against the former
+# `RETRIEVAL_REWRITE_MODEL`. No old name is accepted as an alias on purpose:
+# a place this rename forgot fails the start with the variable it wants, which
+# is exactly the fail-fast behaviour this module exists for.
 # ---------------------------------------------------------------------------
 
 # Required in every deployment, whatever is configured. Blank counts as unset.
@@ -60,10 +68,10 @@ ALWAYS_REQUIRED_VARS = (
 PRESENCE_REQUIRED_VARS = ("DB_PASSWORD",)
 # Models of the live Gemini calls: required once AI is configured.
 AI_REQUIRED_VARS = (
-    "GEMINI_MODEL",
-    "GEMINI_TRANSCRIPTION_MODEL",
-    "RETRIEVAL_REWRITE_MODEL",
-    "RETRIEVAL_RERANK_MODEL",
+    "AI_QUESTION_MODEL",
+    "AI_TRANSCRIBE_MODEL",
+    "AI_SCRIPTURE_REWRITE_MODEL",
+    "AI_SCRIPTURE_RERANK_MODEL",
 )
 
 
@@ -113,8 +121,8 @@ def missing_required_vars(env: Mapping[str, str]) -> list[str]:
 def resolve_rewrite_api_key(env: Mapping[str, str]) -> str:
     """The key the retrieval *rewrite* stage calls Gemini with.
 
-    `RETRIEVAL_REWRITE_API_KEY` when it is set and non-blank, otherwise
-    `GEMINI_API_KEY`. Blank counts as unset, so `RETRIEVAL_REWRITE_API_KEY=`
+    `AI_SCRIPTURE_REWRITE_API_KEY` when it is set and non-blank, otherwise
+    `GEMINI_API_KEY`. Blank counts as unset, so `AI_SCRIPTURE_REWRITE_API_KEY=`
     is the same statement as omitting it: "this deployment runs on one key".
     Both sides are stripped: a whitespace-only value is "unset" for the
     validation below, and returning it raw would put whitespace into the
@@ -135,7 +143,7 @@ def resolve_rewrite_api_key(env: Mapping[str, str]) -> str:
     empty pays for one stage of a pipeline whose remaining stages
     (embeddings, rerank) cannot run at all.
     """
-    dedicated = env.get("RETRIEVAL_REWRITE_API_KEY", "").strip()
+    dedicated = env.get("AI_SCRIPTURE_REWRITE_API_KEY", "").strip()
     if dedicated:
         return dedicated
     return env.get("GEMINI_API_KEY", "").strip()
@@ -161,11 +169,11 @@ def invalid_required_values(env: Mapping[str, str]) -> list[str]:
                 f"EMBEDDING_DIMENSIONS: expected a positive integer, got {dims}"
             )
     if (
-        env.get("RETRIEVAL_REWRITE_API_KEY", "").strip()
+        env.get("AI_SCRIPTURE_REWRITE_API_KEY", "").strip()
         and not env.get("GEMINI_API_KEY", "").strip()
     ):
         problems.append(
-            "RETRIEVAL_REWRITE_API_KEY: set while GEMINI_API_KEY is empty — "
+            "AI_SCRIPTURE_REWRITE_API_KEY: set while GEMINI_API_KEY is empty — "
             "the rewrite key pays for one stage of a pipeline whose other "
             "stages (embeddings, rerank) have no key at all"
         )
@@ -224,8 +232,10 @@ DB_USER = os.getenv("DB_USER", "")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "")
 DB_NAME = os.getenv("DB_NAME", "")
 
-# Path to MP3 files storage (inside container)
-MP3_FILES_PATH = os.getenv("MP3_FILES_PATH", "audio")
+# Path to the audio (mp3) file storage inside the container. Renamed from
+# MP3_FILES_PATH on 2026-08-30: the host-side bind mount is AUDIO_DIR and the
+# public URL prefix is AUDIO_BASE_URL, so all three now read as one family.
+AUDIO_FILES_PATH = os.getenv("AUDIO_FILES_PATH", "audio")
 
 # Base URL for audio files
 AUDIO_BASE_URL = os.getenv("AUDIO_BASE_URL", "http://localhost:8000")
@@ -237,17 +247,19 @@ API_KEY = os.getenv("API_KEY", "")
 ADMIN_API_URL = os.getenv("ADMIN_API_URL", "http://dashboard-api:8000")
 ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "")
 
-# Gemini API for the Twinkler prayer companion. Optional at startup so the
-# rest of Bible API remains available when AI is not configured. When it IS
-# set, the provider-call models below must be named explicitly — empty strings
-# there mean "AI not configured" and are only reachable without the key.
+# Gemini API for the prayer companion. Optional at startup so the rest of
+# Bible API remains available when AI is not configured. When it IS set, the
+# provider-call models below must be named explicitly — empty strings there
+# mean "AI not configured" and are only reachable without the key.
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "")
-GEMINI_TRANSCRIPTION_MODEL = os.getenv("GEMINI_TRANSCRIPTION_MODEL", "")
-GEMINI_REQUESTS_PER_MINUTE = max(1, _get_int("GEMINI_REQUESTS_PER_MINUTE", 10))
-GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE = min(
-    GEMINI_REQUESTS_PER_MINUTE,
-    max(1, _get_int("GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE", 3)),
+# Models of the two chat-shaped endpoints, named after the method each one
+# serves: POST /api/ai/question and POST /api/ai/transcribe.
+AI_QUESTION_MODEL = os.getenv("AI_QUESTION_MODEL", "")
+AI_TRANSCRIBE_MODEL = os.getenv("AI_TRANSCRIBE_MODEL", "")
+AI_REQUESTS_PER_MINUTE = max(1, _get_int("AI_REQUESTS_PER_MINUTE", 10))
+AI_REQUESTS_PER_CLIENT_PER_MINUTE = min(
+    AI_REQUESTS_PER_MINUTE,
+    max(1, _get_int("AI_REQUESTS_PER_CLIENT_PER_MINUTE", 3)),
 )
 # Embedding model for the scripture-selection RAG index (see
 # architect/adr/0002-embedding-model-and-vector-store.md). Uses the same
@@ -260,13 +272,13 @@ EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "")
 EMBEDDING_DIMENSIONS = _get_int("EMBEDDING_DIMENSIONS", 0)
 # Model for LLM query reformulation in the retrieval pipeline (see
 # architect/adr/0004-retrieval-pipeline.md). Deliberately NOT following
-# GEMINI_MODEL: the benchmark passes the retrieval thresholds only with
+# AI_QUESTION_MODEL: the benchmark passes the retrieval thresholds only with
 # gemini-3.7-flash rewrites (gemini-3.5-flash-lite fails recall@10 and MRR).
 # The value is pinned by that benchmark but must be spelled out in the
 # environment — a default here hid a broken model behind a working config.
-RETRIEVAL_REWRITE_MODEL = os.getenv("RETRIEVAL_REWRITE_MODEL", "")
+AI_SCRIPTURE_REWRITE_MODEL = os.getenv("AI_SCRIPTURE_REWRITE_MODEL", "")
 # Key the rewrite stage bills. Deliberately NOT a variable-shaped constant:
-# it is the *resolved* value of `RETRIEVAL_REWRITE_API_KEY or GEMINI_API_KEY`
+# it is the *resolved* value of `AI_SCRIPTURE_REWRITE_API_KEY or GEMINI_API_KEY`
 # (see resolve_rewrite_api_key for why that default is operational, not a
 # hidden fallback). Rewrite is the only stage pinned to gemini-3.7-flash,
 # whose free daily quota the retrieval traffic exhausts, while embeddings and
@@ -279,27 +291,27 @@ REWRITE_API_KEY = resolve_rewrite_api_key(os.environ)
 # candidates, see architect/adr/0005-grounded-passage-rerank.md). Pinned by
 # the final_top1 benchmark: gemini-3.5-flash-lite passes every threshold on
 # both rerank prompt versions (gemini-3.7-flash ties on v2 only) and is the
-# cheaper/faster stage. Independent from GEMINI_MODEL and
-# RETRIEVAL_REWRITE_MODEL so each stage can be tuned separately.
-RETRIEVAL_RERANK_MODEL = os.getenv("RETRIEVAL_RERANK_MODEL", "")
+# cheaper/faster stage. Independent from AI_QUESTION_MODEL and
+# AI_SCRIPTURE_REWRITE_MODEL so each stage can be tuned separately.
+AI_SCRIPTURE_RERANK_MODEL = os.getenv("AI_SCRIPTURE_RERANK_MODEL", "")
 
 # Public scripture-selection endpoint (see
 # architect/adr/0006-scripture-select-api.md). Its own rate-limit budget:
 # one selection costs ~8 Gemini calls (1 rewrite + 6 embeddings + 1
 # rerank), so it must not share a counter with the chat-shaped Twinkler
 # endpoints — either feature could otherwise starve the other.
-SCRIPTURE_SELECT_REQUESTS_PER_MINUTE = max(
-    1, _get_int("SCRIPTURE_SELECT_REQUESTS_PER_MINUTE", 10)
+AI_SCRIPTURE_REQUESTS_PER_MINUTE = max(
+    1, _get_int("AI_SCRIPTURE_REQUESTS_PER_MINUTE", 10)
 )
-SCRIPTURE_SELECT_REQUESTS_PER_CLIENT_PER_MINUTE = min(
-    SCRIPTURE_SELECT_REQUESTS_PER_MINUTE,
-    max(1, _get_int("SCRIPTURE_SELECT_REQUESTS_PER_CLIENT_PER_MINUTE", 3)),
+AI_SCRIPTURE_REQUESTS_PER_CLIENT_PER_MINUTE = min(
+    AI_SCRIPTURE_REQUESTS_PER_MINUTE,
+    max(1, _get_int("AI_SCRIPTURE_REQUESTS_PER_CLIENT_PER_MINUTE", 3)),
 )
 # Total time budget of one selection (rewrite + embeddings + rerank).
 # Measured p50 ~5-6 s with concurrent variant embeddings; 15 s leaves room
 # for a slow provider before the endpoint degrades to a verified fallback.
-SCRIPTURE_SELECT_TIMEOUT_SECONDS = max(
-    1.0, _get_float("SCRIPTURE_SELECT_TIMEOUT_SECONDS", 15.0)
+AI_SCRIPTURE_TIMEOUT_SECONDS = max(
+    1.0, _get_float("AI_SCRIPTURE_TIMEOUT_SECONDS", 15.0)
 )
 # TTL of the process-local corpus cache (vector index + BM25 index). The
 # cached data is prayer-independent; nothing derived from a request is
@@ -307,8 +319,8 @@ SCRIPTURE_SELECT_TIMEOUT_SECONDS = max(
 # second: a 0 would rebuild ~45 MB of indexes under a global lock on every
 # request (self-inflicted denial of service), and "no caching" is not a
 # configuration this endpoint can serve traffic with.
-SCRIPTURE_INDEX_CACHE_SECONDS = max(
-    1, _get_int("SCRIPTURE_INDEX_CACHE_SECONDS", 3600)
+AI_SCRIPTURE_INDEX_CACHE_SECONDS = max(
+    1, _get_int("AI_SCRIPTURE_INDEX_CACHE_SECONDS", 3600)
 )
 # Which translation each language is served in when a selection request does
 # not name one (ADR 0006 open question 5, closed by ADR 0007). Format:
@@ -318,12 +330,20 @@ SCRIPTURE_INDEX_CACHE_SECONDS = max(
 # warning. Empty (the default) means: the indexed translation with the
 # lowest code, which is deterministic and — while every language has exactly
 # one indexed translation — identical to the previous "first in index order".
-SCRIPTURE_PRIMARY_TRANSLATIONS = os.getenv(
-    "SCRIPTURE_PRIMARY_TRANSLATIONS", ""
+AI_SCRIPTURE_PRIMARY_TRANSLATIONS = os.getenv(
+    "AI_SCRIPTURE_PRIMARY_TRANSLATIONS", ""
 )
 
-TWINKLER_SYSTEM_PROMPT = os.getenv("TWINKLER_SYSTEM_PROMPT", "").strip()
-TWINKLER_CLIENT_HMAC_KEY = os.getenv("TWINKLER_CLIENT_HMAC_KEY", "").strip()
+# Salt of the in-memory client pseudonyms (rate limiter + request stats).
+# Renamed from TWINKLER_CLIENT_HMAC_KEY on 2026-08-30 without touching the
+# VALUE, so every existing pseudonym stays stable across the rename: the HMAC
+# is keyed by the value alone — the variable name is never mixed into the
+# digest (see client_ip.pseudonymize_twinkler_client).
+#
+# The system prompt of POST /api/ai/question used to be read here as
+# TWINKLER_SYSTEM_PROMPT. It is product behaviour, not deployment
+# configuration, and now lives in question_prompt.QUESTION_PROMPT.
+AI_CLIENT_HMAC_KEY = os.getenv("AI_CLIENT_HMAC_KEY", "").strip()
 TRUSTED_PROXY_IPS = frozenset(
     value.strip()
     for value in os.getenv("TRUSTED_PROXY_IPS", "").split(",")

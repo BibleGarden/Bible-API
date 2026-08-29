@@ -12,6 +12,11 @@ Ticket: follow-up of ClickUp 86cb8vw1m (ADR 0006 open question 5)
 > is documented in `architect/scripture-select.md`; only its HTTP surface is
 > gone. Old path names are kept in the historical text.
 
+> Note (2026-08-30, ClickUp 86cbbmy8d): `SCRIPTURE_PRIMARY_TRANSLATIONS`, the
+> setting this ADR introduces, is now `AI_SCRIPTURE_PRIMARY_TRANSLATIONS`.
+> Name only — the format (`ru=syn,en=bsb,uk=ubh`), the "must be indexed" rule
+> and the empty-value default are unchanged.
+
 ## Context
 
 `POST /api/scripture/v1/select` accepted only translations that carry an
@@ -60,7 +65,7 @@ fixed. The message still repeats nothing but the number the caller sent.
 
 ### The primary translation is configuration, not index order (closes 0006 OQ5)
 
-`SCRIPTURE_PRIMARY_TRANSLATIONS`, format `ru=syn,en=bsb,uk=ubh` — comma
+`AI_SCRIPTURE_PRIMARY_TRANSLATIONS`, format `ru=syn,en=bsb,uk=ubh` — comma
 separated `language=alias` or `language=code`, whitespace ignored. An entry
 whose translation is not INDEXED for that language, or whose language has no
 index, is ignored with a warning and the language falls back to the default.
@@ -317,7 +322,7 @@ renders — and is dropped.
 
 - New module `app/passage_render.py`; `chunking._build_text` is now the
   public `chunking.build_text`.
-- New env var `SCRIPTURE_PRIMARY_TRANSLATIONS` (optional, default
+- New env var `AI_SCRIPTURE_PRIMARY_TRANSLATIONS` (optional, default
   documented above).
 - Corpus load grows from ~0.94 s to ~1.4 s and one selection of a
   non-primary translation opens a second short-lived DB connection for the

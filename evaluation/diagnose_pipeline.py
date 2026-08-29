@@ -38,10 +38,10 @@ def main() -> None:
     api_key = rb.require_api_key()
     # No default: a diagnosis that silently runs on another model than the
     # deployment does is worse than no diagnosis (the 2026-08-29 incident).
-    model = rb._dotenv_value("GEMINI_MODEL")
+    model = rb._dotenv_value("AI_QUESTION_MODEL")
     if not model:
         raise SystemExit(
-            "GEMINI_MODEL is not set (environment or .env) — set it to the "
+            "AI_QUESTION_MODEL is not set (environment or .env) — set it to the "
             "model this diagnosis should reproduce."
         )
 

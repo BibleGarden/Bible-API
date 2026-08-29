@@ -16,6 +16,22 @@ them is ADR 0004 (retrieval) and ADR 0005 (grounded rerank).
 > unchanged — only the path moved. The old paths return 404; there are no
 > aliases (a single unpublished client, renamed in a paired mobile ticket).
 
+> **Environment variables renamed 2026-08-30 (ClickUp 86cbbmy8d).** Every
+> setting of this pipeline now carries the `AI_SCRIPTURE_` prefix, so a name
+> says which method it configures: `RETRIEVAL_REWRITE_MODEL` →
+> `AI_SCRIPTURE_REWRITE_MODEL`, `RETRIEVAL_RERANK_MODEL` →
+> `AI_SCRIPTURE_RERANK_MODEL`, `RETRIEVAL_REWRITE_API_KEY` →
+> `AI_SCRIPTURE_REWRITE_API_KEY`, `SCRIPTURE_SELECT_REQUESTS_PER_MINUTE` and
+> `SCRIPTURE_SELECT_REQUESTS_PER_CLIENT_PER_MINUTE` →
+> `AI_SCRIPTURE_REQUESTS_PER_[CLIENT_]MINUTE`,
+> `SCRIPTURE_SELECT_TIMEOUT_SECONDS` → `AI_SCRIPTURE_TIMEOUT_SECONDS`,
+> `SCRIPTURE_INDEX_CACHE_SECONDS` → `AI_SCRIPTURE_INDEX_CACHE_SECONDS`,
+> `SCRIPTURE_PRIMARY_TRANSLATIONS` → `AI_SCRIPTURE_PRIMARY_TRANSLATIONS`, and
+> the shared `TWINKLER_CLIENT_HMAC_KEY` → `AI_CLIENT_HMAC_KEY`. Names only —
+> no value, limit or default changed, and no old name is accepted as an
+> alias. Everything below uses the new names; benchmark reports written
+> before that date named the same knobs by their old ones.
+
 ## Public contract
 
 The endpoint requires the common `X-API-Key` header. Unknown JSON fields
@@ -131,7 +147,7 @@ in `translation`; anything else is rejected with 422. Today that is:
 
 The primary is the one served when `translation` is omitted; it is also the
 translation the corpus is indexed in. The set follows the database and the
-`SCRIPTURE_PRIMARY_TRANSLATIONS` setting, so it changes when the corpus is
+`AI_SCRIPTURE_PRIMARY_TRANSLATIONS` setting, so it changes when the corpus is
 rebuilt — it is not a published constant. Names, descriptions and audio
 voices of the same translations are in `GET /api/translations`, joined by
 `code`.
@@ -272,9 +288,9 @@ bug and are rejected with 422.
 
 ## Configuration
 
-The models of the three AI stages — `RETRIEVAL_REWRITE_MODEL` (rewrite),
+The models of the three AI stages — `AI_SCRIPTURE_REWRITE_MODEL` (rewrite),
 `EMBEDDING_MODEL` + `EMBEDDING_DIMENSIONS` (vector index) and
-`RETRIEVAL_RERANK_MODEL` (final choice) — have **no defaults in code**: a
+`AI_SCRIPTURE_RERANK_MODEL` (final choice) — have **no defaults in code**: a
 missing one aborts startup with an aggregated list of what is unset. Their
 values are pinned by the benchmark (ADR 0002, 0004, 0005) but must be spelled
 out in the environment; the 2026-08-29 degradation was invisible because a
@@ -293,7 +309,7 @@ never a silent fallback.
 
 ### Which key pays for which stage
 
-`RETRIEVAL_REWRITE_API_KEY` (optional) is the key of the **rewrite stage
+`AI_SCRIPTURE_REWRITE_API_KEY` (optional) is the key of the **rewrite stage
 only**. Unset or blank means "one shared key": rewrites go out on
 `GEMINI_API_KEY`, exactly as before the variable existed. That default is
 operational, not a hidden fallback in the ADR 0008 sense — the absent value
@@ -320,7 +336,7 @@ bills the same key without repeating the rule. `GeminiEmbeddingClient`,
 `GeminiPassageReranker` and `twinkler_ai` still read `GEMINI_API_KEY`
 directly.
 
-A `RETRIEVAL_REWRITE_API_KEY` set while `GEMINI_API_KEY` is empty is a
+A `AI_SCRIPTURE_REWRITE_API_KEY` set while `GEMINI_API_KEY` is empty is a
 configuration error in the aggregated startup list: it pays for the first
 stage of a pipeline whose remaining stages cannot run at all.
 
@@ -346,7 +362,7 @@ the fingerprint) to chase a discount on ~500 tokens per selection.
 
 ## Time budget
 
-One selection is bounded by `SCRIPTURE_SELECT_TIMEOUT_SECONDS` (default
+One selection is bounded by `AI_SCRIPTURE_TIMEOUT_SECONDS` (default
 15 s): stages that cannot finish are skipped in favour of a verified
 fallback, and every provider call is capped by what is left of the budget.
 Measured production latency (warm process): median 6.2 s, max 6.6 s; the
@@ -357,12 +373,12 @@ query rewrite is ~75 % of it. The six query embeddings run concurrently.
 Two 60-second windows, independent of the Twinkler budget because one
 selection costs ~8 provider calls:
 
-- global: `SCRIPTURE_SELECT_REQUESTS_PER_MINUTE` (default 10);
-- per client address: `SCRIPTURE_SELECT_REQUESTS_PER_CLIENT_PER_MINUTE`
+- global: `AI_SCRIPTURE_REQUESTS_PER_MINUTE` (default 10);
+- per client address: `AI_SCRIPTURE_REQUESTS_PER_CLIENT_PER_MINUTE`
   (default 3).
 
 The in-memory client identifier is an HMAC-SHA-256 pseudonym built with
-`TWINKLER_CLIENT_HMAC_KEY` (shared with the Twinkler endpoints); the
+`AI_CLIENT_HMAC_KEY` (shared with the Twinkler endpoints); the
 address itself is not retained. Missing HMAC configuration fails closed
 with 503. Counters are process-local, so production runs a single API
 worker. Client addresses come from the direct peer; `X-Forwarded-For` is
@@ -390,7 +406,7 @@ survives only in the permanent daily aggregate.
 
 The vector index, the per-language BM25 index, the Psalm versification maps,
 the renderable-translation catalogue and the per-translation coverage sets
-are cached in the process for `SCRIPTURE_INDEX_CACHE_SECONDS` (default
+are cached in the process for `AI_SCRIPTURE_INDEX_CACHE_SECONDS` (default
 1 hour, minimum 1 second) — they depend only on the corpus, cost ~1.4 s to
 build and are identical for every request. `POST /api/cache/clear` drops them immediately, so a rebuilt
 index can be published without restarting the service. If a refresh fails,

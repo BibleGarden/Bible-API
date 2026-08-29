@@ -17,8 +17,7 @@ from unittest.mock import Mock
 import pytest
 
 os.environ.setdefault("API_KEY", "test-api-key")
-os.environ.setdefault("TWINKLER_SYSTEM_PROMPT", "Серверная система")
-os.environ.setdefault("TWINKLER_CLIENT_HMAC_KEY", "test-hmac-key")
+os.environ.setdefault("AI_CLIENT_HMAC_KEY", "test-hmac-key")
 
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
@@ -1473,7 +1472,7 @@ def test_split_exclusions_keeps_only_the_current_corpus():
 def test_rate_limits_per_client(monkeypatch):
     monkeypatch.setattr(rate_limit.time, "monotonic", lambda: 100.0)
     monkeypatch.setattr(
-        scripture_select, "SCRIPTURE_SELECT_REQUESTS_PER_CLIENT_PER_MINUTE", 1
+        scripture_select, "AI_SCRIPTURE_REQUESTS_PER_CLIENT_PER_MINUTE", 1
     )
 
     first = post({"language": "ru", "topic": TOPIC})
@@ -1487,7 +1486,7 @@ def test_rate_limits_per_client(monkeypatch):
 
 def test_rate_limits_globally(monkeypatch):
     monkeypatch.setattr(rate_limit.time, "monotonic", lambda: 100.0)
-    monkeypatch.setattr(scripture_select, "SCRIPTURE_SELECT_REQUESTS_PER_MINUTE", 1)
+    monkeypatch.setattr(scripture_select, "AI_SCRIPTURE_REQUESTS_PER_MINUTE", 1)
 
     post({"language": "ru", "topic": TOPIC})
     second = post({"language": "ru", "topic": TOPIC})
@@ -1499,7 +1498,7 @@ def test_rate_limit_budget_is_independent_from_twinkler(monkeypatch):
     import twinkler_ai
 
     monkeypatch.setattr(rate_limit.time, "monotonic", lambda: 100.0)
-    monkeypatch.setattr(scripture_select, "SCRIPTURE_SELECT_REQUESTS_PER_MINUTE", 1)
+    monkeypatch.setattr(scripture_select, "AI_SCRIPTURE_REQUESTS_PER_MINUTE", 1)
 
     post({"language": "ru", "topic": TOPIC})
 
@@ -1507,7 +1506,7 @@ def test_rate_limit_budget_is_independent_from_twinkler(monkeypatch):
 
 
 def test_rate_limiter_fails_closed_without_the_hmac_key(monkeypatch):
-    monkeypatch.setattr(client_ip, "TWINKLER_CLIENT_HMAC_KEY", "")
+    monkeypatch.setattr(client_ip, "AI_CLIENT_HMAC_KEY", "")
 
     response = post({"language": "ru", "topic": TOPIC})
 
@@ -1660,7 +1659,7 @@ def test_rate_limited_response_carries_no_prayer_context():
 
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(
-            scripture_select, "SCRIPTURE_SELECT_REQUESTS_PER_CLIENT_PER_MINUTE", 1
+            scripture_select, "AI_SCRIPTURE_REQUESTS_PER_CLIENT_PER_MINUTE", 1
         )
         post(body)
         response = post(body)
@@ -1682,7 +1681,7 @@ def test_a_failed_refresh_keeps_serving_the_cached_corpus(monkeypatch, caplog):
         translations={"ru": [(1, "syn")]}, loaded_at=0.0,
     )
     monkeypatch.setattr(scripture_select, "_resources", resources)
-    monkeypatch.setattr(scripture_select, "SCRIPTURE_INDEX_CACHE_SECONDS", 0)
+    monkeypatch.setattr(scripture_select, "AI_SCRIPTURE_INDEX_CACHE_SECONDS", 0)
     monkeypatch.setattr(
         scripture_select, "_load_resources",
         Mock(side_effect=scripture_select.ScriptureSelectUnavailable("db down")),

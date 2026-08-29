@@ -11,6 +11,18 @@ Ticket: ClickUp 86cb8vw1m
 > responses, headers, authentication, limits and the privacy rules below are
 > unchanged. Old path names are kept in the historical text.
 
+> Note (2026-08-30, ClickUp 86cbbmy8d): the endpoint's settings were renamed
+> to the `AI_SCRIPTURE_` family — `SCRIPTURE_SELECT_REQUESTS_PER_MINUTE` and
+> `SCRIPTURE_SELECT_REQUESTS_PER_CLIENT_PER_MINUTE` →
+> `AI_SCRIPTURE_REQUESTS_PER_[CLIENT_]MINUTE`,
+> `SCRIPTURE_SELECT_TIMEOUT_SECONDS` → `AI_SCRIPTURE_TIMEOUT_SECONDS`,
+> `SCRIPTURE_INDEX_CACHE_SECONDS` → `AI_SCRIPTURE_INDEX_CACHE_SECONDS`,
+> `SCRIPTURE_PRIMARY_TRANSLATIONS` → `AI_SCRIPTURE_PRIMARY_TRANSLATIONS`, and
+> the pseudonymization key shared with the other AI endpoints
+> `TWINKLER_CLIENT_HMAC_KEY` → `AI_CLIENT_HMAC_KEY`. Names only: every limit,
+> budget and default decided here is unchanged, and the HMAC *value* was not
+> touched, so existing client pseudonyms remain stable.
+
 ## Context
 
 ADR 0004 (retrieval) and ADR 0005 (grounded rerank) produce
@@ -222,7 +234,7 @@ default handler and its published body shape.
 `select_final` is a chain of provider calls, each with its own retry
 ladder; before this ADR the worst case was their sum (minutes). A
 `deadline.Deadline` is now created per request
-(`SCRIPTURE_SELECT_TIMEOUT_SECONDS`, default 15 s) and threaded through
+(`AI_SCRIPTURE_TIMEOUT_SECONDS`, default 15 s) and threaded through
 every stage:
 
 - stage boundaries check `expired()` and degrade instead of starting a
@@ -279,7 +291,7 @@ quality trade, not a free one).
 Cached: the vector index, the per-language BM25 index and the Psalm
 versification maps — all derived only from the corpus, identical for every
 request, ~45 MB, ~0.94 s to build.
-Process-local with a TTL (`SCRIPTURE_INDEX_CACHE_SECONDS`, default 1 h) and
+Process-local with a TTL (`AI_SCRIPTURE_INDEX_CACHE_SECONDS`, default 1 h) and
 dropped immediately by `POST /api/cache/clear` (so an index rebuild can be
 published without a restart).
 
@@ -296,15 +308,15 @@ because a 0 would rebuild ~45 MB under the global lock on every request.
 
 ### Rate limiting
 
-Own budget, own env vars: `SCRIPTURE_SELECT_REQUESTS_PER_MINUTE` (default
-10) and `SCRIPTURE_SELECT_REQUESTS_PER_CLIENT_PER_MINUTE` (default 3), same
+Own budget, own env vars: `AI_SCRIPTURE_REQUESTS_PER_MINUTE` (default
+10) and `AI_SCRIPTURE_REQUESTS_PER_CLIENT_PER_MINUTE` (default 3), same
 shape and defaults as Twinkler's. Separate counters because one selection
 costs ~8 provider calls (1 rewrite + 6 embeddings + 1 rerank) against
 Twinkler's 1: a shared window would let chat traffic starve selection or
 vice versa, and the two features need to be tuned independently in
 production.
 
-The pseudonymisation key is shared (`TWINKLER_CLIENT_HMAC_KEY`): a second
+The pseudonymisation key is shared (`AI_CLIENT_HMAC_KEY`): a second
 key would double the configuration surface without adding privacy — the
 pseudonym is already unlinkable to an address, and both endpoints serve the
 same app.
@@ -412,9 +424,9 @@ re-run).
   (`translation_titles` for the same chunk ranges, one statement per
   selection). It is guarded separately: if it fails, the verses are still
   returned, only without the section-title paragraph breaks.
-- New env vars: `SCRIPTURE_SELECT_REQUESTS_PER_MINUTE`,
-  `SCRIPTURE_SELECT_REQUESTS_PER_CLIENT_PER_MINUTE`,
-  `SCRIPTURE_SELECT_TIMEOUT_SECONDS`, `SCRIPTURE_INDEX_CACHE_SECONDS`.
+- New env vars: `AI_SCRIPTURE_REQUESTS_PER_MINUTE`,
+  `AI_SCRIPTURE_REQUESTS_PER_CLIENT_PER_MINUTE`,
+  `AI_SCRIPTURE_TIMEOUT_SECONDS`, `AI_SCRIPTURE_INDEX_CACHE_SECONDS`.
 - `GeminiQueryRewriter`, `GeminiPassageReranker` and
   `GeminiEmbeddingClient` accept a `deadline` and configurable
   timeout/attempts; defaults are unchanged for the CLI and the benchmark.
@@ -447,7 +459,7 @@ re-run).
    language is indexed, the primary-translation default ("first in index
    order") should become an explicit per-language configuration.~~
    **Closed by ADR 0007 (2026-08-27):** the default is now the explicit
-   `SCRIPTURE_PRIMARY_TRANSLATIONS` configuration (falling back to the
+   `AI_SCRIPTURE_PRIMARY_TRANSLATIONS` configuration (falling back to the
    lowest indexed code, deterministic and identical to today's behaviour),
    and `translation` is no longer fixed per language — every ACTIVE
    translation of an indexed language can be requested. The corpus is still

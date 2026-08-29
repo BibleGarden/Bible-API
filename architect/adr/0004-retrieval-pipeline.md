@@ -3,6 +3,16 @@
 Status: accepted (2026-08-24), thresholds passed on the approved benchmark.
 Ticket: ClickUp 86cb8vw1g
 
+> Note (2026-08-30, ClickUp 86cbbmy8d): the variables of this pipeline were
+> renamed to carry the `AI_SCRIPTURE_` prefix of the method they configure —
+> `RETRIEVAL_REWRITE_MODEL` → `AI_SCRIPTURE_REWRITE_MODEL`,
+> `RETRIEVAL_REWRITE_API_KEY` → `AI_SCRIPTURE_REWRITE_API_KEY`,
+> `RETRIEVAL_RERANK_MODEL` → `AI_SCRIPTURE_RERANK_MODEL`,
+> `SCRIPTURE_SELECT_TIMEOUT_SECONDS` → `AI_SCRIPTURE_TIMEOUT_SECONDS`. Names
+> only: the pinned models, the rewrite-vs-shared-key rule and every threshold
+> below are unchanged, and the text uses the new names throughout. Benchmark
+> reports produced before that date name the same knobs by their old ones.
+
 ## Context
 
 The retrieval layer must turn a prayer context (topic + allowed user replies
@@ -53,7 +63,7 @@ Modules (all in `app/`):
 1. **Raw query** = topic + replies. Empty -> safe pool (`empty_topic`),
    zero Gemini calls.
 2. **Rewrite** (the main quality lever): Gemini
-   (`RETRIEVAL_REWRITE_MODEL`, pinned by the benchmark to gemini-3.7-flash
+   (`AI_SCRIPTURE_REWRITE_MODEL`, pinned by the benchmark to gemini-3.7-flash
    and set explicitly in the environment, temperature 0,
    JSON output, prompt v7) recalls well-known passages fitting the
    situation and writes 6 near-quote paraphrases in the register of the
@@ -141,8 +151,8 @@ Reading:
 - **The LLM rewrite is the dominant lever** (+0.67 hit@10 alone), exactly
   as the ADR 0002 diagnosis predicted. Rewrite quality is decisive:
   gemini-3.5-flash-lite fails the thresholds with the identical pipeline —
-  hence `RETRIEVAL_REWRITE_MODEL` is pinned to gemini-3.7-flash and
-  deliberately does not follow `GEMINI_MODEL`.
+  hence `AI_SCRIPTURE_REWRITE_MODEL` is pinned to gemini-3.7-flash and
+  deliberately does not follow `AI_QUESTION_MODEL`.
 - Prompt lessons (versions are benchmarked in the pipeline cache): near-quote
   paraphrases of concrete passages beat "prayer-style" reformulations
   (hit 0.667 -> 0.792 at 4 variants); 6 variants beat 4 (recall +0.08) and
@@ -182,13 +192,13 @@ parallel embedding is an obvious later optimisation).
 - The reranker (86cb8vw1h) receives a top-10 that already passes the
   retrieval thresholds, with per-candidate diagnostics (fused score, best
   variant, per-variant scores) and per-translation exact texts.
-- New env var: `RETRIEVAL_REWRITE_MODEL`. Value pinned by the benchmark to
+- New env var: `AI_SCRIPTURE_REWRITE_MODEL`. Value pinned by the benchmark to
   gemini-3.7-flash, but it has no default in `app/config.py`: it is required
   whenever `GEMINI_API_KEY` is set (a default here once hid an unreachable
   model behind a config the owner believed was flash-lite everywhere).
   New data files: `app/data/genre_blacklist.json`, `app/data/safe_pool.json`
   (versioned; edits require re-running the benchmark).
-- New optional env var (2026-08-29): `RETRIEVAL_REWRITE_API_KEY` — the key
+- New optional env var (2026-08-29): `AI_SCRIPTURE_REWRITE_API_KEY` — the key
   this stage bills. Because the stage is pinned to gemini-3.7-flash, its
   free daily quota is the pipeline's binding constraint, while the embedding
   and rerank stages stay inside the free quotas of their lite models; the

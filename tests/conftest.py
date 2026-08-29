@@ -10,8 +10,7 @@ purpose: a real value already present in the environment still wins.
 import os
 
 os.environ.setdefault("API_KEY", "test-api-key")
-os.environ.setdefault("TWINKLER_SYSTEM_PROMPT", "Серверная система")
-os.environ.setdefault("TWINKLER_CLIENT_HMAC_KEY", "test-hmac-key")
+os.environ.setdefault("AI_CLIENT_HMAC_KEY", "test-hmac-key")
 
 # The database is never contacted by the unit tests, but config requires these
 # to be named rather than defaulted to "localhost/root/cep_public".
@@ -24,9 +23,9 @@ os.environ.setdefault("DB_NAME", "cep_public_test")
 # call the provider, but they import modules that read these at import time
 # (and use them as default arguments), so pin the production values here
 # instead of letting the suite depend on whether a key is present.
-os.environ.setdefault("GEMINI_MODEL", "gemini-3.5-flash-lite")
-os.environ.setdefault("GEMINI_TRANSCRIPTION_MODEL", "gemini-3.5-flash-lite")
+os.environ.setdefault("AI_QUESTION_MODEL", "gemini-3.5-flash-lite")
+os.environ.setdefault("AI_TRANSCRIBE_MODEL", "gemini-3.5-flash-lite")
 os.environ.setdefault("EMBEDDING_MODEL", "gemini-embedding-001")
 os.environ.setdefault("EMBEDDING_DIMENSIONS", "768")
-os.environ.setdefault("RETRIEVAL_REWRITE_MODEL", "gemini-3.7-flash")
-os.environ.setdefault("RETRIEVAL_RERANK_MODEL", "gemini-3.5-flash-lite")
+os.environ.setdefault("AI_SCRIPTURE_REWRITE_MODEL", "gemini-3.7-flash")
+os.environ.setdefault("AI_SCRIPTURE_RERANK_MODEL", "gemini-3.5-flash-lite")

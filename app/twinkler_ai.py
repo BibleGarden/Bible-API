@@ -11,12 +11,12 @@ from auth import RequireAPIKey
 from client_ip import resolve_client_ip
 from config import (
     GEMINI_API_KEY,
-    GEMINI_MODEL,
-    GEMINI_TRANSCRIPTION_MODEL,
-    GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE,
-    GEMINI_REQUESTS_PER_MINUTE,
-    TWINKLER_SYSTEM_PROMPT,
+    AI_QUESTION_MODEL,
+    AI_TRANSCRIBE_MODEL,
+    AI_REQUESTS_PER_CLIENT_PER_MINUTE,
+    AI_REQUESTS_PER_MINUTE,
 )
+from question_prompt import QUESTION_PROMPT
 from rate_limit import RateLimiter, RateLimitError
 
 router = APIRouter()
@@ -65,8 +65,8 @@ def _reserve_rate_limit(client_key: str) -> None:
     """Book one Twinkler AI slot; limits are read at call time."""
     _limiter.reserve(
         client_key,
-        GEMINI_REQUESTS_PER_MINUTE,
-        GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE,
+        AI_REQUESTS_PER_MINUTE,
+        AI_REQUESTS_PER_CLIENT_PER_MINUTE,
     )
 
 
@@ -102,21 +102,35 @@ def _extract_text(data: Any) -> str:
 
 
 async def complete(user: str) -> str:
+    """Answer one user message, or raise GeminiError (the caller's 502).
+
+    "AI is not configured" is decided by exactly two variables since
+    2026-08-30, and the prompt is no longer one of them:
+    `GEMINI_API_KEY` unset -> GeminiError here -> 502, and
+    `AI_CLIENT_HMAC_KEY` unset -> the limiter fails closed before this
+    function is reached -> 503 (see `_enforce_rate_limit`). A malformed
+    `AI_QUESTION_MODEL` is also a 502, but is unreachable in practice: with
+    a key set, an unnamed model aborts startup (ADR 0008).
+
+    Since 2026-08-30 the system prompt is the code constant
+    `question_prompt.QUESTION_PROMPT`, so the two guards this function used
+    to carry — "prompt is not configured" and "prompt is too long" — are
+    gone: neither can be true of a reviewed literal, and keeping them would
+    have pretended a code change could arrive at runtime. What remains
+    configurable is exactly what the deployment supplies: the provider key
+    and the model name.
+    """
     if not GEMINI_API_KEY:
         raise GeminiError("GEMINI_API_KEY is not configured")
-    if not TWINKLER_SYSTEM_PROMPT:
-        raise GeminiError("TWINKLER_SYSTEM_PROMPT is not configured")
-    if len(TWINKLER_SYSTEM_PROMPT) > 8000:
-        raise GeminiError("TWINKLER_SYSTEM_PROMPT is too long")
-    if not MODEL_PATTERN.fullmatch(GEMINI_MODEL):
-        raise GeminiError("GEMINI_MODEL contains invalid characters")
+    if not MODEL_PATTERN.fullmatch(AI_QUESTION_MODEL):
+        raise GeminiError("AI_QUESTION_MODEL contains invalid characters")
 
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{GEMINI_MODEL}:generateContent"
+        f"{AI_QUESTION_MODEL}:generateContent"
     )
     payload = {
-        "system_instruction": {"parts": [{"text": TWINKLER_SYSTEM_PROMPT}]},
+        "system_instruction": {"parts": [{"text": QUESTION_PROMPT}]},
         "contents": [{"role": "user", "parts": [{"text": user}]}],
         "generationConfig": {
             "maxOutputTokens": 1024,
@@ -168,12 +182,12 @@ def _transcription_prompt(locale: str | None) -> str:
 async def transcribe(audio: bytes, mime_type: str, locale: str | None) -> str:
     if not GEMINI_API_KEY:
         raise GeminiError("GEMINI_API_KEY is not configured")
-    if not MODEL_PATTERN.fullmatch(GEMINI_TRANSCRIPTION_MODEL):
-        raise GeminiError("GEMINI_TRANSCRIPTION_MODEL contains invalid characters")
+    if not MODEL_PATTERN.fullmatch(AI_TRANSCRIBE_MODEL):
+        raise GeminiError("AI_TRANSCRIBE_MODEL contains invalid characters")
 
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{GEMINI_TRANSCRIPTION_MODEL}:generateContent"
+        f"{AI_TRANSCRIBE_MODEL}:generateContent"
     )
     payload = {
         "contents": [{
@@ -221,8 +235,9 @@ async def transcribe(audio: bytes, mime_type: str, locale: str | None) -> str:
     tags=["AI"],
     summary="Generate an AI companion response",
     description=(
-        "Sends the user message to the server-configured Gemini model. System "
-        "instructions and the Gemini API key are never exposed to the client."
+        "Sends the user message to the server-configured Gemini model with a "
+        "server-side system prompt. The Gemini API key is never exposed to "
+        "the client."
     ),
     responses={
         403: {"model": ErrorResponse, "description": "Invalid or missing API key"},
@@ -236,7 +251,14 @@ async def transcribe(audio: bytes, mime_type: str, locale: str | None) -> str:
                 }
             },
         },
-        502: {"model": ErrorResponse, "description": "Gemini request failed"},
+        # Public wording only: the exact server-side conditions behind these
+        # two codes are documented in architect/twinkler-ai.md, not in a spec
+        # the client reads — naming server variables there would leak
+        # deployment detail for no consumer benefit.
+        502: {
+            "model": ErrorResponse,
+            "description": "AI is not configured or the Gemini request failed",
+        },
         503: {"model": ErrorResponse, "description": "Rate limiter unavailable"},
     },
 )

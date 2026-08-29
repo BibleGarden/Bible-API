@@ -60,11 +60,11 @@ from auth import RequireAPIKey
 from chunking import CHUNKING_VERSION
 from client_ip import resolve_client_ip
 from config import (
-    SCRIPTURE_INDEX_CACHE_SECONDS,
-    SCRIPTURE_PRIMARY_TRANSLATIONS,
-    SCRIPTURE_SELECT_REQUESTS_PER_CLIENT_PER_MINUTE,
-    SCRIPTURE_SELECT_REQUESTS_PER_MINUTE,
-    SCRIPTURE_SELECT_TIMEOUT_SECONDS,
+    AI_SCRIPTURE_INDEX_CACHE_SECONDS,
+    AI_SCRIPTURE_PRIMARY_TRANSLATIONS,
+    AI_SCRIPTURE_REQUESTS_PER_CLIENT_PER_MINUTE,
+    AI_SCRIPTURE_REQUESTS_PER_MINUTE,
+    AI_SCRIPTURE_TIMEOUT_SECONDS,
 )
 from database import create_connection
 from deadline import Deadline
@@ -551,8 +551,8 @@ _limiter = RateLimiter(name="scripture selection")
 def _reserve_rate_limit(client_key: str) -> None:
     _limiter.reserve(
         client_key,
-        SCRIPTURE_SELECT_REQUESTS_PER_MINUTE,
-        SCRIPTURE_SELECT_REQUESTS_PER_CLIENT_PER_MINUTE,
+        AI_SCRIPTURE_REQUESTS_PER_MINUTE,
+        AI_SCRIPTURE_REQUESTS_PER_CLIENT_PER_MINUTE,
     )
 
 
@@ -607,7 +607,7 @@ _resources: CorpusResources | None = None
 
 
 def parse_primary_config(raw: str) -> dict[str, str]:
-    """Parse SCRIPTURE_PRIMARY_TRANSLATIONS ("ru=syn,en=bsb,uk=16").
+    """Parse AI_SCRIPTURE_PRIMARY_TRANSLATIONS ("ru=syn,en=bsb,uk=16").
 
     Entries are `language=alias` or `language=code`, comma separated,
     whitespace tolerated. A malformed item is skipped with a warning (the
@@ -623,7 +623,7 @@ def parse_primary_config(raw: str) -> dict[str, str]:
         language, value = language.strip(), value.strip()
         if not separator or not language or not value:
             logger.warning(
-                "SCRIPTURE_PRIMARY_TRANSLATIONS: ignoring a malformed entry"
+                "AI_SCRIPTURE_PRIMARY_TRANSLATIONS: ignoring a malformed entry"
             )
             continue
         config[language] = value
@@ -670,7 +670,7 @@ def resolve_primary_translations(
                 # Category only: never echo an unindexed value into the log
                 # of a language it does not belong to.
                 logger.warning(
-                    "SCRIPTURE_PRIMARY_TRANSLATIONS: %s names a translation "
+                    "AI_SCRIPTURE_PRIMARY_TRANSLATIONS: %s names a translation "
                     "that is not indexed for that language; using the default",
                     language,
                 )
@@ -691,7 +691,7 @@ def resolve_primary_translations(
     for language in config:
         if language not in indexed:
             logger.warning(
-                "SCRIPTURE_PRIMARY_TRANSLATIONS: language %s has no index",
+                "AI_SCRIPTURE_PRIMARY_TRANSLATIONS: language %s has no index",
                 language,
             )
     return primary
@@ -861,7 +861,7 @@ def _load_resources() -> CorpusResources:
             psalm_maps = {}
         indexed = _indexed_translations(index)
         primary = resolve_primary_translations(
-            indexed, SCRIPTURE_PRIMARY_TRANSLATIONS
+            indexed, AI_SCRIPTURE_PRIMARY_TRANSLATIONS
         )
         try:
             translations, coverage = _build_catalogue(
@@ -907,7 +907,7 @@ def get_resources() -> CorpusResources:
     with _resources_lock:
         cached = _resources
         if cached is not None and (
-            time.monotonic() - cached.loaded_at < SCRIPTURE_INDEX_CACHE_SECONDS
+            time.monotonic() - cached.loaded_at < AI_SCRIPTURE_INDEX_CACHE_SECONDS
         ):
             return cached
         try:
@@ -950,7 +950,7 @@ def _gemini_clients() -> tuple:
 
     No key is passed here on purpose: each client's constructor already
     defaults to the key its stage bills — the rewriter to
-    `config.REWRITE_API_KEY` (`RETRIEVAL_REWRITE_API_KEY` when the deployment
+    `config.REWRITE_API_KEY` (`AI_SCRIPTURE_REWRITE_API_KEY` when the deployment
     splits billing, `GEMINI_API_KEY` otherwise), the embedder and the
     reranker to `GEMINI_API_KEY`.
     """
@@ -1445,7 +1445,7 @@ async def scripture_select(
     )
     language = request.language.value
     allowed = coverage_filter(resources, language, translation)
-    deadline = Deadline(SCRIPTURE_SELECT_TIMEOUT_SECONDS)
+    deadline = Deadline(AI_SCRIPTURE_TIMEOUT_SECONDS)
     try:
         final = await run_in_threadpool(
             _run_selection, resources, selection_request, deadline, allowed

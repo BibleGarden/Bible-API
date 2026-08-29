@@ -2,7 +2,20 @@
 
 Эталонный набор для оценки качества серверного RAG-подбора мест Писания под
 контекст молитвы (тема + разрешённые ответы пользователя из диалога Twinkler).
-Тикет: ClickUp 86cb8vvyb. Статус: **approved** (версия 0.7.0) —
+Тикет: ClickUp 86cb8vvyb.
+
+> **Переменные окружения переименованы 2026-08-30 (ClickUp 86cbbmy8d).**
+> `RETRIEVAL_REWRITE_MODEL` → `AI_SCRIPTURE_REWRITE_MODEL`,
+> `RETRIEVAL_RERANK_MODEL` → `AI_SCRIPTURE_RERANK_MODEL`,
+> `RETRIEVAL_REWRITE_API_KEY` → `AI_SCRIPTURE_REWRITE_API_KEY`,
+> `SCRIPTURE_SELECT_TIMEOUT_SECONDS` → `AI_SCRIPTURE_TIMEOUT_SECONDS`,
+> `GEMINI_MODEL` → `AI_QUESTION_MODEL`, `TWINKLER_CLIENT_HMAC_KEY` →
+> `AI_CLIENT_HMAC_KEY`. Переименованы только имена — значения, модели, лимиты
+> и все измерения ниже не менялись. Отчёты о прогонах, сделанные до этой даты,
+> приведены с **новыми** именами, чтобы команды из них были исполнимы: в самих
+> прогонах те же ручки назывались по-старому.
+
+Статус: **approved** (версия 0.7.0) —
 богословская/редакторская проверка завершена 2026-08-24, все 24 сценария
 `review_status: approved`, набор утверждён Марией. Версия 0.3.0 добавляет
 пакет ручных оценок Марии для 10 неразмеченных top-1 стадии финального
@@ -222,8 +235,8 @@ Retrieval (top-K кандидатов до финального ранжиров
 
 ```bash
 # схема и целостность набора (в общем прогоне тестов)
-docker exec -e API_KEY=test-api-key -e TWINKLER_SYSTEM_PROMPT="Серверная система" \
-  -e TWINKLER_CLIENT_HMAC_KEY=test-hmac-key bible-api pytest -q tests/test_evaluation_dataset.py
+docker exec -e API_KEY=test-api-key -e AI_CLIENT_HMAC_KEY=test-hmac-key \
+  bible-api pytest -q tests/test_evaluation_dataset.py
 
 # существование координат в БД (вне pytest, требует cep_public)
 docker cp evaluation bible-api:/tmp/evaluation \
@@ -304,16 +317,16 @@ python retrieval_benchmark.py pipeline -h         # абляции: --no-rewrite
                                                   # --no-lexical, --fusion, ...
 ```
 
-> **Внимание, деньги.** Стадия rewrite использует `RETRIEVAL_REWRITE_API_KEY`,
+> **Внимание, деньги.** Стадия rewrite использует `AI_SCRIPTURE_REWRITE_API_KEY`,
 > если он задан в окружении или в `Bible-API/.env` (внутрь контейнера его
 > прокидывает compose), и `GEMINI_API_KEY` — если нет. Ключ rewrite платный:
 > прогон `pipeline` без `--no-rewrite` тратит деньги на каждый непопавший в
 > кэш сценарий. Чтобы принудительно считать по общему ключу, запускайте с
-> `RETRIEVAL_REWRITE_API_KEY= python retrieval_benchmark.py pipeline`
+> `AI_SCRIPTURE_REWRITE_API_KEY= python retrieval_benchmark.py pipeline`
 > (пустое значение = «не задан») — но этот рецепт надёжен только внутри
 > контейнера, где `.env` отсутствует: на машине с локальным `Bible-API/.env`
 > пустая переменная проваливается в чтение файла и вернёт всё тот же платный
-> ключ, поэтому там нужно временно закомментировать `RETRIEVAL_REWRITE_API_KEY`
+> ключ, поэтому там нужно временно закомментировать `AI_SCRIPTURE_REWRITE_API_KEY`
 > в самом `.env`. Эмбеддинги и rerank по-прежнему идут по `GEMINI_API_KEY`.
 
 Дефолтные флаги воспроизводят утверждённую конфигурацию (rewrite
@@ -336,7 +349,7 @@ pool, cap 4/книга и 1/глава). Результат на approved-наб
 `app/passage_rerank.py`) прогоняется поверх пайплайна:
 
 ```bash
-python retrieval_benchmark.py pipeline --rerank   # модель из RETRIEVAL_RERANK_MODEL
+python retrieval_benchmark.py pipeline --rerank   # модель из AI_SCRIPTURE_RERANK_MODEL
 python retrieval_benchmark.py pipeline --rerank --rerank-model gemini-3.5-flash-lite
 ```
 
@@ -604,10 +617,10 @@ docker cp evaluation/. bible-api:/code/evaluation
 docker exec -w /code/evaluation bible-api python3 retrieval_benchmark.py \
   pipeline --rerank --json-out bench_data/results_v070_rewrite_flash37.json
 # кандидаты
-docker exec -w /code/evaluation -e RETRIEVAL_REWRITE_MODEL=gemini-3.5-flash-lite \
+docker exec -w /code/evaluation -e AI_SCRIPTURE_REWRITE_MODEL=gemini-3.5-flash-lite \
   bible-api python3 retrieval_benchmark.py pipeline --rerank \
   --json-out bench_data/results_v070_rewrite_flashlite35.json
-docker exec -w /code/evaluation -e RETRIEVAL_REWRITE_MODEL=gemini-3.1-flash-lite \
+docker exec -w /code/evaluation -e AI_SCRIPTURE_REWRITE_MODEL=gemini-3.1-flash-lite \
   bible-api python3 retrieval_benchmark.py pipeline --rerank \
   --json-out bench_data/results_v070_rewrite_flashlite31.json
 # то же с суженным пулом npu (ADR 0007) — суффикс _npu_coverage.json
@@ -707,7 +720,7 @@ relevant` у базы помечен FAIL по строгому порогу 1.0
   смягчённом разделе для суженного пула. Хуже 3.5-lite: единственная
   конфигурация пакета, проваливающая ещё и `final_top1`.
 * **Переключение не выполнено.** Ни один кандидат не удовлетворяет
-  критерию приёмки «проходит все пороги», поэтому `RETRIEVAL_REWRITE_MODEL`
+  критерию приёмки «проходит все пороги», поэтому `AI_SCRIPTURE_REWRITE_MODEL`
   в `.env` остался `gemini-3.7-flash`, конфиг работающего сервиса не
   трогался. Дальнейшие варианты — вне этого пакета и за Марией: платный
   ключ / ожидание сброса лимитов / другая (не лайт) модель на rewrite.
@@ -852,7 +865,7 @@ en-005) попали в неразмеченные.
 По `meta` замера Марии (24 сценария, машина Марии): **медиана 2.28 с,
 максимум 3.02 с**, повторная попытка потребовалась ровно один раз
 (en-006). Это заметно лучше волатильной 3.7-flash (4-13 с) и, главное,
-предсказуемо: при бюджете `SCRIPTURE_SELECT_TIMEOUT_SECONDS=15` стадия
+предсказуемо: при бюджете `AI_SCRIPTURE_TIMEOUT_SECONDS=15` стадия
 rewrite съедала бы 15-20 % бюджета с потолком 3 с вместо нынешних 27-87 % с
 риском выхода за бюджет и `fallback_reason=deadline`. **По задержке кандидат
 проходит с запасом** — вопрос только в качестве, и качество его и хоронит.
@@ -892,7 +905,7 @@ rewrite съедала бы 15-20 % бюджета с потолком 3 с вм
   разметки открыт.
 * **Плюс кандидата — только задержка** (медиана 2.28 с против 4-13 с) и
   независимость от квоты Gemini. Качеством он его не окупает.
-* **Переключение не выполнено.** `RETRIEVAL_REWRITE_MODEL` в `.env` не
+* **Переключение не выполнено.** `AI_SCRIPTURE_REWRITE_MODEL` в `.env` не
   трогался, остаётся `gemini-3.7-flash`.
 
 #### Неразмеченные top-1 (гейт ручной разметки открыт)
@@ -1100,7 +1113,7 @@ Retrieval-пороги в суженном пуле — общие с основ
 (отдельного пофайлового замера по 24 сценариям для неё не делали).
 
 **По задержке оба кандидата непригодны в текущем режиме с большим
-отрывом.** При бюджете `SCRIPTURE_SELECT_TIMEOUT_SECONDS=15` медианный вызов
+отрывом.** При бюджете `AI_SCRIPTURE_TIMEOUT_SECONDS=15` медианный вызов
 rewrite съедает 2.3 (GLM) и 2.7 (DeepSeek) полных бюджета запроса, то есть
 в проде **каждый** запрос завершался бы `fallback_reason=deadline` из
 безопасного пула. Разброс тоже неприемлемый: 10-203 с у GLM, 3-396 с у
@@ -1136,7 +1149,7 @@ reasoning-токенов на вызов при 6 коротких строка�
   смягчённом. Задержка ещё хуже, чем у GLM (медиана 39.9 с, максимум 396 с,
   четыре повтора из-за невалидного JSON). Заметно уступает GLM по всем
   ключевым метрикам при вдвое меньшей цене — цена здесь не аргумент.
-* **Переключение не выполнено.** `RETRIEVAL_REWRITE_MODEL` в `.env` не
+* **Переключение не выполнено.** `AI_SCRIPTURE_REWRITE_MODEL` в `.env` не
   трогался, остаётся `gemini-3.7-flash`; прод-адаптер под OpenRouter не
   писался (он и был вне скоупа).
 * **Рекомендация для следующего шага:** прежде чем брать резервный
@@ -1365,7 +1378,7 @@ ru-010). Средняя длина варианта упала с 73.7 до 63.1
 (отдельного пофайлового замера по 24 сценариям для неё не делали).
 
 **По задержке `low` полностью решает проблему.** Медиана 4.4 с при бюджете
-`SCRIPTURE_SELECT_TIMEOUT_SECONDS=15` — это менее трети бюджета на стадию
+`AI_SCRIPTURE_TIMEOUT_SECONDS=15` — это менее трети бюджета на стадию
 rewrite; худший из 24 вызовов (6.5 с) тоже укладывается. Разброс схлопнулся
 с 10-203 с до 2.6-6.5 с, то есть кандидат стал не только быстрее базы по
 медиане, но и **предсказуемее** волатильной 3.7-flash (4-13 с). Это лучший
@@ -1444,8 +1457,8 @@ reranker'ом ключевой стих (`highlight`).
   неизвестно, где на шкале лежит порог 0.60 по recall и укладывается ли
   соответствующая задержка в 15 с.
 * **Переключение не выполнено.** Конфигурация сервиса этим пакетом не
-  менялась: `.env` не редактировался, `RETRIEVAL_REWRITE_MODEL` и
-  `RETRIEVAL_RERANK_MODEL` оставлены как были; прод-адаптер под OpenRouter
+  менялась: `.env` не редактировался, `AI_SCRIPTURE_REWRITE_MODEL` и
+  `AI_SCRIPTURE_RERANK_MODEL` оставлены как были; прод-адаптер под OpenRouter
   не писался (вне скоупа). Rewrite в обоих прогонах читался с диска
   (`--rewrites-file`), rerank в логах обоих прогонов —
   `gemini-3.5-flash-lite`, как и в пакете 86cbbmhk8.

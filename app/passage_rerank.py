@@ -41,7 +41,7 @@ from dataclasses import dataclass
 
 import httpx
 
-from config import GEMINI_API_KEY, RETRIEVAL_RERANK_MODEL
+from config import GEMINI_API_KEY, AI_SCRIPTURE_RERANK_MODEL
 from deadline import Deadline, request_timeout, sleep_budget
 from prompt_safety import neutralize_prompt_markers
 from query_rewrite import GEMINI_GENERATE_URL
@@ -318,7 +318,7 @@ class GeminiPassageReranker:
     def __init__(
         self,
         api_key: str = GEMINI_API_KEY,
-        model: str = RETRIEVAL_RERANK_MODEL,
+        model: str = AI_SCRIPTURE_RERANK_MODEL,
         http_client: httpx.Client | None = None,
         timeout: float = 20.0,
         attempts: int = 3,

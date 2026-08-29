@@ -253,8 +253,8 @@ _PROBE_ENV = {
     "API_KEY": "k",
     "DB_HOST": "h", "DB_USER": "u", "DB_PASSWORD": "p", "DB_NAME": "n",
     "EMBEDDING_MODEL": "gemini-embedding-001", "EMBEDDING_DIMENSIONS": "768",
-    "GEMINI_MODEL": "m", "GEMINI_TRANSCRIPTION_MODEL": "m",
-    "RETRIEVAL_REWRITE_MODEL": "m", "RETRIEVAL_RERANK_MODEL": "m",
+    "AI_QUESTION_MODEL": "m", "AI_TRANSCRIBE_MODEL": "m",
+    "AI_SCRIPTURE_REWRITE_MODEL": "m", "AI_SCRIPTURE_RERANK_MODEL": "m",
 }
 
 
@@ -271,7 +271,7 @@ def _probe_keys(**env_extra) -> dict:
 
 
 def test_dedicated_key_reaches_the_rewriter_and_nothing_else():
-    keys = _probe_keys(GEMINI_API_KEY="shared-key", RETRIEVAL_REWRITE_API_KEY="paid-key")
+    keys = _probe_keys(GEMINI_API_KEY="shared-key", AI_SCRIPTURE_REWRITE_API_KEY="paid-key")
     assert keys["rewriter"] == "paid-key"
     assert keys["config_rewrite"] == "paid-key"
     # ADR 0004: only the rewrite stage was split off.
@@ -288,7 +288,7 @@ def test_without_a_dedicated_key_every_stage_shares_one():
 
 @pytest.mark.parametrize("value", ["", "   "])
 def test_a_blank_dedicated_key_is_the_shared_key(value):
-    keys = _probe_keys(GEMINI_API_KEY="shared-key", RETRIEVAL_REWRITE_API_KEY=value)
+    keys = _probe_keys(GEMINI_API_KEY="shared-key", AI_SCRIPTURE_REWRITE_API_KEY=value)
     assert set(keys.values()) == {"shared-key"}
 
 

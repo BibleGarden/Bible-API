@@ -3,6 +3,7 @@ import base64
 from collections import deque
 import hashlib
 import hmac
+import inspect
 import json
 import os
 from types import SimpleNamespace
@@ -12,14 +13,14 @@ import httpx
 import pytest
 
 os.environ.setdefault("API_KEY", "test-api-key")
-os.environ.setdefault("TWINKLER_SYSTEM_PROMPT", "Серверная система")
-os.environ.setdefault("TWINKLER_CLIENT_HMAC_KEY", "test-hmac-key")
+os.environ.setdefault("AI_CLIENT_HMAC_KEY", "test-hmac-key")
 
 from fastapi.testclient import TestClient
 
 import twinkler_ai
 import client_ip
 import middleware
+import question_prompt
 import rate_limit
 from main import app
 
@@ -35,6 +36,78 @@ def allow_ai_requests(monkeypatch):
     monkeypatch.setattr(twinkler_ai, "_reserve_rate_limit", reservation)
     monkeypatch.setattr(middleware, "_insert_request_log", Mock())
     return reservation
+
+
+def test_question_prompt_is_a_usable_constant():
+    """The prompt is code, not configuration (ClickUp 86cbbmy8d).
+
+    Replaces the former "TWINKLER_SYSTEM_PROMPT is not configured" /
+    "is too long" runtime branches: those guarded an environment value that
+    no longer exists, and the properties they protected are now asserted
+    here, once, against the literal.
+    """
+    prompt = question_prompt.QUESTION_PROMPT
+    assert isinstance(prompt, str)
+    assert prompt.strip() == prompt != ""
+    # The provider request budget the removed guard used to enforce.
+    assert len(prompt) <= 8000
+    # Pins the wording itself, not just its shape: if this fails, the
+    # prompt text changed. Update the hash/len together with a bump of
+    # QUESTION_PROMPT_VERSION (app/question_prompt.py says why).
+    assert len(prompt) == 1855
+    assert (
+        hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+        == "b71e9f190e5f1dc7f6b05d01b737ea5439f12d1f192c2c2cfb5676fff4bb7559"
+    )
+
+
+def test_question_prompt_is_versioned():
+    version = question_prompt.QUESTION_PROMPT_VERSION
+    assert isinstance(version, int) and version >= 1
+
+
+def test_question_prompt_module_reads_no_environment_variable():
+    """No env variable can change the prompt any more — not even the old one.
+
+    Setting the old TWINKLER_SYSTEM_PROMPT env var after `config` and
+    `question_prompt` are already imported would prove nothing (the module
+    is imported once, at collection time, so a post-hoc monkeypatch is
+    inert either way). The real claim is that the module never reads the
+    environment at all — assert that directly against its source.
+    """
+    import config
+
+    assert not hasattr(config, "TWINKLER_SYSTEM_PROMPT")
+    source = inspect.getsource(question_prompt)
+    assert "environ" not in source
+    assert "getenv" not in source
+    assert twinkler_ai.QUESTION_PROMPT == question_prompt.QUESTION_PROMPT
+
+
+def test_complete_sends_the_prompt_constant(monkeypatch):
+    """`complete()` sends QUESTION_PROMPT verbatim as the system instruction."""
+    sent = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.update(json.loads(request.read()))
+        return httpx.Response(
+            200,
+            json={"candidates": [{"content": {"parts": [{"text": "Ответ"}]}}]},
+        )
+
+    transport = httpx.MockTransport(handler)
+    real_async_client = httpx.AsyncClient
+
+    def async_client(*args, **kwargs):
+        return real_async_client(*args, transport=transport, **kwargs)
+
+    monkeypatch.setattr(twinkler_ai, "GEMINI_API_KEY", "secret-test-key")
+    monkeypatch.setattr(twinkler_ai.httpx, "AsyncClient", async_client)
+
+    asyncio.run(twinkler_ai.complete("Запрос"))
+    assert sent["system_instruction"]["parts"] == [
+        {"text": question_prompt.QUESTION_PROMPT}
+    ]
 
 
 def test_extracts_text_parts():
@@ -137,6 +210,45 @@ def test_hides_provider_failure(monkeypatch):
     assert "provider details" not in response.text
 
 
+# --- what "AI is not configured" means since 2026-08-30 -------------------
+#
+# Two variables, and only these two, decide it for /api/ai/question. The
+# system prompt used to be a third (TWINKLER_SYSTEM_PROMPT, empty -> 502);
+# it is a code constant now, so the surface below is the whole contract.
+
+
+def test_missing_provider_key_is_502(monkeypatch):
+    """GEMINI_API_KEY unset -> GeminiError -> 502, no provider call."""
+    monkeypatch.setattr(twinkler_ai, "GEMINI_API_KEY", "")
+
+    with pytest.raises(twinkler_ai.GeminiError, match="GEMINI_API_KEY"):
+        asyncio.run(twinkler_ai.complete("Запрос"))
+
+    response = client.post(
+        "/api/ai/question",
+        headers={"X-API-Key": "test-api-key"},
+        json={"user": "Запрос"},
+    )
+    assert response.status_code == 502
+    assert response.json() == {"detail": "AI service unavailable"}
+
+
+def test_missing_hmac_key_is_503(monkeypatch):
+    """AI_CLIENT_HMAC_KEY unset -> the per-client limiter fails closed -> 503.
+
+    The limit is not silently dropped: without the pseudonymization key the
+    server cannot count per client, so it refuses instead of serving unlimited.
+    """
+    monkeypatch.setattr(client_ip, "AI_CLIENT_HMAC_KEY", "")
+    monkeypatch.setattr(twinkler_ai, "_reserve_rate_limit", real_reserve_rate_limit)
+
+    with pytest.raises(twinkler_ai.HTTPException) as error:
+        asyncio.run(twinkler_ai._enforce_rate_limit("203.0.113.7"))
+
+    assert error.value.status_code == 503
+    assert error.value.detail == "AI service temporarily unavailable"
+
+
 def test_rate_limits_requests(monkeypatch):
     generated = AsyncMock(return_value="Ответ")
     limiter = AsyncMock()
@@ -229,7 +341,9 @@ def test_sends_expected_gemini_request(monkeypatch):
         assert request.headers["x-goog-api-key"] == "secret-test-key"
         assert request.headers["content-type"] == "application/json"
         assert json.loads(request.read()) == {
-            "system_instruction": {"parts": [{"text": "Серверная система"}]},
+            "system_instruction": {
+                "parts": [{"text": question_prompt.QUESTION_PROMPT}]
+            },
             "contents": [{"role": "user", "parts": [{"text": "Запрос"}]}],
             "generationConfig": {"maxOutputTokens": 1024, "temperature": 0.7},
         }
@@ -245,8 +359,7 @@ def test_sends_expected_gemini_request(monkeypatch):
         return real_async_client(*args, transport=transport, **kwargs)
 
     monkeypatch.setattr(twinkler_ai, "GEMINI_API_KEY", "secret-test-key")
-    monkeypatch.setattr(twinkler_ai, "GEMINI_MODEL", "gemini-test")
-    monkeypatch.setattr(twinkler_ai, "TWINKLER_SYSTEM_PROMPT", "Серверная система")
+    monkeypatch.setattr(twinkler_ai, "AI_QUESTION_MODEL", "gemini-test")
     monkeypatch.setattr(twinkler_ai.httpx, "AsyncClient", async_client)
 
     assert asyncio.run(twinkler_ai.complete("Запрос")) == "Ответ"
@@ -267,7 +380,6 @@ def test_handles_gemini_failures(monkeypatch, response, expected_message):
         return real_async_client(*args, transport=transport, **kwargs)
 
     monkeypatch.setattr(twinkler_ai, "GEMINI_API_KEY", "secret-test-key")
-    monkeypatch.setattr(twinkler_ai, "TWINKLER_SYSTEM_PROMPT", "Серверная система")
     monkeypatch.setattr(twinkler_ai.httpx, "AsyncClient", async_client)
 
     with pytest.raises(twinkler_ai.GeminiError, match=expected_message):
@@ -290,7 +402,7 @@ def test_rate_limit_reservation_is_hashed_in_memory(monkeypatch):
 
 def test_global_in_memory_limit(monkeypatch):
     monkeypatch.setattr(rate_limit.time, "monotonic", lambda: 100.0)
-    monkeypatch.setattr(twinkler_ai, "GEMINI_REQUESTS_PER_MINUTE", 1)
+    monkeypatch.setattr(twinkler_ai, "AI_REQUESTS_PER_MINUTE", 1)
 
     real_reserve_rate_limit("203.0.113.7")
     with pytest.raises(twinkler_ai.RateLimitError) as error:
@@ -301,8 +413,8 @@ def test_global_in_memory_limit(monkeypatch):
 
 def test_per_client_in_memory_limit(monkeypatch):
     monkeypatch.setattr(rate_limit.time, "monotonic", lambda: 100.0)
-    monkeypatch.setattr(twinkler_ai, "GEMINI_REQUESTS_PER_MINUTE", 10)
-    monkeypatch.setattr(twinkler_ai, "GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE", 1)
+    monkeypatch.setattr(twinkler_ai, "AI_REQUESTS_PER_MINUTE", 10)
+    monkeypatch.setattr(twinkler_ai, "AI_REQUESTS_PER_CLIENT_PER_MINUTE", 1)
 
     real_reserve_rate_limit("203.0.113.7")
     with pytest.raises(twinkler_ai.RateLimitError) as limited_error:
@@ -314,8 +426,8 @@ def test_per_client_in_memory_limit(monkeypatch):
 def test_in_memory_limit_expires(monkeypatch):
     request_times = iter([100.0, 161.0])
     monkeypatch.setattr(rate_limit.time, "monotonic", lambda: next(request_times))
-    monkeypatch.setattr(twinkler_ai, "GEMINI_REQUESTS_PER_MINUTE", 1)
-    monkeypatch.setattr(twinkler_ai, "GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE", 1)
+    monkeypatch.setattr(twinkler_ai, "AI_REQUESTS_PER_MINUTE", 1)
+    monkeypatch.setattr(twinkler_ai, "AI_REQUESTS_PER_CLIENT_PER_MINUTE", 1)
 
     real_reserve_rate_limit("203.0.113.7")
     real_reserve_rate_limit("203.0.113.7")
@@ -548,7 +660,7 @@ def test_sends_expected_gemini_transcription_request(monkeypatch):
         return real_async_client(*args, transport=transport, **kwargs)
 
     monkeypatch.setattr(twinkler_ai, "GEMINI_API_KEY", "secret-test-key")
-    monkeypatch.setattr(twinkler_ai, "GEMINI_TRANSCRIPTION_MODEL", "gemini-test")
+    monkeypatch.setattr(twinkler_ai, "AI_TRANSCRIBE_MODEL", "gemini-test")
     monkeypatch.setattr(twinkler_ai.httpx, "AsyncClient", async_client)
 
     result = asyncio.run(

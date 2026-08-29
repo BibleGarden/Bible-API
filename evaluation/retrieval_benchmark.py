@@ -351,7 +351,7 @@ def require_rewrite_api_key() -> str:
     hit the quota of) the same key the serving path uses for rewrites, or its
     numbers describe a configuration nobody runs.
     """
-    return _key_from_env("RETRIEVAL_REWRITE_API_KEY") or require_api_key()
+    return _key_from_env("AI_SCRIPTURE_REWRITE_API_KEY") or require_api_key()
 
 
 # ---------------------------------------------------------------------------
@@ -1261,7 +1261,7 @@ def cmd_pipeline(args) -> None:
         for code, idx in trans_idx.items()
     }
 
-    from config import RETRIEVAL_REWRITE_MODEL
+    from config import AI_SCRIPTURE_REWRITE_MODEL
 
     # External rewrites (--rewrites-file): the rewrite stage runs entirely
     # from disk. No rewriter is constructed at all, so the run cannot reach a
@@ -1274,7 +1274,7 @@ def cmd_pipeline(args) -> None:
             f"file:{ext_meta.get('model', Path(args.rewrites_file).stem)}"
         )
     else:
-        rewrite_model = args.rewrite_model or RETRIEVAL_REWRITE_MODEL
+        rewrite_model = args.rewrite_model or AI_SCRIPTURE_REWRITE_MODEL
         if not args.no_rewrite:
             rewriter = GeminiQueryRewriter(
                 api_key=require_rewrite_api_key(),
@@ -1288,10 +1288,10 @@ def cmd_pipeline(args) -> None:
     rerank_rows: list[dict] | None = None
     rerank_stats = {"calls": 0, "failures": 0}
     if args.rerank:
-        from config import RETRIEVAL_RERANK_MODEL
+        from config import AI_SCRIPTURE_RERANK_MODEL
         from passage_rerank import GeminiPassageReranker
 
-        rerank_model = args.rerank_model or RETRIEVAL_RERANK_MODEL
+        rerank_model = args.rerank_model or AI_SCRIPTURE_RERANK_MODEL
         # Patient offline settings: a 429 burst in the middle of a run used
         # to leave whole languages un-reranked (and re-running costs calls).
         reranker = GeminiPassageReranker(
@@ -1609,13 +1609,13 @@ def main() -> None:
     p.add_argument("--max-per-chapter", type=int, default=1)
     p.add_argument("--rewrite-model", default="",
                    help="Gemini model for rewriting "
-                        "(default: production RETRIEVAL_REWRITE_MODEL)")
+                        "(default: production AI_SCRIPTURE_REWRITE_MODEL)")
     p.add_argument("--rerank", action="store_true",
                    help="run the grounded final-choice stage (Gemini) and "
                         "evaluate final_top1 thresholds")
     p.add_argument("--rerank-model", default="",
                    help="Gemini model for the final choice "
-                        "(default: production RETRIEVAL_RERANK_MODEL)")
+                        "(default: production AI_SCRIPTURE_RERANK_MODEL)")
     p.add_argument("--cache-tag", default="",
                    help="extra rewrite-cache key part (stability re-sampling)")
     p.add_argument("--rewrites-file", default="",

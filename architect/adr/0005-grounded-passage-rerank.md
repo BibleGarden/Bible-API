@@ -8,6 +8,12 @@ Ticket: ClickUp 86cb8vw1h
 > only — the decision below, its contract and its measurements are
 > unchanged. Old path names are kept in the historical text.
 
+> Note (2026-08-30, ClickUp 86cbbmy8d): the model variable of this stage was
+> renamed `RETRIEVAL_RERANK_MODEL` → `AI_SCRIPTURE_RERANK_MODEL` (and the
+> sibling rewrite stage `RETRIEVAL_REWRITE_MODEL` →
+> `AI_SCRIPTURE_REWRITE_MODEL`). Name only — the pinned model, the prompt,
+> `RERANK_PROMPT_VERSION` and the benchmark results below are untouched.
+
 ## Context
 
 The retrieval pipeline (ADR 0004) returns a top-10 of verified candidates —
@@ -79,10 +85,10 @@ categories — enforced by tests.
 
 ### Model choice
 
-`RETRIEVAL_RERANK_MODEL` (new env var, no default in code: required whenever
+`AI_SCRIPTURE_RERANK_MODEL` (new env var, no default in code: required whenever
 `GEMINI_API_KEY` is set; value pinned by the benchmark to
 `gemini-3.5-flash-lite`) —
-independent of `GEMINI_MODEL` and `RETRIEVAL_REWRITE_MODEL`, pinned by the
+independent of `AI_QUESTION_MODEL` and `AI_SCRIPTURE_REWRITE_MODEL`, pinned by the
 benchmark below: flash-lite passes every final_top1 threshold on BOTH
 rerank prompt versions (gemini-3.7-flash ties on v2, fails sensitive on
 v1), and it is the cheaper and faster option for a serve-time stage.
@@ -278,7 +284,7 @@ hit@10 1.000, recall@10 0.781, MRR 0.664, unacc@10 0.004 — all
 
 Reading:
 
-- **Variant (b) — switching `RETRIEVAL_RERANK_MODEL` to gemini-3.7-flash —
+- **Variant (b) — switching `AI_SCRIPTURE_RERANK_MODEL` to gemini-3.7-flash —
   passes on v4 and v5**: flash reads the whole psalm on its own and picks
   Ps 23 for ru-004 even on prompt v4. It was still rejected as the fix: it
   leaves the class-level hole in the rule (any flash-lite deployment keeps
@@ -508,7 +514,7 @@ one extra `translation_verses` query per selection.
 
 ## Consequences
 
-- New module `app/passage_rerank.py`, new env `RETRIEVAL_RERANK_MODEL`;
+- New module `app/passage_rerank.py`, new env `AI_SCRIPTURE_RERANK_MODEL`;
   `retrieval_cli.py select --final` smokes the full path.
 - Key-verse highlight: new module `app/passage_highlight.py` (coordinate
   resolution + loading `psalm_verse_mappings`), `retrieval.PassageText.verses`

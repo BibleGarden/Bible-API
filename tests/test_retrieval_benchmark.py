@@ -1,7 +1,7 @@
 """Tests for the key resolution of evaluation/retrieval_benchmark.py.
 
 The benchmark is not part of the service, but it decides which Gemini key it
-bills — and one of those keys is paid (RETRIEVAL_REWRITE_API_KEY, ADR 0004).
+bills — and one of those keys is paid (AI_SCRIPTURE_REWRITE_API_KEY, ADR 0004).
 The module is loaded by path because `evaluation/` is deliberately not on
 `pythonpath` (pytest.ini exposes `app` only); its import is side-effect free
 apart from putting `app/` on sys.path.
@@ -58,14 +58,14 @@ def test_missing_env_file_is_not_an_error(benchmark, monkeypatch, tmp_path):
 
 def test_rewrite_key_falls_back_to_the_shared_key(benchmark, monkeypatch, tmp_path):
     monkeypatch.setattr(benchmark, "ENV_FILE", tmp_path / "nope.env")
-    monkeypatch.delenv("RETRIEVAL_REWRITE_API_KEY", raising=False)
+    monkeypatch.delenv("AI_SCRIPTURE_REWRITE_API_KEY", raising=False)
     monkeypatch.setenv("GEMINI_API_KEY", "shared-key")
     assert benchmark.require_rewrite_api_key() == "shared-key"
 
 
 def test_rewrite_key_is_preferred_when_set(benchmark, monkeypatch, tmp_path):
     monkeypatch.setattr(benchmark, "ENV_FILE", tmp_path / "nope.env")
-    monkeypatch.setenv("RETRIEVAL_REWRITE_API_KEY", "paid-key")
+    monkeypatch.setenv("AI_SCRIPTURE_REWRITE_API_KEY", "paid-key")
     monkeypatch.setenv("GEMINI_API_KEY", "shared-key")
     assert benchmark.require_rewrite_api_key() == "paid-key"
 
@@ -75,14 +75,14 @@ def test_blank_rewrite_key_falls_back_like_an_unset_one(
     benchmark, monkeypatch, tmp_path, value
 ):
     monkeypatch.setattr(benchmark, "ENV_FILE", tmp_path / "nope.env")
-    monkeypatch.setenv("RETRIEVAL_REWRITE_API_KEY", value)
+    monkeypatch.setenv("AI_SCRIPTURE_REWRITE_API_KEY", value)
     monkeypatch.setenv("GEMINI_API_KEY", "shared-key")
     assert benchmark.require_rewrite_api_key() == "shared-key"
 
 
 def test_no_key_at_all_exits_with_a_message(benchmark, monkeypatch, tmp_path):
     monkeypatch.setattr(benchmark, "ENV_FILE", tmp_path / "nope.env")
-    monkeypatch.delenv("RETRIEVAL_REWRITE_API_KEY", raising=False)
+    monkeypatch.delenv("AI_SCRIPTURE_REWRITE_API_KEY", raising=False)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     with pytest.raises(SystemExit) as exc:
         benchmark.require_rewrite_api_key()

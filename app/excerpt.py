@@ -6,7 +6,7 @@ import re
 import os
 from pathlib import Path
 from functools import lru_cache
-from config import MP3_FILES_PATH, AUDIO_BASE_URL
+from config import AUDIO_FILES_PATH, AUDIO_BASE_URL
 from models import *
 from auth import RequireAPIKey
 
@@ -55,7 +55,7 @@ def get_all_existing_audio_chapters(translation_alias: str, voice_alias: str) ->
     """
     Gets the list of all existing chapters for all books (with caching)
     """
-    base_path = Path(MP3_FILES_PATH) / translation_alias / voice_alias / "mp3"
+    base_path = Path(AUDIO_FILES_PATH) / translation_alias / voice_alias / "mp3"
 
     if not base_path.exists():
         return {}

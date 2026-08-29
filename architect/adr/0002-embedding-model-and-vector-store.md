@@ -5,6 +5,15 @@ verification of the chosen API model is pending — blocked by the free-tier
 daily quota, see "Benchmark limitations".
 Ticket: ClickUp 86cb8vw14
 
+> Note (2026-08-30, ClickUp 86cbbmy8d): the AI environment variables were
+> renamed to mirror the method they configure. This ADR's own pair,
+> `EMBEDDING_MODEL` / `EMBEDDING_DIMENSIONS`, was **not** renamed — it names
+> the stored index version, not a method — but the sibling names quoted here
+> were: `RETRIEVAL_REWRITE_MODEL` → `AI_SCRIPTURE_REWRITE_MODEL`,
+> `RETRIEVAL_RERANK_MODEL` → `AI_SCRIPTURE_RERANK_MODEL`,
+> `RETRIEVAL_REWRITE_API_KEY` → `AI_SCRIPTURE_REWRITE_API_KEY`. Names only;
+> no value, model or measurement below changed.
+
 ## Context
 
 The RAG passage-selection feature needs semantic retrieval over the

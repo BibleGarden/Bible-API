@@ -8,8 +8,18 @@
 > provider's jargon (`complete`), and the `v1` was never a real version.
 > Bodies, responses, headers, authentication and limits are unchanged — only
 > the paths moved. The old paths return 404; there are no aliases (a single
-> unpublished client, renamed in a paired mobile ticket). The module, the
-> handlers and the `TWINKLER_*` environment variables keep their names.
+> unpublished client, renamed in a paired mobile ticket). The module and the
+> handlers keep their names.
+
+> **Environment variables renamed 2026-08-30 (ClickUp 86cbbmy8d).** The
+> settings now mirror the method they configure: `GEMINI_MODEL` →
+> `AI_QUESTION_MODEL`, `GEMINI_TRANSCRIPTION_MODEL` → `AI_TRANSCRIBE_MODEL`,
+> `GEMINI_REQUESTS_PER_[CLIENT_]MINUTE` → `AI_REQUESTS_PER_[CLIENT_]MINUTE`,
+> `TWINKLER_CLIENT_HMAC_KEY` → `AI_CLIENT_HMAC_KEY`. Values were not touched,
+> so existing client pseudonyms stay stable (the HMAC is keyed by the value;
+> the variable name never enters the digest). `TWINKLER_SYSTEM_PROMPT` was
+> deleted — see "System prompt" below. No old name is accepted as an alias:
+> a forgotten one fails the start naming the variable it wants.
 
 `POST /api/ai/question` accepts a JSON object with one required field:
 
@@ -29,21 +39,73 @@ recording is transcribed verbatim in its original language without translation
 or generated additions. Empty files and invalid locales return `422`, files
 larger than 14 MiB return `413`, and unsupported audio types return `415`.
 
+## System prompt
+
+The system prompt of `POST /api/ai/question` is the constant
+`QUESTION_PROMPT` in `app/question_prompt.py`, versioned by
+`QUESTION_PROMPT_VERSION` (currently `1`) in the same way as
+`query_rewrite.REWRITE_PROMPT_VERSION` and
+`passage_rerank.RERANK_PROMPT_VERSION`. Changing the wording means editing
+that file and bumping the version.
+
+It used to be the environment variable `TWINKLER_SYSTEM_PROMPT`. That was the
+wrong home for it: the prompt is product behaviour, not a deployment knob, so
+local and production could differ without anyone noticing a difference in
+answers, and every test run had to inject a stand-in value. It was moved into
+the code byte for byte on 2026-08-30 (ClickUp 86cbbmy8d); v1 is exactly the
+text production ran until that day. The prompt is public from then on — the
+repository is public, and the owner approved the trade knowingly: the text was
+never a secret, only unpublished, and it carries no key material.
+`GEMINI_API_KEY` remains the only secret this endpoint has.
+
+Two consequences in the code. The former runtime guards ("prompt is not
+configured", "prompt is too long") were removed from `complete()` — they
+protected against a bad environment value that can no longer exist, and a
+literal cannot change between restarts; their invariants are asserted once in
+`tests/test_twinkler_ai.py` instead. And the meaning of "AI is not
+configured" narrowed accordingly (below).
+
 ## Gemini contract
 
 The service calls
 `POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent`
-with the user message as user content. `TWINKLER_SYSTEM_PROMPT` is always read
-from the server environment and sent as `system_instruction`; clients cannot
-override it. `GEMINI_API_KEY` is sent only in the `x-goog-api-key` header. The
-system prompt is limited to 8000 characters. The request sets
-`maxOutputTokens` to `1024` and `temperature` to `0.7`.
+with the user message as user content and `QUESTION_PROMPT` as
+`system_instruction`; clients cannot override it. `GEMINI_API_KEY` is sent
+only in the `x-goog-api-key` header. The request sets `maxOutputTokens` to
+`1024` and `temperature` to `0.7`.
 
 Provider timeouts, HTTP errors, malformed responses and empty output are
 returned to the client as `502 AI service unavailable` without provider
 details. Missing server configuration has the same public response.
 
-Transcription uses `GEMINI_TRANSCRIPTION_MODEL` (required whenever
+### When the AI surface is unavailable
+
+Since 2026-08-30 exactly two variables decide it, and the prompt is not one
+of them:
+
+| Condition | `/api/ai/question` and `/api/ai/transcribe` |
+| --- | --- |
+| `GEMINI_API_KEY` unset or blank | `502 AI service unavailable` (no provider call is attempted) |
+| `AI_QUESTION_MODEL` / `AI_TRANSCRIBE_MODEL` malformed | `502` — but unreachable in practice: with a key set, a missing model name aborts startup (ADR 0008) |
+| `AI_CLIENT_HMAC_KEY` unset or blank | `503 AI service temporarily unavailable` — the per-client limiter fails closed instead of silently serving without a limit |
+
+The 503 is raised before the provider is contacted. `POST /api/ai/scripture`
+fails closed the same way, but not because the three endpoints share a
+limiter — they don't: `twinkler_ai.py` (`RateLimiter(name="AI")`) and
+`scripture_select.py` (`RateLimiter(name="scripture selection")`) each own a
+separate limiter instance with its own counters and its own budget
+(`config.py` spells out why they must not share one — one selection costs
+~8 Gemini calls, so it must not starve, or be starved by, the chat-shaped
+Twinkler endpoints). What the two limiters do share is the pseudonymisation
+key: both reserve through `client_ip.pseudonymize_twinkler_client`, which
+raises when `AI_CLIENT_HMAC_KEY` is unset or blank — so both fail closed on
+the same missing variable, independently rather than jointly. The scripture
+endpoint's 503 body is its own wording, `Scripture selection temporarily
+unavailable`, not the `AI service temporarily unavailable` text in the table
+above. Both branches are pinned by `test_missing_provider_key_is_502` and
+`test_missing_hmac_key_is_503`.
+
+Transcription uses `AI_TRANSCRIBE_MODEL` (required whenever
 `GEMINI_API_KEY` is set; no default in code) and the same configured Gemini
 API key. The M4A bytes
 are base64-encoded into an `inline_data` part alongside a server-controlled
@@ -59,11 +121,11 @@ persisted by the application.
 Before calling Gemini, the service reserves a request in an in-memory rolling
 window protected by a process lock. Two 60-second limits are enforced:
 
-- global: `GEMINI_REQUESTS_PER_MINUTE`;
-- per client address: `GEMINI_REQUESTS_PER_CLIENT_PER_MINUTE`.
+- global: `AI_REQUESTS_PER_MINUTE`;
+- per client address: `AI_REQUESTS_PER_CLIENT_PER_MINUTE`.
 
 The in-memory client identifier is an HMAC-SHA-256 pseudonym created with the
-separate `TWINKLER_CLIENT_HMAC_KEY`; the original address is not retained.
+separate `AI_CLIENT_HMAC_KEY`; the original address is not retained.
 Expired timestamps and inactive client buckets are removed periodically.
 Exceeded limits return `429` with `Retry-After`. Counters reset on process
 restart and are not shared across workers or replicas, so production runs a
