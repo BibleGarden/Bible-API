@@ -237,10 +237,13 @@ to be discovered by using it.
 
 ## Open questions
 
-1. The deploy checklist mitigating the restart-loop cost lives in the
+1. ~~The deploy checklist mitigating the restart-loop cost lives in the
    deploy ticket, outside this repo — consider moving it into
    `infrastructure.md` (the `cep` monorepo) so it survives independently of
-   any single ticket.
+   any single ticket.~~ **Resolved 2026-08-30:** the checklist now lives in
+   the private `BibleGarden/Deploy` repository as `env-checklist.md`
+   (locally `/root/cep/Deploy/env-checklist.md`), no longer tied to a ticket.
+   `infrastructure.md` in the `cep` monorepo is only a pointer to it.
 2. `AI_REQUIRED_VARS` is gated on `GEMINI_API_KEY` alone. If a future
    deployment ever wants AI partially configured (e.g. transcription but not
    rewrite), the current all-or-nothing gate would need to be split — no
