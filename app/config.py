@@ -110,6 +110,37 @@ def missing_required_vars(env: Mapping[str, str]) -> list[str]:
     return missing
 
 
+def resolve_rewrite_api_key(env: Mapping[str, str]) -> str:
+    """The key the retrieval *rewrite* stage calls Gemini with.
+
+    `RETRIEVAL_REWRITE_API_KEY` when it is set and non-blank, otherwise
+    `GEMINI_API_KEY`. Blank counts as unset, so `RETRIEVAL_REWRITE_API_KEY=`
+    is the same statement as omitting it: "this deployment runs on one key".
+    Both sides are stripped: a whitespace-only value is "unset" for the
+    validation below, and returning it raw would put whitespace into the
+    `x-goog-api-key` header instead of raising the "not configured" error.
+
+    Why this fallback does not violate ADR 0008. The rule forbids a default
+    that silently substitutes an *unreviewed behaviour* for a value that was
+    supposed to be set. Here the absent value has exactly one intended
+    meaning, and it is the meaning every deployment had before the variable
+    existed: every Gemini stage bills the same key. The variable exists only
+    to split *billing*, not behaviour — the rewrite model, prompt and
+    request are identical either way (ADR 0004). Requiring it would turn the
+    supported single-key deployment into a startup failure for no gain,
+    which is the same trade already made for `GEMINI_API_KEY` itself.
+
+    The asymmetric case IS an error and is reported by
+    `invalid_required_values()`: a rewrite key set while `GEMINI_API_KEY` is
+    empty pays for one stage of a pipeline whose remaining stages
+    (embeddings, rerank) cannot run at all.
+    """
+    dedicated = env.get("RETRIEVAL_REWRITE_API_KEY", "").strip()
+    if dedicated:
+        return dedicated
+    return env.get("GEMINI_API_KEY", "").strip()
+
+
 def invalid_required_values(env: Mapping[str, str]) -> list[str]:
     """Problems with values that ARE set but cannot be used, as messages.
 
@@ -129,6 +160,15 @@ def invalid_required_values(env: Mapping[str, str]) -> list[str]:
             problems.append(
                 f"EMBEDDING_DIMENSIONS: expected a positive integer, got {dims}"
             )
+    if (
+        env.get("RETRIEVAL_REWRITE_API_KEY", "").strip()
+        and not env.get("GEMINI_API_KEY", "").strip()
+    ):
+        problems.append(
+            "RETRIEVAL_REWRITE_API_KEY: set while GEMINI_API_KEY is empty — "
+            "the rewrite key pays for one stage of a pipeline whose other "
+            "stages (embeddings, rerank) have no key at all"
+        )
     return problems
 
 
@@ -225,6 +265,16 @@ EMBEDDING_DIMENSIONS = _get_int("EMBEDDING_DIMENSIONS", 0)
 # The value is pinned by that benchmark but must be spelled out in the
 # environment — a default here hid a broken model behind a working config.
 RETRIEVAL_REWRITE_MODEL = os.getenv("RETRIEVAL_REWRITE_MODEL", "")
+# Key the rewrite stage bills. Deliberately NOT a variable-shaped constant:
+# it is the *resolved* value of `RETRIEVAL_REWRITE_API_KEY or GEMINI_API_KEY`
+# (see resolve_rewrite_api_key for why that default is operational, not a
+# hidden fallback). Rewrite is the only stage pinned to gemini-3.7-flash,
+# whose free daily quota the retrieval traffic exhausts, while embeddings and
+# the rerank live comfortably on the free lite-model quotas — so this one
+# stage can be moved to a paid key without paying for the whole pipeline.
+# Every other Gemini client (embeddings, passage_rerank, twinkler_ai) keeps
+# reading GEMINI_API_KEY directly and must stay that way.
+REWRITE_API_KEY = resolve_rewrite_api_key(os.environ)
 # Model for the grounded passage rerank (final choice among retrieval
 # candidates, see architect/adr/0005-grounded-passage-rerank.md). Pinned by
 # the final_top1 benchmark: gemini-3.5-flash-lite passes every threshold on

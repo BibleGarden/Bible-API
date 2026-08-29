@@ -128,7 +128,8 @@ index version (`c{chunking}:{model}@{dims}`), not a provider call.
 `TWINKLER_CLIENT_HMAC_KEY`, `TRUSTED_PROXY_IPS` and the `SCRIPTURE_*` knobs
 below. `AUDIO_DIR` is read by docker-compose, not by the application.
 `GEMINI_API_KEY`, `TWINKLER_SYSTEM_PROMPT`, and `TWINKLER_CLIENT_HMAC_KEY`
-must be set for Twinkler AI calls. The limiters are process-local, so
+must be set for Twinkler AI calls. `RETRIEVAL_REWRITE_API_KEY` is optional
+and affects the rewrite stage only (see below). The limiters are process-local, so
 production uses a single API worker.
 
 RAG / scripture selection:
@@ -142,6 +143,21 @@ RAG / scripture selection:
 - `RETRIEVAL_REWRITE_MODEL` (`gemini-3.7-flash`) — LLM query
   reformulation, the dominant quality lever; value pinned by the benchmark,
   deliberately independent of `GEMINI_MODEL`, and required (ADR 0004).
+- `RETRIEVAL_REWRITE_API_KEY` (optional, no default) — API key for the
+  **rewrite stage only**. Set: rewrites bill this key; unset or blank:
+  rewrites bill `GEMINI_API_KEY` (one shared key — the previous behaviour and
+  an operational default, not a hidden fallback: the *configured* behaviour
+  is identical either way — same model, same prompt, same request — what
+  differs is the quota and the bill, and therefore how often the stage is
+  available rather than rejected with 429). Reason for the split: rewrite is
+  pinned to `gemini-3.7-flash`, whose free daily quota the retrieval traffic
+  exhausts, while embeddings and the rerank run on free lite-model quotas —
+  so only this stage needs a paid key. Embeddings, `passage_rerank` and
+  Twinkler keep reading `GEMINI_API_KEY`. Setting it while `GEMINI_API_KEY`
+  is empty is a startup error (it would pay for one stage of a pipeline
+  whose other stages have no key at all). Resolved once in
+  `config.resolve_rewrite_api_key` → `config.REWRITE_API_KEY`, which is the
+  default argument of `GeminiQueryRewriter`.
 - `RETRIEVAL_RERANK_MODEL` (`gemini-3.5-flash-lite`) — grounded choice
   of the final passage among candidates; value pinned by the benchmark,
   required (ADR 0005).

@@ -994,6 +994,12 @@ def _gemini_clients() -> tuple:
 
     The HTTP clients are shared across requests (httpx clients are
     thread-safe) so a selection does not pay three TLS handshakes.
+
+    No key is passed here on purpose: each client's constructor already
+    defaults to the key its stage bills — the rewriter to
+    `config.REWRITE_API_KEY` (`RETRIEVAL_REWRITE_API_KEY` when the deployment
+    splits billing, `GEMINI_API_KEY` otherwise), the embedder and the
+    reranker to `GEMINI_API_KEY`.
     """
     global _clients
     with _clients_lock:

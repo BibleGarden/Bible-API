@@ -1,14 +1,19 @@
 """Unit tests for the LLM query-reformulation stage of the retrieval
 pipeline. No network: Gemini is mocked through httpx.MockTransport."""
 
+import inspect
 import json
 import os
+import subprocess
+import sys
+from pathlib import Path
 
 import httpx
 import pytest
 
 os.environ.setdefault("API_KEY", "test-api-key")
 
+import config
 from query_rewrite import (
     GeminiQueryRewriter,
     QueryRewriteError,
@@ -210,3 +215,111 @@ def test_default_variant_count_is_requested():
         return httpx.Response(200, json=gemini_response(["q"]))
 
     make_rewriter(handler).rewrite("en", "topic", [])
+
+
+# ---------------------------------------------------------------------------
+# Key routing: rewrite bills its own key, every other stage the shared one
+# ---------------------------------------------------------------------------
+
+# The wiring is checked in a FRESH interpreter with synthetic keys rather
+# than by reloading modules in-process: `importlib.reload` mutates the shared
+# module dict (and rebuilds exception classes other modules already imported
+# by identity), which leaks into unrelated test modules. A subprocess also
+# makes the check hermetic — in a single-key deployment an in-process assert
+# "rewriter default == config.REWRITE_API_KEY" cannot fail even if the
+# rewriter were wired straight to GEMINI_API_KEY.
+
+APP_DIR = Path(__file__).resolve().parents[1] / "app"
+
+_PROBE = """
+import inspect, json
+import config, embeddings, passage_rerank, query_rewrite, twinkler_ai
+
+def default(func):
+    return inspect.signature(func).parameters["api_key"].default
+
+print(json.dumps({
+    "config_shared": config.GEMINI_API_KEY,
+    "config_rewrite": config.REWRITE_API_KEY,
+    "rewriter": default(query_rewrite.GeminiQueryRewriter.__init__),
+    "reranker": default(passage_rerank.GeminiPassageReranker.__init__),
+    "embeddings": embeddings.EmbeddingConfig().api_key,
+    "twinkler": twinkler_ai.GEMINI_API_KEY,
+}))
+"""
+
+# Synthetic, complete environment: config fails fast on an incomplete one.
+_PROBE_ENV = {
+    "API_KEY": "k",
+    "DB_HOST": "h", "DB_USER": "u", "DB_PASSWORD": "p", "DB_NAME": "n",
+    "EMBEDDING_MODEL": "gemini-embedding-001", "EMBEDDING_DIMENSIONS": "768",
+    "GEMINI_MODEL": "m", "GEMINI_TRANSCRIPTION_MODEL": "m",
+    "RETRIEVAL_REWRITE_MODEL": "m", "RETRIEVAL_RERANK_MODEL": "m",
+}
+
+
+def _probe_keys(**env_extra) -> dict:
+    """Which key each Gemini client defaults to, under a synthetic env."""
+    env = dict(_PROBE_ENV, PATH=os.environ.get("PATH", ""), PYTHONPATH=str(APP_DIR))
+    env.update(env_extra)
+    proc = subprocess.run(
+        [sys.executable, "-c", _PROBE],
+        env=env, capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, proc.stderr[-800:]
+    return json.loads(proc.stdout)
+
+
+def test_dedicated_key_reaches_the_rewriter_and_nothing_else():
+    keys = _probe_keys(GEMINI_API_KEY="shared-key", RETRIEVAL_REWRITE_API_KEY="paid-key")
+    assert keys["rewriter"] == "paid-key"
+    assert keys["config_rewrite"] == "paid-key"
+    # ADR 0004: only the rewrite stage was split off.
+    assert keys["reranker"] == "shared-key"
+    assert keys["embeddings"] == "shared-key"
+    assert keys["twinkler"] == "shared-key"
+    assert keys["config_shared"] == "shared-key"
+
+
+def test_without_a_dedicated_key_every_stage_shares_one():
+    keys = _probe_keys(GEMINI_API_KEY="shared-key")
+    assert set(keys.values()) == {"shared-key"}
+
+
+@pytest.mark.parametrize("value", ["", "   "])
+def test_a_blank_dedicated_key_is_the_shared_key(value):
+    keys = _probe_keys(GEMINI_API_KEY="shared-key", RETRIEVAL_REWRITE_API_KEY=value)
+    assert set(keys.values()) == {"shared-key"}
+
+
+def _default_api_key(func) -> str:
+    return inspect.signature(func).parameters["api_key"].default
+
+
+def _mask(key: str) -> str:
+    """Last 4 characters — never assert on a whole key.
+
+    Test output ends up in tickets and chats, and these values are real API
+    keys when the suite runs inside the configured container.
+    """
+    return f"...{key[-4:]}" if key else "<empty>"
+
+
+def test_production_rewriter_uses_the_configured_rewrite_key():
+    # The environment as this container actually runs it: the default that
+    # scripture_select and retrieval_cli inherit is config.REWRITE_API_KEY.
+    assert (
+        _mask(_default_api_key(GeminiQueryRewriter.__init__))
+        == _mask(config.REWRITE_API_KEY)
+    )
+
+
+def test_rewrite_key_reaches_the_provider_header():
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["key"] = request.headers["x-goog-api-key"]
+        return httpx.Response(200, json=gemini_response(["q"]))
+
+    make_rewriter(handler, api_key="paid-key").rewrite("en", "topic", [])
+    assert captured["key"] == "paid-key"

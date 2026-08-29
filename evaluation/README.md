@@ -304,6 +304,18 @@ python retrieval_benchmark.py pipeline -h         # абляции: --no-rewrite
                                                   # --no-lexical, --fusion, ...
 ```
 
+> **Внимание, деньги.** Стадия rewrite использует `RETRIEVAL_REWRITE_API_KEY`,
+> если он задан в окружении или в `Bible-API/.env` (внутрь контейнера его
+> прокидывает compose), и `GEMINI_API_KEY` — если нет. Ключ rewrite платный:
+> прогон `pipeline` без `--no-rewrite` тратит деньги на каждый непопавший в
+> кэш сценарий. Чтобы принудительно считать по общему ключу, запускайте с
+> `RETRIEVAL_REWRITE_API_KEY= python retrieval_benchmark.py pipeline`
+> (пустое значение = «не задан») — но этот рецепт надёжен только внутри
+> контейнера, где `.env` отсутствует: на машине с локальным `Bible-API/.env`
+> пустая переменная проваливается в чтение файла и вернёт всё тот же платный
+> ключ, поэтому там нужно временно закомментировать `RETRIEVAL_REWRITE_API_KEY`
+> в самом `.env`. Эмбеддинги и rerank по-прежнему идут по `GEMINI_API_KEY`.
+
 Дефолтные флаги воспроизводят утверждённую конфигурацию (rewrite
 gemini-3.7-flash, prompt v7, 6 вариантов, interleave, BM25 k=20, blacklist,
 pool, cap 4/книга и 1/глава). Результат на approved-наборе v0.2.0: hit@10

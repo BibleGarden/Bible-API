@@ -188,6 +188,16 @@ parallel embedding is an obvious later optimisation).
   model behind a config the owner believed was flash-lite everywhere).
   New data files: `app/data/genre_blacklist.json`, `app/data/safe_pool.json`
   (versioned; edits require re-running the benchmark).
+- New optional env var (2026-08-29): `RETRIEVAL_REWRITE_API_KEY` — the key
+  this stage bills. Because the stage is pinned to gemini-3.7-flash, its
+  free daily quota is the pipeline's binding constraint, while the embedding
+  and rerank stages stay inside the free quotas of their lite models; the
+  variable lets a deployment move this one stage to a paid key. Unset or
+  blank keeps the previous behaviour (`GEMINI_API_KEY` for everything) —
+  an operational default explicitly sanctioned by ADR 0008, which also
+  rejects the asymmetric case (rewrite key without a shared key). Resolved
+  once in `config.resolve_rewrite_api_key()`; `GeminiQueryRewriter` defaults
+  to it, so no creation point repeats the rule.
 - The lexical index rebuilds in-process at load from `translation_chunks`
   (no schema changes); memory ~10 MB per corpus.
 - Blacklist and safe pool live in canonical coordinates: they survive

@@ -288,6 +288,59 @@ The operational parameters below (limits, TTL, timeout) stay optional and keep
 their defaults — but a non-numeric value in any of them is a startup error,
 never a silent fallback.
 
+### Which key pays for which stage
+
+`RETRIEVAL_REWRITE_API_KEY` (optional) is the key of the **rewrite stage
+only**. Unset or blank means "one shared key": rewrites go out on
+`GEMINI_API_KEY`, exactly as before the variable existed. That default is
+operational, not a hidden fallback in the ADR 0008 sense — the absent value
+has a single intended meaning, and the *configured* behaviour is the same
+either way: same model, same prompt, same request. What the key changes is
+the quota and the bill — and, as a consequence, availability: a stage on an
+exhausted free quota is answered with 429 and degrades to `rewrite_failed`,
+which is logged rather than silent.
+
+The split exists because the stages have very different quota pressure.
+Rewrite is pinned to `gemini-3.7-flash` (ADR 0004) and one selection spends a
+rewrite call per request, which exhausts that model's free daily quota;
+embeddings (`gemini-embedding-001`) and the rerank
+(`gemini-3.5-flash-lite`, ADR 0005) sit comfortably inside the free quotas of
+their lite models. Moving one stage to a paid key therefore buys the whole
+endpoint's reliability at the cost of ~1 call per selection.
+
+The key is resolved in exactly one place — `config.resolve_rewrite_api_key`
+→ `config.REWRITE_API_KEY` — and reaches the provider as the default
+`api_key` of `GeminiQueryRewriter`, so every creation point
+(`scripture_select._gemini_clients`, `app/retrieval_cli.py`, and
+`evaluation/retrieval_benchmark.py` through `require_rewrite_api_key()`)
+bills the same key without repeating the rule. `GeminiEmbeddingClient`,
+`GeminiPassageReranker` and `twinkler_ai` still read `GEMINI_API_KEY`
+directly.
+
+A `RETRIEVAL_REWRITE_API_KEY` set while `GEMINI_API_KEY` is empty is a
+configuration error in the aggregated startup list: it pays for the first
+stage of a pipeline whose remaining stages cannot run at all.
+
+### Rewrite prompt and implicit provider caching
+
+The rewrite request is built so the static part is strictly a prefix of the
+variable part: the instruction goes into `system_instruction` (constant per
+language and variant count — `build_rewrite_instruction`) and the prayer text
+appears only in `contents` (`build_rewrite_user_content`). Nothing
+request-specific precedes the instruction, which is the ordering a provider's
+implicit prompt cache requires. No change was needed and none was made: the
+prompt text is fingerprinted by the benchmark (`REWRITE_PROMPT_VERSION`), so
+any edit forces a re-run.
+
+Reality check on the benefit, measured 2026-08-29: the instruction is ~2.0 kB
+(~500 tokens for each of ru/en/uk). Flash-class models document a minimum
+cacheable prefix of ~1024 tokens, so today's prefix is roughly half of what
+an implicit cache hit needs — the ordering is correct and costs nothing, but
+no cache discount should be assumed in cost estimates until the prefix is
+measured against the model's actual minimum. Padding the instruction to reach
+the threshold is explicitly not done: it would change retrieval quality (and
+the fingerprint) to chase a discount on ~500 tokens per selection.
+
 ## Time budget
 
 One selection is bounded by `SCRIPTURE_SELECT_TIMEOUT_SECONDS` (default

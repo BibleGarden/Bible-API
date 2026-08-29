@@ -312,16 +312,46 @@ def cmd_embed(args) -> None:
     print(f"saved {path} shape={vecs.shape} in {time.time() - started:.0f}s")
 
 
+ENV_FILE = HERE.parent / ".env"
+
+
+def _key_from_env(name: str, env_file: Path | None = None) -> str:
+    """Value of `name` from the environment, else from Bible-API/.env.
+
+    The `.env` file is optional and must never turn into a crash: it is not
+    part of the container image, so a run inside `bible-api` (where the
+    variables come from compose) would otherwise die with FileNotFoundError
+    — after minutes of corpus loading, and even in the case where the
+    environment can answer the question perfectly well. Returns "" when
+    neither source has the name.
+    """
+    key = os.environ.get(name, "").strip()
+    if key:
+        return key
+    path = ENV_FILE if env_file is None else env_file
+    if not path.exists():
+        return ""
+    for line in path.read_text().splitlines():
+        if line.startswith(f"{name}="):
+            key = line.split("=", 1)[1].strip()
+    return key
+
+
 def require_api_key() -> str:
-    key = os.environ.get("GEMINI_API_KEY", "")
-    if not key:
-        env = Path(__file__).resolve().parents[1] / ".env"
-        for line in env.read_text().splitlines():
-            if line.startswith("GEMINI_API_KEY="):
-                key = line.split("=", 1)[1].strip()
+    key = _key_from_env("GEMINI_API_KEY")
     if not key:
         raise SystemExit("GEMINI_API_KEY not found (env or Bible-API/.env)")
     return key
+
+
+def require_rewrite_api_key() -> str:
+    """Key for the rewrite stage — the same split as production.
+
+    Mirrors `config.resolve_rewrite_api_key`: a benchmark run must bill (and
+    hit the quota of) the same key the serving path uses for rewrites, or its
+    numbers describe a configuration nobody runs.
+    """
+    return _key_from_env("RETRIEVAL_REWRITE_API_KEY") or require_api_key()
 
 
 # ---------------------------------------------------------------------------
@@ -1211,7 +1241,9 @@ def cmd_pipeline(args) -> None:
 
     rewrite_model = args.rewrite_model or RETRIEVAL_REWRITE_MODEL
     rewriter = GeminiQueryRewriter(
-        api_key=api_key, model=rewrite_model, variants=args.variants
+        api_key=require_rewrite_api_key(),
+        model=rewrite_model,
+        variants=args.variants,
     )
 
     # --- final top-1 stage: rerank (optional) + fallback policies (free)

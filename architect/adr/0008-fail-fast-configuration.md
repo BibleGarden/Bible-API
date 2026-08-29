@@ -80,6 +80,38 @@ edit-and-restart cycle instead of one variable discovered per restart.
   That is the same class of bug this whole ADR exists to prevent, just one
   hop removed from a provider call.
 
+### Addendum (2026-08-29): `RETRIEVAL_REWRITE_API_KEY`
+
+The retrieval rewrite stage may bill its own key
+(`RETRIEVAL_REWRITE_API_KEY`, optional; ADR 0004): it is pinned to
+gemini-3.7-flash, whose free daily quota the traffic exhausts, while the
+embedding and rerank stages live on free lite-model quotas. Unset or blank
+means the stage uses `GEMINI_API_KEY` — the behaviour every deployment had
+before the variable existed.
+
+That fallback is deliberately allowed under this ADR, because it does not
+hide a configuration problem: the absent value has exactly one intended
+meaning ("one key pays for everything"), and it selects no unreviewed
+behaviour — the *configured* behaviour is identical either way (same model,
+same prompt, byte-identical request); what differs is the quota and the
+invoice. That difference is not invisible: an exhausted free quota answers
+429 and the stage degrades with `rewrite_failed`, which is a logged,
+observable outcome rather than a silent substitution. This is the same trade
+already made for
+`GEMINI_API_KEY` itself, which is optional so that "deploy without AI" stays
+supported; requiring a second key would break the far more common
+single-key deployment for no observability gain. The resolution lives in one
+pure function, `config.resolve_rewrite_api_key()`, feeding the single
+constant `config.REWRITE_API_KEY` that `GeminiQueryRewriter` defaults to.
+
+The asymmetric configuration *is* rejected, and joins the aggregated list
+from `invalid_required_values()`: `RETRIEVAL_REWRITE_API_KEY` set while
+`GEMINI_API_KEY` is empty buys the first stage of a pipeline whose
+embeddings and rerank have no key at all — a state no deployer means to be
+in, and one that would otherwise surface as a puzzling half-working
+endpoint. It is a value that is set and cannot be used, which is precisely
+what that function reports.
+
 ### Operational parameters keep their defaults — but not their typos
 
 Limits, TTLs, timeouts and `DB_PORT` are tuning knobs, not identity

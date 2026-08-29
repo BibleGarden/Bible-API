@@ -56,6 +56,12 @@ key: they name the vector index the service reads, not a provider call.
 Without `GEMINI_API_KEY` the AI endpoints simply report that AI is not
 configured and the rest of the API runs normally.
 
+`RETRIEVAL_REWRITE_API_KEY` is optional and applies to the retrieval rewrite
+stage only — set it to bill that one stage (the only one whose model exhausts
+its free daily quota) to a separate, paid key; leave it out and rewrites use
+`GEMINI_API_KEY` like every other call. Setting it without `GEMINI_API_KEY`
+is a startup error.
+
 The Google key must never be included in the mobile application. Before a
 production deployment, also set a hard quota for the key in Google AI Studio;
 the server-side request limit is only an additional safeguard. The counters

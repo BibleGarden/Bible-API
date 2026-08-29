@@ -184,6 +184,75 @@ def test_non_numeric_dimensions_are_left_to_the_parser():
     ) == []
 
 
+# --- rewrite API key -------------------------------------------------------
+
+
+def test_rewrite_key_is_used_when_set():
+    env = dict(AI_ENV, RETRIEVAL_REWRITE_API_KEY="paid-key")
+    assert config.resolve_rewrite_api_key(env) == "paid-key"
+    # ...and it does not leak into the shared key.
+    assert env["GEMINI_API_KEY"] == "gemini-key"
+
+
+def test_rewrite_key_is_stripped():
+    env = dict(AI_ENV, RETRIEVAL_REWRITE_API_KEY="  paid-key\n")
+    assert config.resolve_rewrite_api_key(env) == "paid-key"
+
+
+@pytest.mark.parametrize("value", [None, "", "   "])
+def test_unset_or_blank_rewrite_key_falls_back_to_the_shared_key(value):
+    # The documented operational default: one key pays for every stage.
+    env = dict(AI_ENV)
+    if value is not None:
+        env["RETRIEVAL_REWRITE_API_KEY"] = value
+    assert config.resolve_rewrite_api_key(env) == "gemini-key"
+
+
+def test_without_any_key_the_rewrite_stage_has_none():
+    assert config.resolve_rewrite_api_key(BASE_ENV) == ""
+
+
+def test_a_whitespace_only_shared_key_resolves_to_nothing():
+    # Symmetry with the validation, which also treats blank as unset: a raw
+    # "   " would reach the x-goog-api-key header instead of raising the
+    # rewriter's "not configured" error.
+    env = dict(BASE_ENV, GEMINI_API_KEY="   ")
+    assert config.resolve_rewrite_api_key(env) == ""
+
+
+def test_the_shared_key_is_stripped_too():
+    env = dict(BASE_ENV, GEMINI_API_KEY=" gemini-key\n")
+    assert config.resolve_rewrite_api_key(env) == "gemini-key"
+
+
+def test_rewrite_key_without_a_shared_key_is_a_configuration_error():
+    # Paying for the rewrite of a pipeline whose embeddings and rerank have
+    # no key at all is never what the deployer meant.
+    env = dict(BASE_ENV, RETRIEVAL_REWRITE_API_KEY="paid-key")
+    problems = config.invalid_required_values(env)
+    assert len(problems) == 1
+    assert "RETRIEVAL_REWRITE_API_KEY" in problems[0]
+    assert "GEMINI_API_KEY" in problems[0]
+
+
+@pytest.mark.parametrize("value", ["", "   "])
+def test_blank_rewrite_key_without_a_shared_key_is_not_an_error(value):
+    # Blank means unset, and "no AI configured" stays a supported deployment.
+    env = dict(BASE_ENV, RETRIEVAL_REWRITE_API_KEY=value)
+    assert config.invalid_required_values(env) == []
+
+
+def test_rewrite_key_problem_joins_the_aggregated_error():
+    env = dict(BASE_ENV, RETRIEVAL_REWRITE_API_KEY="paid-key")
+    del env["DB_NAME"]
+    with pytest.raises(config.ConfigError) as exc:
+        config._validate(env, [])
+    message = str(exc.value)
+    assert "RETRIEVAL_REWRITE_API_KEY" in message
+    assert "DB_NAME" in message
+    assert "2 problems" in message
+
+
 # --- aggregated error ------------------------------------------------------
 
 
@@ -209,7 +278,7 @@ def test_validate_passes_on_a_complete_environment():
 
 def _reload_config(monkeypatch, env):
     for name in (*ALWAYS_REQUIRED, *PRESENCE_REQUIRED, *AI_REQUIRED,
-                 "GEMINI_API_KEY", "DB_PORT"):
+                 "GEMINI_API_KEY", "RETRIEVAL_REWRITE_API_KEY", "DB_PORT"):
         monkeypatch.delenv(name, raising=False)
     for name, value in env.items():
         monkeypatch.setenv(name, value)
@@ -301,6 +370,28 @@ def test_import_reports_missing_models_and_bad_numbers_together(monkeypatch):
     message = str(exc.value)
     assert "RETRIEVAL_RERANK_MODEL" in message
     assert "SCRIPTURE_SELECT_TIMEOUT_SECONDS" in message
+
+
+def test_import_resolves_the_rewrite_key_to_the_dedicated_one(monkeypatch):
+    module = _reload_config(
+        monkeypatch, dict(AI_ENV, RETRIEVAL_REWRITE_API_KEY="paid-key")
+    )
+    assert module.REWRITE_API_KEY == "paid-key"
+    # Every other stage keeps billing the shared key.
+    assert module.GEMINI_API_KEY == "gemini-key"
+
+
+def test_import_resolves_the_rewrite_key_to_the_shared_one(monkeypatch):
+    module = _reload_config(monkeypatch, AI_ENV)
+    assert module.REWRITE_API_KEY == module.GEMINI_API_KEY == "gemini-key"
+
+
+def test_import_fails_on_a_rewrite_key_without_a_shared_key(monkeypatch):
+    with pytest.raises(RuntimeError) as exc:
+        _reload_config(
+            monkeypatch, dict(BASE_ENV, RETRIEVAL_REWRITE_API_KEY="paid-key")
+        )
+    assert "RETRIEVAL_REWRITE_API_KEY" in str(exc.value)
 
 
 def test_import_succeeds_on_a_fully_configured_environment(monkeypatch):
