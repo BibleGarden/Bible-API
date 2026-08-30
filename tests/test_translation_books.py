@@ -17,7 +17,10 @@ Fixture canons (a miniature of the real data):
             closed at chapter 3 (Hebrew chapter division);
 - `bti`   — the whole canon minus the 20 chapters really absent from the live
             BTI (Num 35-36, Deut 32-34, 1 Sam 25-31, 2 Kgs 25, 1 Chr 23-29);
-- `npu`   — all 66 books declared, text for the Psalms and Matthew only.
+- `npu`   — all 66 books declared, text for the Psalms and the New Testament
+            only, exactly like the live NPU: 28 books with text, 38 without
+            (779 chapters). This is the translation whose empty books used to
+            trap excerpt navigation (ClickUp 86cbbpc6v).
 """
 
 import re
@@ -65,7 +68,14 @@ BTI_MISSING = {
 SYN_EXTRA = {CHRONICLES_2: [37], PSALMS: [151], DANIEL: [13, 14]}
 UBH_EXTRA = {ESTHER: [11, 12], DANIEL: [13, 14]}
 
-NPU_BOOKS_WITH_TEXT = {PSALMS, MATTHEW}
+REVELATION = 66
+
+# The live NPU publishes the Psalms and the New Testament (books 40-66).
+NPU_BOOKS_WITH_TEXT = {PSALMS} | set(range(MATTHEW, REVELATION + 1))
+NPU_CHAPTERS_WITHOUT_TEXT = sum(
+    CANONICAL_CHAPTER_COUNTS[book_number]
+    for book_number in set(CANONICAL_CHAPTER_COUNTS) - NPU_BOOKS_WITH_TEXT
+)  # 779 on the live NPU (38 books without text)
 
 
 # --------------------------------------------------------------------------
@@ -292,7 +302,23 @@ def _build_database() -> sqlite3.Connection:
                                          translation INTEGER,
                                          book_number INTEGER,
                                          chapter_number INTEGER,
-                                         verse_number INTEGER, text TEXT);
+                                         verse_number INTEGER, text TEXT,
+                                         verse_number_join INTEGER,
+                                         html TEXT, start_paragraph INTEGER);
+        CREATE TABLE voice_alignments (voice INTEGER, book_number INTEGER,
+                                       chapter_number INTEGER,
+                                       verse_number INTEGER,
+                                       begin REAL, end REAL);
+        CREATE TABLE translation_titles (code INTEGER PRIMARY KEY,
+                                         text TEXT, before_translation_verse INTEGER,
+                                         metadata TEXT, reference TEXT,
+                                         subtitle INTEGER, position_text INTEGER,
+                                         position_html INTEGER);
+        CREATE TABLE translation_notes (code INTEGER PRIMARY KEY,
+                                        note_number INTEGER, text TEXT,
+                                        translation_verse INTEGER,
+                                        translation_title INTEGER,
+                                        position_text INTEGER, position_html INTEGER);
         """
     )
     connection.executemany(
@@ -332,15 +358,18 @@ def _build_database() -> sqlite3.Connection:
 
             for chapter in chapters:
                 verse_code += 1
+                # verse_number_join/html/start_paragraph only matter to the
+                # HTTP e2e test (MINOR-5); a single non-joined verse is enough.
                 verse_rows.append(
-                    (verse_code, translation, book_number, chapter, 1, "verse")
+                    (verse_code, translation, book_number, chapter, 1, "verse",
+                     1, "<p>verse</p>", 1)
                 )
 
     connection.executemany(
         "INSERT INTO translation_books VALUES (?, ?, ?, ?)", book_rows
     )
     connection.executemany(
-        "INSERT INTO translation_verses VALUES (?, ?, ?, ?, ?, ?)", verse_rows
+        "INSERT INTO translation_verses VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", verse_rows
     )
     connection.commit()
     return connection
@@ -447,13 +476,14 @@ def test_books_without_text_are_returned_and_counted_as_fully_missing(fake_datab
 
     without_text = {number for number, b in books.items() if not b["has_text"]}
     assert without_text == set(CANONICAL_CHAPTER_COUNTS) - NPU_BOOKS_WITH_TEXT
+    assert len(without_text) == 38
 
     psalms = books[PSALMS]
     assert psalms["has_text"] is True
     assert psalms["chapters_without_text"] == []
 
     total_missing = sum(len(b["chapters_without_text"]) for b in books.values())
-    assert total_missing == CANONICAL_CHAPTERS_TOTAL - 150 - 28
+    assert total_missing == NPU_CHAPTERS_WITHOUT_TEXT
 
 
 def test_has_text_is_true_for_a_complete_translation(fake_database):
@@ -505,3 +535,159 @@ def test_navigation_counts_a_book_without_text_canonically(fake_database):
     genesis = _books_info(fake_database, 21, "gen")[0]
 
     assert genesis["chapters_count"] == 50
+
+
+# --------------------------------------------------------------------------
+# Navigation across books without text (ClickUp 86cbbpc6v)
+# --------------------------------------------------------------------------
+
+
+class _CountingCursor(_Cursor):
+    """A cursor that counts its round trips, for the N+1 guard below."""
+
+    def __init__(self, connection: sqlite3.Connection):
+        super().__init__(connection)
+        self.queries = 0
+
+    def execute(self, sql: str, params=None):
+        self.queries += 1
+        return super().execute(sql, params)
+
+
+def _navigate(connection, translation: int, alias: str, chapter: int, direction: str):
+    cursor = _CountingCursor(connection)
+    try:
+        book = excerpt.get_books_info(cursor, translation, alias)[0]
+        cursor.queries = 0  # count the navigation step only
+        if direction == "prev":
+            result = excerpt.get_prev_excerpt(cursor, translation, book, chapter)
+        else:
+            result = excerpt.get_next_excerpt(cursor, translation, book, chapter)
+        return result, cursor.queries
+    finally:
+        cursor.close()
+
+
+def _prev(connection, translation: int, alias: str, chapter: int) -> str:
+    return _navigate(connection, translation, alias, chapter, "prev")[0]
+
+
+def _next(connection, translation: int, alias: str, chapter: int) -> str:
+    return _navigate(connection, translation, alias, chapter, "next")[0]
+
+
+def test_books_info_marks_the_books_without_text(fake_database):
+    """The navigation flag and the endpoint's `has_text` are one predicate."""
+    books = {book["number"]: book for book in _books_info(fake_database, 21)}
+
+    assert books[GENESIS]["has_text"] is False
+    assert books[PSALMS]["has_text"] is True
+    assert {n for n, b in books.items() if b["has_text"]} == NPU_BOOKS_WITH_TEXT
+
+
+def test_next_steps_over_the_books_without_text(fake_database):
+    """npu psa 150 offered `pro 1` — 422 No verses found."""
+    assert _next(fake_database, 21, "psa", 150) == "mat 1"
+
+
+def test_prev_steps_over_the_books_without_text(fake_database):
+    """npu mat 1 offered `mal 4` — 422 No verses found."""
+    assert _prev(fake_database, 21, "mat", 1) == "psa 150"
+
+
+def test_navigation_stops_where_the_translation_stops_publishing(fake_database):
+    """Nothing before the Psalms and nothing after Revelation has text in npu,
+    so those ends look exactly like the ends of the Bible."""
+    assert _prev(fake_database, 21, "psa", 1) == ""
+    assert _next(fake_database, 21, "rev", 22) == ""
+
+
+def test_the_ends_of_the_bible_stay_empty(fake_database):
+    assert _prev(fake_database, 1, "gen", 1) == ""
+    assert _next(fake_database, 1, "rev", 22) == ""
+
+
+def test_navigation_inside_a_book_is_unchanged(fake_database):
+    assert _prev(fake_database, 21, "mat", 5) == "mat 4"
+    assert _next(fake_database, 21, "mat", 5) == "mat 6"
+
+
+@pytest.mark.parametrize(
+    "translation, alias, chapter, previous, following",
+    [
+        (1, "gen", 1, "", "gen 2"),  # syn, complete
+        (1, "gen", 50, "gen 49", "exo 1"),
+        (1, "mal", 4, "mal 3", "mat 1"),
+        (1, "mat", 1, "mal 4", "mat 2"),
+        (1, "psa", 150, "psa 149", "psa 151"),  # its own Ps 151
+        (1, "psa", 151, "psa 150", "pro 1"),
+        (1, "rev", 22, "rev 21", ""),
+        (20, "mal", 3, "mal 2", "mat 1"),  # ubh, Hebrew chapter division
+        (20, "mat", 1, "mal 3", "mat 2"),
+        (11, "psa", 150, "psa 149", "pro 1"),  # bti, no Ps 151
+    ],
+)
+def test_a_translation_that_publishes_a_book_navigates_as_before(
+    fake_database, translation, alias, chapter, previous, following
+):
+    assert _prev(fake_database, translation, alias, chapter) == previous
+    assert _next(fake_database, translation, alias, chapter) == following
+
+
+@pytest.mark.parametrize(
+    "alias, previous_book_alias, previous_chapter",
+    [
+        ("jos", "deu", 31),  # bti Deut: canonical 34, missing 32-34
+        ("2sa", "1sa", 24),  # bti 1 Sam: canonical 31, missing 25-31
+        ("2ch", "1ch", 22),  # bti 1 Chr: canonical 29, missing 23-29
+    ],
+)
+def test_prev_across_a_boundary_lands_on_the_last_chapter_with_text(
+    fake_database, alias, previous_book_alias, previous_chapter
+):
+    """MINOR-4: bti leaves a hole at the *end* of Deut/1 Sam/1 Chr, so their
+    canonical chapters_count (34/31/29) still overshoots what bti actually
+    has text for. Crossing into one of these books from the next one must
+    land on the last chapter that really has text, not on chapters_count —
+    else the endpoint answers 422 for a chapter bti never shipped."""
+    assert _prev(fake_database, 11, alias, 1) == f"{previous_book_alias} {previous_chapter}"
+
+
+def test_the_openapi_schema_documents_the_navigation_fields():
+    schema = app.openapi()["components"]["schemas"]["PartsWithAlignmentModel"]
+
+    for field in ("prev_excerpt", "next_excerpt"):
+        assert schema["properties"][field]["description"]
+
+
+def test_crossing_many_empty_books_costs_a_constant_number_of_queries(fake_database):
+    """N+1 guard: 20 empty books separate npu's Psalms from Matthew in this
+    fixture (20 in production too). Finding Matthew must not cost a query per
+    book skipped — the book list is read once and searched in memory."""
+    _, long_jump_forward = _navigate(fake_database, 21, "psa", 150, "next")
+    _, long_jump_backward = _navigate(fake_database, 21, "mat", 1, "prev")
+    _, neighbouring_book = _navigate(fake_database, 1, "mal", 4, "next")
+    _, inside_a_book = _navigate(fake_database, 21, "mat", 5, "next")
+
+    assert long_jump_forward == long_jump_backward == neighbouring_book == 1
+    assert inside_a_book == 0
+
+
+def test_next_excerpt_resolves_end_to_end_over_http(fake_database):
+    """MINOR-5: npu psa 150's next_excerpt must not just look right — the
+    excerpt it names must actually resolve through the real endpoint."""
+    response = client.get(
+        "/api/excerpt_with_alignment",
+        params={"translation": 21, "excerpt": "psa 150"},
+        headers=HEADERS,
+    )
+    assert response.status_code == 200, response.text
+    next_excerpt = response.json()["parts"][0]["next_excerpt"]
+    assert next_excerpt == "mat 1"
+
+    follow_up = client.get(
+        "/api/excerpt_with_alignment",
+        params={"translation": 21, "excerpt": next_excerpt},
+        headers=HEADERS,
+    )
+    assert follow_up.status_code == 200, follow_up.text

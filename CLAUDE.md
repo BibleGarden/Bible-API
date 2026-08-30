@@ -45,7 +45,7 @@ system prompt is a code constant now, not an environment value.
 ### Application Structure (`app/`)
 
 - **`main.py`** — FastAPI app entry point, languages/translations/books endpoints, `timed_cache` decorator
-- **`excerpt.py`** — Core content endpoint: `excerpt_with_alignment`. No COALESCE, no voice_manual_fixes (manual fixes already applied during import)
+- **`excerpt.py`** — Core content endpoint: `excerpt_with_alignment`. No COALESCE, no voice_manual_fixes (manual fixes already applied during import). Also owns `prev_excerpt`/`next_excerpt` navigation, which walks the books of *this* translation and steps over the ones it ships no text for (see "Navigation across books without text" below)
 - **`canon.py`** — chapter structure of the 66-book canon (`CANONICAL_BOOKS`, 1189 chapters) plus the per-translation exceptions; the single source of "how many chapters a book is expected to have" for `/translations/{code}/books` and for excerpt navigation (see "Chapter coverage" below)
 - **`audio.py`** — MP3 file serving with HTTP Range request support
 - **`about.py`** — About page content
@@ -217,6 +217,36 @@ a non-existent Mal 4. `cep_public` cannot answer the question itself —
 `has_text` is the one additive field of the fix (default `true`); everything
 else in `TranslationBookModel` is unchanged. Tests: `tests/test_translation_books.py`
 (SQLite stand-in for `cep_public` holding several canons at once).
+
+### Navigation across books without text (ClickUp 86cbbpc6v, 2026-08-30)
+
+`prev_excerpt`/`next_excerpt` used to step into the neighbouring **book
+number** whenever a chapter boundary was crossed, checking only its
+`chapters_count`. For a translation that publishes part of the canon that
+meant dead ends: `npu mat 1` offered `mal 4` and `npu psa 150` offered
+`pro 1`, both answered 422 "No verses found".
+
+Navigation now walks to the nearest book **that has text in this
+translation** (`app/excerpt.py`, `get_adjacent_book_with_text`):
+`npu psa 150` → `mat 1`, `npu mat 1` → `psa 150`. When no published book
+remains on that side the field is empty, exactly as at the ends of the Bible
+(`gen 1` prev, `rev 22` next) — so `npu psa 1` prev is `''`.
+
+- "Has text" is not a second definition: `get_books_info` marks each book
+  `has_text` from the `translation_max_chapter` it already selects, the same
+  predicate `GET /api/translations/{code}/books` reports.
+- **One query per boundary crossing**, whatever the distance: the book list
+  is read once and searched in memory, so skipping npu's 38 text-less Old
+  Testament books costs what stepping into the next book costs (fewer queries
+  than before, in fact: the old path spent 2-3). No walk of one query per
+  book. Guarded by a query-counting test.
+- Translations that publish the whole canon are unaffected — verified by
+  replaying every book boundary of every active translation against the
+  pre-fix code on live `cep_public`: `syn`, `bti`, `bsb`, `webus`, `ubh`,
+  `webbe` answer identically; only `npu` changes.
+- `get_book_number`/`get_book_alias` are gone: the alias and number of both
+  the current and the target book come from `get_books_info`, which the
+  navigation already needs.
 
 ### All API routes are under `/api` prefix
 

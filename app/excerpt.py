@@ -109,41 +109,6 @@ def check_audio_file_exists(translation_alias: str, voice_alias: str, book_numbe
     return chapter_number in existing_chapters
 
 
-def get_book_number(cursor: int, book_alias: str) -> str:
-    query = '''
-        SELECT number
-        FROM bible_books
-        WHERE code1 = %s
-    '''
-    cursor.execute(query, (book_alias,))
-    result = cursor.fetchone()
-
-    if not result:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Book '{book_alias}' not found."
-        )
-
-    return str(result['number'])
-
-def get_book_alias(cursor: int, book_number: str) -> str:
-    query = '''
-        SELECT code1
-        FROM bible_books
-        WHERE number = %s
-    '''
-    cursor.execute(query, (book_number,))
-    result = cursor.fetchone()
-
-    if not result:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Book '{book_number}' not found."
-        )
-
-    return result['code1']
-
-
 def get_chapter_data(cursor, translation: int, book_info: dict, chapter_number: int, voice: Optional[int] = None, voice_info: Optional[dict] = None, start_verse: Optional[int] = None, end_verse: Optional[int] = None) -> dict:
     """
     Retrieves chapter data: verses, titles, notes, and audio link.
@@ -413,6 +378,26 @@ def get_books_info(cursor: any, translation: int, alias: str=None):
     additions (syn: Ps 151, Dan 13-14, 2 Chr 37). The chapter count is
     deliberately not taken from an unscoped max() over `translation_verses` —
     that mixed the canons of all translations (see app/canon.py).
+
+    `has_text` says whether this translation ships any verse for the book at
+    all. It is the same predicate `GET /api/translations/{code}/books`
+    computes independently (`bool(existing_chapters)` in main.py:306) — the
+    same predicate, not a shared definition; if one changes, change the
+    other. Read here from the very `translation_max_chapter` the chapter
+    count already needs, so no extra query. Navigation uses it to step over
+    books a translation declares but leaves empty (ClickUp 86cbbpc6v).
+
+    `own_max_chapter` is this translation's actual last chapter with text —
+    the same `translation_max_chapter` value `has_text` and `chapters_count`
+    are computed from, kept around instead of thrown away. It is *not* the
+    same thing as `chapters_count`: when a translation didn't carry a book's
+    tail to completion (a hole at the end, not just missing head chapters),
+    `chapters_count` still reports the canonical length, but `own_max_chapter`
+    is the last chapter that actually has text. Navigation into this book
+    from the previous one must land there, not on `chapters_count` — else it
+    lands on a chapter the translation never shipped (422). It is an internal
+    field of the dict this function returns, not part of `BookInfoModel`
+    (same as `has_text`), so it never reaches the API response.
     """
     params = { 'translation': translation }
     sql = '''
@@ -438,39 +423,59 @@ def get_books_info(cursor: any, translation: int, alias: str=None):
         own_max_chapter = book.pop('translation_max_chapter', None) or 0
         canonical = expected_chapters(book['number'], translation_alias) or 0
         book['chapters_count'] = max(canonical, own_max_chapter)
+        book['has_text'] = own_max_chapter > 0
+        book['own_max_chapter'] = own_max_chapter
     return books
+
+
+def get_adjacent_book_with_text(cursor: any, translation: int, book_number: int, direction: int) -> Optional[dict]:
+    """
+    The nearest book of this translation that has text, searching backwards
+    (`direction = -1`) or forwards (`direction = +1`) from `book_number`
+    (only the sign matters, not the magnitude). None when there is none — the
+    edge of what this translation publishes.
+
+    A translation may declare a book in `translation_books` and ship no verse
+    for it: `npu` declares all 66 books and publishes the Psalms and the New
+    Testament only. Pointing prev/next at such a book is a dead end — the
+    excerpt endpoint answers 422 "No verses found" — so navigation steps over
+    it (ClickUp 86cbbpc6v). Before this, `npu mat 1` offered `mal 4` and
+    `npu psa 150` offered `pro 1`, both 422.
+
+    The book list is read in ONE query, so crossing the 20 empty Old Testament
+    books between npu's Psalms (19) and Matthew (40) costs exactly what
+    stepping into the neighbouring book costs — the search itself is in
+    memory, never a query per book. (38 is npu's total count of books without
+    text across the whole canon, not the span between these two books.)
+    """
+    book_number = int(book_number)
+    candidates = [
+        candidate for candidate in get_books_info(cursor, translation)
+        if candidate['has_text'] and (int(candidate['number']) - book_number) * direction > 0
+    ]
+    if not candidates:
+        return None
+    return min(candidates, key=lambda candidate: abs(int(candidate['number']) - book_number))
+
 
 def get_prev_excerpt(cursor: any, translation: int, book: BookInfoModel, chapter_number: int):
     if chapter_number > 1:
         return "%s %s" % (book['alias'], chapter_number-1)
-    else:
-        current_book_number = int(get_book_number(cursor, book['alias']))
-        if current_book_number == 1:
-            return '' # this is the first chapter of the first book
-        else:
-            prev_book_alias = get_book_alias(cursor, current_book_number-1)
-            prev_book_info_list = get_books_info(cursor, translation, prev_book_alias)
-            if prev_book_info_list:
-                prev_book_info = prev_book_info_list[0]
-                return "%s %s" % (prev_book_alias, prev_book_info['chapters_count'])
-            else:
-                return '' # previous book not found
 
-    return ''
+    prev_book = get_adjacent_book_with_text(cursor, translation, book['number'], -1)
+    if prev_book is None:
+        return '' # nothing before this book has text in this translation
+    # The last chapter that actually has text, not chapters_count: a
+    # translation may leave a book's tail untranslated, in which case
+    # chapters_count still reports the canonical length (MINOR-4, 86cbbpc6v).
+    return "%s %s" % (prev_book['alias'], prev_book['own_max_chapter'])
+
 
 def get_next_excerpt(cursor: any, translation: int, book: BookInfoModel, chapter_number: int):
     if chapter_number < book['chapters_count']:
         return "%s %s" % (book['alias'], chapter_number+1)
-    else:
-        current_book_number = int(get_book_number(cursor, book['alias']))
-        if current_book_number == 66:
-            return '' # this is the last chapter of the last book
-        else:
-            next_book_alias = get_book_alias(cursor, current_book_number+1)
-            # Check that the next book exists
-            if next_book_alias:
-                return "%s 1" % next_book_alias
-            else:
-                return '' # next book not found
 
-    return ''
+    next_book = get_adjacent_book_with_text(cursor, translation, book['number'], 1)
+    if next_book is None:
+        return '' # nothing after this book has text in this translation
+    return "%s 1" % next_book['alias']

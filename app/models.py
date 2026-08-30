@@ -78,8 +78,22 @@ class PartsWithAlignmentModel(BaseModel):
     book: BookInfoModel
     chapter_number: int
     audio_link: str
-    prev_excerpt: str
-    next_excerpt: str
+    prev_excerpt: str = Field(
+        description=(
+            "The excerpt preceding this one in this translation, e.g. 'psa 150'. "
+            "Books the translation ships no text for are skipped, so the "
+            "reference always resolves. Empty when this translation publishes "
+            "nothing before this chapter."
+        )
+    )
+    next_excerpt: str = Field(
+        description=(
+            "The excerpt following this one in this translation, e.g. 'mat 1'. "
+            "Books the translation ships no text for are skipped, so the "
+            "reference always resolves. Empty when this translation publishes "
+            "nothing after this chapter."
+        )
+    )
     verses: list[VerseWithAlignmentModel]
     notes: list[NoteModel]
     titles: list[TitleModel]
