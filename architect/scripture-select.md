@@ -382,7 +382,12 @@ The in-memory client identifier is an HMAC-SHA-256 pseudonym built with
 address itself is not retained. Missing HMAC configuration fails closed
 with 503. Counters are process-local, so production runs a single API
 worker. Client addresses come from the direct peer; `X-Forwarded-For` is
-honoured only for peers listed in `TRUSTED_PROXY_IPS`.
+honoured only for trusted reverse proxies — a name in `TRUSTED_PROXY_HOSTS`
+resolved at runtime, or an address/network in `TRUSTED_PROXY_IPS`
+(`app/trusted_proxies.py`, ClickUp 86cbbq6vz) — and then the client is its
+**rightmost** element, the address the proxy appended. Elements to the left
+were supplied by the caller (nginx preserves the header it receives), so
+believing them would hand out a fresh rate-limit bucket per request.
 
 Standard request statistics store the endpoint, method, status, latency, an
 HMAC pseudonym truncated to 40 hexadecimal characters, and an empty user

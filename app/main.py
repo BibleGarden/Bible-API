@@ -23,6 +23,7 @@ from scripture_select import clear_cached_resources, validation_exception_handle
 from fastapi.exceptions import RequestValidationError
 from auth import RequireAPIKey
 from middleware import RequestStatsMiddleware
+from trusted_proxies import TRUSTED_PROXIES
 
 # Simple in-memory cache with TTL
 _cache = {}
@@ -108,6 +109,12 @@ app = FastAPI(
 )
 
 app.add_middleware(RequestStatsMiddleware)
+
+# Say out loud, once, whose X-Forwarded-For this process believes. Silence
+# here is what made the 2026-08-30 proxy-address reshuffle invisible: a
+# mismatched trust setting produces no errors at all, only wrong statistics
+# and a per-client rate limit that acts globally (ClickUp 86cbbq6vz).
+TRUSTED_PROXIES.log_startup_state()
 
 # Scripture selection answers validation failures with a flat, sanitised
 # {"detail": "..."} body (the default one echoes the prayer text); every

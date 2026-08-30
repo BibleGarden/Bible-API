@@ -58,6 +58,8 @@ system prompt is a code constant now, not an environment value.
 - **`rate_limit.py`** — Shared in-memory rolling-window limiter (Twinkler + scripture selection)
 - **`deadline.py`** — Per-request time budget threaded through the AI stages
 - **`prompt_safety.py`** — Neutralizes forged prompt data-block delimiters (invisible characters and angle-bracket look-alikes) in user text
+- **`trusted_proxies.py`** — which peers may speak for their clients through `X-Forwarded-For`: container names resolved through docker DNS with a TTL (plus literal IPs and CIDR networks), and the loud diagnostics around them (see "Trusted proxies survive a reboot" below)
+- **`client_ip.py`** — the client address of a request (`resolve_client_ip`, through `trusted_proxies`; `X-Forwarded-For` is read **right to left**, see "Which element of `X-Forwarded-For`" below) and its HMAC pseudonym for the stats table and the per-client limiter
 - **`auth.py`** — Only API Key authentication (no JWT)
 - **`models.py`** — Pydantic response models (no admin models)
 - **`chunking.py`** — Pure structural chunking algorithm for RAG (see `architect/adr/0001-structural-chunking.md`)
@@ -131,8 +133,9 @@ index version (`c{chunking}:{model}@{dims}`), not a provider call.
 `ADMIN_API_URL`, `ADMIN_API_KEY` (for import), `IMPORT_MAX_PAYLOAD_MB` (48),
 `IMPORT_HTTP_TIMEOUT_SECONDS` (300), `AI_REQUESTS_PER_MINUTE`,
 `AI_REQUESTS_PER_CLIENT_PER_MINUTE`, `AI_CLIENT_HMAC_KEY`,
-`TRUSTED_PROXY_IPS` and the `AI_SCRIPTURE_*` knobs below. `AUDIO_DIR` is read
-by docker-compose, not by the application.
+`TRUSTED_PROXY_HOSTS` / `TRUSTED_PROXY_IPS` /
+`TRUSTED_PROXY_DNS_TTL_SECONDS` (30) and the `AI_SCRIPTURE_*` knobs below.
+`AUDIO_DIR` is read by docker-compose, not by the application.
 
 Exactly two variables decide whether the AI surface works:
 `GEMINI_API_KEY` (unset → `/api/ai/question` and `/api/ai/transcribe` answer
@@ -177,6 +180,30 @@ RAG / scripture selection:
 - `AI_SCRIPTURE_TIMEOUT_SECONDS` (15) — total budget of one selection;
   `AI_SCRIPTURE_INDEX_CACHE_SECONDS` (3600) — TTL of the in-process corpus cache,
   also dropped by `POST /api/cache/clear` (ADR 0006).
+Trusted reverse proxies — **name the proxy, do not pin its address**
+(`app/trusted_proxies.py`, ClickUp 86cbbq6vz):
+
+- `TRUSTED_PROXY_HOSTS` (empty) — comma-separated **container / DNS names**
+  of the reverse proxies whose `X-Forwarded-For` is believed, e.g.
+  `bible-web`. Resolved through docker's embedded DNS at startup and
+  re-resolved on a TTL, so an address change (reboot, resize, recreation) is
+  picked up on its own. **This is the production setting.**
+- `TRUSTED_PROXY_IPS` (empty) — literal addresses **and/or CIDR networks**
+  (`127.0.0.1`, `172.18.0.0/16`). Still supported, still additive with the
+  above. Networks are parsed strictly: `172.18.0.5/16` is a startup error,
+  not a silent widening to the whole subnet.
+- `TRUSTED_PROXY_DNS_TTL_SECONDS` (30) — how stale a resolved proxy address
+  may get. One DNS call per TTL, never per request, and never **in** a
+  request: the lookup runs on a background thread while the request path
+  keeps answering from the previous snapshot. Floored at 1 s.
+- Everything unset means "no proxy in front of this API": the peer address is
+  the client and `X-Forwarded-For` is ignored. That is the local machine's
+  configuration and a supported deployment, not a missing setting.
+- Malformed entries abort startup naming the variable and the token, through
+  the same aggregated `ConfigError` as everything else (a host name in
+  `TRUSTED_PROXY_IPS` and an IP in `TRUSTED_PROXY_HOSTS` each point at the
+  other variable).
+
 - `AI_SCRIPTURE_PRIMARY_TRANSLATIONS` (empty) — per-language default translation
   of the selection endpoint, e.g. `ru=syn,en=bsb,uk=ubh` (`language=alias` or
   `language=code`, comma separated). Must name an INDEXED translation;
@@ -349,6 +376,127 @@ tables it writes (it checked three until the review of this ticket, leaving
 `voice_alignments` — the largest table, and the one the manual fixes are
 delivered in — unverified). `allow_removals` is meaningless for a point import
 and ignored there.
+
+### Trusted proxies survive a reboot, and stop failing silently (ClickUp 86cbbq6vz, 2026-08-30)
+
+`TRUSTED_PROXY_IPS` used to be one hardcoded container address. Docker hands
+addresses out in start order and they do **not** survive a VM reboot or
+resize: after the 2026-08-30 hard reboot the production containers came back
+in a different order, `172.18.0.5` became MySQL instead of nginx, and
+Bible-API silently stopped believing `X-Forwarded-For` from the only proxy in
+front of it. Measured consequences: `api_requests` recorded every caller under
+the nginx container's address (one client, statistically), and
+`AI_REQUESTS_PER_CLIENT_PER_MINUTE` became a **global** limit, because every
+caller hashed to the same pseudonym. **No errors in the logs** — the failure
+was completely silent, and the fix was a manual one-line `.env` edit after
+every reboot.
+
+**Trust a name, not an address.** `app/trusted_proxies.py` owns a
+`TrustedProxies` object built from the three variables above and answers one
+question: `is_trusted(peer)`. Names in `TRUSTED_PROXY_HOSTS` are resolved
+through docker's embedded DNS at startup and re-resolved whenever the cached
+answer is older than `TRUSTED_PROXY_DNS_TTL_SECONDS`, so the address the proxy
+holds *right now* is the address that is trusted — a reboot costs at most one
+TTL of misattributed statistics and **no `.env` edit at all**.
+
+**Resolution is stale-while-revalidate, and that is correctness, not speed.**
+`is_trusted` is called in the request path of an async application and
+`socket.getaddrinfo` is a blocking call: a name that falls outside docker's
+DNS and reaches an unresponsive upstream would park the **whole event loop**
+— every request in flight, not just this one — for the length of the lookup,
+once per TTL. So the request path never resolves. It reads the current
+snapshot and returns; when that snapshot is older than the TTL it hands the
+work to a single background daemon thread (at most one in flight, whatever
+the request rate) whose result atomically replaces the snapshot. Trust
+follows a moved proxy within one TTL plus one lookup, and a hung resolver
+costs staleness only. The one synchronous resolution is the cold one, at
+startup, in `log_startup_state()` — there is no previous snapshot to serve
+then, and answering "trust nobody" while a lookup is pending is the failure
+this module exists to prevent.
+
+Why not the alternatives (both were considered, both remain possible):
+
+- **Static IPs in the prod compose (`ipam`)** — makes the address a declared
+  fact rather than an accident, and would also fix nginx's cached upstreams.
+  But it is a prod-compose change that has to be kept in sync by hand, it
+  pins the subnet layout, and above all it keeps the failure *silent*: the
+  day the declaration and reality disagree, nothing says so. Not chosen as
+  the primary mechanism; it composes with this one if it is ever wanted.
+- **Trusting the whole docker subnet** (`TRUSTED_PROXY_IPS=172.18.0.0/16`) —
+  supported by the CIDR parsing, and it does survive reboots. Honest
+  downside: it trusts *every* container on that network (MySQL, admin-api,
+  anything added later), so a single compromised container could forge
+  `X-Forwarded-For` and both poison the statistics and evade the per-client
+  AI rate limit by minting a new client address per request. A name resolves
+  to the proxy alone and costs nothing extra, so the subnet is documented as
+  an escape hatch, not the recommendation.
+
+**And the failure is loud now.** Four places, none of them per-request:
+
+1. **Startup banner**, always: `Trusted proxies: hosts=[bible-web->172.18.0.4]`
+   or `Trusted proxies: none configured — ...`. It is emitted through a
+   handler this module installs when nothing else has configured logging:
+   uvicorn leaves the root logger without handlers, so an application `INFO`
+   record would otherwise be swallowed and only `WARNING`+ would reach
+   `docker logs` (which is why the banner is worth grepping for after a
+   deploy: `docker logs bible-api | grep 'Trusted prox'`).
+2. **Address change**, `WARNING`:
+   `Trusted proxy host 'bible-web' changed address: 172.18.0.5 -> 172.18.0.4`.
+   The reboot, narrated.
+3. **A host that stops resolving**, `ERROR`, once per state change (not once
+   per TTL — it keeps retrying quietly and shouts again only when the state
+   changes).
+4. **`X-Forwarded-For` from an untrusted peer**, `ERROR`, once per peer per
+   5 minutes (`client_ip.FORWARDING_LOG_INTERVAL_SECONDS`, table capped at 64
+   peers, oldest evicted). That header from an unexpected peer *is* the
+   signature of the incident. With no proxy configured at all the same event
+   is a `WARNING` instead — locally it means someone sent a forged header to a
+   directly exposed API, which is information, not a misconfiguration.
+   Because the trigger is a request header, the *volume* of this log would
+   otherwise be chosen by whoever sends the requests: a second, global ceiling
+   of **10 lines per 5 minutes** (`client_ip._MAX_REPORTS_PER_INTERVAL`)
+   caps it however many distinct peers appear. Peers silenced by that ceiling
+   are not recorded as "already reported", so the real misconfigured proxy is
+   reported again as soon as there is budget.
+
+**Which element of `X-Forwarded-For` is the client: the RIGHTMOST one.**
+Production nginx sets `X-Forwarded-For $proxy_add_x_forwarded_for` in every
+`location`, and that variable **keeps the header the client sent** and appends
+`$remote_addr` to it. Reading the leftmost element (as the first cut of this
+ticket did) therefore let any caller simply *declare* its address: `curl -H
+'X-Forwarded-For: 1.2.3.4'` was recorded as 1.2.3.4 in `api_requests`, and a
+fresh value per request walked straight past
+`AI_REQUESTS_PER_CLIENT_PER_MINUTE`, whose bucket is keyed by that address.
+Only the part *our own* proxies appended can be believed.
+
+`client_ip.client_from_forwarded` implements the standard rule: walk the list
+right to left, skip addresses that are themselves trusted proxies, and the
+first address that is not one is the client. With today's single hop that is
+just the rightmost element, but written as a walk it stays correct if a second
+trusted hop is ever added. A malformed or empty element (nginx never produces
+one) means the header cannot be read as a hop chain, so it is not read at all
+and the direct peer is the client — the same conservative answer as an
+untrusted peer.
+
+**Pseudonyms change.** Requests whose forged left element used to be recorded
+now hash from the address nginx actually saw, so `api_requests.client` values
+differ before and after this change for any caller that sent its own
+`X-Forwarded-For`. That is the point of the fix; a report crossing the deploy
+should not treat the two as the same client identity.
+
+Startup is deliberately **not** aborted when a configured host does not
+resolve: the proxy may simply be slower to come up, and taking the whole
+public API down over statistics accuracy is the wrong trade. The error is
+logged and every TTL retries.
+
+Tests: `tests/test_trusted_proxies.py` (64) — parsing and its startup errors,
+matching by address/CIDR/name, the reboot itself (a fake resolver whose answer
+changes, trust follows within one TTL), each log line firing exactly once, the
+spoofing cases (`X-Forwarded-For` from an untrusted peer is ignored and the
+peer is the client; a forged left element is ignored and the right one wins),
+the request path answering instantly while a deliberately hung resolver is
+blocked on a background thread, and the two bounds on the untrusted-peer log
+(oldest peer evicted, global ceiling per interval).
 
 ### All API routes are under `/api` prefix
 

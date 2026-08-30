@@ -1,5 +1,7 @@
 import os
+import re
 from collections.abc import Mapping
+from ipaddress import IPv4Network, IPv6Network, ip_address, ip_network
 
 
 class ConfigError(RuntimeError):
@@ -97,6 +99,82 @@ def parse_float(name: str, raw: str | None, default: float) -> float:
         raise ConfigError(
             f"{name}: expected a number, got {raw!r}"
         ) from None
+
+
+# A DNS label per RFC 1123: letters, digits and inner dashes, up to 63 chars
+# per label. Deliberately conservative — anything else in TRUSTED_PROXY_HOSTS
+# is a typo, and a typo in a *trust* setting must not be resolved silently.
+_HOSTNAME_LABEL = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+_HOSTNAME_RE = re.compile(rf"^{_HOSTNAME_LABEL}(?:\.{_HOSTNAME_LABEL})*\.?$")
+
+
+def parse_trusted_proxy_ips(
+    name: str, raw: str | None
+) -> tuple[frozenset[str], tuple[IPv4Network | IPv6Network, ...]]:
+    """Comma-separated IP addresses and/or CIDR networks -> (addresses, nets).
+
+    Unset/empty is a valid, meaningful configuration ("no proxy in front of
+    this deployment"), which is how the local machine runs. Anything that is
+    neither an IP address nor a CIDR network is a ConfigError naming the
+    variable and the offending token: this setting decides whose
+    `X-Forwarded-For` is believed, so a value nobody can parse must never be
+    quietly skipped.
+
+    Networks are parsed strictly: `172.18.0.5/16` is rejected rather than
+    silently widened to `172.18.0.0/16`, because "one address" and "the whole
+    subnet" are very different amounts of trust and the difference is exactly
+    the typo a strict parse catches.
+    """
+    addresses: set[str] = set()
+    networks: list[IPv4Network | IPv6Network] = []
+    for token in (raw or "").split(","):
+        token = token.strip()
+        if not token:
+            continue
+        if "/" in token:
+            try:
+                networks.append(ip_network(token))
+            except ValueError as error:
+                raise ConfigError(
+                    f"{name}: {token!r} is not a valid CIDR network ({error})"
+                ) from None
+        else:
+            try:
+                addresses.add(str(ip_address(token)))
+            except ValueError:
+                raise ConfigError(
+                    f"{name}: {token!r} is not a valid IP address or CIDR "
+                    f"network (a host NAME belongs in TRUSTED_PROXY_HOSTS)"
+                ) from None
+    return frozenset(addresses), tuple(networks)
+
+
+def parse_trusted_proxy_hosts(name: str, raw: str | None) -> tuple[str, ...]:
+    """Comma-separated DNS names of the reverse proxies, in order, deduped.
+
+    An IP literal here is an error: addresses belong in `TRUSTED_PROXY_IPS`,
+    and accepting them in both places would make "which variable is stale"
+    ambiguous during exactly the incident this exists to prevent.
+    """
+    hosts: list[str] = []
+    for token in (raw or "").split(","):
+        token = token.strip()
+        if not token:
+            continue
+        try:
+            ip_address(token)
+        except ValueError:
+            pass
+        else:
+            raise ConfigError(
+                f"{name}: {token!r} is an IP address, not a host name — put "
+                f"it in TRUSTED_PROXY_IPS"
+            )
+        if len(token) > 253 or not _HOSTNAME_RE.match(token):
+            raise ConfigError(f"{name}: {token!r} is not a valid host name")
+        if token not in hosts:
+            hosts.append(token)
+    return tuple(hosts)
 
 
 def missing_required_vars(env: Mapping[str, str]) -> list[str]:
@@ -368,10 +446,51 @@ AI_SCRIPTURE_PRIMARY_TRANSLATIONS = os.getenv(
 # TWINKLER_SYSTEM_PROMPT. It is product behaviour, not deployment
 # configuration, and now lives in question_prompt.QUESTION_PROMPT.
 AI_CLIENT_HMAC_KEY = os.getenv("AI_CLIENT_HMAC_KEY", "").strip()
-TRUSTED_PROXY_IPS = frozenset(
-    value.strip()
-    for value in os.getenv("TRUSTED_PROXY_IPS", "").split(",")
-    if value.strip()
+
+# Whose X-Forwarded-For is believed (ClickUp 86cbbq6vz). Three ways to say it,
+# all optional and additive; unset everything means "no proxy in front of this
+# API", which is how the local machine runs and is a supported deployment, not
+# a missing setting.
+#
+#   TRUSTED_PROXY_HOSTS  container/DNS names, re-resolved at runtime — the
+#                        production setting, because docker addresses do not
+#                        survive a reboot or resize (see trusted_proxies.py)
+#   TRUSTED_PROXY_IPS    literal addresses AND/OR CIDR networks
+#   TRUSTED_PROXY_DNS_TTL_SECONDS  how stale a resolved address may get
+#
+# Malformed entries abort startup naming the variable and the token: this is a
+# trust boundary, and skipping an unparsable entry would silently shrink it.
+def _get_trusted_ips() -> tuple[
+    frozenset[str], tuple[IPv4Network | IPv6Network, ...]
+]:
+    try:
+        return parse_trusted_proxy_ips(
+            "TRUSTED_PROXY_IPS", os.getenv("TRUSTED_PROXY_IPS")
+        )
+    except ConfigError as exc:
+        _problems.append(str(exc))
+        return frozenset(), ()
+
+
+def _get_trusted_hosts() -> tuple[str, ...]:
+    try:
+        return parse_trusted_proxy_hosts(
+            "TRUSTED_PROXY_HOSTS", os.getenv("TRUSTED_PROXY_HOSTS")
+        )
+    except ConfigError as exc:
+        _problems.append(str(exc))
+        return ()
+
+
+TRUSTED_PROXY_IPS, TRUSTED_PROXY_NETWORKS = _get_trusted_ips()
+TRUSTED_PROXY_HOSTS = _get_trusted_hosts()
+# Operational knob: an address change is picked up within one TTL. 30 s is
+# short enough that a reboot costs at most half a minute of misattributed
+# statistics, and long enough that the DNS lookup is invisible (one call per
+# 30 s, never per request). Floored at 1 s — a 0 would resolve on every
+# request, on the event loop.
+TRUSTED_PROXY_DNS_TTL_SECONDS = max(
+    1, _get_int("TRUSTED_PROXY_DNS_TTL_SECONDS", 30)
 )
 
 # Fail fast: one aggregated error with everything that is wrong, so a broken

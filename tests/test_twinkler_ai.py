@@ -23,6 +23,7 @@ import middleware
 import question_prompt
 import rate_limit
 from main import app
+from trusted_proxies import TrustedProxies
 
 
 client = TestClient(app)
@@ -162,7 +163,9 @@ def test_ignores_forwarded_for_from_untrusted_peer(monkeypatch, allow_ai_request
 def test_uses_forwarded_for_from_trusted_peer(monkeypatch, allow_ai_requests):
     generated = AsyncMock(return_value="Ответ")
     monkeypatch.setattr(twinkler_ai, "complete", generated)
-    monkeypatch.setattr(client_ip, "TRUSTED_PROXY_IPS", frozenset({"testclient"}))
+    monkeypatch.setattr(
+        client_ip, "TRUSTED_PROXIES", TrustedProxies(addresses={"testclient"})
+    )
 
     response = client.post(
         "/api/ai/question",
@@ -174,7 +177,9 @@ def test_uses_forwarded_for_from_trusted_peer(monkeypatch, allow_ai_requests):
     )
 
     assert response.status_code == 200
-    allow_ai_requests.assert_called_once_with("203.0.113.7")
+    # The RIGHTMOST element: the address the trusted proxy itself appended.
+    # The left one is whatever the caller put in the header (ClickUp 86cbbq6vz).
+    allow_ai_requests.assert_called_once_with("192.0.2.1")
 
 
 @pytest.mark.parametrize(

@@ -140,7 +140,17 @@ statistics are purged after 14 days by
 `app/aggregate_stats.py`; daily aggregates retain counts only.
 
 Client addresses come from the direct peer. `X-Forwarded-For` is used only
-when the peer is explicitly listed in `TRUSTED_PROXY_IPS`; malformed forwarded
-addresses fall back to the peer address. The bundled FastAPI commands disable
+when the peer is a trusted reverse proxy — a name in `TRUSTED_PROXY_HOSTS`
+resolved at runtime, or an address/network in `TRUSTED_PROXY_IPS`
+(`app/trusted_proxies.py`). The client is the **rightmost** element of that
+header — the address the trusted proxy itself appended, found by reading right
+to left past any further trusted hops. Nginx's `$proxy_add_x_forwarded_for`
+preserves whatever the caller sent and appends `$remote_addr`, so an element
+to the left of that is a caller-supplied claim; believing it would let anyone
+mint a fresh client identity per request and walk past the per-client limit.
+Malformed forwarded addresses fall back to the
+peer address, and a forwarded header from an untrusted peer is ignored *and
+logged* (ClickUp 86cbbq6vz: an unnoticed trust mismatch turns the per-client
+limit into a global one). The bundled FastAPI commands disable
 Uvicorn's implicit proxy-header processing so this trust decision remains in
 the application resolver.

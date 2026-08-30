@@ -48,7 +48,7 @@ AI_SCRIPTURE_RERANK_MODEL=gemini-3.5-flash-lite
 AI_REQUESTS_PER_MINUTE=10
 AI_REQUESTS_PER_CLIENT_PER_MINUTE=3
 AI_CLIENT_HMAC_KEY=generate-a-separate-random-secret
-TRUSTED_PROXY_IPS=127.0.0.1
+TRUSTED_PROXY_HOSTS=my-nginx-container
 ```
 
 The system prompt is **not** configurable: it is the versioned constant
@@ -84,10 +84,21 @@ are held in process memory, reset on restart, and are not shared across API
 workers or replicas. Run a single worker or add an external distributed
 limiter before scaling the service horizontally.
 
-`TRUSTED_PROXY_IPS` must contain only direct reverse-proxy peers whose
-`X-Forwarded-For` header is trusted. Leave it empty when the API is exposed
-directly. `AI_CLIENT_HMAC_KEY` pseudonymizes client addresses and must be
-different from both API keys.
+Only a direct reverse-proxy peer may speak for its clients through
+`X-Forwarded-For`. Name it with `TRUSTED_PROXY_HOSTS` (comma-separated
+container or DNS names, resolved at startup and re-resolved every
+`TRUSTED_PROXY_DNS_TTL_SECONDS`, default 30) rather than pinning an address:
+container addresses do not survive a host reboot, and a stale pin makes the
+service record every caller as the proxy itself while the per-client AI rate
+limit silently becomes a global one. `TRUSTED_PROXY_IPS` still accepts literal
+addresses and CIDR networks for deployments that need them — a whole subnet
+trusts every workload in it, so prefer the name. Leave all of them unset when
+the API is exposed directly; the service says which mode it is in on startup
+(`docker logs <container> | grep 'Trusted prox'`) and logs a forwarded header
+arriving from an untrusted peer. In a header from a trusted peer the client is
+the **rightmost** address — the one the proxy itself appended; everything to
+the left of it was supplied by the caller and is never believed. `AI_CLIENT_HMAC_KEY` pseudonymizes client
+addresses and must be different from both API keys.
 
 `POST /api/ai/transcribe` accepts `multipart/form-data` with a required
 M4A `file` and an optional BCP 47 `locale` (for example, `ru-RU`). The locale is

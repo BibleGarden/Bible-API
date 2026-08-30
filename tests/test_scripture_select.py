@@ -37,6 +37,7 @@ from retrieval import (
     VerseText,
     split_exclusions,
 )
+from trusted_proxies import TrustedProxies
 from versification import (
     PsalmMap,
     build_psalm_map,
@@ -1525,7 +1526,9 @@ def test_client_identity_comes_from_the_peer_unless_the_proxy_is_trusted(
     )
     assert reserve.call_args.args == ("testclient",)
 
-    monkeypatch.setattr(client_ip, "TRUSTED_PROXY_IPS", frozenset({"testclient"}))
+    monkeypatch.setattr(
+        client_ip, "TRUSTED_PROXIES", TrustedProxies(addresses={"testclient"})
+    )
     post(
         {"language": "ru", "topic": TOPIC},
         headers={"X-Forwarded-For": "203.0.113.7"},
