@@ -368,6 +368,84 @@ fallback, and every provider call is capped by what is left of the budget.
 Measured production latency (warm process): median 6.2 s, max 6.6 s; the
 query rewrite is ~75 % of it. The six query embeddings run concurrently.
 
+### Why it used to be exceeded (ClickUp 86cbbnaxn, 2026-08-31)
+
+Answers of 16.3 s, 21.4 s and 13.9 s were observed against a 15 s budget
+while the free-tier provider was answering 429. Four defects, each of which
+alone could outlive the budget:
+
+1. **`timeout=<number>` is per PHASE in httpx.** A bare number is expanded
+   into `Timeout(connect=t, read=t, write=t, pool=t)`, and each phase is
+   bounded on its own — so `timeout=remaining` authorised up to four times
+   the remaining budget for a single call. `gemini_retry.provider_timeout`
+   now carves the four phases OUT of the budget (connect/write/pool get a
+   twelfth of the call each, capped at 1 s; the read phase keeps the
+   remaining three quarters), so their worst case sums to it. The split is
+   sized against the stage measurements above, not chosen for symmetry:
+   `:generateContent` is not streamed, so the model's whole thinking time
+   lands in the **first read**, and the rewrite call measures 3.7-4.7 s
+   against the 8 s base — a half-and-half split would leave read 4.0 s and
+   time out the median healthy request, paying for the budget with a
+   permanent quality loss. At base 8 s read gets 6.0 s, 1.3x the slowest
+   measured call.
+2. **A backoff was clipped to the remaining budget and then slept.**
+   `deadline.sleep_budget` returned `min(delay, remaining)`, so a Gemini
+   `RetryInfo` of 30-55 s on a 429 slept out **every second the request had
+   left** and the attempt it was waiting for then found no budget at all.
+   `gemini_retry.retry_pause` returns `None` — "degrade now" — whenever the
+   pause plus a minimally useful call (1 s) no longer fit. `sleep_budget`
+   is deleted, not fixed: it invited exactly this.
+3. **A 429 was a 429.** Gemini says in the body which quota rejected the
+   call; a per-DAY free-tier quota cannot reopen inside a 15 s request, so
+   every retry against it was guaranteed waste. See below.
+4. **The budget started after the corpus load.** `Deadline` was created
+   just before the pipeline, so a cold `get_resources()` (full index load,
+   ~1 s and several DB round trips, and every refresh after the TTL) sat
+   outside the budget entirely. It is created at the top of the handler
+   now: the budget is the endpoint's promise about its own latency, and the
+   AI stages get what is left of it.
+
+What is still outside the budget, by design: resolving the chosen
+candidates' texts from MySQL and building the response. These are local,
+bounded and unavoidable — the answer needs them — which is why the contract
+is "the budget plus local DB work", not "the budget".
+
+Not solvable here, and stated rather than hidden: httpx's `read` timeout
+bounds the wait for the *next chunk* of a response, not the whole response,
+so a provider dribbling bytes forever inside its read timeout cannot be cut
+off by httpx at all. These stages receive one small JSON document each, and
+the stage boundaries re-check the deadline, so the residual exposure is one
+hung call rather than a summed retry ladder.
+
+### Which quota rejected us (429 details)
+
+The `generativelanguage` API answers a quota rejection with
+`error.details` carrying a `google.rpc.QuotaFailure` — `quotaId` /
+`quotaMetric` naming the quota, e.g.
+`GenerateRequestsPerDayPerProjectPerModel-FreeTier` versus
+`GenerateRequestsPerMinutePerProjectPerModel-FreeTier` — and usually a
+`google.rpc.RetryInfo` with a `retryDelay` such as `"14s"`. The delay does
+**not** carry the scope: the same daily violation is observed answering
+`"0s"`, `"14s"` and `"55s"`, so the quota id is what is read
+(`app/gemini_retry.py`).
+
+| 429 says | Behaviour |
+| --- | --- |
+| a per-day (or per-hour) quota is exhausted | no retry at all — degrade immediately down the existing ladder |
+| a per-minute quota is exhausted | retry after `max(our backoff, retryDelay)`, but only if the pause plus the call still fit in the budget; otherwise degrade now |
+| 429 without recognisable details, or any 5xx | unchanged: the documented backoff ladder, inside the deadline |
+
+Parsing is total: a body that is not JSON, or is shaped differently, or
+carries an unparsable delay, means "details unknown" and takes the ordinary
+branch. It never raises.
+
+`fallback_reason` values are unchanged by all of this — the stages degrade
+through the same `retrieval_fallback` / `rerank_failed` / safe-pool ladder
+as before, only sooner. Their *distribution* shifts, though: an exhausted
+daily quota used to sleep the budget out and surface as `deadline`, and now
+degrades immediately as `ai_unavailable` — a report crossing this deploy
+should expect that swap, not a regression.
+
 ## Rate limiting and observability
 
 Two 60-second windows, independent of the Twinkler budget because one

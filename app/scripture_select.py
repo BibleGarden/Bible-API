@@ -1418,6 +1418,14 @@ async def scripture_select(
     if sum(len(reply) for reply in replies) > MAX_REPLIES_CHARS:
         raise HTTPException(status_code=422, detail="Replies are too long")
 
+    # The budget starts HERE, not at the pipeline: everything below is work
+    # this request pays for, and a cold corpus cache (a full index load, ~1 s
+    # and a handful of DB round trips) used to sit outside it entirely — so
+    # the answer could exceed AI_SCRIPTURE_TIMEOUT_SECONDS by that load
+    # before a single provider call had been made. The budget is the
+    # endpoint's promise about ITS OWN latency; the AI stages simply get
+    # whatever is left of it (ClickUp 86cbbnaxn).
+    deadline = Deadline(AI_SCRIPTURE_TIMEOUT_SECONDS)
     try:
         resources = await run_in_threadpool(get_resources)
         translation = resolve_translation(
@@ -1445,7 +1453,6 @@ async def scripture_select(
     )
     language = request.language.value
     allowed = coverage_filter(resources, language, translation)
-    deadline = Deadline(AI_SCRIPTURE_TIMEOUT_SECONDS)
     try:
         final = await run_in_threadpool(
             _run_selection, resources, selection_request, deadline, allowed

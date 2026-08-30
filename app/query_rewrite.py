@@ -28,7 +28,13 @@ import time
 import httpx
 
 from config import AI_SCRIPTURE_REWRITE_MODEL, REWRITE_API_KEY
-from deadline import Deadline, request_timeout, sleep_budget
+from deadline import Deadline
+from gemini_retry import (
+    RETRYABLE_STATUS,
+    provider_timeout,
+    rate_limit_of,
+    retry_pause,
+)
 from prompt_safety import neutralize_prompt_markers
 
 logger = logging.getLogger(__name__)
@@ -42,6 +48,9 @@ REWRITE_PROMPT_VERSION = 7
 REWRITE_VARIANTS = 6
 _MAX_QUERY_CHARS = 200
 _MODEL_PATTERN = re.compile(r"^[a-zA-Z0-9._-]+$")
+# Linear backoff of the retry ladder: 2 s before the second attempt, 4 s
+# before the third (unchanged; only when the budget can still afford it).
+_RETRY_BASE_SECONDS = 2.0
 
 GEMINI_GENERATE_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
@@ -185,6 +194,26 @@ class GeminiQueryRewriter:
         if self._owns_client:
             self._client.close()
 
+    def _pause_before_retry(
+        self, deadline: Deadline | None, attempt: int, rate_limit=None
+    ) -> bool:
+        """Wait out the backoff; False means "do not attempt again".
+
+        False on the last attempt (no pointless sleep before giving up), on
+        an exhausted daily quota, and whenever the pause plus a usable call
+        no longer fit in the budget — the caller then degrades immediately
+        instead of sleeping the request over its deadline.
+        """
+        if attempt + 1 >= self.attempts:
+            return False
+        pause = retry_pause(
+            deadline, _RETRY_BASE_SECONDS * (attempt + 1), rate_limit
+        )
+        if pause is None:
+            return False
+        time.sleep(pause)
+        return True
+
     def __enter__(self) -> "GeminiQueryRewriter":
         return self
 
@@ -202,8 +231,13 @@ class GeminiQueryRewriter:
 
         Raises QueryRewriteError on configuration/transport/parse failure —
         never logs the prayer context itself. With a `deadline`, no attempt
-        is started once the budget is gone and every HTTP call is capped by
-        what is left of it.
+        is started once the budget is gone, every HTTP call is capped by what
+        is left of it (across all four httpx phases,
+        `gemini_retry.provider_timeout`), and a backoff is only slept when
+        the attempt after it still fits. A 429 naming an exhausted DAILY
+        quota ends the ladder at once: it cannot reopen inside one request,
+        so retrieval falls back to the raw query immediately instead of
+        waiting for it (ClickUp 86cbbnaxn).
         """
         if language not in _LANGUAGES:
             raise QueryRewriteError(f"unsupported language: {language}")
@@ -238,10 +272,8 @@ class GeminiQueryRewriter:
         data = None
         last_error: Exception | None = None
         for attempt in range(self.attempts):
-            if attempt:
-                time.sleep(sleep_budget(deadline, 2.0 * attempt))
-            timeout = request_timeout(deadline, self.timeout)
-            if timeout <= 0.0:
+            timeout = provider_timeout(deadline, self.timeout)
+            if timeout is None:
                 raise QueryRewriteError("rewrite budget exhausted") from last_error
             try:
                 response = self._client.post(
@@ -250,16 +282,22 @@ class GeminiQueryRewriter:
                     headers={"x-goog-api-key": self.api_key},
                     timeout=timeout,
                 )
-                if response.status_code in (429, 500, 502, 503, 504):
+                if response.status_code in RETRYABLE_STATUS:
                     last_error = QueryRewriteError(
                         f"rewrite request failed (HTTP {response.status_code})"
                     )
+                    if not self._pause_before_retry(
+                        deadline, attempt, rate_limit_of(response)
+                    ):
+                        break
                     continue
                 response.raise_for_status()
                 data = response.json()
                 break
             except httpx.TimeoutException as exc:
                 last_error = exc
+                if not self._pause_before_retry(deadline, attempt):
+                    break
             except (httpx.HTTPError, ValueError) as exc:
                 raise QueryRewriteError("rewrite request failed") from exc
         if data is None:

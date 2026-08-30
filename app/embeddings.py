@@ -19,7 +19,12 @@ Key properties:
   calls with retries are sufficient and resume-safe (the reindex skips
   already-stored chunks).
 - Exponential backoff on 429/5xx/transport errors, honouring the
-  server-provided RetryInfo delay when present.
+  server-provided RetryInfo delay when present (app/gemini_retry.py). Under
+  a serve-time `Deadline` the ladder stops the moment a pause plus the
+  attempt after it no longer fit in the budget, and a 429 naming an
+  exhausted DAILY quota stops it outright — a daily free-tier quota cannot
+  reopen inside one request, and its RetryInfo used to be slept off against
+  the caller's whole remaining budget (ClickUp 86cbbnaxn).
 
 Failure mode: raises EmbeddingUnavailable when the API is not configured or
 keeps failing after retries. Callers (the future selection endpoint) must
@@ -40,7 +45,13 @@ from config import (
     EMBEDDING_MODEL,
     GEMINI_API_KEY,
 )
-from deadline import Deadline, request_timeout, sleep_budget
+from deadline import Deadline
+from gemini_retry import (
+    RETRYABLE_STATUS,
+    provider_timeout,
+    rate_limit_of,
+    retry_pause,
+)
 
 GEMINI_EMBED_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
@@ -53,7 +64,7 @@ TASK_QUERY = "RETRIEVAL_QUERY"
 _MAX_RETRIES = 6
 _RETRY_BASE_SECONDS = 1.0
 _RETRY_MAX_SECONDS = 30.0
-_RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
+_RETRYABLE_STATUS = RETRYABLE_STATUS
 
 
 class EmbeddingUnavailable(RuntimeError):
@@ -78,20 +89,6 @@ def normalize(vector: list[float]) -> list[float]:
     if norm == 0.0:
         return list(vector)
     return [x / norm for x in vector]
-
-
-def retry_delay_from_response(response: httpx.Response, fallback: float) -> float:
-    """Extract the RetryInfo delay from a Gemini 429 body, if present."""
-    try:
-        for detail in response.json()["error"]["details"]:
-            if detail.get("@type", "").endswith("RetryInfo"):
-                raw = str(detail.get("retryDelay", "")).rstrip("s")
-                parsed = float(raw)
-                if parsed > 0:
-                    return min(parsed, _RETRY_MAX_SECONDS)
-    except Exception:
-        pass
-    return fallback
 
 
 @dataclass(frozen=True)
@@ -160,8 +157,11 @@ class GeminiEmbeddingClient:
         provider_down = False
         for attempt in range(self.max_retries):
             last_attempt = attempt + 1 == self.max_retries
-            timeout = request_timeout(deadline, self.timeout)
-            if timeout <= 0.0:
+            backoff = min(
+                _RETRY_BASE_SECONDS * (2 ** attempt), _RETRY_MAX_SECONDS
+            )
+            timeout = provider_timeout(deadline, self.timeout)
+            if timeout is None:
                 raise EmbeddingUnavailable(
                     "embedding budget exhausted", provider_down=True
                 )
@@ -211,19 +211,20 @@ class GeminiEmbeddingClient:
                 provider_down = response.status_code in _RETRYABLE_STATUS
                 if response.status_code not in _RETRYABLE_STATUS or last_attempt:
                     break
-                backoff = min(
-                    _RETRY_BASE_SECONDS * (2 ** attempt), _RETRY_MAX_SECONDS
-                )
-                if response.status_code == 429:
-                    backoff = retry_delay_from_response(response, backoff)
-                self._sleep(sleep_budget(deadline, backoff))
+                # None = retrying is pointless (daily quota) or no longer
+                # affordable (the pause plus the call would outlive the
+                # budget): give up NOW so the caller can degrade in time.
+                pause = retry_pause(deadline, backoff, rate_limit_of(response))
+                if pause is None:
+                    break
+                self._sleep(pause)
                 continue
             if last_attempt:  # no pointless backoff before giving up
                 break
-            self._sleep(sleep_budget(
-                deadline,
-                min(_RETRY_BASE_SECONDS * (2 ** attempt), _RETRY_MAX_SECONDS),
-            ))
+            pause = retry_pause(deadline, backoff)
+            if pause is None:
+                break
+            self._sleep(pause)
         raise EmbeddingUnavailable(
             f"Gemini embedding failed: {last_error}", provider_down=provider_down
         )

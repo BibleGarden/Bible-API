@@ -8,8 +8,16 @@ grounded rerank. Two mechanisms use it:
 
 - stage boundaries check `expired()` and degrade instead of starting a
   stage that cannot finish (safe pool / retrieval top-1);
-- every provider HTTP call takes `budget(base)` as its timeout, so an
-  in-flight request cannot outlive the budget either.
+- every provider HTTP call takes `budget(base)` as its timeout, through
+  `gemini_retry.provider_timeout` — which splits it across httpx's four
+  timeout phases, because httpx applies a bare number to each phase
+  separately and would authorise four times the budget.
+
+Retry pauses are planned by `gemini_retry.retry_pause`, not here: a backoff
+that merely fits the budget is not enough — the attempt AFTER it has to fit
+too, or the request sleeps out the caller's time only to give up anyway.
+That was the bug this module's earlier `sleep_budget()` helper contained,
+and it is why the helper is gone (ClickUp 86cbbnaxn).
 
 Together they make the endpoint's worst case the budget itself plus the
 local DB work, instead of the sum of every stage's retry ladder.
@@ -51,12 +59,9 @@ class Deadline:
 
 
 def request_timeout(deadline: Deadline | None, base: float) -> float:
-    """Per-call HTTP timeout under an optional deadline."""
+    """Total time one provider call may take under an optional deadline.
+
+    Callers must not hand this to httpx directly — see
+    `gemini_retry.provider_timeout`, which spreads it over the phases.
+    """
     return base if deadline is None else deadline.budget(base)
-
-
-def sleep_budget(deadline: Deadline | None, delay: float) -> float:
-    """Retry backoff clipped to the remaining budget (0 = do not retry)."""
-    if deadline is None:
-        return delay
-    return max(0.0, min(delay, deadline.remaining()))

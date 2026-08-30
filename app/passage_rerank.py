@@ -42,7 +42,13 @@ from dataclasses import dataclass
 import httpx
 
 from config import GEMINI_API_KEY, AI_SCRIPTURE_RERANK_MODEL
-from deadline import Deadline, request_timeout, sleep_budget
+from deadline import Deadline
+from gemini_retry import (
+    RETRYABLE_STATUS,
+    provider_timeout,
+    rate_limit_of,
+    retry_pause,
+)
 from prompt_safety import neutralize_prompt_markers
 from query_rewrite import GEMINI_GENERATE_URL
 
@@ -91,6 +97,9 @@ logger = logging.getLogger(__name__)
 RERANK_PROMPT_VERSION = 9
 
 _MODEL_PATTERN = re.compile(r"^[a-zA-Z0-9._-]+$")
+# Linear backoff of the retry ladder: 2 s before the second attempt, 4 s
+# before the third (unchanged; only when the budget can still afford it).
+_RETRY_BASE_SECONDS = 2.0
 _MAX_REASON_CHARS = 300
 # Longest key-verse span the model may return (product decision: a
 # highlight is 1-3 verses). Enforced when parsing AND again against the
@@ -335,6 +344,26 @@ class GeminiPassageReranker:
         if self._owns_client:
             self._client.close()
 
+    def _pause_before_retry(
+        self, deadline: Deadline | None, attempt: int, rate_limit=None
+    ) -> bool:
+        """Wait out the backoff; False means "do not attempt again".
+
+        False on the last attempt (no pointless sleep before giving up), on
+        an exhausted daily quota, and whenever the pause plus a usable call
+        no longer fit in the budget — the caller then degrades immediately
+        instead of sleeping the request over its deadline.
+        """
+        if attempt + 1 >= self.attempts:
+            return False
+        pause = retry_pause(
+            deadline, _RETRY_BASE_SECONDS * (attempt + 1), rate_limit
+        )
+        if pause is None:
+            return False
+        time.sleep(pause)
+        return True
+
     def __enter__(self) -> "GeminiPassageReranker":
         return self
 
@@ -359,7 +388,12 @@ class GeminiPassageReranker:
         Raises PassageRerankError on configuration/transport/parse/validation
         failure — never logs or embeds the prayer context or model output in
         the error. With a `deadline`, no attempt is started once the budget
-        is gone and every HTTP call is capped by what is left of it.
+        is gone, every HTTP call is capped by what is left of it (across all
+        four httpx phases, `gemini_retry.provider_timeout`), and a backoff is
+        only slept when the attempt after it still fits. A 429 naming an
+        exhausted DAILY quota ends the ladder at once: it cannot reopen
+        inside one request, so the caller degrades to retrieval's top-1
+        instead of waiting for it (ClickUp 86cbbnaxn).
         """
         if not candidate_texts:
             raise PassageRerankError("no candidates to rerank")
@@ -399,10 +433,8 @@ class GeminiPassageReranker:
         data = None
         last_error: Exception | None = None
         for attempt in range(self.attempts):
-            if attempt:
-                time.sleep(sleep_budget(deadline, 2.0 * attempt))
-            timeout = request_timeout(deadline, self.timeout)
-            if timeout <= 0.0:
+            timeout = provider_timeout(deadline, self.timeout)
+            if timeout is None:
                 raise PassageRerankError("rerank budget exhausted") from last_error
             try:
                 response = self._client.post(
@@ -411,16 +443,22 @@ class GeminiPassageReranker:
                     headers={"x-goog-api-key": self.api_key},
                     timeout=timeout,
                 )
-                if response.status_code in (429, 500, 502, 503, 504):
+                if response.status_code in RETRYABLE_STATUS:
                     last_error = PassageRerankError(
                         f"rerank request failed (HTTP {response.status_code})"
                     )
+                    if not self._pause_before_retry(
+                        deadline, attempt, rate_limit_of(response)
+                    ):
+                        break
                     continue
                 response.raise_for_status()
                 data = response.json()
                 break
             except httpx.TimeoutException as exc:
                 last_error = exc
+                if not self._pause_before_retry(deadline, attempt):
+                    break
             except (httpx.HTTPError, ValueError) as exc:
                 raise PassageRerankError("rerank request failed") from exc
         if data is None:

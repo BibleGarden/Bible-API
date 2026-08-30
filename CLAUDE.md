@@ -57,6 +57,12 @@ system prompt is a code constant now, not an environment value.
 - **`passage_render.py`** — renders a canonical passage window in a translation that has no chunk corpus (coordinates through `psalm_verse_mappings`, text from `translation_verses` with `chunking.build_text` semantics) and builds the per-translation coverage sets used to filter candidates before the rerank (ADR 0007)
 - **`rate_limit.py`** — Shared in-memory rolling-window limiter (Twinkler + scripture selection)
 - **`deadline.py`** — Per-request time budget threaded through the AI stages
+- **`gemini_retry.py`** — the retry policy the three Gemini stages share: an
+  `httpx.Timeout` whose four phases are carved out of the budget (a bare
+  number is applied to each phase separately and would authorise four times
+  it), a pause planner that refuses to sleep unless the attempt after it
+  still fits, and the reader of a 429 body's `QuotaFailure` / `RetryInfo`
+  details (see "The time budget is a ceiling now" below)
 - **`prompt_safety.py`** — Neutralizes forged prompt data-block delimiters (invisible characters and angle-bracket look-alikes) in user text
 - **`trusted_proxies.py`** — which peers may speak for their clients through `X-Forwarded-For`: container names resolved through docker DNS with a TTL (plus literal IPs and CIDR networks), and the loud diagnostics around them (see "Trusted proxies survive a reboot" below)
 - **`client_ip.py`** — the client address of a request (`resolve_client_ip`, through `trusted_proxies`; `X-Forwarded-For` is read **right to left**, see "Which element of `X-Forwarded-For`" below) and its HMAC pseudonym for the stats table and the per-client limiter
@@ -376,6 +382,63 @@ tables it writes (it checked three until the review of this ticket, leaving
 `voice_alignments` — the largest table, and the one the manual fixes are
 delivered in — unverified). `allow_removals` is meaningless for a point import
 and ignored there.
+
+### The time budget is a ceiling now (ClickUp 86cbbnaxn, 2026-08-31)
+
+`POST /api/ai/scripture` answered in 16.3 s, 21.4 s (production) and 13.9 s
+against `AI_SCRIPTURE_TIMEOUT_SECONDS` = 15 while the free-tier provider was
+returning 429. The budget object existed and was threaded through every
+stage; four things let requests walk past it anyway.
+
+1. **`timeout=<number>` is per phase in httpx**, not per request:
+   `Timeout(connect=t, read=t, write=t, pool=t)`, each bounded separately.
+   Handing it `remaining` authorised ~4x `remaining` for one call.
+   `gemini_retry.provider_timeout` splits the budget across the four phases
+   instead (a twelfth each for connect/write/pool, capped at 1 s; read keeps
+   the remaining three quarters), so their worst case sums to the budget.
+   The split is sized, not symmetric: `:generateContent` is not streamed, so
+   the model's whole thinking time lands in the first **read**, and the
+   rewrite call measures 3.7-4.7 s (ADR 0006) against the 8 s base — a
+   half-and-half split would leave read 4.0 s and time out the median
+   healthy request, buying the budget back with a permanent quality loss.
+2. **The backoff was clipped to the budget and then slept.** The old
+   `deadline.sleep_budget` returned `min(delay, remaining)`, so a Gemini
+   `RetryInfo` of 30-55 s slept out every second the request had left and
+   the attempt it waited for then had nothing to run in.
+   `gemini_retry.retry_pause` returns `None` ("degrade now") when the pause
+   plus a minimally useful call (1 s) no longer fit. `sleep_budget` is
+   **deleted** rather than fixed — it invited exactly this misuse.
+3. **Every 429 was treated alike.** Gemini's body says which quota
+   rejected the call (`google.rpc.QuotaFailure`, `quotaId` such as
+   `GenerateRequestsPerDayPerProjectPerModel-FreeTier`) and how long it
+   wants us to wait (`google.rpc.RetryInfo.retryDelay`, e.g. `"14s"`). A
+   per-**day** quota cannot reopen inside a 15 s request, so it now ends the
+   ladder immediately; a per-**minute** one is retried after
+   `max(our backoff, retryDelay)` when that still fits in the budget;
+   anything unrecognised (or a 5xx) keeps the previous ladder. The delay
+   alone does not distinguish them — the same daily violation answers
+   `"0s"`, `"14s"` and `"55s"` — so the quota id is what is read. Parsing
+   never raises: a body of another shape is "details unknown".
+4. **The budget started too late.** `Deadline` was created just before the
+   pipeline, so a cold corpus load (`get_resources`, a full index read, also
+   on every TTL refresh) was outside it. It is now created at the top of the
+   handler: the budget is the endpoint's promise about its own latency, and
+   the stages get what is left.
+
+Unchanged on purpose: the 15 s value, the attempt counts, the retry policy
+for 5xx and for unrecognised 429s, and every `fallback_reason` — the stages
+degrade through the same ladder, only sooner. Still outside the budget by
+design: reading the chosen candidates' texts from MySQL and building the
+response (local, bounded, and required for any answer at all). No new
+environment variables: the three new numbers (the 1 s handshake ceiling, the
+one-twelfth handshake share and the 1 s minimum attempt) are code constants
+beside the existing `_PROVIDER_TIMEOUT_SECONDS`, not deployment knobs.
+
+Tests: `tests/test_gemini_retry.py` (the 429 shapes, including malformed
+ones, and the pause planner) and `tests/test_deadline.py` (per-stage and
+whole-pipeline wall-clock ceilings against a provider that burns every phase
+of every timeout, on a fake clock — no real waiting). Details and the
+verbatim 429 body: `architect/scripture-select.md`, "Time budget".
 
 ### Trusted proxies survive a reboot, and stop failing silently (ClickUp 86cbbq6vz, 2026-08-30)
 
