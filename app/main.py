@@ -5,13 +5,14 @@ import hashlib
 import json
 
 from fastapi import FastAPI, HTTPException, status, APIRouter
+from canon import chapter_coverage
 from database import create_connection
 from models import *
 
 from fastapi.routing import APIRoute
 
 from excerpt import router as excerpt_router
-from excerpt import get_books_info, check_audio_file_exists
+from excerpt import check_audio_file_exists
 from audio import router as audio_router
 from about import router as about_router
 from version_check import router as version_check_router
@@ -268,10 +269,13 @@ def get_translation_books(translation_code: int, voice_code: Optional[int] = Non
             voice_alias = voice['alias']
 
         # Get books — without anomalies (no voice_anomalies table in cep_public)
+        # chapters_count is NOT read from translation_verses here: that table
+        # holds every translation, and an unscoped max(chapter_number) mixed
+        # canons (see app/canon.py). It is computed below from the canon table
+        # plus this translation's own chapters.
         cursor.execute('''
             SELECT
-                tb.code, tb.book_number, tb.name, bb.code1 AS alias,
-                (SELECT max(chapter_number) FROM translation_verses WHERE book_number = tb.book_number) AS chapters_count
+                tb.code, tb.book_number, tb.name, bb.code1 AS alias
             FROM translation_books AS tb
             LEFT JOIN bible_books AS bb ON bb.number = tb.book_number
             WHERE tb.translation = %s
@@ -286,20 +290,20 @@ def get_translation_books(translation_code: int, voice_code: Optional[int] = Non
         # Check for chapters without text and audio
         for book in books:
             book_number = book['book_number']
-            book_code = book['code']
-            chapters_count = book['chapters_count'] or 0
 
             # Get existing chapters from pre-loaded data
             existing_chapters = chapters_by_book.get(book_number, set())
 
-            # Find chapters without text (missing in translation_verses)
-            if chapters_count > 0:
-                expected_chapters = set(range(1, chapters_count + 1))
-                chapters_without_text = sorted(expected_chapters - existing_chapters)
-            else:
-                chapters_without_text = []
-
+            # Expected structure of the book and the chapters this translation
+            # has no text for. A book the publisher declares but ships no text
+            # for (npu: 38 Old Testament books) is reported honestly — every
+            # canonical chapter missing and has_text false.
+            chapters_count, chapters_without_text = chapter_coverage(
+                book_number, existing_chapters, translation_alias
+            )
+            book['chapters_count'] = chapters_count
             book['chapters_without_text'] = chapters_without_text
+            book['has_text'] = bool(existing_chapters)
 
             # If voice_code is provided, check for chapters without audio
             if voice_code and voice_alias and translation_alias:

@@ -20,6 +20,7 @@ import pytest
 
 os.environ.setdefault("API_KEY", "test-api-key")
 
+from canon import CANONICAL_CHAPTER_COUNTS
 from chunking import CHUNKING_VERSION, build_text
 from passage_highlight import load_psalm_maps
 from passage_render import (
@@ -531,15 +532,37 @@ def test_bti_cannot_reach_two_canonical_psalm_verses(live):
 
 
 @needs_db
-def test_bti_has_no_psalm_151_and_no_chapters_it_never_imported(live):
-    cursor, maps, windows = live
-    covered = build_coverage(cursor, BTI, windows["ru"], maps[BTI])
+def test_bti_has_every_canonical_chapter_and_no_deuterocanonical_extras(live):
+    """After the 2026-08-30 BTI backfill (ClickUp 86cbb1reb) BTI is complete:
+    all 1189 canonical chapters have text — this test used to pin the
+    opposite (Deut 32-34 unreachable), which is no longer true and would now
+    be a false assertion.
 
-    for canonical_id, book, chapter, _s, _e in windows["ru"]:
-        if book == 19 and chapter == 151:
-            assert canonical_id not in covered
-        if book == 5 and chapter in (32, 33, 34):    # Deuteronomy 32-34
-            assert canonical_id not in covered
+    What still holds, and is the lasting value of this test: BTI carries
+    none of the deuterocanonical chapters of other translations — Ps 151
+    (syn), Dan 13-14 (syn, ubh), 2 Chr 37 (syn), Esth 11-12 (ubh). Those were
+    never part of BTI's own canon, and backfilling BTI's own text does not
+    manufacture them.
+    """
+    cursor, maps, _windows = live
+    present = canonical_presence(load_verse_coordinates(cursor, BTI), maps[BTI])
+
+    missing_canonical_chapters = [
+        (book, chapter)
+        for book, chapters in CANONICAL_CHAPTER_COUNTS.items()
+        for chapter in range(1, chapters + 1)
+        if (book, chapter) not in present
+    ]
+    assert missing_canonical_chapters == []
+
+    deuterocanonical_extras_of_other_translations = [
+        (19, 151),          # Ps 151 (syn)
+        (27, 13), (27, 14),  # Dan 13-14 (syn, ubh)
+        (14, 37),           # 2 Chr 37 (syn)
+        (17, 11), (17, 12),  # Esth 11-12 (ubh)
+    ]
+    for book, chapter in deuterocanonical_extras_of_other_translations:
+        assert (book, chapter) not in present
 
 
 @needs_db

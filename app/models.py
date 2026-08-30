@@ -96,9 +96,38 @@ class TranslationBookModel(BaseModel):
     book_number: int
     name: str
     alias: str
-    chapters_count: int
-    chapters_without_audio: list[int] = Field(default_factory=list)
-    chapters_without_text: list[int] = Field(default_factory=list)
+    chapters_count: int = Field(
+        description=(
+            "Chapters the book is expected to have in this translation: the "
+            "count of the 66-book canon, widened to the translation's own "
+            "last chapter when it carries deuterocanonical additions "
+            "(e.g. Ps 151 in syn). Never derived from other translations."
+        )
+    )
+    chapters_without_audio: list[int] = Field(
+        default_factory=list,
+        description=(
+            "Chapters with text but no audio file for the requested voice. "
+            "Only populated when voice_code was passed to the request."
+        ),
+    )
+    chapters_without_text: list[int] = Field(
+        default_factory=list,
+        description=(
+            "Chapters of 1..chapters_count this translation has no text for. "
+            "A book the translation ships no text for at all lists every "
+            "chapter here and has has_text=false."
+        ),
+    )
+    has_text: bool = Field(
+        default=True,
+        description=(
+            "False when the translation declares the book but contains no "
+            "verse of it (a publisher's editorial scope, e.g. npu ships the "
+            "Psalms and the New Testament only). Such a book is still "
+            "returned, with every chapter listed in chapters_without_text."
+        ),
+    )
 
 # Audio Error Models
 

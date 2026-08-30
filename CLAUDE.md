@@ -46,6 +46,7 @@ system prompt is a code constant now, not an environment value.
 
 - **`main.py`** — FastAPI app entry point, languages/translations/books endpoints, `timed_cache` decorator
 - **`excerpt.py`** — Core content endpoint: `excerpt_with_alignment`. No COALESCE, no voice_manual_fixes (manual fixes already applied during import)
+- **`canon.py`** — chapter structure of the 66-book canon (`CANONICAL_BOOKS`, 1189 chapters) plus the per-translation exceptions; the single source of "how many chapters a book is expected to have" for `/translations/{code}/books` and for excerpt navigation (see "Chapter coverage" below)
 - **`audio.py`** — MP3 file serving with HTTP Range request support
 - **`about.py`** — About page content
 - **`version_check.py`** — App version check
@@ -180,6 +181,42 @@ RAG / scripture selection:
   `language=code`, comma separated). Must name an INDEXED translation;
   entries that do not are ignored with a warning. Empty means the indexed
   translation with the lowest code (ADR 0007).
+
+### Chapter coverage of a translation (ClickUp 86cbb2xxp, 2026-08-30)
+
+`GET /api/translations/{code}/books` reports `chapters_count`,
+`chapters_without_text` and (new) `has_text` per book. The expected structure
+comes from **`app/canon.py`**, never from `translation_verses`:
+
+- the base is the literal 66-book canon table (1189 chapters), verified
+  against the three structurally complete translations in `cep_public`
+  (`bsb`, `webus`, `webbe`);
+- a translation that carries **more** than the canon keeps its own chapters:
+  `chapters_count = max(canonical, this translation's last chapter)`, so
+  `syn` still exposes Ps 151, Dan 13-14, 2 Chr 37 and `ubh` its Esth 11-12;
+- a translation that divides the same text into **fewer** chapters needs an
+  explicit entry in `TRANSLATION_CHAPTER_COUNTS` — today `("ubh", 39) = 3`
+  (its Mal 3 holds canonical 3:1-18 + 4:1-6, so Mal 4 is not a hole);
+- a book the translation declares in `translation_books` but ships **no text**
+  for is still returned, with every canonical chapter in
+  `chapters_without_text` and `has_text=false`. This is normal data, not an
+  import failure: `npu` declares all 66 books and publishes the Psalms and
+  the New Testament only (38 books without text, 779 chapters).
+
+Reason for the table: the previous code took `SELECT max(chapter_number) FROM
+translation_verses WHERE book_number = tb.book_number` — a subquery naming no
+translation, so the maximum came from any translation in the shared table.
+`bti` was reported to lack 26 chapters instead of 20 (the extras were
+deuterocanonical chapters of `syn` and `ubh`), `syn` was reported to lack
+Esth 11-12 and `ubh` to lack 2 Chr 37 and Ps 151. The same subquery fed
+`chapters_count` in `app/excerpt.py`, which drives `prev_excerpt`/
+`next_excerpt`: `bti` Ps 150 pointed at a non-existent Ps 151, `ubh` Mal 3 at
+a non-existent Mal 4. `cep_public` cannot answer the question itself —
+`bible_books` stores only `verse_count` — hence a reviewed constant in code.
+
+`has_text` is the one additive field of the fix (default `true`); everything
+else in `TranslationBookModel` is unchanged. Tests: `tests/test_translation_books.py`
+(SQLite stand-in for `cep_public` holding several canons at once).
 
 ### All API routes are under `/api` prefix
 

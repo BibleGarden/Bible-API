@@ -17,6 +17,13 @@ Ticket: follow-up of ClickUp 86cb8vw1m (ADR 0006 open question 5)
 > Name only — the format (`ru=syn,en=bsb,uk=ubh`), the "must be indexed" rule
 > and the empty-value default are unchanged.
 
+> Note (2026-08-30, ClickUp 86cbb1reb): after that day's BTI backfill (BTI is
+> now complete: 1189/1189 canonical chapters, 31111 verses), `bti`'s coverage
+> in the table below grew from 3830 to **3899** / 3963 ru windows. The table
+> row is left as originally measured; `tests/test_scripture_select.py::
+> test_the_live_coverage_sets_are_the_documented_ones` asserts the current
+> figure.
+
 ## Context
 
 `POST /api/scripture/v1/select` accepted only translations that carry an

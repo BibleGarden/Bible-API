@@ -6,6 +6,7 @@ import re
 import os
 from pathlib import Path
 from functools import lru_cache
+from canon import expected_chapters
 from config import AUDIO_FILES_PATH, AUDIO_BASE_URL
 from models import *
 from auth import RequireAPIKey
@@ -403,13 +404,26 @@ async def get_excerpt_with_alignment(translation: int, excerpt: str, voice: Opti
 
 
 def get_books_info(cursor: any, translation: int, alias: str=None):
+    """
+    Books of a translation with their chapter structure.
+
+    `chapters_count` drives excerpt navigation (prev/next), so it must be the
+    structure of *this* translation: the canonical count of the book, widened
+    to the translation's own last chapter when it carries deuterocanonical
+    additions (syn: Ps 151, Dan 13-14, 2 Chr 37). The chapter count is
+    deliberately not taken from an unscoped max() over `translation_verses` —
+    that mixed the canons of all translations (see app/canon.py).
+    """
     params = { 'translation': translation }
     sql = '''
         SELECT
             tb.code, tb.book_number AS number, tb.name, bb.code1 AS alias, bb.code2, bb.code3, bb.code4, bb.code5, bb.code6, bb.code7, bb.code8, bb.code9,
-            (SELECT max(chapter_number) FROM translation_verses WHERE book_number = tb.book_number) AS chapters_count
+            t.alias AS translation_alias,
+            (SELECT max(chapter_number) FROM translation_verses
+              WHERE translation = tb.translation AND book_number = tb.book_number) AS translation_max_chapter
         FROM translation_books AS tb
         LEFT JOIN bible_books AS bb ON bb.number = tb.book_number
+        LEFT JOIN translations AS t ON t.code = tb.translation
         WHERE tb.translation = %(translation)s
     '''
     if alias:
@@ -418,7 +432,13 @@ def get_books_info(cursor: any, translation: int, alias: str=None):
         '''
         params['alias'] = alias
     cursor.execute(sql, params)
-    return cursor.fetchall()
+    books = cursor.fetchall()
+    for book in books:
+        translation_alias = book.pop('translation_alias', None)
+        own_max_chapter = book.pop('translation_max_chapter', None) or 0
+        canonical = expected_chapters(book['number'], translation_alias) or 0
+        book['chapters_count'] = max(canonical, own_max_chapter)
+    return books
 
 def get_prev_excerpt(cursor: any, translation: int, book: BookInfoModel, chapter_number: int):
     if chapter_number > 1:

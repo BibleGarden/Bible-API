@@ -1891,13 +1891,17 @@ def test_the_live_catalogue_covers_every_active_translation(live_resources):
 def test_the_live_coverage_sets_are_the_documented_ones(live_resources):
     """The numbers ADR 0007 publishes, after the reference-chunk filter of
     fix F2 (which drops 17 en and 38 uk windows from what any non-indexed
-    translation may be offered; ru has none)."""
+    translation may be offered; ru has none).
+
+    bti's figure was updated from 3830 to 3899 after the 2026-08-30 BTI
+    backfill (ClickUp 86cbb1reb) completed its remaining canonical chapters;
+    see the matching note in ADR 0007."""
     sizes = {
         code: len(covered)
         for code, covered in live_resources.coverage.items()
     }
 
-    assert sizes == {11: 3830, 17: 3995, 779: 3995, 21: 1163}
+    assert sizes == {11: 3899, 17: 3995, 779: 3995, 21: 1163}
     # the primary of a language is never given a coverage set at all
     assert set(sizes) & {1, 16, 20} == set()
 
