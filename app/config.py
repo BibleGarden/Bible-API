@@ -247,6 +247,30 @@ API_KEY = os.getenv("API_KEY", "")
 ADMIN_API_URL = os.getenv("ADMIN_API_URL", "http://dashboard-api:8000")
 ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "")
 
+# Import safety valve (ClickUp 86cbbq5zp). Operational parameters: their
+# defaults ARE the intended working configuration, not a stand-in for a
+# setting somebody forgot — a malformed value is still a startup error.
+#
+# IMPORT_MAX_PAYLOAD_MB caps the body of ONE `GET /api/data` response the
+# importer is willing to buffer. The importer walks translations one at a
+# time, so the cap is per translation, not per resync: the largest today is
+# `syn` at 29.3 MB, and the whole export (the 147 MB that OOM-killed
+# production on 2026-08-30) is never requested at all. 48 MB leaves room for
+# the largest translation to grow by ~60% before the valve trips, and a trip
+# is a loud 507 raised BEFORE that translation's rows are touched.
+#
+# Why not more (review of 86cbbq5zp, NIT-2): the cap is only useful if the
+# container can survive reaching it. Parsing a payload costs several times its
+# size in RSS, so on the 2-4 GB production VM — which also runs MySQL — a 96 MB
+# body could OOM-kill the worker before it ever got to answer 507, which is
+# precisely the failure this valve exists to replace.
+IMPORT_MAX_PAYLOAD_MB = _get_int("IMPORT_MAX_PAYLOAD_MB", 48)
+
+# Per-request timeout of the calls to admin-api. A full resync is now many
+# requests instead of one, and each is bounded by this rather than by the
+# total; the largest single translation takes ~50 s to export locally.
+IMPORT_HTTP_TIMEOUT_SECONDS = _get_float("IMPORT_HTTP_TIMEOUT_SECONDS", 300.0)
+
 # Gemini API for the prayer companion. Optional at startup so the rest of
 # Bible API remains available when AI is not configured. When it IS set, the
 # provider-call models below must be named explicitly — empty strings there

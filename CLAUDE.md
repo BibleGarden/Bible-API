@@ -128,7 +128,8 @@ index version (`c{chunking}:{model}@{dims}`), not a provider call.
 
 **Operational, keep their defaults** (a malformed value is still an error):
 `AUDIO_FILES_PATH` (`audio`), `AUDIO_BASE_URL` (`http://localhost:8000`),
-`ADMIN_API_URL`, `ADMIN_API_KEY` (for import), `AI_REQUESTS_PER_MINUTE`,
+`ADMIN_API_URL`, `ADMIN_API_KEY` (for import), `IMPORT_MAX_PAYLOAD_MB` (48),
+`IMPORT_HTTP_TIMEOUT_SECONDS` (300), `AI_REQUESTS_PER_MINUTE`,
 `AI_REQUESTS_PER_CLIENT_PER_MINUTE`, `AI_CLIENT_HMAC_KEY`,
 `TRUSTED_PROXY_IPS` and the `AI_SCRIPTURE_*` knobs below. `AUDIO_DIR` is read
 by docker-compose, not by the application.
@@ -247,6 +248,107 @@ remains on that side the field is empty, exactly as at the ends of the Bible
 - `get_book_number`/`get_book_alias` are gone: the alias and number of both
   the current and the target book come from `get_books_info`, which the
   navigation already needs.
+
+### Import: a full resync is a sequence of point imports (ClickUp 86cbbq5zp, 2026-08-30)
+
+`GET /api/import` without parameters used to be one request: `GET /api/data`
+returned the whole export as a single **147 MB** JSON document, `response.json()`
+turned it into Python objects, and the importer then built insert tuples for
+197 614 verses and 259 663 alignments — in the one-worker container that shares
+the production VM with MySQL. On 2026-08-30 the VM stopped answering during a
+full resync. Measured on the local machine before the fix: peak RSS of the
+importing worker **972 MB** against 82 MB idle. Point imports
+(`?translation=`, 18-29 MB) always passed.
+
+So the full resync now *is* a sequence of point imports:
+
+1. `GET /api/data/manifest` (Dashboard-API, new) — a few kilobytes: the
+   reference tables in full, `code`+`alias` of every active translation, and
+   the expected row count per table. This is the work list.
+2. `languages` / `bible_books` — `REPLACE INTO`, one transaction.
+3. every translation, **one at a time**: fetch its export, then
+   `delete_translation_data` + `INSERT` inside **its own transaction**. Peak
+   memory is set by the largest translation (`syn`, 29 MB), not by the corpus
+   — on both sides, because the 147 MB document was materialised inside
+   admin-api too, on the same VM.
+4. translations `cep_public` still holds that admin-api no longer publishes —
+   dropped, one transaction each, and named in the report. **Only with
+   `?allow_removals=1`** (see below).
+5. an orphan sweep (rows whose parent is gone) and stale reference rows.
+   `TRUNCATE` used to remove these implicitly; a resync built out of point
+   imports has to say it.
+6. `SELECT COUNT(*)` against the manifest — per table **and per translation**,
+   reported in the response.
+
+**There is no `TRUNCATE` anywhere any more.** That was the second half of the
+incident: `TRUNCATE` is DDL, it commits implicitly, so "truncate everything,
+then insert" left every table empty the moment the process died, with nothing
+to roll back. Now an abort at any point leaves every other translation exactly
+as it was and the interrupted one at its previous contents. Proved two ways:
+`tests/test_import_data.py` injects a failure at an exact statement against a
+recording stand-in connection, and a live `kill -9` of the worker mid-resync
+left `cep_public` complete (7 translations, 197 614 verses, 256 492
+alignments).
+
+Measured after the fix, same machine, same data: peak RSS **215 MB** (idle
+87 MB), wall time 149 s (was 172 s — the per-translation queries are cheaper
+on the admin side than one giant `IN`-list plus a 147 MB serialization).
+
+Safety valve: `IMPORT_MAX_PAYLOAD_MB` (**48**) caps the body of **one**
+`GET /api/data` response, enforced while streaming (`Content-Length` when the
+server sends one, and always against the bytes received). A trip is a loud
+`507` naming the variable, raised **before** that translation's rows are
+touched — the fetch happens outside the transaction on purpose. 48 and not 96
+(review of this ticket): the largest real payload is `syn` at 29.3 MB, parsing
+costs several times the body in RSS, and on the 2-4 GB production VM that also
+runs MySQL a 96 MB body could OOM-kill the worker *before* it answered 507 —
+the very failure the valve replaces. And a manifest declaring **zero** active
+translations is refused with `502`: an empty source is a broken source, never
+an instruction to publish an empty Bible (the old code would have truncated
+everything and inserted nothing).
+
+**Verification is per translation, not only in total.** Global totals pass on
+compensating errors — a hundred verses too many in one translation and a
+hundred too few in another sum to the expected number, while a real
+translation lost real text. The manifest carries `counts.per_translation`, so
+each translation is counted in each of its seven tables and the
+*disagreements* are reported in `translation_mismatches`
+(`{alias: {table: {expected, actual, ok}}}`, empty when everything matched).
+A manifest that lists a translation it has no counts for is a `502` before any
+write: an unverifiable translation is a broken source.
+
+**Removing a translation takes `?allow_removals=1`.** Step 4 above deletes
+from `cep_public` every translation the manifest does not list — and a
+translation goes missing from the manifest far more often by accident
+(`active = 0` clicked in the dashboard, a filter bug on the admin side) than
+by decision. A resync that is about to remove **at least one** translation
+therefore removes **none** without the flag: it answers `200` with
+`status="removals_rejected"`, the aliases in `removals_rejected`, and `detail`
+naming them and the parameter. The import itself (step 2) is *not* undone —
+the translations that were imported are correct and current, which is why this
+is an honest report rather than an exception. Re-run with `?allow_removals=1`
+to actually drop them; then it is the previous behaviour, with the aliases in
+`translations_removed`. **Operationally:** a production resync answering
+`removals_rejected` is the signal to check `cep_admin` before doing anything
+else — never to add the flag reflexively.
+
+Response contract of `/api/import` — additive, `status`/`translation`/`tables`
+unchanged: `translations_imported`, `translations_removed`,
+`removals_rejected`, `orphans_removed`, `verification`
+(`{table: {expected, actual, ok}}`), `translation_mismatches`, `detail` and
+`duration_seconds`. `status` is `"ok"` only when every count matches, per
+table and per translation; `"removals_rejected"` when the gate above stopped a
+removal; otherwise `"mismatch"`, with the data written and `verification` /
+`translation_mismatches` saying what disagrees. Callers that tested
+`status == "ok"` keep working and now catch more.
+
+`?translation=` is unchanged in behaviour — same delete+insert, same
+`REPLACE INTO` for the reference tables — and gains the size valve, one
+explicit transaction, and a translation-scoped count check of **all seven**
+tables it writes (it checked three until the review of this ticket, leaving
+`voice_alignments` — the largest table, and the one the manual fixes are
+delivered in — unverified). `allow_removals` is meaningless for a point import
+and ignored there.
 
 ### All API routes are under `/api` prefix
 

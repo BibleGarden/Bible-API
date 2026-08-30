@@ -178,7 +178,56 @@ class VersionCheckModel(BaseModel):
 
 # Import
 
+class ImportCountCheckModel(BaseModel):
+    """One line of the post-import count check (ClickUp 86cbbq5zp)."""
+    expected: int
+    actual: int
+    ok: bool
+
+
 class ImportReportModel(BaseModel):
+    # "ok" — everything written and every count matches admin-api, in total
+    # and per translation.
+    # "mismatch" — the import finished, but cep_public does not hold what
+    # admin-api declared. The data is there; something is off and `verification`
+    # / `translation_mismatches` say where.
+    # "removals_rejected" — the import finished and is correct, but the resync
+    # would have dropped translations admin-api no longer publishes and was
+    # not given `?allow_removals=1`. Nothing was removed; `removals_rejected`
+    # names them and `detail` says what to do.
+    # Callers that used to test `status == "ok"` keep working and now catch
+    # more.
     status: str
+    detail: Optional[str] = Field(
+        default=None,
+        description=(
+            "Human-readable explanation of a status other than \"ok\"; "
+            "None when the resync needs no explanation."
+        ),
+    )
     translation: Optional[str] = None
     tables: dict[str, int]
+    # Everything below is additive (2026-08-30): the fields existing callers
+    # read are unchanged, and `tables` still carries the rows written per table.
+    translations_imported: list[str] = []
+    translations_removed: list[str] = []
+    removals_rejected: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Translations a full resync would have dropped but did not, "
+            "because `allow_removals` was not set. Always empty for a point "
+            "import and for a resync run with `?allow_removals=1`."
+        ),
+    )
+    orphans_removed: dict[str, int] = {}
+    verification: dict[str, ImportCountCheckModel] = {}
+    translation_mismatches: dict[str, dict[str, ImportCountCheckModel]] = Field(
+        default_factory=dict,
+        description=(
+            "Per-translation count disagreements of a full resync, "
+            "{alias: {table: check}} — only the tables that disagree, so an "
+            "empty object means every translation matched the manifest. "
+            "Totals alone would pass on compensating errors."
+        ),
+    )
+    duration_seconds: Optional[float] = None
