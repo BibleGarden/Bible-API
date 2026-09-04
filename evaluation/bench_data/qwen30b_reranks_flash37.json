@@ -1,0 +1,425 @@
+{
+  "meta": {
+    "model": "qwen3-30b-a3b-instruct-2507",
+    "date": "2026-09-04",
+    "endpoint": "https://llm.ai2.ru:18443",
+    "rerank_prompt_version": 9,
+    "source": {
+      "input": "bench_data/rerank_input_flash37.json",
+      "results": "bench_data/results_v070_rewrite_flash37.json",
+      "config": "pipeline rewrite=gemini-3.7-flash variants=6 raw=no fusion=interleave blacklist=on pool=on lexical=k20 fetch_k=50 max_per_book=4",
+      "rerank_prompt_version": 9,
+      "key_verses": true,
+      "scenarios_version": "0.7.0",
+      "partial": false
+    },
+    "sampling": {
+      "temperature": 0.0,
+      "max_tokens": 2048,
+      "response_format": "json_object"
+    },
+    "partial": false,
+    "scenarios_covered": [
+      "ru-001",
+      "ru-002",
+      "ru-003",
+      "ru-004",
+      "ru-005",
+      "ru-006",
+      "ru-007",
+      "ru-008",
+      "ru-010",
+      "en-001",
+      "en-002",
+      "en-003",
+      "en-004",
+      "en-005",
+      "en-007",
+      "uk-001",
+      "uk-002",
+      "uk-003",
+      "uk-004",
+      "uk-005",
+      "uk-007"
+    ],
+    "scenarios_expected": 21
+  },
+  "scenarios": [
+    {
+      "id": "ru-001",
+      "language": "ru",
+      "category": "regular",
+      "candidate_count": 10,
+      "candidates_hash": "6d99b09278a7213e",
+      "chosen_index": 7,
+      "chosen_canonical_id": "v3:19.128.001-006",
+      "key_verse_span": [
+        3,
+        3
+      ],
+      "reason": "directly addresses joy in children and family blessings",
+      "raw": "{\"candidate\": 8, \"key_verse_start\": 3, \"key_verse_end\": 3, \"reason\": \"directly addresses joy in children and family blessings\"}",
+      "latency_ms": 1107,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "ru-002",
+      "language": "ru",
+      "category": "regular",
+      "candidate_count": 10,
+      "candidates_hash": "d8dbc1e8b6fcbb99",
+      "chosen_index": 9,
+      "chosen_canonical_id": "v3:24.029.001-015",
+      "key_verse_span": [
+        7,
+        7
+      ],
+      "reason": "Addresses job insecurity with divine presence and purpose in hardship",
+      "raw": "{\"candidate\": 10, \"key_verse_start\": 7, \"key_verse_end\": 7, \"reason\": \"Addresses job insecurity with divine presence and purpose in hardship\"}",
+      "latency_ms": 833,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "ru-003",
+      "language": "ru",
+      "category": "sensitive",
+      "candidate_count": 10,
+      "candidates_hash": "1bb83a0fd17c249d",
+      "chosen_index": 9,
+      "chosen_canonical_id": "v3:66.007.009-017",
+      "key_verse_span": [
+        10,
+        10
+      ],
+      "reason": "Provides comfort of God's presence and removal of sorrow after great suffering, directly addressing grief and loss.",
+      "raw": "{\"candidate\": 10, \"key_verse_start\": 10, \"key_verse_end\": 10, \"reason\": \"Provides comfort of God's presence and removal of sorrow after great suffering, directly addressing grief and loss.\"}",
+      "latency_ms": 852,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "ru-004",
+      "language": "ru",
+      "category": "sensitive",
+      "candidate_count": 10,
+      "candidates_hash": "728c36b7b7569230",
+      "chosen_index": 2,
+      "chosen_canonical_id": "v3:19.023.001-006",
+      "key_verse_span": [
+        4,
+        6
+      ],
+      "reason": "Provides comfort and presence in suffering without referencing punishment or death",
+      "raw": "{\"candidate\": 3, \"key_verse_start\": 4, \"key_verse_end\": 6, \"reason\": \"Provides comfort and presence in suffering without referencing punishment or death\"}",
+      "latency_ms": 655,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "ru-005",
+      "language": "ru",
+      "category": "sensitive",
+      "candidate_count": 10,
+      "candidates_hash": "50b48318c88baacd",
+      "chosen_index": 6,
+      "chosen_canonical_id": "v3:19.004.000-008",
+      "key_verse_span": [
+        8,
+        8
+      ],
+      "reason": "The passage directly addresses sleeplessness and fear, offering divine peace and safety in sleep, which matches the person's need for rest and trust in God.",
+      "raw": "{\"candidate\": 7, \"key_verse_start\": 8, \"key_verse_end\": 8, \"reason\": \"The passage directly addresses sleeplessness and fear, offering divine peace and safety in sleep, which matches the person's need for rest and trust in God.\"}",
+      "latency_ms": 1099,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "ru-006",
+      "language": "ru",
+      "category": "ambiguous",
+      "candidate_count": 10,
+      "candidates_hash": "9ac5eb8e8f4df0db",
+      "chosen_index": 2,
+      "chosen_canonical_id": "v3:23.042.005-017",
+      "key_verse_span": [
+        12,
+        12
+      ],
+      "reason": "The passage directly addresses spiritual blindness and promises divine guidance through darkness, matching the prayer for clarity and direction.",
+      "raw": "{\"candidate\": 3, \"key_verse_start\": 12, \"key_verse_end\": 12, \"reason\": \"The passage directly addresses spiritual blindness and promises divine guidance through darkness, matching the prayer for clarity and direction.\"}",
+      "latency_ms": 844,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "ru-007",
+      "language": "ru",
+      "category": "ambiguous",
+      "candidate_count": 10,
+      "candidates_hash": "72ed451aab5fe447",
+      "chosen_index": 2,
+      "chosen_canonical_id": "v3:40.011.027-030",
+      "key_verse_span": [
+        2,
+        4
+      ],
+      "reason": "Direct comfort for inner weariness and longing for peace",
+      "raw": "{\"candidate\": 3, \"key_verse_start\": 2, \"key_verse_end\": 4, \"reason\": \"Direct comfort for inner weariness and longing for peace\"}",
+      "latency_ms": 716,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "ru-008",
+      "language": "ru",
+      "category": "short",
+      "candidate_count": 10,
+      "candidates_hash": "6477cbfd409672ad",
+      "chosen_index": 0,
+      "chosen_canonical_id": "v3:19.121.001-008",
+      "key_verse_span": [
+        1,
+        2
+      ],
+      "reason": "Direct comfort and promise of divine help from the beginning, safe from any tone of judgment or danger.",
+      "raw": "{\"candidate\": 1, \"key_verse_start\": 1, \"key_verse_end\": 2, \"reason\": \"Direct comfort and promise of divine help from the beginning, safe from any tone of judgment or danger.\"}",
+      "latency_ms": 811,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "ru-010",
+      "language": "ru",
+      "category": "regular",
+      "candidate_count": 10,
+      "candidates_hash": "83f445ecde494eb6",
+      "chosen_index": 2,
+      "chosen_canonical_id": "v3:19.133.001-003",
+      "key_verse_span": [
+        1,
+        3
+      ],
+      "reason": "The passage offers direct comfort and hope for reconciliation, emphasizing unity and divine blessing in brotherhood, without any mention of guilt, judgment, or conflict.",
+      "raw": "{\"candidate\": 3, \"key_verse_start\": 1, \"key_verse_end\": 3, \"reason\": \"The passage offers direct comfort and hope for reconciliation, emphasizing unity and divine blessing in brotherhood, without any mention of guilt, judgment, or conflict.\"}",
+      "latency_ms": 929,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "en-001",
+      "language": "en",
+      "category": "regular",
+      "candidate_count": 10,
+      "candidates_hash": "a0e4d6af18f5d114",
+      "chosen_index": 0,
+      "chosen_canonical_id": "v3:19.067.000-007",
+      "key_verse_span": [
+        1,
+        2
+      ],
+      "reason": "The passage begins with a direct appeal for God's favor and blessing, aligning with the person's desire to start a new job with God, and emphasizes divine presence and guidance.",
+      "raw": "{\"candidate\": 1, \"key_verse_start\": 1, \"key_verse_end\": 2, \"reason\": \"The passage begins with a direct appeal for God's favor and blessing, aligning with the person's desire to start a new job with God, and emphasizes divine presence and guidance.\"}",
+      "latency_ms": 939,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "en-002",
+      "language": "en",
+      "category": "sensitive",
+      "candidate_count": 10,
+      "candidates_hash": "5cb52a8b8bd8123f",
+      "chosen_index": 6,
+      "chosen_canonical_id": "v3:19.034.000-022",
+      "key_verse_span": [
+        18,
+        18
+      ],
+      "reason": "Addresses grief with divine nearness and comfort without implying guilt or punishment.",
+      "raw": "{\"candidate\": 7, \"key_verse_start\": 18, \"key_verse_end\": 18, \"reason\": \"Addresses grief with divine nearness and comfort without implying guilt or punishment.\"}",
+      "latency_ms": 764,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "en-003",
+      "language": "en",
+      "category": "short",
+      "candidate_count": 10,
+      "candidates_hash": "8e127a50e5917a37",
+      "chosen_index": 2,
+      "chosen_canonical_id": "v3:23.026.001-004",
+      "key_verse_span": [
+        3,
+        4
+      ],
+      "reason": "Directly addresses peace as a result of trust in God, fitting the topic without any concerning elements.",
+      "raw": "{\"candidate\": 3, \"key_verse_start\": 3, \"key_verse_end\": 4, \"reason\": \"Directly addresses peace as a result of trust in God, fitting the topic without any concerning elements.\"}",
+      "latency_ms": 744,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "en-004",
+      "language": "en",
+      "category": "ambiguous",
+      "candidate_count": 10,
+      "candidates_hash": "ee494befdcd04818",
+      "chosen_index": 5,
+      "chosen_canonical_id": "v3:23.057.015-021",
+      "key_verse_span": [
+        1,
+        3
+      ],
+      "reason": "Addresses emotional distance and longing for reconciliation with gentle, restorative language",
+      "raw": "{\"candidate\": 6, \"key_verse_start\": 1, \"key_verse_end\": 3, \"reason\": \"Addresses emotional distance and longing for reconciliation with gentle, restorative language\"}",
+      "latency_ms": 702,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "en-005",
+      "language": "en",
+      "category": "sensitive",
+      "candidate_count": 10,
+      "candidates_hash": "75ce99db8f41c410",
+      "chosen_index": 0,
+      "chosen_canonical_id": "v3:19.139.001-024",
+      "key_verse_span": null,
+      "reason": "Addresses worth and divine purpose with personal creation and foreknowledge.",
+      "raw": "{\"candidate\": 1, \"key_verse_start\": 13, \"key_verse_end\": 16, \"reason\": \"Addresses worth and divine purpose with personal creation and foreknowledge.\"}",
+      "latency_ms": 824,
+      "attempts": 1,
+      "error": null,
+      "warning": "no usable key-verse span in the answer"
+    },
+    {
+      "id": "en-007",
+      "language": "en",
+      "category": "regular",
+      "candidate_count": 10,
+      "candidates_hash": "bf6b48d27b5d2ab4",
+      "chosen_index": 3,
+      "chosen_canonical_id": "v3:24.031.002-009",
+      "key_verse_span": [
+        2,
+        4
+      ],
+      "reason": "Addresses longing for rest and restoration with gentle, hopeful imagery of return and healing.",
+      "raw": "{\"candidate\": 4, \"key_verse_start\": 2, \"key_verse_end\": 4, \"reason\": \"Addresses longing for rest and restoration with gentle, hopeful imagery of return and healing.\"}",
+      "latency_ms": 747,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "uk-001",
+      "language": "uk",
+      "category": "regular",
+      "candidate_count": 10,
+      "candidates_hash": "3c542c7299245faa",
+      "chosen_index": 1,
+      "chosen_canonical_id": "v3:19.065.000-013",
+      "key_verse_span": [
+        12,
+        12
+      ],
+      "reason": "The passage directly addresses gratitude for God's provision and care throughout the year, emphasizing His abundant blessings and faithfulness.",
+      "raw": "{\"candidate\": 2, \"key_verse_start\": 12, \"key_verse_end\": 12, \"reason\": \"The passage directly addresses gratitude for God's provision and care throughout the year, emphasizing His abundant blessings and faithfulness.\"}",
+      "latency_ms": 1101,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "uk-002",
+      "language": "uk",
+      "category": "sensitive",
+      "candidate_count": 10,
+      "candidates_hash": "42d2ce0e8aefd8de",
+      "chosen_index": 0,
+      "chosen_canonical_id": "v3:19.091.001-016",
+      "key_verse_span": [
+        5,
+        7
+      ],
+      "reason": "The passage offers direct comfort about nighttime fear and protection during danger, avoiding any mention of punishment or violence.",
+      "raw": "{\"candidate\": 1, \"key_verse_start\": 5, \"key_verse_end\": 7, \"reason\": \"The passage offers direct comfort about nighttime fear and protection during danger, avoiding any mention of punishment or violence.\"}",
+      "latency_ms": 879,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "uk-003",
+      "language": "uk",
+      "category": "short",
+      "candidate_count": 10,
+      "candidates_hash": "b9ae26c692076e7d",
+      "chosen_index": 1,
+      "chosen_canonical_id": "v3:19.136.001-026",
+      "key_verse_span": [
+        1,
+        1
+      ],
+      "reason": "The context is thanksgiving, and the first verse of candidate 2 directly and purely expresses gratitude, aligning perfectly with the topic without any conditional or complex elements.",
+      "raw": "{\"candidate\": 2, \"key_verse_start\": 1, \"key_verse_end\": 1, \"reason\": \"The context is thanksgiving, and the first verse of candidate 2 directly and purely expresses gratitude, aligning perfectly with the topic without any conditional or complex elements.\"}",
+      "latency_ms": 1093,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "uk-004",
+      "language": "uk",
+      "category": "ambiguous",
+      "candidate_count": 10,
+      "candidates_hash": "232237f610d0128a",
+      "chosen_index": 4,
+      "chosen_canonical_id": "v3:19.091.001-016",
+      "key_verse_span": [
+        11,
+        12
+      ],
+      "reason": "Provides direct divine protection for travel, emphasizing God's angels guarding the journey and preventing harm.",
+      "raw": "{\"candidate\": 5, \"key_verse_start\": 11, \"key_verse_end\": 12, \"reason\": \"Provides direct divine protection for travel, emphasizing God's angels guarding the journey and preventing harm.\"}",
+      "latency_ms": 934,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "uk-005",
+      "language": "uk",
+      "category": "sensitive",
+      "candidate_count": 10,
+      "candidates_hash": "a0d0a8b53f8a638a",
+      "chosen_index": 2,
+      "chosen_canonical_id": "v3:23.049.014-021",
+      "key_verse_span": [
+        2,
+        3
+      ],
+      "reason": "Addresses loneliness and abandonment with direct divine reassurance and personal care.",
+      "raw": "{\"candidate\": 3, \"key_verse_start\": 2, \"key_verse_end\": 3, \"reason\": \"Addresses loneliness and abandonment with direct divine reassurance and personal care.\"}",
+      "latency_ms": 1070,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "uk-007",
+      "language": "uk",
+      "category": "regular",
+      "candidate_count": 10,
+      "candidates_hash": "a96f156df7fa0be9",
+      "chosen_index": 2,
+      "chosen_canonical_id": "v3:20.003.001-010",
+      "key_verse_span": [
+        5,
+        6
+      ],
+      "reason": "Provides guidance for parenting with wisdom and trust in God, directly addressing the request for wisdom in raising children in faith.",
+      "raw": "{\"candidate\": 3, \"key_verse_start\": 5, \"key_verse_end\": 6, \"reason\": \"Provides guidance for parenting with wisdom and trust in God, directly addressing the request for wisdom in raising children in faith.\"}",
+      "latency_ms": 840,
+      "attempts": 1,
+      "error": null
+    }
+  ]
+}
