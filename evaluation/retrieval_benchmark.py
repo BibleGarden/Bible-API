@@ -74,12 +74,26 @@ MODELS = {
     "e5-small": ("local", "intfloat/multilingual-e5-small", "query: ", "passage: ", 384),
     "e5-base": ("local", "intfloat/multilingual-e5-base", "query: ", "passage: ", 768),
     "labse": ("local", "sentence-transformers/LaBSE", "", "", 768),
+    # bge-m3 is used through its DENSE head only (the CLS vector
+    # sentence-transformers exposes) — the sparse and ColBERT heads of the
+    # original model are not part of this comparison.
+    "bge-m3": ("local", "BAAI/bge-m3", "", "", 1024),
     # Gemini is embedded once at 3072 dims; gemini-768 is evaluated by MRL
     # truncation to the first 768 dims + re-normalisation (what the API's
     # outputDimensionality=768 does server-side).
     "gemini": ("gemini", "gemini-embedding-001", "", "", 3072),
 }
 VARIANTS = ("text", "title_text")
+
+# Per-model encoding limits for the CPU host. Only models that need them are
+# listed; everything else keeps the historical batch of 16 and the model's own
+# context window, so no previously measured configuration changes.
+# bge-m3 advertises an 8192-token window: a batch of 16 of those allocates
+# several GB of activations on a machine that has ~6 GB free and shares it
+# with MySQL, while the longest chunk of this corpus is far below 512 tokens.
+LOCAL_ENCODE_LIMITS = {
+    "bge-m3": {"batch_size": 4, "max_seq_length": 512},
+}
 
 
 # ---------------------------------------------------------------------------
@@ -177,13 +191,110 @@ def emb_path(model_key: str, variant: str) -> Path:
     return DATA / f"emb_{model_key}_{variant}.npy"
 
 
-def embed_local(model_id: str, texts: list[str], prefix: str) -> np.ndarray:
+def corpus_fingerprint(metas: list[ChunkMeta]) -> str:
+    """Identity of the corpus an embedding matrix was built from.
+
+    sha1 over `translation:canonical_id` in file order — the same order the
+    matrix rows are in, so it detects a re-export that kept the row COUNT but
+    moved, replaced or re-chunked the documents. The row count alone cannot.
+    """
+    import hashlib
+
+    h = hashlib.sha1()
+    for meta in metas:
+        h.update(f"{meta.translation}:{meta.canonical_id}\n".encode())
+    return h.hexdigest()
+
+
+def fingerprint_path(model_key: str, variant: str) -> Path:
+    return emb_path(model_key, variant).with_suffix(".npy.sha1")
+
+
+def save_corpus_matrix(
+    model_key: str, variant: str, vecs: np.ndarray, metas: list[ChunkMeta],
+) -> Path:
+    """Persist a matrix together with the fingerprint of its corpus."""
+    path = emb_path(model_key, variant)
+    np.save(path, vecs)
+    fingerprint_path(model_key, variant).write_text(corpus_fingerprint(metas))
+    return path
+
+
+def load_corpus_matrix(
+    model_key: str, variant: str, metas: list[ChunkMeta],
+) -> np.ndarray:
+    """The cached document matrix of one config, or a loud refusal.
+
+    Every consumer of `emb_*.npy` goes through here. Reason (2026-09-04):
+    `chunks.jsonl` was re-exported on 2026-08-24 and the local matrices kept
+    on disk still held 11 987 rows against 11 960 chunks. numpy does not mind
+    — `corpus[idx] @ qvec` with row indices taken from the NEW metadata
+    happily returns cosine scores for the WRONG passages — so the mismatch
+    surfaces only as quietly degraded metrics. That is how the ADR 0002
+    numbers aged into being wrong without anyone noticing, and it is exactly
+    the class of silent fallback the project bans.
+
+    Two checks, both hard errors: the row count, and (when the sidecar
+    exists) the corpus fingerprint. A matrix written before the sidecar
+    existed passes on the row count with a warning naming the risk.
+    """
+    path = emb_path(model_key, variant)
+    if not path.exists():
+        raise SystemExit(
+            f"{path} does not exist. Build it:\n"
+            f"  python retrieval_benchmark.py embed --model {model_key} "
+            f"--variant {variant}"
+        )
+    vecs = np.load(path)
+    rebuild = (f"  python retrieval_benchmark.py embed --model {model_key} "
+               f"--variant {variant} --force")
+    if vecs.shape[0] != len(metas):
+        raise SystemExit(
+            f"{path} holds {vecs.shape[0]} vectors, but {CHUNKS_FILE.name} "
+            f"has {len(metas)} chunks — the corpus was re-exported after that "
+            f"file was written. Rebuild it explicitly:\n{rebuild}"
+        )
+    stamp = fingerprint_path(model_key, variant)
+    if not stamp.exists():
+        print(f"[warn] {path.name}: no .sha1 sidecar — only the row count "
+              f"({vecs.shape[0]}) could be checked. Rebuild to record one:"
+              f"\n{rebuild}")
+        return vecs
+    expected = corpus_fingerprint(metas)
+    if stamp.read_text().strip() != expected:
+        raise SystemExit(
+            f"{path} was built from a DIFFERENT corpus: {stamp.name} says "
+            f"{stamp.read_text().strip()[:12]}…, {CHUNKS_FILE.name} is "
+            f"{expected[:12]}… (same row count, different documents). "
+            f"Rebuild it explicitly:\n{rebuild}"
+        )
+    return vecs
+
+
+def load_st_model(model_id: str, max_seq_length: int = 0):
+    """A sentence-transformers model on CPU, optionally window-capped.
+
+    Kept separate from `embed_local` so one loaded model can serve both the
+    corpus pass and the per-query calls of a `pipeline` run: the weights are
+    the expensive part (bge-m3 is 2.3 GB in fp32) and this machine has no
+    room for two copies.
+    """
     from sentence_transformers import SentenceTransformer
 
     model = SentenceTransformer(model_id, device="cpu")
+    if max_seq_length:
+        model.max_seq_length = min(model.max_seq_length, max_seq_length)
+    return model
+
+
+def embed_local(
+    model_id: str, texts: list[str], prefix: str,
+    batch_size: int = 16, max_seq_length: int = 0, model=None,
+) -> np.ndarray:
+    model = model if model is not None else load_st_model(model_id, max_seq_length)
     vecs = model.encode(
         [prefix + t for t in texts],
-        batch_size=16,
+        batch_size=batch_size,
         show_progress_bar=True,
         normalize_embeddings=True,
         convert_to_numpy=True,
@@ -302,14 +413,16 @@ def cmd_embed(args) -> None:
         return
     started = time.time()
     if kind == "local":
-        vecs = embed_local(model_id, corpus, ppref)
+        vecs = embed_local(
+            model_id, corpus, ppref, **LOCAL_ENCODE_LIMITS.get(args.model, {}))
     else:
         vecs = embed_gemini(
             corpus, "RETRIEVAL_DOCUMENT", require_api_key(),
             checkpoint_dir=DATA / f"gemini_ckpt_{args.variant}",
         )
-    np.save(path, vecs)
-    print(f"saved {path} shape={vecs.shape} in {time.time() - started:.0f}s")
+    save_corpus_matrix(args.model, args.variant, vecs, metas)
+    print(f"saved {path} shape={vecs.shape} in {time.time() - started:.0f}s "
+          f"(corpus {corpus_fingerprint(metas)[:12]}…)")
 
 
 ENV_FILE = HERE.parent / ".env"
@@ -396,7 +509,7 @@ def evaluate_config(
     psalm_maps = load_psalm_maps()
     scenarios = json.loads(SCENARIOS_FILE.read_text())["scenarios"]
 
-    corpus = np.load(emb_path(model_key, variant))
+    corpus = load_corpus_matrix(model_key, variant, metas)
     if dims_override:
         corpus = truncate_mrl(corpus, dims_override)
 
@@ -541,7 +654,7 @@ def cmd_stores(args) -> None:
     """Load one cached embedding config into qdrant + chroma, verify that the
     top-10 matches brute-force cosine, and measure query latency."""
     metas, _texts, _tt = load_chunks()
-    corpus = np.load(emb_path(args.model, args.variant))
+    corpus = load_corpus_matrix(args.model, args.variant, metas)
     if args.dims:
         corpus = truncate_mrl(corpus, args.dims)
     n, dims = corpus.shape
@@ -659,6 +772,9 @@ os.environ.setdefault("API_KEY", "benchmark")  # app/config.py requires it;
 PIPELINE_CACHE_FILE = DATA / "pipeline_cache.json"
 PIPELINE_DIMS = 768
 FETCH_K_DEFAULT = 50
+# The production embedding stage; `--embedder` defaults to it and the label
+# stays silent about it, so previously recorded configs remain comparable.
+PIPELINE_DEFAULT_EMBEDDER = "gemini"
 
 
 def _load_pipeline_cache() -> dict:
@@ -720,6 +836,117 @@ def _query_vector(text: str, api_key: str, cache: dict) -> np.ndarray:
         raise RuntimeError(f"query embedding failed ({resp.status_code}): "
                            f"{resp.text[:200]}")
     raise RuntimeError("query embedding failed: retries exhausted")
+
+
+def _local_pipeline_corpus(
+    model_key: str, model, prefix: str,
+    metas: list[ChunkMeta], title_texts: list[str],
+) -> np.ndarray:
+    """Document matrix of a local embedder for the `pipeline` command.
+
+    Reuses `emb_<key>_title_text.npy` — the very file the `embed` command
+    writes — through the shared `load_corpus_matrix` guard, and embeds the
+    corpus once when the file is absent. A cached file that does not match
+    the corpus is a hard error there rather than a silent re-embed: the
+    `run` command reads the same file, so overwriting it behind the
+    operator's back would quietly change an unrelated measurement.
+    """
+    path = emb_path(model_key, "title_text")
+    if path.exists():
+        vecs = load_corpus_matrix(model_key, "title_text", metas)
+        print(f"corpus embeddings: {path.name} (cached, {vecs.shape})")
+        return vecs
+    print(f"corpus embeddings: {path.name} missing, embedding "
+          f"{len(title_texts)} chunks on CPU (minutes)...")
+    started = time.time()
+    # max_seq_length is already applied to `model`; only the batch matters here
+    vecs = embed_local(
+        "", title_texts, prefix, model=model,
+        batch_size=LOCAL_ENCODE_LIMITS.get(model_key, {}).get("batch_size", 16),
+    )
+    save_corpus_matrix(model_key, "title_text", vecs, metas)
+    print(f"corpus embeddings: saved {path.name} shape={vecs.shape} "
+          f"in {time.time() - started:.0f}s")
+    return vecs
+
+
+def _embedder_report(model_key: str, query_ms: list[float]) -> dict:
+    """Cost of the embedding stage: per-query wall time and process peak RSS.
+
+    Printed AND returned, so `--json-out` carries the same numbers the report
+    shows — a measurement quoted in the README has to be re-derivable from an
+    artifact, not only from someone's terminal scrollback.
+
+    `ru_maxrss` is the high-water mark of the WHOLE process, so it covers the
+    corpus matrix and the model weights together — which is the number that
+    decides whether the configuration fits the production VM at all. On
+    Gemini the times are API round trips (or ~0 on a cache hit), on a local
+    model they are CPU inference.
+    """
+    import resource
+
+    _kind, model_id, _q, _p, dims = MODELS[model_key]
+    stats = {
+        "embedder": model_key,
+        "model_id": model_id,
+        "dims": dims,
+        "peak_rss_mb": round(
+            resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1),
+        "query_embed_count": len(query_ms),
+    }
+    line = (f"\nembedder: {model_key} ({model_id}) dims={dims} "
+            f"peak_rss={stats['peak_rss_mb']:.0f} MB")
+    if query_ms:
+        ordered = sorted(query_ms)
+        stats["query_embed_ms"] = {
+            "median": round(statistics.median(ordered), 1),
+            "mean": round(statistics.fmean(ordered), 1),
+            "max": round(ordered[-1], 1),
+        }
+        line += (f" | query embed n={len(query_ms)} "
+                 f"median={statistics.median(ordered):.0f} ms "
+                 f"mean={statistics.fmean(ordered):.0f} ms "
+                 f"max={ordered[-1]:.0f} ms")
+    print(line)
+    return stats
+
+
+def _pipeline_embedder(
+    model_key: str, metas: list[ChunkMeta], title_texts: list[str],
+    cache: dict,
+):
+    """(corpus matrix, query->vector callable) for the `pipeline` command.
+
+    `gemini` is the default and is untouched: the cached 3072-dim document
+    pass truncated to PIPELINE_DIMS, queries embedded through the API with
+    the on-disk `query_embeddings` cache.
+
+    A local sentence-transformers model embeds BOTH sides itself — corpus in
+    passage mode, queries in query mode, with the model's own prefixes. That
+    path never reads GEMINI_API_KEY and never issues an HTTP request, and it
+    does not touch the Gemini query cache (whose keys carry no model name, so
+    sharing it would mix vector spaces).
+    """
+    kind, model_id, qpref, ppref, _dims = MODELS[model_key]
+    if kind == "gemini":
+        api_key = require_api_key()
+        corpus = truncate_mrl(
+            load_corpus_matrix("gemini", "title_text", metas), PIPELINE_DIMS)
+        return corpus, (lambda text: _query_vector(text, api_key, cache))
+
+    limits = LOCAL_ENCODE_LIMITS.get(model_key, {})
+    model = load_st_model(model_id, limits.get("max_seq_length", 0))
+    corpus = _local_pipeline_corpus(
+        model_key, model, ppref, metas, title_texts)
+
+    def query_vector(text: str) -> np.ndarray:
+        vec = model.encode(
+            [qpref + text], batch_size=1, show_progress_bar=False,
+            normalize_embeddings=True, convert_to_numpy=True,
+        )[0]
+        return vec.astype(np.float32)
+
+    return corpus, query_vector
 
 
 def _scenario_rewrites(
@@ -1212,6 +1439,29 @@ def _rrf_fuse(variant_hits: list[list[tuple[str, float]]], k: int = 60):
     return sorted(fused.values(), key=lambda h: -h.score)
 
 
+def pipeline_label(args, rewrite_model: str) -> str:
+    """The configuration line of a `pipeline` run.
+
+    It is the header of the printed report AND the `config` field of
+    `--json-out`, so an artifact says which ablation produced it. Optional
+    stages are appended only when they are NOT at their default, so the
+    labels of every run recorded before those flags existed stay
+    byte-identical and remain comparable.
+    """
+    return (
+        f"pipeline rewrite={'off' if args.no_rewrite else rewrite_model}"
+        f" variants={args.variants} raw={'no' if args.no_raw else 'yes'}"
+        f" fusion={args.fusion} blacklist={'off' if args.no_blacklist else 'on'}"
+        f" pool={'off' if args.no_pool else 'on'}"
+        f" lexical={'off' if args.no_lexical else f'k{args.lex_k}'}"
+        f" fetch_k={args.fetch_k} max_per_book={args.max_per_book}"
+        + (f" coverage={args.coverage_translation}"
+           if args.coverage_translation else "")
+        + (f" embedder={args.embedder}"
+           if args.embedder != PIPELINE_DEFAULT_EMBEDDER else "")
+    )
+
+
 def cmd_pipeline(args) -> None:
     from retrieval import (
         apply_diversity,
@@ -1229,11 +1479,17 @@ def cmd_pipeline(args) -> None:
 
     thresholds = json.loads(THRESHOLDS_FILE.read_text())
     scenarios = json.loads(SCENARIOS_FILE.read_text())["scenarios"]
-    metas, _texts, _tt = load_chunks()
+    metas, _texts, title_texts_all = load_chunks()
     psalm_maps = load_psalm_maps()
-    corpus = truncate_mrl(np.load(emb_path("gemini", "title_text")), PIPELINE_DIMS)
-    api_key = require_api_key()
     cache = _load_pipeline_cache()
+    # The rerank stage is Gemini-only whatever embeds the queries; with a
+    # local embedder and no --rerank the run needs no key at all. Resolved
+    # BEFORE the embedder, because a local corpus pass can run for hours and
+    # a missing key must not be discovered afterwards.
+    api_key = require_api_key() if args.rerank else ""
+    corpus, query_vector = _pipeline_embedder(
+        args.embedder, metas, title_texts_all, cache)
+    query_ms: list[float] = []
     blacklist = load_genre_blacklist() if not args.no_blacklist else []
     safe_pool = load_safe_pool()
     # ADR 0007 simulation: restrict one language's candidates to the windows
@@ -1442,10 +1698,12 @@ def cmd_pipeline(args) -> None:
                 queries = queries + [raw_query]
 
             # --- embed + search + fuse
-            variant_hits = [
-                search_variant(code, q, _query_vector(q, api_key, cache))
-                for q in queries
-            ]
+            variant_hits = []
+            for q in queries:
+                q_started = time.time()
+                qvec = query_vector(q)
+                query_ms.append((time.time() - q_started) * 1000)
+                variant_hits.append(search_variant(code, q, qvec))
             if args.fusion == "rrf":
                 fused = _rrf_fuse(variant_hits)
             elif args.fusion == "interleave":
@@ -1521,18 +1779,10 @@ def cmd_pipeline(args) -> None:
         if reranker is not None:
             reranker.close()
 
-    label = (
-        f"pipeline rewrite={'off' if args.no_rewrite else rewrite_model}"
-        f" variants={args.variants} raw={'no' if args.no_raw else 'yes'}"
-        f" fusion={args.fusion} blacklist={'off' if args.no_blacklist else 'on'}"
-        f" pool={'off' if args.no_pool else 'on'}"
-        f" lexical={'off' if args.no_lexical else f'k{args.lex_k}'}"
-        f" fetch_k={args.fetch_k} max_per_book={args.max_per_book}"
-        + (f" coverage={args.coverage_translation}"
-           if args.coverage_translation else "")
-    )
+    label = pipeline_label(args, rewrite_model)
     print_report(label, results, {"rewrite_failures": rewrite_failures},
                  thresholds)
+    embedder_stats = _embedder_report(args.embedder, query_ms)
     if rerank_rows is not None:
         print(f"\nrerank: model={rerank_model} fresh_calls="
               f"{rerank_stats['calls']} failures={rerank_stats['failures']}")
@@ -1547,6 +1797,7 @@ def cmd_pipeline(args) -> None:
     if args.json_out:
         payload = {
             "config": label,
+            "embedding_stage": embedder_stats,
             "aggregate": aggregate(results, "ALL").__dict__,
             "scenarios": [r.__dict__ for r in results],
             "details": per_scenario,
@@ -1625,6 +1876,20 @@ def main() -> None:
                         "rewrite provider is constructed or called. Scenarios "
                         "with an error/empty variants degrade to the raw "
                         "query, exactly like a live rewrite failure")
+    p.add_argument("--embedder", choices=tuple(MODELS),
+                   default=PIPELINE_DEFAULT_EMBEDDER,
+                   help="model that embeds BOTH the query variants and the "
+                        "chunk corpus (default: gemini, the production "
+                        "configuration); a local choice caches its corpus "
+                        "matrix in bench_data/emb_<model>_title_text.npy. "
+                        "This flag only replaces the EMBEDDING stage: the "
+                        "run is free of Gemini calls (and needs no key) only "
+                        "when the rewrite stage is offline too "
+                        "(--rewrites-file or --no-rewrite) and --rerank is "
+                        "not given. Without one of those the rewrite stage "
+                        "still calls gemini-3.7-flash on the PAID key "
+                        "(AI_SCRIPTURE_REWRITE_API_KEY) for every scenario "
+                        "missing from the cache")
     p.add_argument("--coverage-translation", type=int, default=0,
                    help="ADR 0007: restrict the candidates of that "
                         "translation's language to the canonical windows it "

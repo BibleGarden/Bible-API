@@ -1,0 +1,1994 @@
+{
+ "config": "pipeline rewrite=off variants=6 raw=no fusion=interleave blacklist=on pool=on lexical=off fetch_k=50 max_per_book=4 embedder=e5-base",
+ "embedding_stage": {
+  "embedder": "e5-base",
+  "model_id": "intfloat/multilingual-e5-base",
+  "dims": 768,
+  "peak_rss_mb": 1289.1,
+  "query_embed_count": 21,
+  "query_embed_ms": {
+   "median": 148.0,
+   "mean": 159.5,
+   "max": 313.4
+  }
+ },
+ "aggregate": {
+  "label": "ALL",
+  "n": 24,
+  "hit_rate": 0.20833333333333334,
+  "recall": 0.14722222222222223,
+  "mrr": 0.15046296296296297,
+  "unacceptable_share": 0.0
+ },
+ "scenarios": [
+  {
+   "scenario_id": "ru-001",
+   "language": "ru",
+   "category": "regular",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "ru-002",
+   "language": "ru",
+   "category": "regular",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "ru-003",
+   "language": "ru",
+   "category": "sensitive",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "ru-004",
+   "language": "ru",
+   "category": "sensitive",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "ru-005",
+   "language": "ru",
+   "category": "sensitive",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "ru-006",
+   "language": "ru",
+   "category": "ambiguous",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "ru-007",
+   "language": "ru",
+   "category": "ambiguous",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "ru-008",
+   "language": "ru",
+   "category": "short",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "ru-009",
+   "language": "ru",
+   "category": "empty",
+   "hit": true,
+   "recall": 1.0,
+   "rr": 1.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "ru-010",
+   "language": "ru",
+   "category": "regular",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "en-001",
+   "language": "en",
+   "category": "regular",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "en-002",
+   "language": "en",
+   "category": "sensitive",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "en-003",
+   "language": "en",
+   "category": "short",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "en-004",
+   "language": "en",
+   "category": "ambiguous",
+   "hit": true,
+   "recall": 0.3333333333333333,
+   "rr": 0.1111111111111111,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "en-005",
+   "language": "en",
+   "category": "sensitive",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "en-006",
+   "language": "en",
+   "category": "empty",
+   "hit": true,
+   "recall": 1.0,
+   "rr": 1.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "en-007",
+   "language": "en",
+   "category": "regular",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "uk-001",
+   "language": "uk",
+   "category": "regular",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "uk-002",
+   "language": "uk",
+   "category": "sensitive",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "uk-003",
+   "language": "uk",
+   "category": "short",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "uk-004",
+   "language": "uk",
+   "category": "ambiguous",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "uk-005",
+   "language": "uk",
+   "category": "sensitive",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "uk-006",
+   "language": "uk",
+   "category": "empty",
+   "hit": true,
+   "recall": 1.0,
+   "rr": 1.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "uk-007",
+   "language": "uk",
+   "category": "regular",
+   "hit": true,
+   "recall": 0.2,
+   "rr": 0.5,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  }
+ ],
+ "details": [
+  {
+   "scenario_id": "ru-001",
+   "source": "retrieval",
+   "queries": [
+    "Благодарность за рождение дочки\nМы ждали её несколько лет, и вот она родилась здоровой.\nХочу просто сказать Богу спасибо."
+   ],
+   "top": [
+    {
+     "id": "v3:58.001.003-008",
+     "score": 0.8419,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.117.001-002",
+     "score": 0.8381,
+     "variant": 0
+    },
+    {
+     "id": "v3:52.016.001-016",
+     "score": 0.8373,
+     "variant": 0
+    },
+    {
+     "id": "v3:53.001.004-009",
+     "score": 0.8351,
+     "variant": 0
+    },
+    {
+     "id": "v3:20.008.022-031",
+     "score": 0.8342,
+     "variant": 0
+    },
+    {
+     "id": "v3:56.001.003-014",
+     "score": 0.8332,
+     "variant": 0
+    },
+    {
+     "id": "v3:27.003.028-030",
+     "score": 0.8323,
+     "variant": 0
+    },
+    {
+     "id": "v3:62.001.003-014",
+     "score": 0.8298,
+     "variant": 0
+    },
+    {
+     "id": "v3:54.009.006-015",
+     "score": 0.8294,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.085.000-013",
+     "score": 0.8291,
+     "variant": 0
+    }
+   ]
+  },
+  {
+   "scenario_id": "ru-002",
+   "source": "retrieval",
+   "queries": [
+    "Переживаю из-за возможного сокращения на работе\nВ компании начались увольнения, и я не знаю, что будет дальше.\nУ нас ипотека и двое детей."
+   ],
+   "top": [
+    {
+     "id": "v3:21.004.007-012",
+     "score": 0.8212,
+     "variant": 0
+    },
+    {
+     "id": "v3:65.013.017-019",
+     "score": 0.8183,
+     "variant": 0
+    },
+    {
+     "id": "v3:26.006.008-010",
+     "score": 0.8129,
+     "variant": 0
+    },
+    {
+     "id": "v3:60.003.006-012",
+     "score": 0.8124,
+     "variant": 0
+    },
+    {
+     "id": "v3:20.022.026-027",
+     "score": 0.8122,
+     "variant": 0
+    },
+    {
+     "id": "v3:20.027.010-010",
+     "score": 0.8116,
+     "variant": 0
+    },
+    {
+     "id": "v3:02.023.025-033",
+     "score": 0.8103,
+     "variant": 0
+    },
+    {
+     "id": "v3:09.008.010-018",
+     "score": 0.8098,
+     "variant": 0
+    },
+    {
+     "id": "v3:05.015.009-015",
+     "score": 0.8094,
+     "variant": 0
+    },
+    {
+     "id": "v3:21.002.018-023",
+     "score": 0.8092,
+     "variant": 0
+    }
+   ]
+  },
+  {
+   "scenario_id": "ru-003",
+   "source": "retrieval",
+   "queries": [
+    "Умерла мама\nПрошло девять дней, я до сих пор не могу дышать от боли.\nНе понимаю, как жить дальше."
+   ],
+   "top": [
+    {
+     "id": "v3:18.030.009-018",
+     "score": 0.8195,
+     "variant": 0
+    },
+    {
+     "id": "v3:20.023.022-022",
+     "score": 0.8177,
+     "variant": 0
+    },
+    {
+     "id": "v3:18.007.011-021",
+     "score": 0.8156,
+     "variant": 0
+    },
+    {
+     "id": "v3:03.023.023-032",
+     "score": 0.8152,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.006.000-010",
+     "score": 0.8147,
+     "variant": 0
+    },
+    {
+     "id": "v3:18.017.001-014",
+     "score": 0.8123,
+     "variant": 0
+    },
+    {
+     "id": "v3:50.001.013-015",
+     "score": 0.812,
+     "variant": 0
+    },
+    {
+     "id": "v3:52.012.001-002",
+     "score": 0.8115,
+     "variant": 0
+    },
+    {
+     "id": "v3:24.009.001-001",
+     "score": 0.8112,
+     "variant": 0
+    },
+    {
+     "id": "v3:52.007.001-006",
+     "score": 0.8111,
+     "variant": 0
+    }
+   ]
+  },
+  {
+   "scenario_id": "ru-004",
+   "source": "retrieval",
+   "queries": [
+    "Мне поставили серьёзный диагноз\nВпереди операция, мне страшно.\nМолюсь о выздоровлении и о силах для семьи."
+   ],
+   "top": [
+    {
+     "id": "v3:19.116.001-008",
+     "score": 0.8318,
+     "variant": 0
+    },
+    {
+     "id": "v3:18.006.008-013",
+     "score": 0.8299,
+     "variant": 0
+    },
+    {
+     "id": "v3:25.001.012-016",
+     "score": 0.8263,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.006.000-010",
+     "score": 0.8259,
+     "variant": 0
+    },
+    {
+     "id": "v3:18.019.021-022",
+     "score": 0.824,
+     "variant": 0
+    },
+    {
+     "id": "v3:56.004.017-024",
+     "score": 0.8234,
+     "variant": 0
+    },
+    {
+     "id": "v3:57.002.019-030",
+     "score": 0.8233,
+     "variant": 0
+    },
+    {
+     "id": "v3:52.012.001-002",
+     "score": 0.8232,
+     "variant": 0
+    },
+    {
+     "id": "v3:65.013.017-019",
+     "score": 0.8224,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.142.001-007",
+     "score": 0.8211,
+     "variant": 0
+    }
+   ]
+  },
+  {
+   "scenario_id": "ru-005",
+   "source": "retrieval",
+   "queries": [
+    "Постоянная тревога, ночами не сплю\nСердце колотится без причины, страшно оставаться одной.\nХочу успокоиться и довериться Богу."
+   ],
+   "top": [
+    {
+     "id": "v3:19.062.000-012",
+     "score": 0.8403,
+     "variant": 0
+    },
+    {
+     "id": "v3:57.002.012-018",
+     "score": 0.8374,
+     "variant": 0
+    },
+    {
+     "id": "v3:03.018.024-030",
+     "score": 0.8366,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.131.001-003",
+     "score": 0.8363,
+     "variant": 0
+    },
+    {
+     "id": "v3:18.019.021-022",
+     "score": 0.8361,
+     "variant": 0
+    },
+    {
+     "id": "v3:18.007.011-021",
+     "score": 0.836,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.006.000-010",
+     "score": 0.8353,
+     "variant": 0
+    },
+    {
+     "id": "v3:55.004.008-020",
+     "score": 0.8339,
+     "variant": 0
+    },
+    {
+     "id": "v3:05.008.018-020",
+     "score": 0.8336,
+     "variant": 0
+    },
+    {
+     "id": "v3:52.012.001-002",
+     "score": 0.8335,
+     "variant": 0
+    }
+   ]
+  },
+  {
+   "scenario_id": "ru-006",
+   "source": "retrieval",
+   "queries": [
+    "Молюсь о свете\nВсё как в тумане, хочу увидеть, куда идти."
+   ],
+   "top": [
+    {
+     "id": "v3:18.038.012-041",
+     "score": 0.8199,
+     "variant": 0
+    },
+    {
+     "id": "v3:20.008.022-031",
+     "score": 0.8142,
+     "variant": 0
+    },
+    {
+     "id": "v3:18.003.013-026",
+     "score": 0.8129,
+     "variant": 0
+    },
+    {
+     "id": "v3:52.001.008-015",
+     "score": 0.8111,
+     "variant": 0
+    },
+    {
+     "id": "v3:18.037.001-013",
+     "score": 0.8109,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.026.001-012",
+     "score": 0.8108,
+     "variant": 0
+    },
+    {
+     "id": "v3:05.008.001-008",
+     "score": 0.81,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.141.001-010",
+     "score": 0.8099,
+     "variant": 0
+    },
+    {
+     "id": "v3:05.024.008-009",
+     "score": 0.809,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.142.001-007",
+     "score": 0.8089,
+     "variant": 0
+    }
+   ]
+  },
+  {
+   "scenario_id": "ru-007",
+   "source": "retrieval",
+   "queries": [
+    "Прошу у Бога мира\nВ семье постоянные ссоры, я очень устал.\nХочу тишины внутри."
+   ],
+   "top": [
+    {
+     "id": "v3:55.004.008-020",
+     "score": 0.8412,
+     "variant": 0
+    },
+    {
+     "id": "v3:53.001.010-017",
+     "score": 0.8401,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.006.000-010",
+     "score": 0.84,
+     "variant": 0
+    },
+    {
+     "id": "v3:18.019.021-022",
+     "score": 0.8397,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.085.000-013",
+     "score": 0.8383,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.004.000-008",
+     "score": 0.8382,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.062.000-012",
+     "score": 0.8381,
+     "variant": 0
+    },
+    {
+     "id": "v3:46.005.001-011",
+     "score": 0.8379,
+     "variant": 0
+    },
+    {
+     "id": "v3:24.014.019-022",
+     "score": 0.8367,
+     "variant": 0
+    },
+    {
+     "id": "v3:52.013.001-007",
+     "score": 0.8364,
+     "variant": 0
+    }
+   ]
+  },
+  {
+   "scenario_id": "ru-008",
+   "source": "retrieval",
+   "queries": [
+    "Помоги"
+   ],
+   "top": [
+    {
+     "id": "v3:19.020.000-009",
+     "score": 0.7697,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.006.000-010",
+     "score": 0.7692,
+     "variant": 0
+    },
+    {
+     "id": "v3:14.006.038-042",
+     "score": 0.7683,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.038.000-022",
+     "score": 0.7679,
+     "variant": 0
+    },
+    {
+     "id": "v3:58.004.018-018",
+     "score": 0.7677,
+     "variant": 0
+    },
+    {
+     "id": "v3:54.006.001-010",
+     "score": 0.7677,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.044.000-026",
+     "score": 0.7668,
+     "variant": 0
+    },
+    {
+     "id": "v3:52.013.001-007",
+     "score": 0.7657,
+     "variant": 0
+    },
+    {
+     "id": "v3:18.038.012-041",
+     "score": 0.7656,
+     "variant": 0
+    },
+    {
+     "id": "v3:23.058.001-012",
+     "score": 0.7655,
+     "variant": 0
+    }
+   ]
+  },
+  {
+   "scenario_id": "ru-009",
+   "source": "safe_pool",
+   "queries": [],
+   "top": [
+    "v3:19.023.001-006",
+    "v3:40.011.027-030",
+    "v3:19.046.000-011",
+    "v3:25.003.021-039",
+    "v3:19.136.001-026",
+    "v3:19.100.001-005",
+    "v3:19.121.001-008",
+    "v3:57.004.001-009",
+    "v3:40.006.025-034"
+   ]
+  },
+  {
+   "scenario_id": "ru-010",
+   "source": "retrieval",
+   "queries": [
+    "Поссорился с братом, не разговариваем полгода\nОбида не отпускает, но я хочу сделать шаг к примирению."
+   ],
+   "top": [
+    {
+     "id": "v3:20.027.010-010",
+     "score": 0.8163,
+     "variant": 0
+    },
+    {
+     "id": "v3:18.019.021-022",
+     "score": 0.8137,
+     "variant": 0
+    },
+    {
+     "id": "v3:05.015.009-015",
+     "score": 0.8136,
+     "variant": 0
+    },
+    {
+     "id": "v3:53.001.010-017",
+     "score": 0.8116,
+     "variant": 0
+    },
+    {
+     "id": "v3:61.005.001-002",
+     "score": 0.8089,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.026.001-012",
+     "score": 0.8081,
+     "variant": 0
+    },
+    {
+     "id": "v3:54.002.005-011",
+     "score": 0.8067,
+     "variant": 0
+    },
+    {
+     "id": "v3:45.005.012-020",
+     "score": 0.8049,
+     "variant": 0
+    },
+    {
+     "id": "v3:02.021.001-011",
+     "score": 0.8042,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.006.000-010",
+     "score": 0.8039,
+     "variant": 0
+    }
+   ]
+  },
+  {
+   "scenario_id": "en-001",
+   "source": "retrieval",
+   "queries": [
+    "Thankful for my new job\nAfter eight months of searching I finally start on Monday.\nI want to begin this chapter with God."
+   ],
+   "top": [
+    {
+     "id": "v3:18.009.025-035",
+     "score": 0.8358,
+     "variant": 0
+    },
+    {
+     "id": "v3:18.010.008-017",
+     "score": 0.8322,
+     "variant": 0
+    },
+    {
+     "id": "v3:57.001.003-011",
+     "score": 0.8303,
+     "variant": 0
+    },
+    {
+     "id": "v3:53.003.001-009",
+     "score": 0.8291,
+     "variant": 0
+    },
+    {
+     "id": "v3:05.008.009-017",
+     "score": 0.8263,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.069.029-036",
+     "score": 0.8258,
+     "variant": 0
+    },
+    {
+     "id": "v3:58.001.009-013",
+     "score": 0.825,
+     "variant": 0
+    },
+    {
+     "id": "v3:62.001.003-014",
+     "score": 0.8244,
+     "variant": 0
+    },
+    {
+     "id": "v3:66.021.001-008",
+     "score": 0.8242,
+     "variant": 0
+    },
+    {
+     "id": "v3:02.023.025-033",
+     "score": 0.8232,
+     "variant": 0
+    }
+   ]
+  },
+  {
+   "scenario_id": "en-002",
+   "source": "retrieval",
+   "queries": [
+    "Grieving my husband\nHe passed away last month after 32 years together.\nThe house is so quiet now."
+   ],
+   "top": [
+    {
+     "id": "v3:18.017.001-014",
+     "score": 0.8215,
+     "variant": 0
+    },
+    {
+     "id": "v3:20.007.006-023",
+     "score": 0.8184,
+     "variant": 0
+    },
+    {
+     "id": "v3:25.003.001-020",
+     "score": 0.8173,
+     "variant": 0
+    },
+    {
+     "id": "v3:18.007.011-021",
+     "score": 0.8159,
+     "variant": 0
+    },
+    {
+     "id": "v3:10.014.001-010",
+     "score": 0.8128,
+     "variant": 0
+    },
+    {
+     "id": "v3:12.004.001-007",
+     "score": 0.8127,
+     "variant": 0
+    },
+    {
+     "id": "v3:05.008.001-008",
+     "score": 0.8109,
+     "variant": 0
+    },
+    {
+     "id": "v3:25.001.012-016",
+     "score": 0.8106,
+     "variant": 0
+    },
+    {
+     "id": "v3:23.053.001-009",
+     "score": 0.8099,
+     "variant": 0
+    },
+    {
+     "id": "v3:18.003.013-026",
+     "score": 0.8097,
+     "variant": 0
+    }
+   ]
+  },
+  {
+   "scenario_id": "en-003",
+   "source": "retrieval",
+   "queries": [
+    "peace"
+   ],
+   "top": [
+    {
+     "id": "v3:54.013.011-013",
+     "score": 0.8215,
+     "variant": 0
+    },
+    {
+     "id": "v3:65.013.020-021",
+     "score": 0.8161,
+     "variant": 0
+    },
+    {
+     "id": "v3:50.001.013-015",
+     "score": 0.8147,
+     "variant": 0
+    },
+    {
+     "id": "v3:58.001.001-002",
+     "score": 0.8144,
+     "variant": 0
+    },
+    {
+     "id": "v3:56.001.001-002",
+     "score": 0.8137,
+     "variant": 0
+    },
+    {
+     "id": "v3:59.005.012-022",
+     "score": 0.8111,
+     "variant": 0
+    },
+    {
+     "id": "v3:62.001.001-002",
+     "score": 0.8107,
+     "variant": 0
+    },
+    {
+     "id": "v3:54.006.001-010",
+     "score": 0.8104,
+     "variant": 0
+    },
+    {
+     "id": "v3:58.003.005-015",
+     "score": 0.8101,
+     "variant": 0
+    },
+    {
+     "id": "v3:47.001.001-002",
+     "score": 0.8098,
+     "variant": 0
+    }
+   ]
+  },
+  {
+   "scenario_id": "en-004",
+   "source": "retrieval",
+   "queries": [
+    "Praying about my father\nWe haven't really talked in years.\nI don't even know where to start."
+   ],
+   "top": [
+    {
+     "id": "v3:42.015.011-020",
+     "score": 0.8643,
+     "variant": 0
+    },
+    {
+     "id": "v3:05.008.009-017",
+     "score": 0.8639,
+     "variant": 0
+    },
+    {
+     "id": "v3:14.006.026-031",
+     "score": 0.8612,
+     "variant": 0
+    },
+    {
+     "id": "v3:05.010.012-022",
+     "score": 0.8587,
+     "variant": 0
+    },
+    {
+     "id": "v3:05.014.022-029",
+     "score": 0.8561,
+     "variant": 0
+    },
+    {
+     "id": "v3:05.026.001-011",
+     "score": 0.8545,
+     "variant": 0
+    },
+    {
+     "id": "v3:58.001.009-013",
+     "score": 0.8544,
+     "variant": 0
+    },
+    {
+     "id": "v3:18.029.001-025",
+     "score": 0.854,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.103.001-022",
+     "score": 0.8531,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.104.016-035",
+     "score": 0.8529,
+     "variant": 0
+    }
+   ]
+  },
+  {
+   "scenario_id": "en-005",
+   "source": "retrieval",
+   "queries": [
+    "Feeling worthless\nI keep thinking everyone would be fine without me.\nI want to believe my life matters to God."
+   ],
+   "top": [
+    {
+     "id": "v3:57.002.019-030",
+     "score": 0.8461,
+     "variant": 0
+    },
+    {
+     "id": "v3:05.008.009-017",
+     "score": 0.8427,
+     "variant": 0
+    },
+    {
+     "id": "v3:53.004.006-013",
+     "score": 0.8422,
+     "variant": 0
+    },
+    {
+     "id": "v3:44.020.017-027",
+     "score": 0.8414,
+     "variant": 0
+    },
+    {
+     "id": "v3:55.004.008-020",
+     "score": 0.8413,
+     "variant": 0
+    },
+    {
+     "id": "v3:58.002.008-015",
+     "score": 0.8399,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.063.000-011",
+     "score": 0.8395,
+     "variant": 0
+    },
+    {
+     "id": "v3:55.005.001-012",
+     "score": 0.8392,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.069.029-036",
+     "score": 0.8391,
+     "variant": 0
+    },
+    {
+     "id": "v3:25.003.040-054",
+     "score": 0.839,
+     "variant": 0
+    }
+   ]
+  },
+  {
+   "scenario_id": "en-006",
+   "source": "safe_pool",
+   "queries": [],
+   "top": [
+    "v3:19.023.001-006",
+    "v3:40.011.027-030",
+    "v3:19.046.000-011",
+    "v3:25.003.021-039",
+    "v3:19.136.001-026",
+    "v3:19.100.001-005",
+    "v3:19.121.001-008",
+    "v3:57.004.001-009",
+    "v3:40.006.025-034"
+   ]
+  },
+  {
+   "scenario_id": "en-007",
+   "source": "retrieval",
+   "queries": [
+    "Praying for my friend to find God\nShe's been through a lot and says faith isn't for her.\nI don't want to push, just to pray."
+   ],
+   "top": [
+    {
+     "id": "v3:32.002.002-011",
+     "score": 0.8378,
+     "variant": 0
+    },
+    {
+     "id": "v3:09.001.012-018",
+     "score": 0.8346,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.069.029-036",
+     "score": 0.8323,
+     "variant": 0
+    },
+    {
+     "id": "v3:52.011.001-010",
+     "score": 0.83,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.095.001-011",
+     "score": 0.8278,
+     "variant": 0
+    },
+    {
+     "id": "v3:23.055.006-013",
+     "score": 0.8263,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.063.000-011",
+     "score": 0.8258,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.038.000-022",
+     "score": 0.8255,
+     "variant": 0
+    },
+    {
+     "id": "v3:25.003.040-054",
+     "score": 0.8251,
+     "variant": 0
+    },
+    {
+     "id": "v3:65.011.008-022",
+     "score": 0.8246,
+     "variant": 0
+    }
+   ]
+  },
+  {
+   "scenario_id": "uk-001",
+   "source": "retrieval",
+   "queries": [
+    "Подяка за Божу турботу цього року\nМи пережили складний рік, але в нас було все потрібне.\nХочу подякувати Богові за вірність."
+   ],
+   "top": [
+    {
+     "id": "v3:59.001.002-006",
+     "score": 0.8742,
+     "variant": 0
+    },
+    {
+     "id": "v3:58.001.003-008",
+     "score": 0.8657,
+     "variant": 0
+    },
+    {
+     "id": "v3:20.023.017-018",
+     "score": 0.8633,
+     "variant": 0
+    },
+    {
+     "id": "v3:57.001.003-011",
+     "score": 0.8623,
+     "variant": 0
+    },
+    {
+     "id": "v3:59.005.012-022",
+     "score": 0.8618,
+     "variant": 0
+    },
+    {
+     "id": "v3:53.001.004-009",
+     "score": 0.8618,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.117.001-002",
+     "score": 0.8615,
+     "variant": 0
+    },
+    {
+     "id": "v3:54.013.011-013",
+     "score": 0.8597,
+     "variant": 0
+    },
+    {
+     "id": "v3:65.006.009-012",
+     "score": 0.8575,
+     "variant": 0
+    },
+    {
+     "id": "v3:45.001.001-001",
+     "score": 0.8568,
+     "variant": 0
+    }
+   ]
+  },
+  {
+   "scenario_id": "uk-002",
+   "source": "retrieval",
+   "queries": [
+    "Страх за рідних через війну\nБрат на фронті, мама у прифронтовому місті.\nЩоночі прокидаюся від новин і не можу заспокоїтись."
+   ],
+   "top": [
+    {
+     "id": "v3:20.027.010-010",
+     "score": 0.8594,
+     "variant": 0
+    },
+    {
+     "id": "v3:20.023.022-022",
+     "score": 0.8593,
+     "variant": 0
+    },
+    {
+     "id": "v3:20.024.019-022",
+     "score": 0.8563,
+     "variant": 0
+    },
+    {
+     "id": "v3:24.008.018-022",
+     "score": 0.8465,
+     "variant": 0
+    },
+    {
+     "id": "v3:20.022.028-028",
+     "score": 0.8435,
+     "variant": 0
+    },
+    {
+     "id": "v3:57.002.012-018",
+     "score": 0.8409,
+     "variant": 0
+    },
+    {
+     "id": "v3:18.030.009-018",
+     "score": 0.8407,
+     "variant": 0
+    },
+    {
+     "id": "v3:59.005.012-022",
+     "score": 0.837,
+     "variant": 0
+    },
+    {
+     "id": "v3:47.003.014-018",
+     "score": 0.8367,
+     "variant": 0
+    },
+    {
+     "id": "v3:25.002.018-022",
+     "score": 0.8367,
+     "variant": 0
+    }
+   ]
+  },
+  {
+   "scenario_id": "uk-003",
+   "source": "retrieval",
+   "queries": [
+    "дякую"
+   ],
+   "top": [
+    {
+     "id": "v3:19.117.001-002",
+     "score": 0.823,
+     "variant": 0
+    },
+    {
+     "id": "v3:53.001.004-009",
+     "score": 0.8215,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.138.001-008",
+     "score": 0.8204,
+     "variant": 0
+    },
+    {
+     "id": "v3:45.001.001-001",
+     "score": 0.8169,
+     "variant": 0
+    },
+    {
+     "id": "v3:58.001.003-008",
+     "score": 0.8162,
+     "variant": 0
+    },
+    {
+     "id": "v3:57.001.003-011",
+     "score": 0.8148,
+     "variant": 0
+    },
+    {
+     "id": "v3:59.001.002-006",
+     "score": 0.8143,
+     "variant": 0
+    },
+    {
+     "id": "v3:51.001.001-002",
+     "score": 0.8093,
+     "variant": 0
+    },
+    {
+     "id": "v3:54.013.011-013",
+     "score": 0.8084,
+     "variant": 0
+    },
+    {
+     "id": "v3:58.004.018-018",
+     "score": 0.808,
+     "variant": 0
+    }
+   ]
+  },
+  {
+   "scenario_id": "uk-004",
+   "source": "retrieval",
+   "queries": [
+    "Молюся про дорогу\nЗавтра їдемо всією сім'єю через півкраїни."
+   ],
+   "top": [
+    {
+     "id": "v3:58.001.009-013",
+     "score": 0.8282,
+     "variant": 0
+    },
+    {
+     "id": "v3:56.003.020-021",
+     "score": 0.8233,
+     "variant": 0
+    },
+    {
+     "id": "v3:20.022.028-028",
+     "score": 0.8204,
+     "variant": 0
+    },
+    {
+     "id": "v3:24.008.018-022",
+     "score": 0.8168,
+     "variant": 0
+    },
+    {
+     "id": "v3:59.005.012-022",
+     "score": 0.8166,
+     "variant": 0
+    },
+    {
+     "id": "v3:54.013.011-013",
+     "score": 0.8163,
+     "variant": 0
+    },
+    {
+     "id": "v3:20.027.010-010",
+     "score": 0.8163,
+     "variant": 0
+    },
+    {
+     "id": "v3:16.009.009-016",
+     "score": 0.816,
+     "variant": 0
+    },
+    {
+     "id": "v3:23.033.001-009",
+     "score": 0.8145,
+     "variant": 0
+    },
+    {
+     "id": "v3:20.023.022-022",
+     "score": 0.8134,
+     "variant": 0
+    }
+   ]
+  },
+  {
+   "scenario_id": "uk-005",
+   "source": "retrieval",
+   "queries": [
+    "Самотність\nПереїхала в інше місто, поруч нікого.\nПочуваюся покинутою навіть Богом."
+   ],
+   "top": [
+    {
+     "id": "v3:20.008.022-031",
+     "score": 0.8475,
+     "variant": 0
+    },
+    {
+     "id": "v3:25.003.040-054",
+     "score": 0.8463,
+     "variant": 0
+    },
+    {
+     "id": "v3:24.010.017-022",
+     "score": 0.843,
+     "variant": 0
+    },
+    {
+     "id": "v3:24.012.007-013",
+     "score": 0.843,
+     "variant": 0
+    },
+    {
+     "id": "v3:18.030.009-018",
+     "score": 0.8417,
+     "variant": 0
+    },
+    {
+     "id": "v3:56.004.017-024",
+     "score": 0.8413,
+     "variant": 0
+    },
+    {
+     "id": "v3:53.004.014-021",
+     "score": 0.8368,
+     "variant": 0
+    },
+    {
+     "id": "v3:22.005.001-008",
+     "score": 0.8357,
+     "variant": 0
+    },
+    {
+     "id": "v3:47.001.012-021",
+     "score": 0.8354,
+     "variant": 0
+    },
+    {
+     "id": "v3:20.027.010-010",
+     "score": 0.8353,
+     "variant": 0
+    }
+   ]
+  },
+  {
+   "scenario_id": "uk-006",
+   "source": "safe_pool",
+   "queries": [],
+   "top": [
+    "v3:19.023.001-006",
+    "v3:40.011.027-030",
+    "v3:19.046.000-011",
+    "v3:25.003.021-039",
+    "v3:19.136.001-026",
+    "v3:19.100.001-005",
+    "v3:19.121.001-008",
+    "v3:57.004.001-009",
+    "v3:40.006.025-034"
+   ]
+  },
+  {
+   "scenario_id": "uk-007",
+   "source": "retrieval",
+   "queries": [
+    "Молитва за моїх дітей\nСин починає нову школу, донька вступає до університету.\nПрошу мудрості виховувати їх у вірі."
+   ],
+   "top": [
+    {
+     "id": "v3:20.004.001-009",
+     "score": 0.8667,
+     "variant": 0
+    },
+    {
+     "id": "v3:20.003.001-010",
+     "score": 0.8661,
+     "variant": 0
+    },
+    {
+     "id": "v3:20.002.001-011",
+     "score": 0.8631,
+     "variant": 0
+    },
+    {
+     "id": "v3:20.023.012-012",
+     "score": 0.8628,
+     "variant": 0
+    },
+    {
+     "id": "v3:58.001.009-013",
+     "score": 0.8563,
+     "variant": 0
+    },
+    {
+     "id": "v3:48.002.012-014",
+     "score": 0.8543,
+     "variant": 0
+    },
+    {
+     "id": "v3:46.005.012-014",
+     "score": 0.8486,
+     "variant": 0
+    },
+    {
+     "id": "v3:54.006.011-018",
+     "score": 0.848,
+     "variant": 0
+    },
+    {
+     "id": "v3:48.005.013-017",
+     "score": 0.8478,
+     "variant": 0
+    },
+    {
+     "id": "v3:40.010.042-042",
+     "score": 0.8475,
+     "variant": 0
+    }
+   ]
+  }
+ ],
+ "final_top1": {
+  "rerank_model": "",
+  "rerank": null,
+  "fallback_rank1": [
+   {
+    "scenario_id": "ru-001",
+    "category": "regular",
+    "grade": "ungraded",
+    "chosen": "v3:58.001.003-008 (canonical 58 1:3-8)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-002",
+    "category": "regular",
+    "grade": "ungraded",
+    "chosen": "v3:21.004.007-012 (canonical 21 4:7-12)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-003",
+    "category": "sensitive",
+    "grade": "ungraded",
+    "chosen": "v3:18.030.009-018 (canonical 18 30:9-18)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-004",
+    "category": "sensitive",
+    "grade": "ungraded",
+    "chosen": "v3:19.116.001-008 (canonical 19 116:1-8)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-005",
+    "category": "sensitive",
+    "grade": "ungraded",
+    "chosen": "v3:19.062.000-012 (canonical 19 62:0-12)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-006",
+    "category": "ambiguous",
+    "grade": "ungraded",
+    "chosen": "v3:18.038.012-041 (canonical 18 38:12-41)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-007",
+    "category": "ambiguous",
+    "grade": "ungraded",
+    "chosen": "v3:55.004.008-020 (canonical 55 4:8-20)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-008",
+    "category": "short",
+    "grade": "ungraded",
+    "chosen": "v3:19.020.000-009 (canonical 19 20:0-9)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-009",
+    "category": "empty",
+    "grade": "relevant",
+    "chosen": "v3:19.023.001-006 (canonical 19 23:1-6)",
+    "method": "safe_pool",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-010",
+    "category": "regular",
+    "grade": "ungraded",
+    "chosen": "v3:20.027.010-010 (canonical 20 27:10-10)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "en-001",
+    "category": "regular",
+    "grade": "ungraded",
+    "chosen": "v3:18.009.025-035 (canonical 18 9:25-35)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "en-002",
+    "category": "sensitive",
+    "grade": "ungraded",
+    "chosen": "v3:18.017.001-014 (canonical 18 17:1-14)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "en-003",
+    "category": "short",
+    "grade": "ungraded",
+    "chosen": "v3:54.013.011-013 (canonical 54 13:11-13)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "en-004",
+    "category": "ambiguous",
+    "grade": "ungraded",
+    "chosen": "v3:42.015.011-020 (canonical 42 15:11-20)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "en-005",
+    "category": "sensitive",
+    "grade": "ungraded",
+    "chosen": "v3:57.002.019-030 (canonical 57 2:19-30)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "en-006",
+    "category": "empty",
+    "grade": "relevant",
+    "chosen": "v3:19.023.001-006 (canonical 19 23:1-6)",
+    "method": "safe_pool",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "en-007",
+    "category": "regular",
+    "grade": "ungraded",
+    "chosen": "v3:32.002.002-011 (canonical 32 2:2-11)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "uk-001",
+    "category": "regular",
+    "grade": "ungraded",
+    "chosen": "v3:59.001.002-006 (canonical 59 1:2-6)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "uk-002",
+    "category": "sensitive",
+    "grade": "ungraded",
+    "chosen": "v3:20.027.010-010 (canonical 20 27:10-10)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "uk-003",
+    "category": "short",
+    "grade": "ungraded",
+    "chosen": "v3:19.117.001-002 (canonical 19 117:1-2)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "uk-004",
+    "category": "ambiguous",
+    "grade": "ungraded",
+    "chosen": "v3:58.001.009-013 (canonical 58 1:9-13)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "uk-005",
+    "category": "sensitive",
+    "grade": "ungraded",
+    "chosen": "v3:20.008.022-031 (canonical 20 8:22-31)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "uk-006",
+    "category": "empty",
+    "grade": "relevant",
+    "chosen": "v3:19.023.001-006 (canonical 19 23:1-6)",
+    "method": "safe_pool",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "uk-007",
+    "category": "regular",
+    "grade": "ungraded",
+    "chosen": "v3:20.004.001-009 (canonical 20 4:1-9)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   }
+  ],
+  "fallback_max_score": [
+   {
+    "scenario_id": "ru-001",
+    "category": "regular",
+    "grade": "ungraded",
+    "chosen": "v3:58.001.003-008 (canonical 58 1:3-8)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-002",
+    "category": "regular",
+    "grade": "ungraded",
+    "chosen": "v3:21.004.007-012 (canonical 21 4:7-12)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-003",
+    "category": "sensitive",
+    "grade": "ungraded",
+    "chosen": "v3:18.030.009-018 (canonical 18 30:9-18)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-004",
+    "category": "sensitive",
+    "grade": "ungraded",
+    "chosen": "v3:19.116.001-008 (canonical 19 116:1-8)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-005",
+    "category": "sensitive",
+    "grade": "ungraded",
+    "chosen": "v3:19.062.000-012 (canonical 19 62:0-12)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-006",
+    "category": "ambiguous",
+    "grade": "ungraded",
+    "chosen": "v3:18.038.012-041 (canonical 18 38:12-41)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-007",
+    "category": "ambiguous",
+    "grade": "ungraded",
+    "chosen": "v3:55.004.008-020 (canonical 55 4:8-20)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-008",
+    "category": "short",
+    "grade": "ungraded",
+    "chosen": "v3:19.020.000-009 (canonical 19 20:0-9)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-009",
+    "category": "empty",
+    "grade": "relevant",
+    "chosen": "v3:19.023.001-006 (canonical 19 23:1-6)",
+    "method": "safe_pool",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-010",
+    "category": "regular",
+    "grade": "ungraded",
+    "chosen": "v3:20.027.010-010 (canonical 20 27:10-10)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "en-001",
+    "category": "regular",
+    "grade": "ungraded",
+    "chosen": "v3:18.009.025-035 (canonical 18 9:25-35)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "en-002",
+    "category": "sensitive",
+    "grade": "ungraded",
+    "chosen": "v3:18.017.001-014 (canonical 18 17:1-14)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "en-003",
+    "category": "short",
+    "grade": "ungraded",
+    "chosen": "v3:54.013.011-013 (canonical 54 13:11-13)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "en-004",
+    "category": "ambiguous",
+    "grade": "ungraded",
+    "chosen": "v3:42.015.011-020 (canonical 42 15:11-20)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "en-005",
+    "category": "sensitive",
+    "grade": "ungraded",
+    "chosen": "v3:57.002.019-030 (canonical 57 2:19-30)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "en-006",
+    "category": "empty",
+    "grade": "relevant",
+    "chosen": "v3:19.023.001-006 (canonical 19 23:1-6)",
+    "method": "safe_pool",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "en-007",
+    "category": "regular",
+    "grade": "ungraded",
+    "chosen": "v3:32.002.002-011 (canonical 32 2:2-11)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "uk-001",
+    "category": "regular",
+    "grade": "ungraded",
+    "chosen": "v3:59.001.002-006 (canonical 59 1:2-6)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "uk-002",
+    "category": "sensitive",
+    "grade": "ungraded",
+    "chosen": "v3:20.027.010-010 (canonical 20 27:10-10)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "uk-003",
+    "category": "short",
+    "grade": "ungraded",
+    "chosen": "v3:19.117.001-002 (canonical 19 117:1-2)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "uk-004",
+    "category": "ambiguous",
+    "grade": "ungraded",
+    "chosen": "v3:58.001.009-013 (canonical 58 1:9-13)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "uk-005",
+    "category": "sensitive",
+    "grade": "ungraded",
+    "chosen": "v3:20.008.022-031 (canonical 20 8:22-31)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "uk-006",
+    "category": "empty",
+    "grade": "relevant",
+    "chosen": "v3:19.023.001-006 (canonical 19 23:1-6)",
+    "method": "safe_pool",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "uk-007",
+    "category": "regular",
+    "grade": "ungraded",
+    "chosen": "v3:20.004.001-009 (canonical 20 4:1-9)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   }
+  ]
+ }
+}
