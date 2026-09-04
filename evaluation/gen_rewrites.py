@@ -115,6 +115,20 @@ def completions_url(endpoint: str) -> str:
     return f"{base}/chat/completions"
 
 
+def transport_error(exc: Exception) -> str:
+    """Failure category of a transport error — never the provider's message.
+
+    httpx renders an HTTPStatusError as "... for url '<full url>'", and that
+    URL carries whatever the endpoint puts in its query string, `?key=…`
+    included. These artifacts are committed to a PUBLIC repository, so only
+    the exception type and — for an HTTP error — the status code are
+    recorded. The status is the part anyone debugging actually needs.
+    """
+    if isinstance(exc, httpx.HTTPStatusError):
+        return f"transport: HTTPStatusError (HTTP {exc.response.status_code})"
+    return f"transport: {type(exc).__name__}"
+
+
 def resolve_path(value: str) -> Path:
     """Relative paths are relative to evaluation/, not to the caller's cwd.
 
@@ -251,7 +265,7 @@ def generate_one(
             )
         except (httpx.HTTPError, ValueError) as exc:
             transport_failures += 1
-            last_error = f"transport: {type(exc).__name__}: {exc}"
+            last_error = transport_error(exc)
             if transport_failures >= TRANSPORT_ATTEMPTS:
                 break
             time.sleep(2.0 * transport_failures)

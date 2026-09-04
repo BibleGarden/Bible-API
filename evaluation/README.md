@@ -49,10 +49,12 @@ pytest-тест схемы лежит в `tests/` и попадает в общ�
 | `thresholds.json` | Пороги качества — отдельный согласуемый файл |
 | `check_refs_db.py` | Проверка, что все координаты существуют в `cep_public` (требует БД) |
 | `gen_rewrites.py` | Генерация `--rewrites-file` любой OpenAI-совместимой моделью (86cbe4nd3) |
+| `gen_reranks.py` | Генерация `--reranks-file` любой OpenAI-совместимой моделью — стадия финального выбора (86cbed851) |
 | `rewrite_prompts.py` | Экспериментальные промпты rewrite 8a/8b/8c для малых моделей (86cbe4nd3) |
 | `../tests/test_evaluation_dataset.py` | Автотест схемы набора и порогов (без БД, pydantic) |
-| `retrieval_benchmark.py` | Бенчмарк: `embed` / `run` / `run-all` / `stores` / `pipeline` (боевой конвейер и абляции; `--embedder`, `--rewrites-file`) |
-| `bench_data/` | Данные и артефакты прогонов. В git попадают только невоспроизводимые: `results_*.json` и `*_rewrites_*.json` (см. комментарий в `.gitignore`). Корпус `chunks.jsonl`, матрицы `emb_*.npy` и кэш вызовов `pipeline_cache.json` — локальные |
+| `../tests/test_gen_reranks.py` | Автотест `gen_reranks.py` (без сети и БД, 86cbed851) |
+| `retrieval_benchmark.py` | Бенчмарк: `embed` / `run` / `run-all` / `stores` / `pipeline` (боевой конвейер и абляции; `--embedder`, `--rewrites-file`, `--reranks-file`) / `export-rerank-input` |
+| `bench_data/` | Данные и артефакты прогонов. В git попадают только невоспроизводимые: `results_*.json`, `*_rewrites_*.json` и `*_reranks_*.json` (см. комментарий в `.gitignore`). Корпус `chunks.jsonl`, матрицы `emb_*.npy`, кэш вызовов `pipeline_cache.json` и входы reranker'а `rerank_input_*.json` — локальные |
 | `.venv/` | Венв бенчмарка на хосте (torch CPU + sentence-transformers) — нужен только локальным эмбеддерам (86cbe4n7e). **Не в git** |
 
 ## Система координат (важно)
@@ -2580,3 +2582,251 @@ fallback-политикам и смысла не имеют. В git они не 
 под исключение `!evaluation/bench_data/results_*.json` в `.gitignore`, и это
 намеренно — retrieval-цифры из них уже воспроизведены полными прогонами
 `results_v070_rewrite_qwen30b_p*.json`.
+
+## Инструмент замера локального rerank (ClickUp 86cbed851)
+
+Подзадача зонта 86cbe4mtq «качество подбора Писания на локальных моделях».
+Здесь только **инструмент**: цепочка, которой любая OpenAI-совместимая
+модель отвечает на стадию финального выбора, а бенчмарк считает по её
+ответам обычный отчёт `final_top1`. Замеров качества локальной модели в этой
+подсекции нет — полную матрицу снимает отдельный прогон на сервере Марии
+(команды ниже).
+
+**Зачем.** Предыдущие подсекции измеряли локальную модель на стадии
+**rewrite** — вспоминании подходящих мест по памяти; там 30B не добрала до
+порогов (86cbea05x), а локальные эмбеддеры оставили MRR ниже порога
+(86cbe4n7e). Гипотеза зонта: **выбрать лучший из десяти готовых текстов
+проще, чем вспомнить**, и именно rerank — стадия, где локальная модель может
+дотянуть до прода. Проверять это нужно тем же промптом v9, теми же
+кандидатами и тем же отчётом, что у Gemini, иначе сравнение ничего не значит.
+
+### Три шага
+
+**Файлы ходят между хостом и контейнером на каждом шаге** — `evaluation/`
+только копируется в `bible-api`, не смонтирован, поэтому `docker cp` в обе
+стороны обязателен:
+
+```bash
+# 1. Экспорт входов reranker'а из ЗАПИСАННОГО прогона (нужны БД и корпус,
+#    поэтому шаг идёт в контейнере) и возврат артефакта на хост
+docker cp evaluation/. bible-api:/code/evaluation
+docker exec -w /code/evaluation bible-api python3 retrieval_benchmark.py \
+  export-rerank-input \
+  --results bench_data/results_v070_rewrite_flash37.json \
+  --out bench_data/rerank_input_flash37.json
+docker cp bible-api:/code/evaluation/bench_data/rerank_input_flash37.json \
+  evaluation/bench_data/
+
+# 2. Ответы модели (запускается там, где виден endpoint — например на хосте;
+#    нужен только httpx, ни numpy, ни БД)
+cd evaluation
+python gen_reranks.py --endpoint http://<host>/v1 --model <id> \
+  --input bench_data/rerank_input_flash37.json \
+  --out bench_data/qwen30b_reranks_flash37.json
+
+# 3. Ответы — обратно в контейнер, и прогон бенчмарка по ним
+docker cp evaluation/bench_data/qwen30b_reranks_flash37.json \
+  bible-api:/code/evaluation/bench_data/
+docker exec -w /code/evaluation bible-api python3 retrieval_benchmark.py \
+  pipeline --rewrite-model gemini-3.7-flash \
+  --reranks-file bench_data/qwen30b_reranks_flash37.json \
+  --json-out bench_data/results_v070_localrerank_qwen30b_flash37.json
+docker cp bible-api:/code/evaluation/bench_data/results_v070_localrerank_qwen30b_flash37.json \
+  evaluation/bench_data/
+```
+
+**Шаг 1 берёт кандидатов из артефакта прогона, а не пересчитывает retrieval.**
+`details[].top` записанного `--json-out` — это ровно тот список, который
+конкретный прогон подал reranker'у, поэтому экспорт воспроизводит стадию
+**того самого** прогона. Отсюда и требование к шагу 3: конфигурация прогона
+должна совпадать с той, из которой сделан экспорт (для `results_v070_rewrite_flash37.json`
+это `--rewrite-model gemini-3.7-flash`, для артефактов с локальным rewrite —
+тот же `--rewrites-file`).
+
+Сценарии категории `empty` (`ru-009`, `en-006`, `uk-006`) в экспорт не
+попадают: их отдаёт безопасный пул **до** стадии rerank, поэтому в файле 21
+запись, а не 24 — та же арифметика, что у `gen_rewrites.py`. В прогоне они
+по-прежнему участвуют и по-прежнему дают top-1 из пула.
+
+### Форматы файлов
+
+`rerank_input_<src>.json` — то, что получает боевой `GeminiPassageReranker`:
+
+| Поле сценария | Что это |
+|---|---|
+| `instruction` | системная инструкция v9, `passage_rerank.build_rerank_instruction(count, key_verses)` |
+| `user_content` | контекст молитвы + нумерованные кандидаты с маркерами `[n]`, `build_rerank_user_content` |
+| `response_schema` | JSON-схема ответа, `build_rerank_response_schema` |
+| `candidate_count` | сколько кандидатов (верхняя граница номера) |
+| `candidates` | `number`, `canonical_id`, `translation` и координаты каждого |
+| `candidates_hash` | идентичность списка кандидатов — **тот же хэш, что в ключе кэша `reranks`** |
+| `key_verses` | был ли доступен построчный текст: без БД кандидаты идут без маркеров, и контракт ключевых стихов выпадает из инструкции и из схемы — ровно как деградирует прод |
+
+`meta` артефакта хранит `source_results` и `source_config` (из какого прогона
+сделан), `rerank_prompt_version`, `scenarios_version` и
+`partial`/`scenarios_covered`/`scenarios_expected`.
+
+Промпты **не переписаны** — они строятся боевыми функциями `app/passage_rerank.py`.
+Это проверено двумя способами: тестами (`tests/test_retrieval_benchmark.py`
+сверяет `user_content`/`instruction`/`response_schema` с боевыми функциями и
+в варианте с маркерами, и без) и живой сверкой — прогон `pipeline` с
+подменённым `_rerank_cached`, записывающим фактические аргументы боевого
+вызова, дал **21/21 побайтовое совпадение** по обоим экспортам
+(`flash37` и `qwen30b_p8c`) при нулевых вызовах провайдера.
+
+Тексты кандидатов рендерит **одна** функция —
+`retrieval_benchmark.candidate_prompt_text`, которую зовут и `pipeline
+--rerank`, и `export-rerank-input` (по ревью: раньше у каждой ветки была своя
+копия, а побайтовое равенство держалось только на совпадении копий).
+Отдельный тест сверяет её вывод с боевым `retrieval._candidate_prompt_text`
+на одном и том же чанке — и с маркерами `[n]`, и в деградированном варианте
+без построчного текста.
+
+`<model>_reranks_<src>.json` — ответы модели, вход `--reranks-file`:
+по сценарию `chosen_index` (**0-based**, как индекс в списке кандидатов),
+`key_verse_span` (`[start, end]` маркеров или `null`), `reason`, `raw`
+(усечённый сырой ответ), `latency_ms`, `attempts`, `error`,
+`chosen_canonical_id` (для чтения глазами) и скопированный `candidates_hash`.
+
+- ответ разбирается **боевым** `parse_rerank_response(text, candidate_count)`:
+  номер вне диапазона, поломанный JSON, отсутствующий `candidate` — ошибка
+  ровно там же, где она была бы в сервисе, и в файл такой выбор не попадает;
+- испорченный диапазон ключевых стихов ошибкой **не** считается (ADR 0005):
+  выбор отрывка остаётся, подсветка пропадает, в запись пишется `warning`.
+  То же на стороне чтения: `--reranks-file` принимает `key_verse_span` только
+  как пару целых, всё остальное (в том числе диапазон из одного элемента)
+  молча означает «без подсветки» и прогон не роняет;
+- **в `error` пишется только категория отказа** — тип исключения и, для
+  HTTP-ошибки, статус (`transport: HTTPStatusError (HTTP 429)`). Сообщение
+  провайдера в файл не попадает намеренно: httpx вставляет в него полный URL
+  запроса вместе с query-строкой, а там у части endpoint'ов лежит ключ, —
+  файлы же коммитятся в публичный репозиторий. Та же правка сделана и в
+  `gen_rewrites.py` (тесты `tests/test_gen_reranks.py`,
+  `tests/test_gen_rewrites.py`);
+- протокол тот же, что у `gen_rewrites.py`: `temperature 0`,
+  `response_format=json_object`, невалидный ответ — один повтор, транспорт —
+  до трёх попыток, атомарная запись файла после **каждого** сценария,
+  `meta.partial` вычисляется кодом, ключ в файл не попадает (в `meta.endpoint`
+  только схема+хост);
+- `response_schema` в запросе **не отправляется** — локальные серверы понимают
+  `json_object`, а настоящая защита всё равно серверная (боевой парсер).
+
+### Что делает `--reranks-file`
+
+- **`GeminiPassageReranker` не создаётся вообще** — флаг подразумевает стадию
+  финального выбора и отвечает на неё с диска. Прогон tripwire-совместим:
+  подмена `passage_rerank.GeminiPassageReranker.__init__` на выбрасывающую
+  заглушку его не роняет (проверено и живьём, и тестом). Ключ Gemini **для
+  стадии rerank** не нужен; `--rerank` и `--reranks-file` взаимоисключающи
+  на уровне CLI — один прогон отвечает на эту стадию одним способом.
+- **Но прогон целиком бесплатным от этого не становится.** При дефолтном
+  `--embedder gemini` ключ по-прежнему требуется — им открывается даже чтение
+  кэша эмбеддингов (`_pipeline_embedder` спрашивает его до кэша), а без
+  `--rewrites-file`/`--no-rewrite` каждый промах кэша rewrite — это платный
+  вызов `gemini-3.7-flash`. Полностью безвызовный прогон, как и раньше, — это
+  локальный `--embedder` плюс оба офлайн-флага (см. врезку «Внимание, деньги»
+  выше).
+- Ответ берётся по id сценария **при совпадении `candidates_hash`**.
+  Несовпадение — жёсткая ошибка с текстом, называющим сценарий, оба хэша и
+  способ починки: ответ — это индекс в конкретный список, на другом списке он
+  указывает на другой отрывок. **Отсутствие поля `candidates_hash` — тоже
+  жёсткая ошибка**: непроверяемому ответу не верят, иначе удаление одного
+  поля обходило бы защиту. Тихой деградации здесь нет намеренно.
+- Запись с `error`, запись без пригодного `chosen_index` и сценарий, которого
+  в файле **нет**, уходят в ту же ветку, что живой `PassageRerankError`:
+  fallback «ранг-1 retrieval», счётчик `failures` (отсутствующие считаются
+  отдельно и печатаются в строке `rerank:`). Это то, что делает прод, и это
+  же позволяет пробный прогон по подмножеству (`--only`).
+- Отчёт `final_top1` и таблица подсветок работают как обычно; кэш `reranks`
+  **не читается и не пишется**.
+- Метка прогона получает суффикс `rerank=file:<model>` (по образцу
+  `rewrite=file:...`). Без флага метка не меняется ни на байт — прежние
+  артефакты остаются сопоставимыми.
+
+### Команда для агента на сервере Марии
+
+**Где взять входы.** Два файла — `rerank_input_flash37.json` (кандидаты
+боевого конвейера) и `rerank_input_qwen30b_p8c.json` (кандидаты лучшего
+локального rewrite из 86cbea05x) — сняты 2026-09-04 и лежат в
+`evaluation/bench_data/` **на локальной машине оркестратора**. В git они не
+входят (воспроизводимы, см. `.gitignore`), поэтому на другой машине их либо
+получают шагом 1 самостоятельно — для этого нужны `cep_public`,
+`bench_data/chunks.jsonl` и соответствующий `results_*.json`, — либо
+оркестратор прикладывает их к тикету. Дальше нужны шаги 2 и 3:
+
+```bash
+# 2. два файла ответов (там, где виден endpoint 30B)
+cd evaluation
+for SRC in flash37 qwen30b_p8c; do
+  python gen_reranks.py \
+    --endpoint https://llm.ai2.ru:18443/v1 --model qwen3-30b-a3b-instruct-2507 \
+    --input bench_data/rerank_input_$SRC.json \
+    --out bench_data/qwen30b_reranks_$SRC.json
+done
+
+# 3. прогоны бенчмарка (конфигурация обязана совпадать с источником экспорта!)
+docker cp evaluation/. bible-api:/code/evaluation   # заодно кладёт оба файла ответов
+docker exec -w /code/evaluation bible-api python3 retrieval_benchmark.py \
+  pipeline --rewrite-model gemini-3.7-flash \
+  --reranks-file bench_data/qwen30b_reranks_flash37.json \
+  --json-out bench_data/results_v070_localrerank_qwen30b_flash37.json
+docker exec -w /code/evaluation bible-api python3 retrieval_benchmark.py \
+  pipeline --rewrites-file bench_data/qwen30b_rewrites_v070_p8c.json \
+  --reranks-file bench_data/qwen30b_reranks_qwen30b_p8c.json \
+  --json-out bench_data/results_v070_localrerank_qwen30b_p8c.json
+# забрать артефакты обратно на хост
+docker cp bible-api:/code/evaluation/bench_data/results_v070_localrerank_qwen30b_flash37.json \
+  evaluation/bench_data/
+docker cp bible-api:/code/evaluation/bench_data/results_v070_localrerank_qwen30b_p8c.json \
+  evaluation/bench_data/
+```
+
+Сравнивать: первый прогон — с базовой колонкой
+`results_v070_rewrite_flash37.json` (тот же retrieval, отличается только
+модель rerank: **чистое** сравнение reranker'ов), второй — с
+`results_v070_rewrite_qwen30b_p8c.json` (полностью локальный конвейер).
+
+Оговорки для прогона:
+
+- **`--max-tokens` по умолчанию 2048**, и это не та ручка, что в
+  `gen_rewrites.py`: ответ rerank'а — три числа и одна фраза, вырожденного
+  повтора здесь не бывает. Опускать значение нужды нет, поднимать — только
+  для «думающей вслух» модели;
+- **контекст модели.** Промпт rerank'а — это 10 отрывков целиком, ~5-6 тысяч
+  токенов. На Ollama с дефолтным `num_ctx 4096` сервер отвечает `400
+  exceed_context_size_error`, и это выглядит как транспортная ошибка. Нужен
+  endpoint с окном ≥ 8k (для Ollama — производная модель:
+  `FROM <model>` + `PARAMETER num_ctx 8192`, затем `ollama create`);
+- задержка на длинном промпте заметно выше, чем у rewrite: считать бюджет
+  прогона по 21 сценарию, а не по одному;
+- **суженный пул `npu` (ADR 0007) — это другой список кандидатов**, поэтому
+  `--coverage-translation 21` требует своего экспорта (из
+  `results_..._npu_coverage.json`) и своего файла ответов; подложить сюда
+  ответы основного прогона нельзя — остановит проверка `candidates_hash`;
+- гейт `ungraded_review_required` открывается так же, как у прежних пакетов:
+  чужая модель уводит top-1 в неразмеченные отрывки, и доли по меньшему
+  знаменателю **не сопоставимы** с базой напрямую.
+
+### Проба инструмента (2026-09-04): только «работает»
+
+Цепочка проверена живьём на маленькой модели через Ollama —
+`qwen3:4b-instruct-2507-q4_K_M`, производная `qwen3-4b-rerank-ctx8k` с
+`num_ctx 8192`, 4 сценария (`ru-002`, `ru-004`, `en-005`, `uk-002`) из обоих
+экспортов, `--max-tokens 512`. Экспорт → генерация → `--reranks-file` →
+отчёт `final_top1` + таблица подсветок отработали на обоих входах; оба
+прогона прошли под tripwire'ом (`GeminiQueryRewriter.rewrite`,
+`GeminiPassageReranker.__init__` и непопадание в кэш эмбеддингов —
+выбрасывающие заглушки), `fresh_calls=0`, кэш `reranks` не изменился.
+Проверено там же и поведение защит: 17 сценариев вне подмножества дали
+`fallback_rank1` с предупреждением, а попытка подложить ответы, снятые с
+другого входа, остановила прогон жёсткой ошибкой о несовпадении
+`candidates_hash`.
+
+**Выводов о качестве отсюда не делается** — 4 сценария на 4B-модели это не
+замер. Два наблюдения, полезных для настоящего прогона: 3 ответа из 4 вернули
+диапазон ключевых стихов длиннее трёх (боевой парсер их отбрасывает — выбор
+остаётся, подсветка пропадает), а на `en-005` модель выбрала ровно ту
+ловушку, против которой писался промпт v9 (Мф 10:28-31, эталонный
+`unacceptable`). Артефакты пробы в git не кладутся — как и `retr_only_*`
+предыдущего пакета: имя `*_reranks_*` под исключение подходит, но пробный
+файл на 4 сценария измерением не является.

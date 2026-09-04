@@ -16,9 +16,11 @@ or the corpus files: the local embedder is a stand-in.
 
 import argparse
 import importlib.util
+import json
 import os
 import sys
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 import pytest
@@ -258,6 +260,442 @@ def test_local_embedder_never_reads_the_gemini_key(
         "e5-small", metas, ["t"] * 5, {"query_embeddings": {}})
     assert corpus.shape == (5, 4)
     assert query_vector("тревога").shape == (4,)
+
+
+def test_offline_rerank_is_named_in_the_label(benchmark):
+    label = benchmark.pipeline_label(
+        _pipeline_args(benchmark), "gemini-3.7-flash", "file:qwen3-4b")
+    assert label.endswith(" rerank=file:qwen3-4b")
+
+
+# ---------------------------------------------------------------------------
+# Rerank input export and `--reranks-file` (ClickUp 86cbed851).
+#
+# The export exists so a local model can answer the SAME question the
+# production reranker is asked; if the exported prompt drifted from
+# `passage_rerank.build_rerank_*`, the measurement would be of another prompt.
+# And an answer is an INDEX into a candidate list, so a file made against a
+# different list must be refused rather than silently believed.
+# ---------------------------------------------------------------------------
+
+SCENARIO = {
+    "id": "ru-001",
+    "language": "ru",
+    "category": "regular",
+    "prayer_context": {"topic": "О детях", "user_replies": ["дочь родилась"]},
+}
+
+
+def _export_meta(benchmark, ids, translation=1):
+    return {
+        (translation, cid): benchmark.ChunkMeta(
+            canonical_id=cid, translation=translation, book=19,
+            chapter=number, vstart=1, vend=5,
+        )
+        for number, cid in enumerate(ids, start=1)
+    }
+
+
+def test_exported_prompt_is_the_production_prompt(benchmark):
+    from passage_rerank import (
+        build_rerank_instruction,
+        build_rerank_response_schema,
+        build_rerank_user_content,
+    )
+
+    ids = ["v3:19.127.001-005", "v3:19.128.001-006"]
+    texts = ["Title\n[1] verse one [2] verse two", "[1] another verse"]
+    record = benchmark.build_rerank_input_record(
+        SCENARIO, 1, ids, texts, _export_meta(benchmark, ids), True)
+
+    assert record["user_content"] == build_rerank_user_content(
+        SCENARIO["prayer_context"]["topic"],
+        SCENARIO["prayer_context"]["user_replies"],
+        texts,
+    )
+    assert record["instruction"] == build_rerank_instruction(2, True)
+    assert record["response_schema"] == build_rerank_response_schema(2, True)
+    assert record["candidate_count"] == 2
+    assert [c["canonical_id"] for c in record["candidates"]] == ids
+    assert [c["number"] for c in record["candidates"]] == [1, 2]
+
+
+def test_export_without_markers_drops_the_key_verse_contract(benchmark):
+    from passage_rerank import build_rerank_instruction
+
+    ids = ["v3:19.127.001-005"]
+    record = benchmark.build_rerank_input_record(
+        SCENARIO, 1, ids, ["plain stored text"],
+        _export_meta(benchmark, ids), False)
+    assert record["instruction"] == build_rerank_instruction(1, False)
+    assert "key_verse_start" not in record["response_schema"]["properties"]
+
+
+def test_exported_hash_is_the_rerank_cache_key(benchmark):
+    """The export must key on exactly what the `reranks` cache keys on.
+
+    Proved by a cache HIT: the fake reranker below explodes if called, so the
+    lookup can only succeed when the two hashes agree.
+    """
+    from passage_rerank import RERANK_PROMPT_VERSION
+
+    ids = ["v3:19.127.001-005", "v3:19.023.001-006"]
+    record = benchmark.build_rerank_input_record(
+        SCENARIO, 1, ids, ["a", "b"], _export_meta(benchmark, ids), True)
+    key = (f"model-x|p{RERANK_PROMPT_VERSION}|ru-001|"
+           f"{record['candidates_hash']}")
+    cache = {"reranks": {key: {"index": 1, "reason": "r",
+                               "key_verse_start": 2, "key_verse_end": 3}}}
+
+    class Explode:
+        def choose(self, **_kwargs):
+            raise AssertionError("the cached answer was not found")
+
+    got = benchmark._rerank_cached(
+        SCENARIO, ids, ["a", "b"], Explode(), "model-x", cache,
+        {"calls": 0, "failures": 0})
+    assert got == (1, "r", 2, 3)
+
+
+def test_candidate_hash_depends_on_order(benchmark):
+    ids = ["a", "b"]
+    assert benchmark.candidates_hash(ids) != \
+        benchmark.candidates_hash(list(reversed(ids)))
+
+
+def test_detail_candidate_ids_reads_both_shapes(benchmark):
+    assert benchmark.detail_candidate_ids(
+        {"top": [{"id": "a", "score": 1}, {"id": "b", "score": 2}]}
+    ) == ["a", "b"]
+    # safe_pool rows store bare ids
+    assert benchmark.detail_candidate_ids({"top": ["a", "b"]}) == ["a", "b"]
+    assert benchmark.detail_candidate_ids({"top": []}) == []
+
+
+def _reranks_file(tmp_path, rows, model="qwen3-4b"):
+    path = tmp_path / "reranks.json"
+    path.write_text(json.dumps({"meta": {"model": model}, "scenarios": rows}))
+    return str(path)
+
+
+def test_external_reranks_are_loaded_by_id(benchmark, tmp_path):
+    path = _reranks_file(tmp_path, [
+        {"id": "ru-001", "chosen_index": 2, "candidates_hash": "h",
+         "key_verse_span": [1, 2], "error": None},
+    ])
+    records, meta = benchmark._load_external_reranks(path)
+    assert meta["model"] == "qwen3-4b"
+    stats = {"calls": 0, "failures": 0, "missing": 0}
+    with mock.patch.object(benchmark, "candidates_hash", lambda _ids: "h"):
+        got = benchmark._external_rerank_choice(
+            SCENARIO, ["a", "b", "c"], records, path, stats)
+    assert got[0] == 2 and got[2] == 1 and got[3] == 2
+    assert stats == {"calls": 0, "failures": 0, "missing": 0}
+
+
+def test_an_answer_without_a_hash_is_a_hard_error(benchmark, tmp_path):
+    # Otherwise dropping one field would be enough to walk past the guard:
+    # an answer that cannot be checked is refused, not believed.
+    path = _reranks_file(tmp_path, [{"id": "ru-001", "chosen_index": 0}])
+    records, _meta = benchmark._load_external_reranks(path)
+    with pytest.raises(SystemExit) as exc:
+        benchmark._external_rerank_choice(
+            SCENARIO, ["a", "b"], records, path,
+            {"calls": 0, "failures": 0, "missing": 0})
+    assert "candidates_hash" in str(exc.value)
+
+
+def test_a_different_candidate_list_is_a_hard_error(benchmark, tmp_path):
+    path = _reranks_file(tmp_path, [
+        {"id": "ru-001", "chosen_index": 0, "candidates_hash": "made-for-another-run"},
+    ])
+    records, _meta = benchmark._load_external_reranks(path)
+    with pytest.raises(SystemExit) as exc:
+        benchmark._external_rerank_choice(
+            SCENARIO, ["a", "b"], records, path,
+            {"calls": 0, "failures": 0, "missing": 0})
+    message = str(exc.value)
+    assert "ru-001" in message and "made-for-another-run" in message
+    assert "export-rerank-input" in message
+
+
+@pytest.mark.parametrize("row, expected_missing", [
+    ({"id": "ru-001", "chosen_index": None, "candidates_hash": "h",
+      "error": "parse: rerank response is not valid JSON"}, 0),
+    # a hand-edited index the production parser would have refused
+    ({"id": "ru-001", "chosen_index": 7, "candidates_hash": "h"}, 0),
+])
+def test_failed_answers_degrade_like_a_live_rerank_error(
+    benchmark, tmp_path, row, expected_missing
+):
+    path = _reranks_file(tmp_path, [row])
+    records, _meta = benchmark._load_external_reranks(path)
+    stats = {"calls": 0, "failures": 0, "missing": 0}
+    with mock.patch.object(benchmark, "candidates_hash", lambda _ids: "h"):
+        got = benchmark._external_rerank_choice(
+            SCENARIO, ["a", "b"], records, path, stats)
+    assert got is None
+    assert stats["failures"] == 1 and stats["missing"] == expected_missing
+
+
+@pytest.mark.parametrize("span", [
+    [2], [], [1, 2, 3], "1-2", [1, None], ["1", "2"], [True, True], None,
+])
+def test_a_malformed_key_verse_span_costs_the_highlight_not_the_run(
+    benchmark, tmp_path, span
+):
+    # ADR 0005: a broken highlight never invalidates the passage choice — and
+    # it must not raise either (a one-element span used to be an IndexError).
+    path = _reranks_file(tmp_path, [
+        {"id": "ru-001", "chosen_index": 1, "candidates_hash": "h",
+         "key_verse_span": span},
+    ])
+    records, _meta = benchmark._load_external_reranks(path)
+    with mock.patch.object(benchmark, "candidates_hash", lambda _ids: "h"):
+        got = benchmark._external_rerank_choice(
+            SCENARIO, ["a", "b"], records, path,
+            {"calls": 0, "failures": 0, "missing": 0})
+    assert got[0] == 1
+    assert got[2] is None and got[3] is None
+
+
+def test_a_scenario_absent_from_the_file_degrades_and_is_counted(
+    benchmark, tmp_path
+):
+    # A probe run (--only) covers a subset; the rest must fall back to
+    # retrieval rank-1 rather than abort the whole run.
+    path = _reranks_file(tmp_path, [])
+    records, _meta = benchmark._load_external_reranks(path)
+    stats = {"calls": 0, "failures": 0, "missing": 0}
+    assert benchmark._external_rerank_choice(
+        SCENARIO, ["a"], records, path, stats) is None
+    assert stats["failures"] == 1 and stats["missing"] == 1
+
+
+# --- end to end: the exported artifact, without a database ------------------
+
+def _write_export_inputs(benchmark, monkeypatch, tmp_path):
+    """A two-chunk corpus, one scenario and a recorded run over them."""
+    chunks = tmp_path / "chunks.jsonl"
+    with chunks.open("w") as fh:
+        for chapter, title in ((127, "Песнь восхождения"), (23, "")):
+            fh.write(json.dumps({
+                "canonical_id": f"v3:19.{chapter:03d}.001-005",
+                "translation": 1, "book_number": 19,
+                "chapter_number": chapter, "verse_number_start": 1,
+                "verse_number_end": 5, "title": title,
+                "text": f"stored text of chapter {chapter}",
+            }, ensure_ascii=False) + "\n")
+    scenarios = tmp_path / "scenarios.json"
+    scenarios.write_text(json.dumps(
+        {"version": "0.7.0", "scenarios": [SCENARIO]}, ensure_ascii=False))
+    results = tmp_path / "results.json"
+    results.write_text(json.dumps({
+        "config": "pipeline rewrite=gemini-3.7-flash",
+        "details": [
+            {"scenario_id": "ru-001", "source": "retrieval", "queries": [],
+             "top": [{"id": "v3:19.127.001-005", "score": 0.9, "variant": 0},
+                     {"id": "v3:19.023.001-005", "score": 0.8, "variant": 1}]},
+            {"scenario_id": "ru-009", "source": "safe_pool", "queries": [],
+             "top": ["v3:19.023.001-005"]},
+        ],
+    }))
+    monkeypatch.setattr(benchmark, "CHUNKS_FILE", chunks)
+    monkeypatch.setattr(benchmark, "SCENARIOS_FILE", scenarios)
+    return argparse.Namespace(
+        results=str(results), out=str(tmp_path / "input.json"), only="")
+
+
+def test_export_end_to_end_without_a_database(benchmark, monkeypatch, tmp_path):
+    from passage_rerank import build_rerank_user_content
+
+    args = _write_export_inputs(benchmark, monkeypatch, tmp_path)
+    # No database: candidates keep their stored text and carry no markers,
+    # exactly as cmd_pipeline and production degrade.
+    monkeypatch.setattr(benchmark, "_load_chunk_verses", lambda _metas: {})
+    benchmark.cmd_export_rerank_input(args)
+
+    artifact = json.loads(Path(args.out).read_text())
+    assert artifact["meta"]["key_verses"] is False
+    # the safe_pool scenario is not a rerank scenario, so it is not expected
+    assert artifact["meta"]["partial"] is False
+    assert artifact["meta"]["scenarios_expected"] == 1
+    assert artifact["meta"]["source_config"].startswith("pipeline rewrite=")
+    entry = artifact["scenarios"][0]
+    assert entry["id"] == "ru-001"
+    assert entry["user_content"] == build_rerank_user_content(
+        "О детях", ["дочь родилась"],
+        ["Песнь восхождения\nstored text of chapter 127",
+         "stored text of chapter 23"],
+    )
+
+
+def test_export_numbers_the_verses_when_the_database_answers(
+    benchmark, monkeypatch, tmp_path
+):
+    from passage_rerank import build_rerank_user_content
+    from retrieval import VerseText
+
+    args = _write_export_inputs(benchmark, monkeypatch, tmp_path)
+    verses = {
+        (1, "v3:19.127.001-005"): [
+            VerseText(verse_number=1, text="Вот наследие", start_paragraph=True),
+            VerseText(verse_number=2, text="от Господа", start_paragraph=False),
+        ],
+        (1, "v3:19.023.001-005"): [
+            VerseText(verse_number=1, text="Господь Пастырь мой",
+                      start_paragraph=True),
+        ],
+    }
+    monkeypatch.setattr(benchmark, "_load_chunk_verses", lambda _metas: verses)
+    benchmark.cmd_export_rerank_input(args)
+
+    artifact = json.loads(Path(args.out).read_text())
+    assert artifact["meta"]["key_verses"] is True
+    entry = artifact["scenarios"][0]
+    assert entry["user_content"] == build_rerank_user_content(
+        "О детях", ["дочь родилась"],
+        ["Песнь восхождения\n[1] Вот наследие [2] от Господа",
+         "[1] Господь Пастырь мой"],
+    )
+    assert "[1]" in entry["instruction"]
+
+
+# --- one renderer for both branches, and it is production's ----------------
+
+def _production_prompt_text(title, verses, stored_text):
+    """What `retrieval._candidate_prompt_text` produces for one chunk."""
+    from retrieval import Candidate, PassageText, _candidate_prompt_text
+
+    passage = PassageText(
+        translation=1, alias="syn", book_number=19, chapter_number=127,
+        verse_number_start=1, verse_number_end=5, title=title,
+        text=stored_text, verses=verses,
+    )
+    return _candidate_prompt_text(Candidate(
+        canonical_id="v3:19.127.001-005", book_number=19, chapter_number=127,
+        verse_start=1, verse_end=5, score=1.0, best_variant=0,
+        variant_scores={}, passages=[passage],
+    ))
+
+
+@pytest.mark.parametrize("title", ["Песнь восхождения", ""])
+def test_the_benchmark_renders_candidates_exactly_like_production(
+    benchmark, title
+):
+    """`pipeline --rerank` and `export-rerank-input` share this one function.
+
+    They used to hold a copy each, and the export is only worth anything if
+    it is byte-identical to what the live stage sends.
+    """
+    from retrieval import VerseText
+
+    key = (1, "v3:19.127.001-005")
+    verses = [
+        VerseText(verse_number=1, text="Вот наследие", start_paragraph=True),
+        VerseText(verse_number=2, text="от Господа", start_paragraph=False),
+        VerseText(verse_number=3, text="награда от Него", start_paragraph=True),
+    ]
+    stored = "Вот наследие от Господа\n\nнаграда от Него"
+    chunk_title, chunk_text = {key: title}, {key: stored}
+
+    assert benchmark.candidate_prompt_text(
+        key, {key: verses}, chunk_title, chunk_text
+    ) == _production_prompt_text(title or None, verses, stored)
+    # and the degraded path: no verses loaded -> the plain stored text
+    assert benchmark.candidate_prompt_text(
+        key, {}, chunk_title, chunk_text
+    ) == _production_prompt_text(title or None, [], stored)
+
+
+# --- `--reranks-file` never builds a reranker and never touches the cache ---
+
+def _mini_pipeline(benchmark, monkeypatch, tmp_path, reranks_file):
+    """`cmd_pipeline` over a two-chunk corpus and one scenario, no I/O."""
+    chunks = tmp_path / "chunks.jsonl"
+    ids = ["v3:19.127.001-005", "v3:19.023.001-005"]
+    with chunks.open("w") as fh:
+        for canonical_id, chapter in zip(ids, (127, 23)):
+            fh.write(json.dumps({
+                "canonical_id": canonical_id, "translation": 1,
+                "book_number": 19, "chapter_number": chapter,
+                "verse_number_start": 1, "verse_number_end": 5,
+                "title": "", "text": f"text {chapter}",
+            }) + "\n")
+    scenarios = tmp_path / "scenarios.json"
+    scenarios.write_text(json.dumps({
+        "version": "0.7.0",
+        "scenarios": [{**SCENARIO, "references": [
+            {"book_number": 19, "chapter": 127, "verse_start": 1,
+             "verse_end": 5, "grade": "relevant", "reason": "r"},
+        ]}],
+    }, ensure_ascii=False))
+    monkeypatch.setattr(benchmark, "CHUNKS_FILE", chunks)
+    monkeypatch.setattr(benchmark, "SCENARIOS_FILE", scenarios)
+    monkeypatch.setattr(benchmark, "load_psalm_maps", lambda: {})
+    # Psalm references would need the versification tables; the reference
+    # above is graded through a stand-in that maps a Psalm to itself.
+    monkeypatch.setattr(
+        benchmark, "map_reference",
+        lambda ref, _t, _m: [(ref["book_number"], ref["chapter"],
+                              ref["verse_start"], ref["verse_end"])])
+    monkeypatch.setattr(benchmark, "_load_chunk_verses", lambda _m: {})
+    monkeypatch.setattr(benchmark, "_load_book_names", lambda: {})
+    monkeypatch.setattr(
+        benchmark, "_pipeline_embedder",
+        lambda *_a, **_k: (np.ones((2, 4), dtype=np.float32),
+                           lambda _t: np.ones(4, dtype=np.float32)))
+    cache = {"rewrites": {}, "query_embeddings": {},
+             "reranks": {"pre-existing": {"index": 0}}}
+    monkeypatch.setattr(benchmark, "_load_pipeline_cache", lambda: cache)
+    monkeypatch.setattr(benchmark, "_save_pipeline_cache", lambda _c: None)
+    monkeypatch.setattr(
+        benchmark, "require_api_key",
+        lambda: (_ for _ in ()).throw(AssertionError("a key was requested")))
+
+    args = _pipeline_args(
+        benchmark, no_rewrite=True, no_lexical=True, rerank=False,
+        rerank_model="", rewrite_model="", cache_tag="", rewrites_file="",
+        reranks_file=reranks_file, json_out="")
+    return args, cache, ids
+
+
+def test_reranks_file_builds_no_reranker_and_leaves_the_cache_alone(
+    benchmark, monkeypatch, tmp_path, capsys
+):
+    import passage_rerank
+
+    path = tmp_path / "reranks.json"
+    args, cache, ids = _mini_pipeline(benchmark, monkeypatch, tmp_path,
+                                      str(path))
+    # chosen_index 1 — the SECOND candidate, so the file's answer cannot be
+    # mistaken for a plain rank-1 fallback. Both corpus rows carry the same
+    # stand-in embedding, so the fused order is the corpus order.
+    path.write_text(json.dumps({
+        "meta": {"model": "qwen3-4b"},
+        "scenarios": [{
+            "id": "ru-001", "chosen_index": 1,
+            "candidates_hash": benchmark.candidates_hash(ids),
+            "key_verse_span": None, "error": None, "reason": "from the file",
+        }],
+    }))
+    monkeypatch.setattr(
+        passage_rerank.GeminiPassageReranker, "__init__",
+        lambda *_a, **_k: (_ for _ in ()).throw(
+            AssertionError("a rerank provider was constructed")))
+    before = json.dumps(cache["reranks"], sort_keys=True)
+
+    benchmark.cmd_pipeline(args)
+
+    assert json.dumps(cache["reranks"], sort_keys=True) == before
+    out = capsys.readouterr().out
+    assert "rerank: model=file:qwen3-4b" in out
+    assert "rerank=file:qwen3-4b" in out          # the run label
+    assert "final top-1: rerank file:qwen3-4b" in out
+    # the file's choice (candidate 2), not the retrieval rank-1 (candidate 1)
+    rerank_section = out.split("final top-1: rerank file:qwen3-4b")[1] \
+        .split("=== ")[0]
+    assert ids[1] in rerank_section and ids[0] not in rerank_section
 
 
 def test_gemini_embedder_still_requires_the_key(benchmark, corpus_dir, monkeypatch):

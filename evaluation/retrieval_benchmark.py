@@ -18,6 +18,10 @@ Usage:
     python retrieval_benchmark.py pipeline [...]    # full retrieval pipeline
                                                     # (rewrite+fusion+blacklist+pool),
                                                     # ablations via flags — see -h
+    python retrieval_benchmark.py export-rerank-input --results R --out F
+                                                    # the reranker's inputs of a
+                                                    # recorded run, for gen_reranks.py
+                                                    # and `pipeline --reranks-file`
 
 Scenario query = prayer topic + allowed user replies, embedded with the
 model's query mode; the corpus is the language's translation chunks
@@ -1054,6 +1058,21 @@ def _grade_chunk(
     return "ungraded"
 
 
+def candidates_hash(candidate_ids: list[str]) -> str:
+    """Identity of one candidate LIST (order included).
+
+    Part of the `reranks` cache key since the stage exists, and — since
+    86cbed851 — also what `export-rerank-input` writes into its artifact and
+    what `--reranks-file` checks before believing an offline answer: an
+    answer is an INDEX into a specific list, so a file made against another
+    list is meaningless rather than merely stale. One function, so the two
+    can never drift apart.
+    """
+    import hashlib
+
+    return hashlib.sha1("|".join(candidate_ids).encode()).hexdigest()[:16]
+
+
 def _rerank_cached(
     scenario: dict, candidate_ids: list[str], candidate_texts: list[str],
     reranker, model: str, cache: dict, stats: dict,
@@ -1065,11 +1084,9 @@ def _rerank_cached(
     when the rerank failed (the caller falls back to top-1, mirroring
     production select_final). The key verses are the 1-based verse markers
     of the highlight inside the chosen candidate (prompt v9)."""
-    import hashlib
-
     from passage_rerank import RERANK_PROMPT_VERSION, PassageRerankError
 
-    ids_hash = hashlib.sha1("|".join(candidate_ids).encode()).hexdigest()[:16]
+    ids_hash = candidates_hash(candidate_ids)
     # key_verses toggles the prompt variant (build_rerank_instruction) for
     # the same RERANK_PROMPT_VERSION, so it must be part of the cache key
     # too. Only the False case gets a suffix, so existing cache entries for
@@ -1109,6 +1126,97 @@ def _rerank_cached(
         choice.index, choice.reason,
         choice.key_verse_start, choice.key_verse_end,
     )
+
+
+def _load_external_reranks(path: str) -> tuple[dict[str, dict], dict]:
+    """Rerank answers produced OUTSIDE this benchmark (ClickUp 86cbed851).
+
+    File format — what `gen_reranks.py` writes:
+        {"meta": {"model": ..., "rerank_prompt_version": 9, ...},
+         "scenarios": [{"id": ..., "candidates_hash": ...,
+                        "candidate_count": ..., "chosen_index": 0-based,
+                        "key_verse_span": [s, e] | null, "error": null}, ...]}
+
+    Only parsed here; the candidate-list check happens per scenario in
+    `_external_rerank_choice`, where the live list is known.
+    """
+    payload = json.loads(Path(path).read_text())
+    meta = payload.get("meta", {})
+    by_id: dict[str, dict] = {}
+    for row in payload.get("scenarios", []):
+        by_id[row["id"]] = row
+    return by_id, meta
+
+
+def _external_rerank_choice(
+    scenario: dict, candidate_ids: list[str], records: dict[str, dict],
+    path: str, stats: dict,
+):
+    """One offline rerank answer, or None to degrade to retrieval rank-1.
+
+    Same return shape as `_rerank_cached`, so the caller's two branches stay
+    identical. Two failure modes, deliberately different:
+
+    * a record that FAILED (`error` set, or no usable index) and a scenario
+      the file does not cover at all degrade exactly like a live
+      `PassageRerankError` — fallback rank-1, counted in `stats`, warned
+      about. That is what production does, and it keeps `--only` probe runs
+      possible;
+    * a record whose `candidates_hash` is missing or does not match the list
+      this run built is a HARD error. The answer is an index into a list;
+      against another list it points at another passage, so accepting it
+      would silently report a passage the model never chose. A record with
+      no hash at all cannot be checked, and an uncheckable answer is
+      refused rather than believed — otherwise dropping one field would be
+      enough to walk past the guard.
+    """
+    record = records.get(scenario["id"])
+    if record is None:
+        stats["failures"] += 1
+        stats["missing"] += 1
+        print(f"  [warn] no rerank answer for {scenario['id']} in {path} "
+              f"— degrading to retrieval rank-1")
+        return None
+    expected = record.get("candidates_hash")
+    actual = candidates_hash(candidate_ids)
+    if not expected:
+        raise SystemExit(
+            f"--reranks-file {path}: the answer for {scenario['id']} carries "
+            f"no `candidates_hash`, so it cannot be checked against this "
+            f"run's candidate list (run {actual}). Regenerate the file with "
+            f"`gen_reranks.py` over an `export-rerank-input` artifact."
+        )
+    if expected != actual:
+        raise SystemExit(
+            f"--reranks-file {path}: candidate list of {scenario['id']} does "
+            f"not match this run (file {expected}, run {actual}). The answer "
+            f"is an index into a specific candidate list — regenerate the "
+            f"input with `export-rerank-input` from the results artifact this "
+            f"run reproduces, or run the same pipeline configuration."
+        )
+    index = record.get("chosen_index")
+    if record.get("error") or isinstance(index, bool) or not isinstance(index, int):
+        stats["failures"] += 1
+        print(f"  [warn] rerank failed for {scenario['id']} in {path}: "
+              f"{record.get('error') or 'no chosen_index'}")
+        return None
+    if not 0 <= index < len(candidate_ids):
+        # `parse_rerank_response` already refuses these, so a file carrying
+        # one was hand-edited; degrade rather than trust it.
+        stats["failures"] += 1
+        print(f"  [warn] rerank answer for {scenario['id']} in {path} is out "
+              f"of range ({index} of {len(candidate_ids)} candidates)")
+        return None
+    # A malformed highlight never invalidates the passage choice (ADR 0005),
+    # and it must not crash the run either: anything that is not a pair of
+    # plain integers is simply "no highlight".
+    span = record.get("key_verse_span")
+    if not (isinstance(span, (list, tuple)) and len(span) == 2 and all(
+        isinstance(value, int) and not isinstance(value, bool)
+        for value in span
+    )):
+        span = (None, None)
+    return (index, record.get("reason", ""), span[0], span[1])
 
 
 # ---------------------------------------------------------------------------
@@ -1172,6 +1280,52 @@ def _load_chunk_verses(metas: list[ChunkMeta]) -> dict[tuple[int, str], list]:
         cursor.close()
         connection.close()
     return verses
+
+
+def load_chunk_prompt_parts() -> tuple[
+    dict[tuple[int, str], str], dict[tuple[int, str], str]
+]:
+    """(translation, canonical_id) -> chunk title and stored text.
+
+    Read from the corpus export, which is what the benchmark has instead of
+    `translation_chunks`.
+    """
+    chunk_title: dict[tuple[int, str], str] = {}
+    chunk_text: dict[tuple[int, str], str] = {}
+    with CHUNKS_FILE.open() as fh:
+        for line in fh:
+            row = json.loads(line)
+            key = (row["translation"], row["canonical_id"])
+            chunk_title[key] = (row.get("title") or "").strip()
+            chunk_text[key] = row["text"]
+    return chunk_title, chunk_text
+
+
+def candidate_prompt_text(
+    key: tuple[int, str],
+    chunk_verses: dict[tuple[int, str], list],
+    chunk_title: dict[tuple[int, str], str],
+    chunk_text: dict[tuple[int, str], str],
+) -> str:
+    """Candidate text exactly as production shows it to the reranker.
+
+    Mirrors `retrieval._candidate_prompt_text`: the primary translation's
+    title plus the text rendered verse by verse with `[n]` markers, falling
+    back to the plain stored text when the chunk's verses are not available.
+
+    ONE implementation on purpose (ClickUp 86cbed851 review): `pipeline
+    --rerank` and `export-rerank-input` used to carry a copy each, and the
+    whole value of the export is that it is byte-identical to what the live
+    stage sends — an invariant two copies can only keep by luck.
+    `tests/test_retrieval_benchmark.py` compares this function's output with
+    the production one on the same chunk.
+    """
+    from retrieval import number_verses
+
+    verses = chunk_verses.get(key)
+    body = number_verses(verses) if verses else chunk_text[key]
+    title = chunk_title[key]
+    return f"{title}\n{body}" if title else body
 
 
 def _load_book_names() -> dict[int, dict[str, str]]:
@@ -1352,6 +1506,167 @@ def _final_top1_report(label: str, rows: list[dict], thresholds: dict) -> None:
                   f"{r['chosen']}  reason: {r.get('reason', '')}")
 
 
+# ---------------------------------------------------------------------------
+# Rerank input export (ClickUp 86cbed851): everything the production reranker
+# is handed for one scenario, as a file, so ANY model can answer it offline —
+# see gen_reranks.py and `pipeline --reranks-file`.
+# ---------------------------------------------------------------------------
+
+def detail_candidate_ids(detail: dict) -> list[str]:
+    """Candidate ids of one `details` row of a `--json-out` artifact.
+
+    `retrieval` rows store dicts ({id, score, variant}); `safe_pool` rows
+    store bare ids. Both shapes appear in every saved run.
+    """
+    top = detail.get("top") or []
+    if top and isinstance(top[0], dict):
+        return [hit["id"] for hit in top]
+    return [hit for hit in top if isinstance(hit, str)]
+
+
+def build_rerank_input_record(
+    scenario: dict, translation: int, candidate_ids: list[str],
+    candidate_texts: list[str], meta_by_key: dict, key_verses: bool,
+) -> dict:
+    """One exported scenario: the reranker's prompt, verbatim.
+
+    The three prompt pieces are built by the PRODUCTION functions, never
+    re-typed here — the whole point of the artifact is that an offline model
+    answers the same question `GeminiPassageReranker.choose` would ask.
+    """
+    from passage_rerank import (
+        build_rerank_instruction,
+        build_rerank_response_schema,
+        build_rerank_user_content,
+    )
+
+    ctx = scenario["prayer_context"]
+    count = len(candidate_texts)
+    candidates = []
+    for number, canonical_id in enumerate(candidate_ids, start=1):
+        meta = meta_by_key[(translation, canonical_id)]
+        candidates.append({
+            "number": number,
+            "canonical_id": canonical_id,
+            "translation": translation,
+            "book": meta.book,
+            "chapter": meta.chapter,
+            "verse_start": meta.vstart,
+            "verse_end": meta.vend,
+        })
+    return {
+        "id": scenario["id"],
+        "language": scenario["language"],
+        "category": scenario["category"],
+        "translation": translation,
+        "candidate_count": count,
+        "candidates_hash": candidates_hash(candidate_ids),
+        "key_verses": key_verses,
+        "candidates": candidates,
+        "instruction": build_rerank_instruction(count, key_verses),
+        "user_content": build_rerank_user_content(
+            ctx["topic"], list(ctx["user_replies"]), candidate_texts
+        ),
+        "response_schema": build_rerank_response_schema(count, key_verses),
+    }
+
+
+def cmd_export_rerank_input(args) -> None:
+    """Write the reranker's inputs of a recorded run to a file.
+
+    Input is a `pipeline --json-out` artifact: its `details` hold the exact
+    candidate list every scenario ended up with, so the export reproduces
+    the rerank stage of THAT run rather than re-running retrieval. `empty`
+    scenarios are skipped — they are answered from the safe pool before the
+    rerank stage exists (README, resolved question 5).
+    """
+    from passage_rerank import RERANK_PROMPT_VERSION
+
+    dataset = json.loads(SCENARIOS_FILE.read_text())
+    by_id = {s["id"]: s for s in dataset["scenarios"]}
+    results = json.loads(Path(args.results).read_text())
+    details = [
+        row for row in results.get("details", [])
+        if row.get("source") != "safe_pool" and detail_candidate_ids(row)
+    ]
+    wanted = {s.strip() for s in args.only.split(",") if s.strip()}
+    selected = [row for row in details
+                if not wanted or row["scenario_id"] in wanted]
+    if wanted:
+        missing = wanted - {row["scenario_id"] for row in selected}
+        if missing:
+            raise SystemExit(
+                f"--only names scenarios absent from {args.results} (or "
+                f"answered from the safe pool): {sorted(missing)}"
+            )
+    if not selected:
+        raise SystemExit(f"no rerank scenarios in {args.results}")
+
+    metas, _texts, _title_texts = load_chunks()
+    meta_by_key = {(m.translation, m.canonical_id): m for m in metas}
+    chunk_title, chunk_text = load_chunk_prompt_parts()
+
+    plan = []
+    needed: list[ChunkMeta] = []
+    for row in selected:
+        scenario = by_id[row["scenario_id"]]
+        code, _alias = LANGUAGE_CORPUS[scenario["language"]]
+        ids = detail_candidate_ids(row)
+        plan.append((scenario, code, ids))
+        needed.extend(meta_by_key[(code, cid)] for cid in ids)
+
+    # Same verse view the pipeline gives the reranker; without a database the
+    # candidates stay unnumbered and the key-verse contract is dropped from
+    # the prompt — exactly as `cmd_pipeline` and production degrade.
+    chunk_verses = _load_chunk_verses(needed)
+    key_verses = bool(chunk_verses)
+
+    records = [
+        build_rerank_input_record(
+            scenario, code, ids,
+            [
+                candidate_prompt_text(
+                    (code, cid), chunk_verses, chunk_title, chunk_text)
+                for cid in ids
+            ],
+            meta_by_key, key_verses,
+        )
+        for scenario, code, ids in plan
+    ]
+    artifact = {
+        "meta": {
+            "source_results": args.results,
+            "source_config": results.get("config", ""),
+            "rerank_prompt_version": RERANK_PROMPT_VERSION,
+            "key_verses": key_verses,
+            "scenarios_version": dataset["version"],
+            "date": _today_iso(),
+            "scenarios_covered": [r["id"] for r in records],
+            "scenarios_expected": len(details),
+            "partial": len(records) < len(details),
+        },
+        "scenarios": records,
+    }
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(
+        json.dumps(artifact, ensure_ascii=False, indent=1) + "\n",
+        encoding="utf-8",
+    )
+    state = "PARTIAL" if artifact["meta"]["partial"] else "full"
+    print(
+        f"wrote {out} — {state}: {len(records)} of {len(details)} scenarios, "
+        f"prompt v{RERANK_PROMPT_VERSION}, "
+        f"key_verses={'on' if key_verses else 'off (no database)'}"
+    )
+
+
+def _today_iso() -> str:
+    from datetime import date
+
+    return date.today().isoformat()
+
+
 def _coverage_allowed(
     translation_code: int, metas: list[ChunkMeta]
 ) -> tuple[int, frozenset[str]]:
@@ -1439,7 +1754,7 @@ def _rrf_fuse(variant_hits: list[list[tuple[str, float]]], k: int = 60):
     return sorted(fused.values(), key=lambda h: -h.score)
 
 
-def pipeline_label(args, rewrite_model: str) -> str:
+def pipeline_label(args, rewrite_model: str, rerank_label: str = "") -> str:
     """The configuration line of a `pipeline` run.
 
     It is the header of the printed report AND the `config` field of
@@ -1459,6 +1774,10 @@ def pipeline_label(args, rewrite_model: str) -> str:
            if args.coverage_translation else "")
         + (f" embedder={args.embedder}"
            if args.embedder != PIPELINE_DEFAULT_EMBEDDER else "")
+        # Only an OFFLINE rerank is named: a live one is reported by the
+        # `rerank: model=` line and `final_top1.rerank_model`, and adding it
+        # here would change the label of every run recorded so far.
+        + (f" rerank={rerank_label}" if rerank_label else "")
     )
 
 
@@ -1482,6 +1801,12 @@ def cmd_pipeline(args) -> None:
     metas, _texts, title_texts_all = load_chunks()
     psalm_maps = load_psalm_maps()
     cache = _load_pipeline_cache()
+    # --reranks-file implies the final-top1 stage and answers it from disk:
+    # no reranker is constructed, so the run cannot reach Gemini's rerank
+    # even by accident (tripwire-compatible), and it needs no key. It and
+    # --rerank are mutually exclusive at the CLI.
+    reranks_file = getattr(args, "reranks_file", "")
+    rerank_stage = bool(args.rerank or reranks_file)
     # The rerank stage is Gemini-only whatever embeds the queries; with a
     # local embedder and no --rerank the run needs no key at all. Resolved
     # BEFORE the embedder, because a local corpus pass can run for hours and
@@ -1541,9 +1866,18 @@ def cmd_pipeline(args) -> None:
     # --- final top-1 stage: rerank (optional) + fallback policies (free)
     reranker = None
     rerank_model = ""
+    rerank_label = ""
+    external_reranks: dict[str, dict] | None = None
     rerank_rows: list[dict] | None = None
-    rerank_stats = {"calls": 0, "failures": 0}
-    if args.rerank:
+    rerank_stats = {"calls": 0, "failures": 0, "missing": 0}
+    if reranks_file:
+        external_reranks, rr_meta = _load_external_reranks(reranks_file)
+        rerank_model = args.rerank_model or (
+            f"file:{rr_meta.get('model', Path(reranks_file).stem)}"
+        )
+        rerank_label = rerank_model
+        rerank_rows = []
+    elif args.rerank:
         from config import AI_SCRIPTURE_RERANK_MODEL
         from passage_rerank import GeminiPassageReranker
 
@@ -1557,30 +1891,13 @@ def cmd_pipeline(args) -> None:
     fb_rank_rows: list[dict] = []    # retrieval rank-1 (interleave order)
     fb_score_rows: list[dict] = []   # best fused cosine
 
-    # candidate text exactly as production shows it to the reranker
-    # (retrieval._candidate_prompt_text: "title\ntext" of the primary
-    # translation, every verse prefixed with its [n] marker when the verses
-    # are available)
-    chunk_title: dict[tuple[int, str], str] = {}
-    chunk_text: dict[tuple[int, str], str] = {}
-    with CHUNKS_FILE.open() as fh:
-        for line in fh:
-            row = json.loads(line)
-            key = (row["translation"], row["canonical_id"])
-            chunk_title[key] = (row.get("title") or "").strip()
-            chunk_text[key] = row["text"]
+    # candidate text exactly as production shows it to the reranker — the
+    # same `candidate_prompt_text` the export uses, so the two can never
+    # drift apart (see its docstring)
+    chunk_title, chunk_text = load_chunk_prompt_parts()
 
-    chunk_verses = _load_chunk_verses(metas) if args.rerank else {}
-    book_names = _load_book_names() if args.rerank else {}
-
-    def prompt_text(code: int, canonical_id: str) -> str:
-        from retrieval import number_verses
-
-        key = (code, canonical_id)
-        verses = chunk_verses.get(key)
-        body = number_verses(verses) if verses else chunk_text[key]
-        title = chunk_title[key]
-        return f"{title}\n{body}" if title else body
+    chunk_verses = _load_chunk_verses(metas) if rerank_stage else {}
+    book_names = _load_book_names() if rerank_stage else {}
 
     def top1_row(scenario: dict, cm: ChunkMeta, method: str,
                  reason: str = "", highlight: dict | None = None) -> dict:
@@ -1743,18 +2060,28 @@ def cmd_pipeline(args) -> None:
             fb_score_rows.append(
                 top1_row(scenario, top_metas[best], "fallback_score"))
             if rerank_rows is not None:
-                texts_for_prompt = [
-                    prompt_text(code, h.canonical_id) for h in final
-                ]
-                got = _rerank_cached(
-                    scenario, [h.canonical_id for h in final],
-                    texts_for_prompt, reranker, rerank_model, cache,
-                    rerank_stats,
-                    # mirrors production: without a database the candidates
-                    # carry no [n] markers, so the key-verse contract is not
-                    # asked for at all (retrieval.select_final does the same)
-                    key_verses=bool(chunk_verses),
-                )
+                candidate_ids = [h.canonical_id for h in final]
+                if external_reranks is not None:
+                    got = _external_rerank_choice(
+                        scenario, candidate_ids, external_reranks,
+                        reranks_file, rerank_stats,
+                    )
+                else:
+                    texts_for_prompt = [
+                        candidate_prompt_text(
+                            (code, cid), chunk_verses, chunk_title, chunk_text)
+                        for cid in candidate_ids
+                    ]
+                    got = _rerank_cached(
+                        scenario, candidate_ids,
+                        texts_for_prompt, reranker, rerank_model, cache,
+                        rerank_stats,
+                        # mirrors production: without a database the
+                        # candidates carry no [n] markers, so the key-verse
+                        # contract is not asked for at all
+                        # (retrieval.select_final does the same)
+                        key_verses=bool(chunk_verses),
+                    )
                 if got is None or not 0 <= got[0] < len(top_metas):
                     # production fallback: any rerank failure -> rank-1
                     rerank_rows.append(
@@ -1779,13 +2106,16 @@ def cmd_pipeline(args) -> None:
         if reranker is not None:
             reranker.close()
 
-    label = pipeline_label(args, rewrite_model)
+    label = pipeline_label(args, rewrite_model, rerank_label)
     print_report(label, results, {"rewrite_failures": rewrite_failures},
                  thresholds)
     embedder_stats = _embedder_report(args.embedder, query_ms)
     if rerank_rows is not None:
         print(f"\nrerank: model={rerank_model} fresh_calls="
-              f"{rerank_stats['calls']} failures={rerank_stats['failures']}")
+              f"{rerank_stats['calls']} failures={rerank_stats['failures']}"
+              + (f" (of them missing from the file: "
+                 f"{rerank_stats['missing']})" if rerank_stats["missing"]
+                 else ""))
         _final_top1_report(f"rerank {rerank_model}", rerank_rows, thresholds)
         _highlight_review_table(rerank_rows, scenarios, book_names)
     _final_top1_report(
@@ -1861,9 +2191,13 @@ def main() -> None:
     p.add_argument("--rewrite-model", default="",
                    help="Gemini model for rewriting "
                         "(default: production AI_SCRIPTURE_REWRITE_MODEL)")
-    p.add_argument("--rerank", action="store_true",
-                   help="run the grounded final-choice stage (Gemini) and "
-                        "evaluate final_top1 thresholds")
+    # Two ways to answer the SAME stage — live or from a file. Mutually
+    # exclusive so a run can never look like it did both.
+    rerank_source = p.add_mutually_exclusive_group()
+    rerank_source.add_argument(
+        "--rerank", action="store_true",
+        help="run the grounded final-choice stage (Gemini) and evaluate "
+             "final_top1 thresholds")
     p.add_argument("--rerank-model", default="",
                    help="Gemini model for the final choice "
                         "(default: production AI_SCRIPTURE_RERANK_MODEL)")
@@ -1890,6 +2224,18 @@ def main() -> None:
                         "still calls gemini-3.7-flash on the PAID key "
                         "(AI_SCRIPTURE_REWRITE_API_KEY) for every scenario "
                         "missing from the cache")
+    rerank_source.add_argument(
+        "--reranks-file", default="",
+        help="JSON with final-choice answers produced by an "
+                        "EXTERNAL model (evaluation/gen_reranks.py over an "
+                        "`export-rerank-input` artifact). Implies the "
+                        "final-top1 stage and runs it fully offline — no "
+                        "rerank provider is constructed or called, and no "
+                        "Gemini key is needed for it. A scenario whose "
+                        "answer errored or is absent degrades to retrieval "
+                        "rank-1, exactly like a live PassageRerankError; a "
+                        "candidate list that disagrees with the file is a "
+                        "hard error. The `reranks` cache is not touched")
     p.add_argument("--coverage-translation", type=int, default=0,
                    help="ADR 0007: restrict the candidates of that "
                         "translation's language to the canonical windows it "
@@ -1897,6 +2243,20 @@ def main() -> None:
                         "unaffected")
     p.add_argument("--json-out", default="")
     p.set_defaults(func=cmd_pipeline)
+
+    p = sub.add_parser(
+        "export-rerank-input",
+        help="write the reranker's inputs of a recorded pipeline run "
+             "(system instruction, user content, JSON schema, candidates) so "
+             "any model can answer them offline — see gen_reranks.py",
+    )
+    p.add_argument("--results", required=True,
+                   help="a `pipeline --json-out` artifact whose candidate "
+                        "lists are exported")
+    p.add_argument("--out", required=True, help="artifact path (JSON)")
+    p.add_argument("--only", default="",
+                   help="comma-separated scenario ids — a probe subset")
+    p.set_defaults(func=cmd_export_rerank_input)
 
     p = sub.add_parser("stores", help="store parity + latency for one config")
     p.add_argument("--model", choices=MODELS, required=True)

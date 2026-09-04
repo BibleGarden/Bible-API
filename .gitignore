@@ -3,13 +3,16 @@ __pycache__/
 *.pyc
 .venv/
 # evaluation/bench_data: the benchmark results are tracked, the caches are not.
-# Results (results_*.json) and generated rewrite variants (*_rewrites_*.json)
-# cannot be regenerated: variants from Maria's private Qwen server and the
-# OpenRouter candidates exist only as these files, and the Gemini runs depend
-# on free-tier quota and on models that may be retired (Maria, 2026-09-04).
-# Corpus exports, embedding matrices and the provider-call cache are large
-# and regenerable, and stay local.
+# Results (results_*.json), generated rewrite variants (*_rewrites_*.json) and
+# generated rerank answers (*_reranks_*.json) cannot be regenerated: answers
+# from Maria's private Qwen server and the OpenRouter candidates exist only as
+# these files, and the Gemini runs depend on free-tier quota and on models that
+# may be retired (Maria, 2026-09-04). Corpus exports, embedding matrices, the
+# provider-call cache and the rerank INPUT artifacts (rerank_input_*.json —
+# rebuilt from a tracked results_*.json plus the database) are large and
+# regenerable, and stay local.
 evaluation/bench_data/*
 !evaluation/bench_data/results_*.json
 !evaluation/bench_data/*_rewrites_*.json
+!evaluation/bench_data/*_reranks_*.json
 !evaluation/bench_data/*.tsv
