@@ -1,0 +1,359 @@
+{
+  "meta": {
+    "model": "qwen3-30b-a3b-instruct-2507",
+    "date": "2026-09-04",
+    "prompt_version": "7",
+    "prompt_revision": 0,
+    "rewrite_prompt_version": 7,
+    "scenarios_version": "0.7.0",
+    "endpoint": "https://llm.ai2.ru:18443",
+    "sampling": {
+      "temperature": 0.0,
+      "max_tokens": 1024,
+      "response_format": "json_object",
+      "variants": 6
+    },
+    "partial": false,
+    "scenarios_covered": [
+      "ru-001",
+      "ru-002",
+      "ru-003",
+      "ru-004",
+      "ru-005",
+      "ru-006",
+      "ru-007",
+      "ru-008",
+      "ru-010",
+      "en-001",
+      "en-002",
+      "en-003",
+      "en-004",
+      "en-005",
+      "en-007",
+      "uk-001",
+      "uk-002",
+      "uk-003",
+      "uk-004",
+      "uk-005",
+      "uk-007"
+    ],
+    "scenarios_expected": 21
+  },
+  "scenarios": [
+    {
+      "id": "ru-001",
+      "language": "ru",
+      "variants": [
+        "Благодарю Тебя, Господи, ибо Ты благ, и милость Твоя вовек.",
+        "Возрадуйся, душа моя, пред Господом, ибо Он сотворил мне чудо.",
+        "Слава Тебе, Господи, ибо Ты даровал мне дитя, как благословение.",
+        "Уповаю на Господа, ибо Он сотворил меня, и не оставил меня.",
+        "Благодарю Тебя, Господи, за милость, что даровал мне дитя в день радости.",
+        "Слава Тебе, Господи, ибо Ты хранил меня и даровал мне дочь здоровую."
+      ],
+      "latency_ms": 2346,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "ru-002",
+      "language": "ru",
+      "variants": [
+        "Не убойся, ибо Я с тобою, и никто не предаст тебя в руки твои",
+        "Господь Бог — сила моя, Он укрепит меня и поведет меня по стезям правды",
+        "Покойся на Господа, и уповай на Него, и Он совершит над тобою",
+        "Милость и человеколюбие Господа сопровождают меня всю жизнь мою",
+        "Не убоится сердце твое, ни ужас, ни беда, ибо Господь — прибежище твое",
+        "Господь да будет с тобою, и да укрепит Он тебя в день скорби и нужды"
+      ],
+      "latency_ms": 1794,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "ru-003",
+      "language": "ru",
+      "variants": [
+        "Не убойся, ибо Я с тобою, не ужасайся, ибо Я Бог твой, укреплю тебя",
+        "Господь — прибежище мое и сила моя, Бог мой, на Которого уповаю",
+        "Блаженны плачущие, ибо они утешатся",
+        "Милость и правда встретятся, правда и мир поцелуются",
+        "Господь близок всем призывающим Его, всем, кто призывает Его искренно",
+        "Сердце мое не устрашится, хотя и будет вражда против меня"
+      ],
+      "latency_ms": 1612,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "ru-004",
+      "language": "ru",
+      "variants": [
+        "Не убойся, ибо Я с тобою, ибо Я с тобою, ибо Я с тобою",
+        "Господь — сила моя и щит мой; на Него уповаю, и спасен буду",
+        "Призри на меня, и помилуй меня, яко одинок и беден",
+        "Я — Господь, врачующий тебя, и не будет на тебя поражения",
+        "Сердце мое не убоится, хотя бы и пришёл страх, ибо Я уповаю на Господа",
+        "Бог сильный, Бог спасающий, Он укрепит меня и не оставит меня"
+      ],
+      "latency_ms": 1709,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "ru-005",
+      "language": "ru",
+      "variants": [
+        "Не убойся, ибо Я с тобою, не ужасайся, ибо Я Бог твой, укреплю тебя",
+        "Покойся на Господа, и упование Его возложи на Него, и Он сделает",
+        "Господь — прибежище мое и щит мой, в Нем уповаю, и Он поможет мне",
+        "Милость Господня окружает человека, боящегося Его, и уготовает ему вечно",
+        "Сердце мое не убоится, ибо на Господа уповаю, и не убоюсь, пока живу",
+        "Покойся в Господе, и упокойся на Него, и Он даст тебе то, что просишь"
+      ],
+      "latency_ms": 1774,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "ru-006",
+      "language": "ru",
+      "variants": [
+        "Я — свет миру, идущий во тьме, да не убоится, но будет светлый путь",
+        "Господь — свет мой и спасение, кого же боюсь? Господь — укрепление жизни моей",
+        "Просвети очи мои, да увижу чудеса закона Твоего",
+        "Сияй, как свет, на пути моих, и не оставь меня в тьме",
+        "Господь укажет мне путь, и свет Его будет передо мной",
+        "Ты утвердишь стопы мои на пути, и свет Твой будет на мне"
+      ],
+      "latency_ms": 1507,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "ru-007",
+      "language": "ru",
+      "variants": [
+        "Мир Мой дам вам, мир Мой даю вам, не как мир дает, дам Я вам",
+        "Не убойся, ибо Я с тобою, не ужасайся, ибо Я Бог твой",
+        "Покойтеся, и познайте, что Я Бог; Я вознесусь среди народов",
+        "Блаженны миротворцы, ибо они будут наречены сынами Божиими",
+        "Упование на Господа, и укрепится душа твоя, и укрепится душа твоя",
+        "Господь да будет мир вашему сердцу, и да будет мир вашему дому"
+      ],
+      "latency_ms": 1695,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "ru-008",
+      "language": "ru",
+      "variants": [
+        "Не убойся, ибо Я с тобою, ибо Я с тобою, ибо Я с тобою",
+        "Упование на Господа — крепкая крепость, и в Нем уповают сердца",
+        "Господь — утешение и сила, помощь в скорбях, и в Нем не убоюсь",
+        "Милость Господа — на всех, кто уповают на Него, и милость Его не иссякнет",
+        "Господь — пастырь мой, ибо я не буду иметь недостатка",
+        "Я с тобою всегда, даже до скончания века, говорит Господь"
+      ],
+      "latency_ms": 1726,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "ru-010",
+      "language": "ru",
+      "variants": [
+        "Будьте милостивы друг к другу, прощая друг другу, как и Бог прощает вас",
+        "Если же вы не будете прощать людям их проступки, то и Отец ваш Небесный не простит вам ваших проступков",
+        "Не убойся, ибо Я с тобою, и никто не будет против тебя",
+        "Покой и мир да будут с вами, и с вами будет милость Божия",
+        "Приидите ко Мне, все труждающиеся и обременённые, и Я успокою вас",
+        "Блаженны миротворцы, ибо они будут названы сынами Божиими"
+      ],
+      "latency_ms": 1610,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "en-001",
+      "language": "en",
+      "variants": [
+        "I will give thanks to the LORD with all my heart",
+        "The LORD is my strength and my shield",
+        "He who calls you is faithful, and he will do it",
+        "The LORD will perfect what concerns me",
+        "I will walk before the LORD in the land of the living",
+        "The LORD will guide me in the path of life"
+      ],
+      "latency_ms": 827,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "en-002",
+      "language": "en",
+      "variants": [
+        "the LORD is close to the brokenhearted and saves those who are crushed in spirit",
+        "I will never leave you nor forsake you",
+        "blessed are those who mourn, for they will be comforted",
+        "the Lord is my shepherd, I lack nothing",
+        "I am with you always, to the very end of the age",
+        "he will wipe every tear from their eyes"
+      ],
+      "latency_ms": 982,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "en-003",
+      "language": "en",
+      "variants": [
+        "do not be anxious about anything",
+        "the peace of God will guard your hearts and minds",
+        "I am with you always even to the end of the age",
+        "the LORD is my shepherd I shall not want",
+        "blessed are the peacemakers for they will be called children of God",
+        "I have told you these things so that you may have peace in me"
+      ],
+      "latency_ms": 867,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "en-004",
+      "language": "en",
+      "variants": [
+        "the LORD is close to the brokenhearted and saves those who are crushed in spirit",
+        "do not be anxious about anything, but in everything by prayer and supplication with thanksgiving let your requests be made known to God",
+        "I will never leave you nor forsake you",
+        "the LORD your God is with you wherever you go",
+        "he who began a good work in you will carry it on to completion",
+        "I will restore what was lost and give you double for your sorrow"
+      ],
+      "latency_ms": 1045,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "en-005",
+      "language": "en",
+      "variants": [
+        "you are fearfully and wonderfully made",
+        "I will never leave you nor forsake you",
+        "you are a chosen race, a royal priesthood",
+        "the Lord your God is with you wherever you go",
+        "I have loved you with an everlasting love",
+        "you are precious in my sight and honored"
+      ],
+      "latency_ms": 727,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "en-007",
+      "language": "en",
+      "variants": [
+        "the LORD is near to the brokenhearted and saves those who are crushed in spirit",
+        "I will never leave you nor forsake you",
+        "everyone who calls on the name of the LORD will be saved",
+        "I will bring you back to the place from which I sent you",
+        "the LORD your God is with you wherever you go",
+        "I will pour out my Spirit on all people and your children will prophesy"
+      ],
+      "latency_ms": 938,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "uk-001",
+      "language": "uk",
+      "variants": [
+        "Благодаріти Господа за милість Його, бо він вірно відповів на наші виклики",
+        "Не бійся, бо я з тобою, і вірно відповів на кожне твоє страждання",
+        "Потіха моя — Господь, бо він не відійшов від мене в рік бід",
+        "Милість Господа не відмінна, бо він вірно відкрив двері відкриття",
+        "Господь — мій пастух, і нічого не відійде від мене в рік турботи",
+        "Вірність Господа вічна, і він вірно відповів на кожне моє благання"
+      ],
+      "latency_ms": 2445,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "uk-002",
+      "language": "uk",
+      "variants": [
+        "Не бійся, бо Я з тобою, і ніхто не зможе тобі завадити",
+        "Господь — щит твій, слава твоя, і він підніме тебе",
+        "Потіха твоя від Господа, і він не відійде від тебе",
+        "Він зберігатиме твоїх близьких, як зіницю ока",
+        "Господь дасть тобі мир, і серце твоє не буде тривожитись",
+        "Він підніме тебе, як орел, і не відійде від тебе"
+      ],
+      "latency_ms": 1975,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "uk-003",
+      "language": "uk",
+      "variants": [
+        "Дякую Тобі, Господи, бо Ти благий, і милість Твоя вічна",
+        "Потіха моя — Господь, він відповість мені на всі дні",
+        "Не бійся, бо Я з тобою, і не злякайся, бо Я — Бог твій",
+        "Господь — мій пастух, нічого мені не потрібно",
+        "Милість Господа — від віку, і вічна любов Його до тих, що Його бояться",
+        "Уповати на Господа — добре, бо він зберігає душу свою"
+      ],
+      "latency_ms": 1860,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "uk-004",
+      "language": "uk",
+      "variants": [
+        "Господь буде перед тобою, щоб провести тебе по шляху твоєму",
+        "Не бійся, бо Я з тобою, не злякайся, бо Я — твій Бог",
+        "Потіха твоя від Господа, що відкриває тобі шлях у тіні Своєї крил",
+        "Уповати на Господа, і він зробить тобі дорогу, як він зробив для Авраама",
+        "Милість Господа буде перед тобою, і він зробить тобі шлях прямим",
+        "Господь веде сім'ю свою, як овець, і вони не злякаються шляху"
+      ],
+      "latency_ms": 2050,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "uk-005",
+      "language": "uk",
+      "variants": [
+        "Не бійся, бо я з тобою, не турбуйся, бо я тобі помагаю",
+        "Господь — мій пастух, нічого мені не потрібно",
+        "Бог близький до серця розбитого, він спасає дух розчарований",
+        "Я не покину тебе, ніколи не тобі, якщо ти мене згадаєш",
+        "Потіха твоя — вічна, бо я твій Бог, твій щасливий спадкоємець",
+        "Слухай мене, бо я тобі вказую шлях, якщо ти мене звісно відкриєш"
+      ],
+      "latency_ms": 1947,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "uk-007",
+      "language": "uk",
+      "variants": [
+        "Уповати на Господа, і він утвердить твої думки",
+        "Не бійся, бо Я з тобою, і з твоїми дітьми, і вони не зазнають шкоди",
+        "Дай мені мудрості, щоб виховувати дітей у стежці Господній",
+        "Потіха твоя буде від Господа, і милість Його не відійде від дітей твоїх",
+        "Господь виховує дитину, як він хоче, і веде її стежкою, що він вибрав",
+        "Нехай діти твої ростуть у милості Господній, і вони будуть як зелені дерева в саду"
+      ],
+      "latency_ms": 2224,
+      "attempts": 1,
+      "error": null
+    }
+  ]
+}

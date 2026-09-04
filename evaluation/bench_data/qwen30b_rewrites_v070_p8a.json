@@ -1,0 +1,527 @@
+{
+  "meta": {
+    "model": "qwen3-30b-a3b-instruct-2507",
+    "date": "2026-09-04",
+    "prompt_version": "8a",
+    "prompt_revision": 1,
+    "rewrite_prompt_version": 7,
+    "scenarios_version": "0.7.0",
+    "endpoint": "https://llm.ai2.ru:18443",
+    "sampling": {
+      "temperature": 0.0,
+      "max_tokens": 1024,
+      "response_format": "json_object",
+      "variants": 6
+    },
+    "partial": false,
+    "scenarios_covered": [
+      "ru-001",
+      "ru-002",
+      "ru-003",
+      "ru-004",
+      "ru-005",
+      "ru-006",
+      "ru-007",
+      "ru-008",
+      "ru-010",
+      "en-001",
+      "en-002",
+      "en-003",
+      "en-004",
+      "en-005",
+      "en-007",
+      "uk-001",
+      "uk-002",
+      "uk-003",
+      "uk-004",
+      "uk-005",
+      "uk-007"
+    ],
+    "scenarios_expected": 21
+  },
+  "scenarios": [
+    {
+      "id": "ru-001",
+      "language": "ru",
+      "variants": [
+        "Яхве, Ты сотворил внутренности мои и сплел меня в чреве материнском; благодарю Тебя, что я чудесен и превосходен.",
+        "Дети — наследие от Господа, плод чрева — награда.",
+        "Сей день, который сотворил Господь, да будет радостен и весел!",
+        "Не убойся, ибо Я с тобою; не ужасайся, ибо Я Бог твой; Я укреплю тебя, помогу тебе, поддержу правою рукою Своею.",
+        "Господь милостив и человеколюбив, долготерпелив и великодушен.",
+        "Господь — пастырь мой, ничего не будет мне недоставать."
+      ],
+      "latency_ms": 3224,
+      "attempts": 1,
+      "error": null,
+      "refs": [
+        "Psalm 139:13-14",
+        "Psalm 127:3",
+        "Psalm 118:24",
+        "Isaiah 41:10",
+        "Psalm 103:8",
+        "Psalm 23:1"
+      ]
+    },
+    {
+      "id": "ru-002",
+      "language": "ru",
+      "variants": [
+        "Я научу тебя и направлю тебя по пути, которой должна идти, уставлю на тебя глаза мои.",
+        "Не убойся, ибо Я с тобою; не ужасайся, ибо Я Бог твой; Я укреплю тебя, помогу тебе, поддержу правою рукою моей.",
+        "Ищите прежде Царства Божия и правды Его, и все это приложится вам.",
+        "Господь пастырь мой, ничем не буду нуждаться.",
+        "Не тревожьтесь ни о чем, но во всём предавайте Богу прошения ваша, с благодарением.",
+        "Веруй в Господа всего сердцем твоим, и не уповая на разум свой."
+      ],
+      "latency_ms": 2775,
+      "attempts": 1,
+      "error": null,
+      "refs": [
+        "Psalm 32:8",
+        "Isaiah 41:10",
+        "Matthew 6:33",
+        "Psalm 23:1",
+        "Philippians 4:6-7",
+        "Proverbs 3:5-6"
+      ]
+    },
+    {
+      "id": "ru-003",
+      "language": "ru",
+      "variants": [
+        "Бог близок к сердцам сокрушенных и спасает униженных духом",
+        "Не убойся, ибо Я с тобою; не ужасайся, ибо Я Бог твой; укреплю тебя, помогу тебе, удержу правою рукою моей",
+        "Приидите ко Мне, все труждающиеся и обремененные, и Я успокою вас",
+        "Да, хотя и пойду я по долине тени смертной, не убоюсь зла, ибо Ты со мною; жезл Твой и杖 Твой — они утешают меня",
+        "И отнимет Бог всякая слеза с очей их, и смерти не будет уже; ни плача, ни крика, ни боли не будет уже",
+        "Не будем же скорбеть, как иные, которые не имеют надежды"
+      ],
+      "latency_ms": 3173,
+      "attempts": 1,
+      "error": null,
+      "refs": [
+        "Psalm 34:18",
+        "Isaiah 41:10",
+        "Matthew 11:28",
+        "Psalm 23:4",
+        "Revelation 21:4",
+        "1 Thessalonians 4:13"
+      ]
+    },
+    {
+      "id": "ru-004",
+      "language": "ru",
+      "variants": [
+        "Я научу тебя и укажу тебе путь, по которому должна идти; наставлю тебя глазами моими.",
+        "Не убойся, ибо Я с тобою; не ужасайся, ибо Я Бог твой; Я укреплю тебя, помогу тебе, поддержу правою рукою моей.",
+        "Приидите ко Мне, все труждающиеся и обременённые, и Я успокою вас.",
+        "Да, хотя иду я долиною тени смертной, не убоюсь зла, ибо Ты со мною; жезл Твой и посошок Твой — они утешают меня.",
+        "Ибо Я помышляю о вас мысли благие, а не злые, чтобы дать вам будущность и надежду.",
+        "Не тревожьтесь ни о чём, но во всём творите молитву и прошение, с благодарением, и да будет ваша просьба известна Богу; и мир Божий, который превосходит всякое разумение, сохранит сердца ваши и разум "
+      ],
+      "latency_ms": 3554,
+      "attempts": 1,
+      "error": null,
+      "refs": [
+        "Psalm 32:8",
+        "Isaiah 41:10",
+        "Matthew 11:28",
+        "Psalm 23:4",
+        "Jeremiah 29:11",
+        "Philippians 4:6-7"
+      ]
+    },
+    {
+      "id": "ru-005",
+      "language": "ru",
+      "variants": [
+        "Успокойтесь и познайте, что Я Бог; Я вознесён между народами, Я вознесён на земле.",
+        "Не убойся, ибо Я с тобою; не ужасайся, ибо Я Бог твой; Я укреплю тебя, помогу тебе, удержу тебя правою рукою моей.",
+        "Приидите ко Мне, все труждающиеся и обременённые, и Я успокою вас.",
+        "Ибо Ты со мною; жезл Твой и посошок Твой — они утешают меня.",
+        "Не тревожьтесь ни о чём, но во всём предложите прошения и молитвы с благодарением в лицо Богу; и мир Божий, превосходящий всякое разумение, сохранит сердца ваши и разум ваши во Христе Иисусе.",
+        "Бог близок к сердцам сокрушенных и спасает духи сокрушенных."
+      ],
+      "latency_ms": 3411,
+      "attempts": 1,
+      "error": null,
+      "refs": [
+        "Psalm 46:10",
+        "Isaiah 41:10",
+        "Matthew 11:28",
+        "Psalm 23:4",
+        "Philippians 4:6-7",
+        "Psalm 34:18"
+      ]
+    },
+    {
+      "id": "ru-006",
+      "language": "ru",
+      "variants": [
+        "Ты светильник моему свету; Господи, Бог мой, освети мне тьму",
+        "Народ, сидевший во тьме, увидел великое светило; на жителях земли, сидевших во мраке, свет осветил",
+        "Я свет миру; кто следует за Мною, тот не будет ходить во тьме, но будет иметь свет жизни",
+        "Слово Твоё — светильник стопе моей и свет на пути моём",
+        "Учение Твоё — светильник, наставление — свет, жизнь — путь",
+        "Вы — свет мира; не может скрываться город, построенный на горе; да светит свет ваш пред людьми, чтобы они видели ваши добрые дела"
+      ],
+      "latency_ms": 2832,
+      "attempts": 1,
+      "error": null,
+      "refs": [
+        "Psalm 18:28",
+        "Isaiah 9:2",
+        "John 8:12",
+        "Psalm 119:105",
+        "Proverbs 6:23",
+        "Matthew 5:14-16"
+      ]
+    },
+    {
+      "id": "ru-007",
+      "language": "ru",
+      "variants": [
+        "Я научу тебя и направлю тебя по пути, который должен идти, наставлю тебя глазами моими.",
+        "Не убойся, ибо Я с тобою; не ужасайся, ибо Я Бог твой; Я укреплю тебя, помогу тебе, поддержу правою рукою моей.",
+        "Приидите ко Мне, все труждающиеся и обременённые, и Я успокою вас.",
+        "В мире лягу и усну, ибо Ты, Господи, одни укрепляешь меня.",
+        "Не заботьтесь ни о чём, но во всём творите молитву и прошение с благодарением, и мир Божий, который превосходит всякое разумение, сохранит сердца ваши и разум ваши в Христе Иисусе.",
+        "Господь — пастырь мой, ничему не буду нуждаться. Он покоит меня на зелёных лугах, водит меня к водам тихим."
+      ],
+      "latency_ms": 3325,
+      "attempts": 1,
+      "error": null,
+      "refs": [
+        "Psalm 32:8",
+        "Isaiah 41:10",
+        "Matthew 11:28",
+        "Psalm 4:8",
+        "Philippians 4:6-7",
+        "Psalm 23:1-2"
+      ]
+    },
+    {
+      "id": "ru-008",
+      "language": "ru",
+      "variants": [
+        "Я научу тебя и направлю тебя по пути, которой должна идти, возложу на тебя глаза мои",
+        "Не убойся, ибо Я с тобою; не ужасайся, ибо Я Бог твой; укреплю тебя, помогу тебе, удержу тебя правою рукою моей",
+        "Приидите ко Мне, все труждающиеся и обременённые, и Я успокою вас",
+        "Ибо Ты со мною; жезл Твой и посошок Твой — они утешают меня",
+        "Не тужите ни о чём, но во всём предложите прошения и молитвы с благодарением в лицо Богу; и мир Божий, превосходящий всякое разумение, сохранит сердца ваши и разум ваши во Христе Иисусе",
+        "Ибо Я знаю мысли Мои, мысли о мире, а не о зле, чтобы дать вам будущее и надежду"
+      ],
+      "latency_ms": 3394,
+      "attempts": 1,
+      "error": null,
+      "refs": [
+        "Psalm 32:8",
+        "Isaiah 41:10",
+        "Matthew 11:28",
+        "Psalm 23:4",
+        "Philippians 4:6-7",
+        "Jeremiah 29:11"
+      ]
+    },
+    {
+      "id": "ru-010",
+      "language": "ru",
+      "variants": [
+        "Если же приносишь дар твой на жертвенник, и там вспомнишь, что брат твой имеет что-либо против тебя, оставь там дар твой пред жертвенником, и пойди прежде помириться с братом твоим, и тогда приди и пр",
+        "Я научу тебя и укажу тебе путь, по которому должна идти; наставлю тебя глазами моими",
+        "Когда человек угоден Господу, и враги его мирятся с ним",
+        "Не убойся, ибо Я с тобою; не ужасайся, ибо Я Бог твой; Я укреплю тебя, помогу тебе, поддержу правою рукою моей",
+        "Если возможно, во всем — по возможности — живите в мире с всеми людьми",
+        "Прощайте друг другу, как и Господь простил вас"
+      ],
+      "latency_ms": 3161,
+      "attempts": 1,
+      "error": null,
+      "refs": [
+        "Matthew 5:23-24",
+        "Psalm 32:8",
+        "Proverbs 16:7",
+        "Isaiah 41:10",
+        "Romans 12:18",
+        "Colossians 3:13"
+      ]
+    },
+    {
+      "id": "en-001",
+      "language": "en",
+      "variants": [
+        "I will instruct you and teach you in the way you should go; I will counsel you with my eye upon you",
+        "Trust in the LORD with all your heart and do not rely on your own understanding; acknowledge him in all your ways, and he will make your paths straight",
+        "Do not be anxious about anything, but in everything by prayer and supplication with thanksgiving let your requests be made known to God",
+        "Do not fear, for I am with you; do not be dismayed, for I am your God. I will strengthen you and help you; I will uphold you with my righteous right hand",
+        "For you formed my inward parts; you knit me together in my mother's womb. I praise you because I am fearfully and wonderfully made",
+        "For I know the plans I have for you, declares the LORD, plans to prosper you and not to harm you, plans to give you hope and a future"
+      ],
+      "latency_ms": 2894,
+      "attempts": 1,
+      "error": null,
+      "refs": [
+        "Psalm 32:8",
+        "Proverbs 3:5-6",
+        "Philippians 4:6-7",
+        "Isaiah 41:10",
+        "Psalm 139:13-14",
+        "Jeremiah 29:11"
+      ]
+    },
+    {
+      "id": "en-002",
+      "language": "en",
+      "variants": [
+        "The LORD is close to the brokenhearted and saves those who are crushed in spirit",
+        "Blessed are those who mourn, for they will be comforted",
+        "Do not fear, for I am with you; do not be dismayed, for I am your God",
+        "He will wipe every tear from their eyes, and there will be no more death or mourning",
+        "The LORD is my shepherd, I lack nothing",
+        "We do not want you to be uninformed, brothers, about those who sleep in death"
+      ],
+      "latency_ms": 2264,
+      "attempts": 1,
+      "error": null,
+      "refs": [
+        "Psalm 34:18",
+        "Matthew 5:4",
+        "Isaiah 41:10",
+        "Revelation 21:4",
+        "Psalm 23:1",
+        "1 Thessalonians 4:13"
+      ]
+    },
+    {
+      "id": "en-003",
+      "language": "en",
+      "variants": [
+        "Peace I leave with you, my peace I give to you. Not as the world gives do I give to you.",
+        "And the peace of God, which surpasses all understanding, will guard your hearts and your minds in Christ Jesus.",
+        "You will keep in perfect peace all who trust in you, because they trust in you.",
+        "The LORD gives strength to his people; the LORD blesses his people with peace.",
+        "May the God of hope fill you with all joy and peace as you trust in him.",
+        "I have returned to Jerusalem with mercy, and my house will be rebuilt."
+      ],
+      "latency_ms": 2265,
+      "attempts": 1,
+      "error": null,
+      "refs": [
+        "John 14:27",
+        "Philippians 4:7",
+        "Isaiah 26:3",
+        "Psalm 29:11",
+        "Romans 15:13",
+        "Zechariah 1:16"
+      ]
+    },
+    {
+      "id": "en-004",
+      "language": "en",
+      "variants": [
+        "Do not fear, for I am with you; do not be dismayed, for I am your God. I will strengthen you and help you; I will uphold you with my righteous right hand.",
+        "As a father has compassion on his children, so the LORD has compassion on those who fear him.",
+        "In their hearts humans plan their course, but the LORD establishes their steps.",
+        "It is not the will of my Father in heaven that one of these little ones should perish.",
+        "For I know the plans I have for you, declares the LORD, plans to prosper you and not to harm you, plans to give you hope and a future.",
+        "Do not be anxious about anything, but in every situation, by prayer and petition, with thanksgiving, present your requests to God. And the peace of God, which transcends all understanding, will guard "
+      ],
+      "latency_ms": 2796,
+      "attempts": 1,
+      "error": null,
+      "refs": [
+        "Isaiah 41:10",
+        "Psalm 103:13",
+        "Proverbs 16:9",
+        "Matthew 18:14",
+        "Jeremiah 29:11",
+        "Philippians 4:6-7"
+      ]
+    },
+    {
+      "id": "en-005",
+      "language": "en",
+      "variants": [
+        "You formed my inward parts; you knit me together in my mother's womb. I praise you because I am fearfully and wonderfully made.",
+        "Do not fear, for I am with you; do not be dismayed, for I am your God. I will strengthen you and help you.",
+        "Even the hairs of your head are all numbered.",
+        "For I know the plans I have for you, declares the LORD, plans to prosper you and not to harm you, plans to give you hope and a future.",
+        "Cast all your anxiety on him because he cares for you.",
+        "For I am convinced that neither death nor life, neither angels nor demons, neither the present nor the future, nor any powers, will be able to separate us from the love of God that is in Christ Jesus "
+      ],
+      "latency_ms": 2758,
+      "attempts": 1,
+      "error": null,
+      "refs": [
+        "Psalm 139:13-14",
+        "Isaiah 41:10",
+        "Matthew 10:30",
+        "Jeremiah 29:11",
+        "1 Peter 5:7",
+        "Romans 8:38-39"
+      ]
+    },
+    {
+      "id": "en-007",
+      "language": "en",
+      "variants": [
+        "Seek the LORD while he may be found, call on him while he is near",
+        "You will seek me and find me when you seek me with all your heart",
+        "Come to me, all you who are weary and burdened, and I will give you rest",
+        "As surely as I live, declares the Sovereign LORD, I take no pleasure in the death of the wicked",
+        "The LORD is merciful and gracious, slow to anger, abounding in steadfast love",
+        "For there is one God and one mediator between God and mankind, the man Christ Jesus"
+      ],
+      "latency_ms": 2274,
+      "attempts": 1,
+      "error": null,
+      "refs": [
+        "Isaiah 55:6-7",
+        "Jeremiah 29:13",
+        "Matthew 11:28",
+        "Ezekiel 33:11",
+        "Psalm 103:8",
+        "1 Timothy 2:5-6"
+      ]
+    },
+    {
+      "id": "uk-001",
+      "language": "uk",
+      "variants": [
+        "Я наставлю тебе і вкажу тобі шлях, яким треба йти, і наставлю тебе очима моїми",
+        "Господь милосердний і благий, повний милості і милосердя",
+        "Бог же ваш відповість усім потребам вашим за багатством Свого велелепства в славі",
+        "Не бійся, бо я з тобою; не турбуйся, бо я твій Бог; я утвердив тебе, допоміг тобі, підтримав рукою спасіння моєго",
+        "Не турбуйтеся про життя ваше, що їсти, чи пити, чи про тіло ваше, що одягати",
+        "Господь — пастух мій, я не матиму потреби"
+      ],
+      "latency_ms": 3183,
+      "attempts": 1,
+      "error": null,
+      "refs": [
+        "Psalm 32:8",
+        "Psalm 103:8",
+        "Philippians 4:19",
+        "Isaiah 41:10",
+        "Matthew 6:25-26",
+        "Psalm 23:1"
+      ]
+    },
+    {
+      "id": "uk-002",
+      "language": "uk",
+      "variants": [
+        "Бо велів Ангелам своїм охороняти тебе на всіх шляхах твоїх",
+        "Не бійся, бо я з тобою; не злякайся, бо я твій Бог; утверджу тебе, допоможу тобі, утримаю правою рукою моєю",
+        "Але й волосинка на голові твоїй всім відома; не бійся, бо ви всі дорожчі за багато лелечок",
+        "Хоч і піду я долиною смертною, не боятимусь лиха, бо Ти зі мною",
+        "Бо ясно знаю думки мої над тобою, думки про мир, а не про лихо, щоб дати тобі майбутнє і сподівання",
+        "Господь охоронить тебе від усього лиха; охоронить душу твою"
+      ],
+      "latency_ms": 3544,
+      "attempts": 1,
+      "error": null,
+      "refs": [
+        "Psalm 91:11-12",
+        "Isaiah 41:10",
+        "Matthew 10:30",
+        "Psalm 23:4",
+        "Jeremiah 29:11",
+        "Psalm 121:7-8"
+      ]
+    },
+    {
+      "id": "uk-003",
+      "language": "uk",
+      "variants": [
+        "Ввійдіть до Його воріт з дякуванням, до Його палат з хвальною співом, віддайте Йому, благословіть ім'я Його",
+        "Дякуйте в усіх обставинах, бо це воля Божа для вас у Христі Ісусі",
+        "Дякуйте Господеві, бо він добр, бо вічна милість Його",
+        "Не турбуйтеся нічим, але в усьому в молитві та проханні з дякуванням відкривайте свої прохання Богові",
+        "Дякуватиму Господеві в усі дні, хвала Його в устах моїх завжди",
+        "І все, що ви робите словом чи ділом, робіть у ім'я Господа Ісуса, дякуючи Богові Отцю"
+      ],
+      "latency_ms": 3504,
+      "attempts": 1,
+      "error": null,
+      "refs": [
+        "Psalm 100:4",
+        "1 Thessalonians 5:18",
+        "Psalm 118:1",
+        "Philippians 4:6",
+        "Psalm 34:1",
+        "Colossians 3:17"
+      ]
+    },
+    {
+      "id": "uk-004",
+      "language": "uk",
+      "variants": [
+        "Я наставлю тебе, і вкажу тобі шлях, яким треба йти; я наставлю тебе очима моїми",
+        "Не бійся, бо я з тобою; не турбуйся, бо я твій Бог; я утверджу тебе, допоможу тобі, утримаю правою рукою моєю",
+        "Уповати на Господа всім серцем твоїм, і не визнавай своїх шляхів; він вирівняє стежки твої",
+        "Господь утвердив мене на висоті, і відкрив руку мою, щоб боровся з ворогами",
+        "Якщо я думаю про вас думки мирні, а не злидні, щоб дати вам майбутнє і сподівання",
+        "Придіть до мене, усі, хто втомує і тягарно навантажений, і я дам вам потіху"
+      ],
+      "latency_ms": 3561,
+      "attempts": 1,
+      "error": null,
+      "refs": [
+        "Psalm 32:8",
+        "Isaiah 41:10",
+        "Proverbs 3:5-6",
+        "Psalm 18:35",
+        "Jeremiah 29:11",
+        "Matthew 11:28"
+      ]
+    },
+    {
+      "id": "uk-005",
+      "language": "uk",
+      "variants": [
+        "Хоча й пішов я через долину тіні смертної, не побоюся лиха, бо Ти зі мною",
+        "Не бійся, бо Я з Тобою; не турбуйся, бо Я — Бог Твій; Я утвердив Тебе, допоміг Тобі, утримав Твій рід",
+        "Ось Я з вами всі дні, до завершення віку; і вірте, бо Я з вами",
+        "Якщо я скажу: «Нехай тьма прикриє мене, щоб ніхто не бачив мене», то навіть тьма не прикриє мене, бо ніч як день світла для Тебе",
+        "Бо Я знаю думки, що думаю про вас, — думки про мир, а не про лихо, щоб дати вам майбутнє і сподівання",
+        "Не бійся, бо Я з Тобою, і ніколи не покину тебе, ніколи не залишу"
+      ],
+      "latency_ms": 3773,
+      "attempts": 1,
+      "error": null,
+      "refs": [
+        "Psalm 23:4",
+        "Isaiah 41:10",
+        "Matthew 28:20",
+        "Psalm 139:11-12",
+        "Jeremiah 29:11",
+        "Hebrews 13:5"
+      ]
+    },
+    {
+      "id": "uk-007",
+      "language": "uk",
+      "variants": [
+        "Почни дитину по дорозі, якою вона має йти, і навіть у старості не відійде від неї.",
+        "Господь охоронить тебе від усього зла, охоронить душу твою. Господь охоронить твій вихід і твій вхід від теперішнього і до вічності.",
+        "Не бійся, бо я з тобою; не злякайся, бо я твій Бог; утверджу тебе, допоможу тобі, утримаю тебе правою рукою моєї праведності.",
+        "Молоді леви голодують і страждають, а ті, що шукають Господа, не лишилися без усього доброго.",
+        "Бо я знаю розуміння моє, що думки мої над тобою — думки про мир, а не про лихо, щоб дати тобі майбутнє і сподівання.",
+        "Не турбуйся про ніщо, але в усьому відкривай просяння і молитву з подякою перед Богом, і мир Божий, що перевищує всяке розуміння, охоронить серця твої і розум твої в Христі Ісусі."
+      ],
+      "latency_ms": 4488,
+      "attempts": 1,
+      "error": null,
+      "refs": [
+        "Proverbs 22:6",
+        "Psalm 121:7-8",
+        "Isaiah 41:10",
+        "Psalm 34:10",
+        "Jeremiah 29:11",
+        "Philippians 4:6-7"
+      ]
+    }
+  ]
+}
