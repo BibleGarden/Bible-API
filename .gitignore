@@ -16,6 +16,11 @@ evaluation/bench_data/*
 !evaluation/bench_data/*_rewrites_*.json
 !evaluation/bench_data/*_reranks_*.json
 !evaluation/bench_data/*.tsv
+# Sense files (*_senses_*.jsonl) are generated once by a strong model and
+# cannot be regenerated identically; the offline answer files and the batch
+# files they came from stay local (regenerable with prepare / kept as inputs).
+!evaluation/bench_data/*_senses_*.jsonl
+!evaluation/bench_data/*_senses_*.jsonl.meta.json
 # The probe id list is a few hundred bytes and is what makes the
 # description probe set (86cbeef7h) reproducible on another machine.
 !evaluation/bench_data/description_probe_ids.txt

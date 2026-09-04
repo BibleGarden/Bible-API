@@ -1,0 +1,62 @@
+# hard/soft probe set for the description prompt (ClickUp 86cbeef7h)
+# alias	canonical_id	kind	label
+syn	v3:18.004.001-011	hard	Job: Eliphaz accuses
+syn	v3:18.022.001-011	hard	Job: Eliphaz "is not your wickedness great"
+syn	v3:05.028.015-024	hard	Deut 28 curses
+syn	v3:40.010.028-031	hard	Mt 10:28 fear him who can destroy
+syn	v3:19.109.001-031	hard	Ps 109 imprecatory
+syn	v3:19.137.001-009	hard	Ps 137 imprecatory
+syn	v3:19.069.014-028	hard	Ps 69 imprecatory
+syn	v3:19.088.000-018	hard	Ps 88 unrelieved darkness
+syn	v3:66.020.011-015	hard	Rev 20 judgement
+syn	v3:55.006.001-010	hard	Gal 6 reaping what is sown
+syn	v3:19.023.001-006	soft	Ps 23
+syn	v3:23.043.001-013	soft	Isa 43 fear not
+syn	v3:40.006.025-034	soft	Mt 6 do not worry
+syn	v3:43.014.015-031	soft	John 14 Comforter
+syn	v3:52.008.026-039	soft	Rom 8 nothing separates
+syn	v3:53.001.001-003	soft	2 Cor 1 God of all comfort
+syn	v3:19.035.014-028	soft	Ps 34 close to broken-hearted
+syn	v3:57.004.001-009	soft	Phil 4 peace of God
+syn	v3:23.040.028-031	soft	Isa 40 renew strength
+syn	v3:46.005.001-011	soft	1 Pet 5 cast your care
+bsb	v3:18.004.001-011	hard	Job: Eliphaz accuses
+bsb	v3:18.022.001-011	hard	Job: Eliphaz "is not your wickedness great"
+bsb	v3:05.028.015-024	hard	Deut 28 curses
+bsb	v3:40.010.028-031	hard	Mt 10:28 fear him who can destroy
+bsb	v3:19.109.001-015	hard	Ps 109 imprecatory
+bsb	v3:19.137.001-009	hard	Ps 137 imprecatory
+bsb	v3:19.069.014-028	hard	Ps 69 imprecatory
+bsb	v3:19.088.000-018	hard	Ps 88 unrelieved darkness
+bsb	v3:66.020.011-015	hard	Rev 20 judgement
+bsb	v3:55.006.001-010	hard	Gal 6 reaping what is sown
+bsb	v3:19.023.001-006	soft	Ps 23
+bsb	v3:23.043.001-013	soft	Isa 43 fear not
+bsb	v3:40.006.025-034	soft	Mt 6 do not worry
+bsb	v3:43.014.015-031	soft	John 14 Comforter
+bsb	v3:52.008.026-039	soft	Rom 8 nothing separates
+bsb	v3:53.001.001-003	soft	2 Cor 1 God of all comfort
+bsb	v3:19.034.000-022	soft	Ps 34 close to broken-hearted
+bsb	v3:57.004.001-009	soft	Phil 4 peace of God
+bsb	v3:23.040.028-031	soft	Isa 40 renew strength
+bsb	v3:46.005.001-011	soft	1 Pet 5 cast your care
+ubh	v3:18.004.001-011	hard	Job: Eliphaz accuses
+ubh	v3:18.022.001-011	hard	Job: Eliphaz "is not your wickedness great"
+ubh	v3:05.028.015-024	hard	Deut 28 curses
+ubh	v3:40.010.028-031	hard	Mt 10:28 fear him who can destroy
+ubh	v3:19.109.001-031	hard	Ps 109 imprecatory
+ubh	v3:19.137.001-009	hard	Ps 137 imprecatory
+ubh	v3:19.069.014-028	hard	Ps 69 imprecatory
+ubh	v3:19.088.000-018	hard	Ps 88 unrelieved darkness
+ubh	v3:66.020.011-015	hard	Rev 20 judgement
+ubh	v3:55.006.001-010	hard	Gal 6 reaping what is sown
+ubh	v3:19.023.001-006	soft	Ps 23
+ubh	v3:23.043.001-013	soft	Isa 43 fear not
+ubh	v3:40.006.025-034	soft	Mt 6 do not worry
+ubh	v3:43.014.015-031	soft	John 14 Comforter
+ubh	v3:52.008.026-039	soft	Rom 8 nothing separates
+ubh	v3:53.001.001-003	soft	2 Cor 1 God of all comfort
+ubh	v3:19.034.000-022	soft	Ps 34 close to broken-hearted
+ubh	v3:57.004.001-009	soft	Phil 4 peace of God
+ubh	v3:23.040.028-031	soft	Isa 40 renew strength
+ubh	v3:46.005.001-011	soft	1 Pet 5 cast your care
