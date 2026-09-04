@@ -1,5 +1,41 @@
 {
  "config": "pipeline rewrite=file:qwen3-30b-a3b-instruct-2507 variants=6 raw=no fusion=interleave blacklist=on pool=on lexical=k20 fetch_k=50 max_per_book=4",
+ "embedding_stage": {
+  "embedder": "gemini",
+  "model_id": "gemini-embedding-001",
+  "dims": 3072,
+  "peak_rss_mb": 451.1,
+  "query_embed_count": 126,
+  "query_embed_ms": {
+   "median": 0.0,
+   "mean": 0.0,
+   "max": 0.1
+  }
+ },
+ "doc_stage": {
+  "doc_text": "title_text",
+  "matrix_variant": "title_text",
+  "rows": 11960,
+  "fragments": 11960,
+  "senses": 0,
+  "missing_descriptions": 0,
+  "missing_by_language": {},
+  "coverage_by_language": {
+   "ru": 1.0,
+   "en": 1.0,
+   "uk": 1.0
+  },
+  "coverage_min": 1.0,
+  "allow_partial_coverage": false,
+  "languages": [
+   "ru",
+   "en",
+   "uk"
+  ],
+  "descriptions_file": "",
+  "descriptions_sha1": "",
+  "descriptions_meta": {}
+ },
  "aggregate": {
   "label": "ALL",
   "n": 24,
@@ -1858,10 +1894,19 @@
     "scenario_id": "en-005",
     "category": "sensitive",
     "grade": "relevant",
-    "chosen": "v3:19.139.001-024 (canonical 19 139:1-24)",
-    "method": "fallback_rank1",
-    "reason": "",
-    "highlight": null
+    "chosen": "v3:23.043.001-013 (canonical 23 43:1-13)",
+    "method": "rerank",
+    "reason": "This passage directly affirms the person's immense worth in God's eyes and His deep personal love.",
+    "highlight": {
+     "book": 23,
+     "chapter": 43,
+     "verse_start": 4,
+     "verse_end": 4,
+     "canonical_chapter": 43,
+     "canonical_verse_start": 4,
+     "canonical_verse_end": 4,
+     "text": "Because you are precious and honored in My sight, and because I love you, I will give men in exchange for you and nations in place of your life."
+    }
    },
    {
     "scenario_id": "en-006",

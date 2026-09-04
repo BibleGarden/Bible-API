@@ -1,5 +1,41 @@
 {
  "config": "pipeline rewrite=file:qwen3-30b-a3b-instruct-2507 variants=6 raw=no fusion=interleave blacklist=on pool=on lexical=k20 fetch_k=50 max_per_book=4",
+ "embedding_stage": {
+  "embedder": "gemini",
+  "model_id": "gemini-embedding-001",
+  "dims": 3072,
+  "peak_rss_mb": 450.9,
+  "query_embed_count": 126,
+  "query_embed_ms": {
+   "median": 0.0,
+   "mean": 0.0,
+   "max": 0.1
+  }
+ },
+ "doc_stage": {
+  "doc_text": "title_text",
+  "matrix_variant": "title_text",
+  "rows": 11960,
+  "fragments": 11960,
+  "senses": 0,
+  "missing_descriptions": 0,
+  "missing_by_language": {},
+  "coverage_by_language": {
+   "ru": 1.0,
+   "en": 1.0,
+   "uk": 1.0
+  },
+  "coverage_min": 1.0,
+  "allow_partial_coverage": false,
+  "languages": [
+   "ru",
+   "en",
+   "uk"
+  ],
+  "descriptions_file": "",
+  "descriptions_sha1": "",
+  "descriptions_meta": {}
+ },
  "aggregate": {
   "label": "ALL",
   "n": 24,
@@ -1668,11 +1704,20 @@
    {
     "scenario_id": "ru-002",
     "category": "regular",
-    "grade": "ungraded",
-    "chosen": "v3:19.037.018-033 (canonical 19 37:18-33)",
-    "method": "fallback_rank1",
-    "reason": "",
-    "highlight": null
+    "grade": "relevant",
+    "chosen": "v3:40.006.025-034 (canonical 40 6:25-34)",
+    "method": "rerank",
+    "reason": "This passage directly addresses anxiety about daily provision, food, and clothing, offering comfort and trust in the Heavenly Father's care.",
+    "highlight": {
+     "book": 40,
+     "chapter": 6,
+     "verse_start": 31,
+     "verse_end": 32,
+     "canonical_chapter": 6,
+     "canonical_verse_start": 31,
+     "canonical_verse_end": 32,
+     "text": "Итак не заботьтесь и не говорите: что нам есть? или что пить? или во что одеться? потому что всего этого ищут язычники, и потому что Отец ваш Небесный знает, что вы имеете нужду во всем этом."
+    }
    },
    {
     "scenario_id": "ru-003",
@@ -1714,37 +1759,73 @@
     "scenario_id": "ru-005",
     "category": "sensitive",
     "grade": "ungraded",
-    "chosen": "v3:23.035.003-004 (canonical 23 35:3-4)",
-    "method": "fallback_rank1",
-    "reason": "",
-    "highlight": null
+    "chosen": "v3:19.116.001-008 (canonical 19 116:1-8)",
+    "method": "rerank",
+    "reason": "The passage brings comfort in sleeplessness and anxiety, offering God's help and the return of peace to the soul.",
+    "highlight": {
+     "book": 19,
+     "chapter": 114,
+     "verse_start": 6,
+     "verse_end": 7,
+     "canonical_chapter": 116,
+     "canonical_verse_start": 6,
+     "canonical_verse_end": 7,
+     "text": "Хранит Господь простодушных: я изнемог, и Он помог мне. Возвратись, душа моя, в покой твой, ибо Господь облагодетельствовал тебя."
+    }
    },
    {
     "scenario_id": "ru-006",
     "category": "ambiguous",
     "grade": "relevant",
     "chosen": "v3:19.119.090-108 (canonical 19 119:90-108)",
-    "method": "fallback_rank1",
-    "reason": "",
-    "highlight": null
+    "method": "rerank",
+    "reason": "The candidate speaks directly about God's word being a lamp and a light to the path for one who is in darkness and distress.",
+    "highlight": {
+     "book": 19,
+     "chapter": 118,
+     "verse_start": 105,
+     "verse_end": 105,
+     "canonical_chapter": 119,
+     "canonical_verse_start": 105,
+     "canonical_verse_end": 105,
+     "text": "Слово Твое — светильник ноге моей и свет стезе моей."
+    }
    },
    {
     "scenario_id": "ru-007",
     "category": "ambiguous",
-    "grade": "ungraded",
-    "chosen": "v3:20.003.021-026 (canonical 20 3:21-26)",
-    "method": "fallback_rank1",
-    "reason": "",
-    "highlight": null
+    "grade": "relevant",
+    "chosen": "v3:57.004.001-009 (canonical 57 4:1-9)",
+    "method": "rerank",
+    "reason": "The passage offers peace in anxiety and calls for prayer when weary of conflicts.",
+    "highlight": {
+     "book": 57,
+     "chapter": 4,
+     "verse_start": 6,
+     "verse_end": 7,
+     "canonical_chapter": 4,
+     "canonical_verse_start": 6,
+     "canonical_verse_end": 7,
+     "text": "Не заботьтесь ни о чем, но всегда в молитве и прошении с благодарением открывайте свои желания пред Богом, и мир Божий, который превыше всякого ума, соблюдет сердца ваши и помышления ваши во Христе Иисусе."
+    }
    },
    {
     "scenario_id": "ru-008",
     "category": "short",
-    "grade": "ungraded",
-    "chosen": "v3:19.034.000-022 (canonical 19 34:0-22)",
-    "method": "fallback_rank1",
-    "reason": "",
-    "highlight": null
+    "grade": "acceptable",
+    "chosen": "v3:40.011.027-030 (canonical 40 11:27-30)",
+    "method": "rerank",
+    "reason": "Offers gentle comfort and rest to the burdened soul seeking help.",
+    "highlight": {
+     "book": 40,
+     "chapter": 11,
+     "verse_start": 28,
+     "verse_end": 28,
+     "canonical_chapter": 11,
+     "canonical_verse_start": 28,
+     "canonical_verse_end": 28,
+     "text": "Придите ко Мне все труждающиеся и обремененные, и Я успокою вас;"
+    }
    },
    {
     "scenario_id": "ru-009",
@@ -1777,10 +1858,19 @@
     "scenario_id": "en-001",
     "category": "regular",
     "grade": "ungraded",
-    "chosen": "v3:23.048.017-019 (canonical 23 48:17-19)",
-    "method": "fallback_rank1",
-    "reason": "",
-    "highlight": null
+    "chosen": "v3:19.100.001-005 (canonical 19 100:1-5)",
+    "method": "rerank",
+    "reason": "Candidate 6 invites thanksgiving and praise to God as the person begins a new chapter with a new job.",
+    "highlight": {
+     "book": 19,
+     "chapter": 100,
+     "verse_start": 4,
+     "verse_end": 4,
+     "canonical_chapter": 100,
+     "canonical_verse_start": 4,
+     "canonical_verse_end": 4,
+     "text": "Enter His gates with thanksgiving and His courts with praise; give thanks to Him and bless His name."
+    }
    },
    {
     "scenario_id": "en-002",

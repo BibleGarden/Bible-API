@@ -1,5 +1,41 @@
 {
  "config": "pipeline rewrite=file:qwen3-30b-a3b-instruct-2507 variants=6 raw=no fusion=interleave blacklist=on pool=on lexical=k20 fetch_k=50 max_per_book=4 coverage=21",
+ "embedding_stage": {
+  "embedder": "gemini",
+  "model_id": "gemini-embedding-001",
+  "dims": 3072,
+  "peak_rss_mb": 451.0,
+  "query_embed_count": 126,
+  "query_embed_ms": {
+   "median": 0.0,
+   "mean": 0.0,
+   "max": 0.1
+  }
+ },
+ "doc_stage": {
+  "doc_text": "title_text",
+  "matrix_variant": "title_text",
+  "rows": 11960,
+  "fragments": 11960,
+  "senses": 0,
+  "missing_descriptions": 0,
+  "missing_by_language": {},
+  "coverage_by_language": {
+   "ru": 1.0,
+   "en": 1.0,
+   "uk": 1.0
+  },
+  "coverage_min": 1.0,
+  "allow_partial_coverage": false,
+  "languages": [
+   "ru",
+   "en",
+   "uk"
+  ],
+  "descriptions_file": "",
+  "descriptions_sha1": "",
+  "descriptions_meta": {}
+ },
  "aggregate": {
   "label": "ALL",
   "n": 24,
@@ -1939,9 +1975,18 @@
     "category": "regular",
     "grade": "relevant",
     "chosen": "v3:19.103.001-022 (canonical 19 103:1-22)",
-    "method": "fallback_rank1",
-    "reason": "",
-    "highlight": null
+    "method": "rerank",
+    "reason": "This passage directly matches the theme of thanksgiving for God's goodness and steadfast love through a challenging year.",
+    "highlight": {
+     "book": 19,
+     "chapter": 103,
+     "verse_start": 1,
+     "verse_end": 2,
+     "canonical_chapter": 103,
+     "canonical_verse_start": 1,
+     "canonical_verse_end": 2,
+     "text": "Давида. Благослови, душе моя, Господа і все нутро моє — його святе ім'я. Благослови, душе моя, Господа і не забувай усіх добродійств його ніколи."
+    }
    },
    {
     "scenario_id": "uk-002",
