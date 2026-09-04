@@ -1,0 +1,49 @@
+{
+  "meta": {
+    "model": "qwen3:4b-instruct-2507-q4_K_M",
+    "date": "2026-09-04",
+    "prompt_version": "8c",
+    "prompt_revision": 1,
+    "rewrite_prompt_version": 7,
+    "scenarios_version": "0.7.0",
+    "endpoint": "http://localhost:11434",
+    "sampling": {
+      "temperature": 0.0,
+      "max_tokens": 8192,
+      "response_format": "json_object",
+      "variants": 6
+    },
+    "partial": true,
+    "scenarios_covered": [
+      "uk-002"
+    ],
+    "scenarios_expected": 21,
+    "note": "PARTIAL run: fewer scenarios than the evaluation set has non-empty ones (--only, or the run was interrupted). Aggregates are NOT comparable with full-set artifacts, and `pipeline --rewrites-file` will treat every missing scenario as a rewrite failure.",
+    "annotated_after_the_run": "These fields were added by hand: the run predates the automatic partial marking in gen_rewrites.py. prompt_revision refers to the revision current at run time (8b/8c were later bumped to 2)."
+  },
+  "scenarios": [
+    {
+      "id": "uk-002",
+      "language": "uk",
+      "variants": [
+        "Якщо відкривається небо, тоді відкривається твоя душа, Господи, ти зберігаєш мене від всіх більшів",
+        "Той, хто відкривається від Господа, відновлюється, і він не згублений, бо він відкривається від Нього",
+        "Клич до Мене — і Я тобі відповім, і подам тобі великі та незрозумілі речі, яких ти не знаєш",
+        "Нехай Бог зберігає моїх братів, нехай він зберігає їх у серці, бо він є містом, яке не зникає",
+        "Якщо вони збираються разом, то вони відкриваються від Господа, і вони не згублені",
+        "Ти відкриваєш мене від всіх місць, ти знаєш, де я живу, і де мої брати, і де мої батьки"
+      ],
+      "latency_ms": 78253,
+      "attempts": 1,
+      "error": null,
+      "refs": [
+        "Psalm 121:1-2",
+        "Isaiah 40:31",
+        "Jeremiah 33:3",
+        "Psalm 46:1",
+        "Matthew 18:20",
+        "Psalm 139:8"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,73 @@
+{
+  "meta": {
+    "model": "qwen3:4b-instruct-2507-q4_K_M",
+    "date": "2026-09-04",
+    "prompt_version": "8a",
+    "prompt_revision": 1,
+    "rewrite_prompt_version": 7,
+    "scenarios_version": "0.7.0",
+    "endpoint": "http://localhost:11434",
+    "sampling": {
+      "temperature": 0.0,
+      "max_tokens": 8192,
+      "response_format": "json_object",
+      "variants": 6
+    },
+    "partial": true,
+    "scenarios_covered": [
+      "ru-002",
+      "en-001"
+    ],
+    "scenarios_expected": 21,
+    "note": "PARTIAL run: fewer scenarios than the evaluation set has non-empty ones (--only, or the run was interrupted). Aggregates are NOT comparable with full-set artifacts, and `pipeline --rewrites-file` will treat every missing scenario as a rewrite failure.",
+    "annotated_after_the_run": "These fields were added by hand: the run predates the automatic partial marking in gen_rewrites.py. prompt_revision refers to the revision current at run time (8b/8c were later bumped to 2)."
+  },
+  "scenarios": [
+    {
+      "id": "ru-002",
+      "language": "ru",
+      "variants": [
+        "Не убойся, ибо Господь с тобою, ибо Он не оставит никого, кто упует на Него",
+        "Господь не оставит никого, кто в трудной ситуации, ибо Он видит и слышит каждого",
+        "Господь видит тех, кто в беде, и дарует им милость и спасение",
+        "Господь поднимает тех, кто в опасности, и не оставляет никого в беде",
+        "Господь не оставляет никого, кто ищет Его, ибо Он любит каждого из нас",
+        "Господь знает каждого, кто в беде, и дарует им покой и утешение"
+      ],
+      "latency_ms": 29282,
+      "attempts": 1,
+      "error": null,
+      "refs": [
+        "Иисусов 1:9-10",
+        "Иисусов 40:1-2",
+        "Псалом 34:4",
+        "Псалом 121:1-2",
+        "Иисусов 11:28-29",
+        "Псалом 139:1-2"
+      ]
+    },
+    {
+      "id": "en-001",
+      "language": "en",
+      "variants": [
+        "You know me, even before I was born",
+        "Do not be anxious about anything, but in everything by prayer and petition, with thanksgiving, present your requests to God",
+        "When you pass through the waters, I will be with you; when you pass through the fire, I will be with you",
+        "Come to me, all who labor and are heavy laden, and I will give you rest",
+        "Trust in the LORD with all your heart and lean not on your own understanding",
+        "But those who hope in the LORD will renew their strength"
+      ],
+      "latency_ms": 23314,
+      "attempts": 1,
+      "error": null,
+      "refs": [
+        "Psalm 139:1",
+        "Philippians 4:6-7",
+        "Isaiah 43:2",
+        "Matthew 11:28",
+        "Proverbs 3:5-6",
+        "Isaiah 40:31"
+      ]
+    }
+  ]
+}

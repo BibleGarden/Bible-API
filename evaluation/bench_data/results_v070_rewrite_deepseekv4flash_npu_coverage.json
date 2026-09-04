@@ -1,0 +1,2492 @@
+{
+ "config": "pipeline rewrite=file:deepseek/deepseek-v4-flash-0731 variants=6 raw=no fusion=interleave blacklist=on pool=on lexical=k20 fetch_k=50 max_per_book=4 coverage=21",
+ "aggregate": {
+  "label": "ALL",
+  "n": 24,
+  "hit_rate": 0.9166666666666666,
+  "recall": 0.5770833333333333,
+  "mrr": 0.6560185185185184,
+  "unacceptable_share": 0.004166666666666667
+ },
+ "scenarios": [
+  {
+   "scenario_id": "ru-001",
+   "language": "ru",
+   "category": "regular",
+   "hit": true,
+   "recall": 0.6666666666666666,
+   "rr": 0.5,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "ru-002",
+   "language": "ru",
+   "category": "regular",
+   "hit": true,
+   "recall": 0.3333333333333333,
+   "rr": 1.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "ru-003",
+   "language": "ru",
+   "category": "sensitive",
+   "hit": true,
+   "recall": 0.6,
+   "rr": 0.16666666666666666,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "ru-004",
+   "language": "ru",
+   "category": "sensitive",
+   "hit": true,
+   "recall": 0.5,
+   "rr": 0.2,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "ru-005",
+   "language": "ru",
+   "category": "sensitive",
+   "hit": true,
+   "recall": 0.4,
+   "rr": 1.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "ru-006",
+   "language": "ru",
+   "category": "ambiguous",
+   "hit": true,
+   "recall": 1.0,
+   "rr": 1.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "ru-007",
+   "language": "ru",
+   "category": "ambiguous",
+   "hit": true,
+   "recall": 0.75,
+   "rr": 0.5,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "ru-008",
+   "language": "ru",
+   "category": "short",
+   "hit": true,
+   "recall": 0.6666666666666666,
+   "rr": 1.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "ru-009",
+   "language": "ru",
+   "category": "empty",
+   "hit": true,
+   "recall": 1.0,
+   "rr": 1.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "ru-010",
+   "language": "ru",
+   "category": "regular",
+   "hit": true,
+   "recall": 0.75,
+   "rr": 1.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "en-001",
+   "language": "en",
+   "category": "regular",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "en-002",
+   "language": "en",
+   "category": "sensitive",
+   "hit": true,
+   "recall": 0.2,
+   "rr": 0.3333333333333333,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "en-003",
+   "language": "en",
+   "category": "short",
+   "hit": true,
+   "recall": 1.0,
+   "rr": 1.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "en-004",
+   "language": "en",
+   "category": "ambiguous",
+   "hit": true,
+   "recall": 0.3333333333333333,
+   "rr": 0.1,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "en-005",
+   "language": "en",
+   "category": "sensitive",
+   "hit": true,
+   "recall": 0.6666666666666666,
+   "rr": 0.5,
+   "unacceptable_share": 0.1,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "en-006",
+   "language": "en",
+   "category": "empty",
+   "hit": true,
+   "recall": 1.0,
+   "rr": 1.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "en-007",
+   "language": "en",
+   "category": "regular",
+   "hit": true,
+   "recall": 0.25,
+   "rr": 0.3333333333333333,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "uk-001",
+   "language": "uk",
+   "category": "regular",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "uk-002",
+   "language": "uk",
+   "category": "sensitive",
+   "hit": true,
+   "recall": 0.5,
+   "rr": 0.1111111111111111,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "uk-003",
+   "language": "uk",
+   "category": "short",
+   "hit": true,
+   "recall": 1.0,
+   "rr": 1.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "uk-004",
+   "language": "uk",
+   "category": "ambiguous",
+   "hit": true,
+   "recall": 0.6666666666666666,
+   "rr": 1.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "uk-005",
+   "language": "uk",
+   "category": "sensitive",
+   "hit": true,
+   "recall": 0.5,
+   "rr": 1.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "uk-006",
+   "language": "uk",
+   "category": "empty",
+   "hit": true,
+   "recall": 0.6666666666666666,
+   "rr": 1.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "uk-007",
+   "language": "uk",
+   "category": "regular",
+   "hit": true,
+   "recall": 0.4,
+   "rr": 1.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  }
+ ],
+ "details": [
+  {
+   "scenario_id": "ru-001",
+   "source": "retrieval",
+   "queries": [
+    "Благослови, душа моя, Господа, и не забывай всех благодеяний Его.",
+    "Всякое даяние доброе и всякий дар совершенный нисходит свыше от Отца светов.",
+    "Вот наследие от Господа: дети; награда от Него — плод чрева.",
+    "Благодарите Господа, ибо Он благ, ибо вовек милость Его.",
+    "Возрадуется сердце моё и возвеселится, и плоть моя упокоится в уповании.",
+    "Буду петь Господу за благодеяния Его, буду славить имя Господа Всевышнего."
+   ],
+   "top": [
+    {
+     "id": "v3:19.103.001-022",
+     "score": 0.8235,
+     "variant": 0
+    },
+    {
+     "id": "v3:45.001.013-018",
+     "score": 0.7432,
+     "variant": 1
+    },
+    {
+     "id": "v3:19.127.001-005",
+     "score": 0.8091,
+     "variant": 2
+    },
+    {
+     "id": "v3:19.136.001-026",
+     "score": 0.8052,
+     "variant": 3
+    },
+    {
+     "id": "v3:19.116.001-008",
+     "score": 0.7391,
+     "variant": 4
+    },
+    {
+     "id": "v3:54.009.006-015",
+     "score": 0.7026,
+     "variant": 1
+    },
+    {
+     "id": "v3:23.035.001-002",
+     "score": 0.6886,
+     "variant": 4
+    },
+    {
+     "id": "v3:56.001.003-014",
+     "score": 0.6988,
+     "variant": 1
+    },
+    {
+     "id": "v3:23.049.001-006",
+     "score": 0.6599,
+     "variant": 2
+    },
+    {
+     "id": "v3:35.003.017-019",
+     "score": 0.7384,
+     "variant": 4
+    }
+   ]
+  },
+  {
+   "scenario_id": "ru-002",
+   "source": "retrieval",
+   "queries": [
+    "Итак не заботьтесь о завтрашнем дне, ибо завтрашний сам будет заботиться о своем: довольно для каждого дня своей заботы.",
+    "Возложи на Господа заботы твои, и Он поддержит тебя.",
+    "Не бойся, ибо Я с тобою; не смущайся, ибо Я Бог твой; Я укреплю тебя, и помогу тебе.",
+    "Бог мой да восполнит всякую нужду вашу по богатству Своему в славе, во Христе Иисусе.",
+    "Мир оставляю вам, мир Мой даю вам; да не смущается сердце ваше и да не устрашается.",
+    "Господь — Пастырь мой; я ни в чем не буду нуждаться."
+   ],
+   "top": [
+    {
+     "id": "v3:40.006.025-034",
+     "score": 0.7805,
+     "variant": 0
+    },
+    {
+     "id": "v3:20.003.001-010",
+     "score": 0.7341,
+     "variant": 1
+    },
+    {
+     "id": "v3:23.043.001-013",
+     "score": 0.7611,
+     "variant": 2
+    },
+    {
+     "id": "v3:57.004.010-020",
+     "score": 0.7569,
+     "variant": 3
+    },
+    {
+     "id": "v3:43.016.031-033",
+     "score": 0.7548,
+     "variant": 4
+    },
+    {
+     "id": "v3:19.023.001-006",
+     "score": 0.829,
+     "variant": 5
+    },
+    {
+     "id": "v3:42.012.022-034",
+     "score": 0.7593,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.055.000-023",
+     "score": 0.6715,
+     "variant": 1
+    },
+    {
+     "id": "v3:23.041.008-020",
+     "score": 0.756,
+     "variant": 2
+    },
+    {
+     "id": "v3:53.001.004-009",
+     "score": 0.745,
+     "variant": 3
+    }
+   ]
+  },
+  {
+   "scenario_id": "ru-003",
+   "source": "retrieval",
+   "queries": [
+    "Приидите ко Мне, все труждающиеся и обремененные, и Я успокою вас.",
+    "Блажены плачущие, ибо они утешатся.",
+    "Близок Господь к сокрушенным сердцем и смиренным духом спасет.",
+    "Не бойся, ибо Я с тобою; не смущайся, ибо Я Бог твой; Я укреплю тебя, и помогу тебе, и поддержу тебя десницею правды Моей.",
+    "Я есмь воскресение и жизнь; верующий в Меня, если и умрет, оживет.",
+    "И отрет Бог всякую слезу с очей их, и смерти не будет уже; ни плача, ни вопля, ни болезни уже не будет."
+   ],
+   "top": [
+    {
+     "id": "v3:40.011.027-030",
+     "score": 0.7809,
+     "variant": 0
+    },
+    {
+     "id": "v3:42.006.020-026",
+     "score": 0.754,
+     "variant": 1
+    },
+    {
+     "id": "v3:23.057.015-021",
+     "score": 0.7619,
+     "variant": 2
+    },
+    {
+     "id": "v3:23.035.003-004",
+     "score": 0.768,
+     "variant": 3
+    },
+    {
+     "id": "v3:43.011.017-031",
+     "score": 0.7747,
+     "variant": 4
+    },
+    {
+     "id": "v3:66.021.001-008",
+     "score": 0.7596,
+     "variant": 5
+    },
+    {
+     "id": "v3:40.005.001-012",
+     "score": 0.7484,
+     "variant": 1
+    },
+    {
+     "id": "v3:19.034.000-022",
+     "score": 0.7278,
+     "variant": 2
+    },
+    {
+     "id": "v3:23.041.008-020",
+     "score": 0.7545,
+     "variant": 3
+    },
+    {
+     "id": "v3:43.005.019-029",
+     "score": 0.7344,
+     "variant": 4
+    }
+   ]
+  },
+  {
+   "scenario_id": "ru-004",
+   "source": "retrieval",
+   "queries": [
+    "Не бойся, ибо Я с тобою; не смущайся, ибо Я Бог твой; Я укреплю тебя, и помогу тебе, и поддержу тебя десницею правды Моей.",
+    "Господь укрепит его на одре болезни его; Ты изменишь все ложе его в болезни его.",
+    "Мир оставляю вам, мир Мой даю вам; не так, как мир дает, Я даю вам. Да не смущается сердце ваше и да не устрашается.",
+    "Ибо Я знаю намерения, какие имею о вас, говорит Господь, намерения во благо, а не на зло, чтобы дать вам будущность и надежду.",
+    "Он дает утомленному силу, и изнемогшему дарует крепость.",
+    "Придите ко Мне, все труждающиеся и обремененные, и Я успокою вас."
+   ],
+   "top": [
+    {
+     "id": "v3:23.035.003-004",
+     "score": 0.768,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.041.000-013",
+     "score": 0.755,
+     "variant": 1
+    },
+    {
+     "id": "v3:43.016.031-033",
+     "score": 0.762,
+     "variant": 2
+    },
+    {
+     "id": "v3:24.031.031-040",
+     "score": 0.7244,
+     "variant": 3
+    },
+    {
+     "id": "v3:23.040.028-031",
+     "score": 0.7975,
+     "variant": 4
+    },
+    {
+     "id": "v3:40.011.027-030",
+     "score": 0.7843,
+     "variant": 5
+    },
+    {
+     "id": "v3:23.041.008-020",
+     "score": 0.7545,
+     "variant": 0
+    },
+    {
+     "id": "v3:18.033.019-022",
+     "score": 0.6982,
+     "variant": 1
+    },
+    {
+     "id": "v3:43.014.015-031",
+     "score": 0.7445,
+     "variant": 2
+    },
+    {
+     "id": "v3:24.029.001-015",
+     "score": 0.6866,
+     "variant": 3
+    }
+   ]
+  },
+  {
+   "scenario_id": "ru-005",
+   "source": "retrieval",
+   "queries": [
+    "Не заботьтесь ни о чем, но в молитве открывайте свои желания Богу, и мир Божий соблюдет ваши сердца.",
+    "Возложите все заботы ваши на Него, ибо Он печется о вас.",
+    "Не бойся, ибо Я с тобою; не смущайся, ибо Я Бог твой; Я укреплю тебя и помогу тебе.",
+    "Возложи на Господа бремя твое, и Он поддержит тебя.",
+    "Спокойно ложусь я и сплю, ибо Ты, Господи, один даешь мне жить в безопасности.",
+    "Мир оставляю вам, мир Мой даю вам; да не смущается сердце ваше и да не устрашается."
+   ],
+   "top": [
+    {
+     "id": "v3:57.004.001-009",
+     "score": 0.7103,
+     "variant": 0
+    },
+    {
+     "id": "v3:42.012.022-034",
+     "score": 0.7395,
+     "variant": 1
+    },
+    {
+     "id": "v3:23.043.001-013",
+     "score": 0.7581,
+     "variant": 2
+    },
+    {
+     "id": "v3:20.003.001-010",
+     "score": 0.7275,
+     "variant": 3
+    },
+    {
+     "id": "v3:19.091.001-016",
+     "score": 0.7373,
+     "variant": 4
+    },
+    {
+     "id": "v3:43.016.031-033",
+     "score": 0.7548,
+     "variant": 5
+    },
+    {
+     "id": "v3:40.006.025-034",
+     "score": 0.7,
+     "variant": 0
+    },
+    {
+     "id": "v3:46.005.001-011",
+     "score": 0.6883,
+     "variant": 1
+    },
+    {
+     "id": "v3:23.041.008-020",
+     "score": 0.7518,
+     "variant": 2
+    },
+    {
+     "id": "v3:19.055.000-023",
+     "score": 0.6712,
+     "variant": 3
+    }
+   ]
+  },
+  {
+   "scenario_id": "ru-006",
+   "source": "retrieval",
+   "queries": [
+    "Слово Твое — светильник ноге моей и свет стезе моей.",
+    "И уши твои будут слышать слово, говорящее позади тебя: 'вот путь, идите по нему', если бы вы уклонились направо и если бы вы уклонились налево.",
+    "Пошли свет Твой и истину Твою; да ведут они меня и приведут на святую гору Твою и в обители Твои.",
+    "Господь — свет мой и спасение мое: кого мне бояться?",
+    "Я свет миру; кто последует за Мною, тот не будет ходить во тьме, но будет иметь свет жизни.",
+    "Ибо у Тебя источник жизни; во свете Твоем мы видим свет."
+   ],
+   "top": [
+    {
+     "id": "v3:19.119.090-108",
+     "score": 0.7623,
+     "variant": 0
+    },
+    {
+     "id": "v3:23.048.017-019",
+     "score": 0.7464,
+     "variant": 1
+    },
+    {
+     "id": "v3:19.043.001-005",
+     "score": 0.7572,
+     "variant": 2
+    },
+    {
+     "id": "v3:19.027.001-014",
+     "score": 0.7955,
+     "variant": 3
+    },
+    {
+     "id": "v3:43.008.012-020",
+     "score": 0.7805,
+     "variant": 4
+    },
+    {
+     "id": "v3:19.036.000-012",
+     "score": 0.7197,
+     "variant": 5
+    },
+    {
+     "id": "v3:20.004.010-019",
+     "score": 0.7405,
+     "variant": 0
+    },
+    {
+     "id": "v3:23.030.018-026",
+     "score": 0.68,
+     "variant": 1
+    },
+    {
+     "id": "v3:43.012.042-050",
+     "score": 0.7403,
+     "variant": 4
+    },
+    {
+     "id": "v3:40.006.022-023",
+     "score": 0.692,
+     "variant": 0
+    }
+   ]
+  },
+  {
+   "scenario_id": "ru-007",
+   "source": "retrieval",
+   "queries": [
+    "Мир оставляю вам, мир Мой даю вам; да не смущается сердце ваше и да не устрашается.",
+    "Приидите ко Мне, все труждающиеся и обремененные, и Я успокою вас.",
+    "Твердого духом Ты хранишь в мире, ибо на Тебя уповает он.",
+    "Не бойся, ибо Я с тобою; не смущайся, ибо Я Бог твой; Я укреплю тебя, и помогу тебе.",
+    "Господь — Пастырь мой; я ни в чем не буду нуждаться: Он покоит меня на злачных пажитях и водит меня к водам тихим.",
+    "Мир Божий, который превыше всякого ума, соблюдет сердца ваши и помышления ваши во Христе Иисусе."
+   ],
+   "top": [
+    {
+     "id": "v3:43.016.031-033",
+     "score": 0.7548,
+     "variant": 0
+    },
+    {
+     "id": "v3:40.011.027-030",
+     "score": 0.7809,
+     "variant": 1
+    },
+    {
+     "id": "v3:23.026.001-004",
+     "score": 0.7561,
+     "variant": 2
+    },
+    {
+     "id": "v3:23.043.001-013",
+     "score": 0.7611,
+     "variant": 3
+    },
+    {
+     "id": "v3:19.023.001-006",
+     "score": 0.8555,
+     "variant": 4
+    },
+    {
+     "id": "v3:57.004.001-009",
+     "score": 0.7378,
+     "variant": 5
+    },
+    {
+     "id": "v3:43.014.015-031",
+     "score": 0.7326,
+     "variant": 0
+    },
+    {
+     "id": "v3:23.035.003-004",
+     "score": 0.7015,
+     "variant": 1
+    },
+    {
+     "id": "v3:19.062.000-012",
+     "score": 0.7432,
+     "variant": 2
+    },
+    {
+     "id": "v3:23.041.008-020",
+     "score": 0.756,
+     "variant": 3
+    }
+   ]
+  },
+  {
+   "scenario_id": "ru-008",
+   "source": "retrieval",
+   "queries": [
+    "Помощь моя от Господа, сотворившего небо и землю.",
+    "Бог нам прибежище и сила, скорый помощник в бедах.",
+    "Не бойся, ибо Я с тобою; не смущайся, ибо Я Бог твой; Я укреплю тебя, и помогу тебе.",
+    "Возложи на Господа заботы твои, и Он поддержит тебя.",
+    "Мир Божий, который превыше всякого ума, соблюдет сердца ваши и помышления ваши.",
+    "Воззвал я, и Господь услышал, и от всех бед моих избавил меня."
+   ],
+   "top": [
+    {
+     "id": "v3:19.121.001-008",
+     "score": 0.83,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.046.000-011",
+     "score": 0.8055,
+     "variant": 1
+    },
+    {
+     "id": "v3:23.043.001-013",
+     "score": 0.7611,
+     "variant": 2
+    },
+    {
+     "id": "v3:20.003.001-010",
+     "score": 0.7341,
+     "variant": 3
+    },
+    {
+     "id": "v3:57.004.001-009",
+     "score": 0.7407,
+     "variant": 4
+    },
+    {
+     "id": "v3:19.116.001-008",
+     "score": 0.8231,
+     "variant": 5
+    },
+    {
+     "id": "v3:19.033.001-022",
+     "score": 0.778,
+     "variant": 0
+    },
+    {
+     "id": "v3:23.041.008-020",
+     "score": 0.756,
+     "variant": 2
+    },
+    {
+     "id": "v3:10.022.001-015",
+     "score": 0.7921,
+     "variant": 5
+    },
+    {
+     "id": "v3:23.035.003-004",
+     "score": 0.7595,
+     "variant": 2
+    }
+   ]
+  },
+  {
+   "scenario_id": "ru-009",
+   "source": "safe_pool",
+   "queries": [],
+   "top": [
+    "v3:19.023.001-006",
+    "v3:40.011.027-030",
+    "v3:19.046.000-011",
+    "v3:25.003.021-039",
+    "v3:19.136.001-026",
+    "v3:19.100.001-005",
+    "v3:19.121.001-008",
+    "v3:57.004.001-009",
+    "v3:40.006.025-034"
+   ]
+  },
+  {
+   "scenario_id": "ru-010",
+   "source": "retrieval",
+   "queries": [
+    "Пойди прежде примирись с братом твоим, и тогда приди и принеси дар твой.",
+    "Будьте друг ко другу добры, сострадательны, прощайте друг друга, как и Бог во Христе простил вас.",
+    "Прощайте друг друга, как и Христос простил вас.",
+    "Более же всего имейте усердную любовь друг ко другу, потому что любовь покрывает множество грехов.",
+    "Если возможно с вашей стороны, будьте в мире со всеми людьми.",
+    "Блаженны миротворцы, ибо они будут наречены сынами Божиими."
+   ],
+   "top": [
+    {
+     "id": "v3:40.005.021-026",
+     "score": 0.748,
+     "variant": 0
+    },
+    {
+     "id": "v3:56.004.025-032",
+     "score": 0.7946,
+     "variant": 1
+    },
+    {
+     "id": "v3:58.003.005-015",
+     "score": 0.7388,
+     "variant": 2
+    },
+    {
+     "id": "v3:46.004.001-011",
+     "score": 0.7255,
+     "variant": 3
+    },
+    {
+     "id": "v3:46.003.008-012",
+     "score": 0.7358,
+     "variant": 4
+    },
+    {
+     "id": "v3:40.018.015-018",
+     "score": 0.7179,
+     "variant": 0
+    },
+    {
+     "id": "v3:53.013.004-007",
+     "score": 0.725,
+     "variant": 3
+    },
+    {
+     "id": "v3:52.012.009-021",
+     "score": 0.7235,
+     "variant": 4
+    },
+    {
+     "id": "v3:19.128.001-006",
+     "score": 0.7213,
+     "variant": 5
+    },
+    {
+     "id": "v3:40.008.001-004",
+     "score": 0.5934,
+     "variant": 0
+    }
+   ]
+  },
+  {
+   "scenario_id": "en-001",
+   "source": "retrieval",
+   "queries": [
+    "Give thanks to the LORD, for He is good; His loving devotion endures forever.",
+    "Every good and perfect gift is from above, coming down from the Father of the heavenly lights.",
+    "Commit your way to the LORD; trust in Him, and He will act.",
+    "In all your ways acknowledge Him, and He will make your paths straight.",
+    "For I know the plans I have for you, declares the LORD, plans to prosper you and not to harm you, plans to give you hope and a future.",
+    "The LORD is my shepherd; I shall not want."
+   ],
+   "top": [
+    {
+     "id": "v3:19.136.001-026",
+     "score": 0.8005,
+     "variant": 0
+    },
+    {
+     "id": "v3:45.001.013-018",
+     "score": 0.7595,
+     "variant": 1
+    },
+    {
+     "id": "v3:20.003.001-010",
+     "score": 0.7285,
+     "variant": 2
+    },
+    {
+     "id": "v3:24.029.001-015",
+     "score": 0.709,
+     "variant": 4
+    },
+    {
+     "id": "v3:19.023.001-006",
+     "score": 0.7774,
+     "variant": 5
+    },
+    {
+     "id": "v3:19.106.001-017",
+     "score": 0.7476,
+     "variant": 0
+    },
+    {
+     "id": "v3:54.009.006-015",
+     "score": 0.6612,
+     "variant": 1
+    },
+    {
+     "id": "v3:19.037.001-017",
+     "score": 0.7006,
+     "variant": 2
+    },
+    {
+     "id": "v3:24.032.036-044",
+     "score": 0.6845,
+     "variant": 4
+    },
+    {
+     "id": "v3:26.034.017-031",
+     "score": 0.7062,
+     "variant": 5
+    }
+   ]
+  },
+  {
+   "scenario_id": "en-002",
+   "source": "retrieval",
+   "queries": [
+    "Even though I walk through the valley of the shadow of death, I will fear no evil, for You are with me.",
+    "The LORD is near to the brokenhearted.",
+    "Blessed are those who mourn, for they will be comforted.",
+    "He heals the brokenhearted and binds up their wounds.",
+    "Cast your burden on the LORD, and He will sustain you.",
+    "I will never leave you nor forsake you."
+   ],
+   "top": [
+    {
+     "id": "v3:19.023.001-006",
+     "score": 0.7377,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.038.000-022",
+     "score": 0.6796,
+     "variant": 1
+    },
+    {
+     "id": "v3:40.005.001-012",
+     "score": 0.7126,
+     "variant": 2
+    },
+    {
+     "id": "v3:23.057.015-021",
+     "score": 0.6934,
+     "variant": 3
+    },
+    {
+     "id": "v3:19.055.000-023",
+     "score": 0.7287,
+     "variant": 4
+    },
+    {
+     "id": "v3:65.013.001-006",
+     "score": 0.6786,
+     "variant": 5
+    },
+    {
+     "id": "v3:19.091.001-016",
+     "score": 0.709,
+     "variant": 0
+    },
+    {
+     "id": "v3:23.061.001-003",
+     "score": 0.6628,
+     "variant": 1
+    },
+    {
+     "id": "v3:42.006.020-026",
+     "score": 0.6968,
+     "variant": 2
+    },
+    {
+     "id": "v3:05.031.001-008",
+     "score": 0.6574,
+     "variant": 5
+    }
+   ]
+  },
+  {
+   "scenario_id": "en-003",
+   "source": "retrieval",
+   "queries": [
+    "Peace I leave with you; my peace I give you. Do not let your hearts be troubled or afraid.",
+    "The peace of God, which surpasses all understanding, will guard your hearts and minds in Christ Jesus.",
+    "You will keep in perfect peace the one whose mind is steadfast, because they trust in you.",
+    "In peace I will lie down and sleep, for you alone, LORD, make me dwell in safety.",
+    "May the God of hope fill you with all joy and peace as you trust in him, so you overflow with hope.",
+    "Blessed are the peacemakers, for they will be called children of God."
+   ],
+   "top": [
+    {
+     "id": "v3:43.014.015-031",
+     "score": 0.69,
+     "variant": 0
+    },
+    {
+     "id": "v3:57.004.001-009",
+     "score": 0.7287,
+     "variant": 1
+    },
+    {
+     "id": "v3:23.026.001-004",
+     "score": 0.7138,
+     "variant": 2
+    },
+    {
+     "id": "v3:19.027.001-014",
+     "score": 0.7082,
+     "variant": 3
+    },
+    {
+     "id": "v3:52.015.008-013",
+     "score": 0.7123,
+     "variant": 4
+    },
+    {
+     "id": "v3:40.005.001-012",
+     "score": 0.6737,
+     "variant": 5
+    },
+    {
+     "id": "v3:43.016.031-033",
+     "score": 0.6867,
+     "variant": 0
+    },
+    {
+     "id": "v3:57.002.005-011",
+     "score": 0.6854,
+     "variant": 1
+    },
+    {
+     "id": "v3:20.003.001-010",
+     "score": 0.6995,
+     "variant": 2
+    },
+    {
+     "id": "v3:19.004.000-008",
+     "score": 0.705,
+     "variant": 3
+    }
+   ]
+  },
+  {
+   "scenario_id": "en-004",
+   "source": "retrieval",
+   "queries": [
+    "He will turn the hearts of the fathers to their children, and the hearts of the children to their fathers.",
+    "If any of you lacks wisdom, let him ask of God, who gives generously to all without finding fault, and it will be given to him.",
+    "Peace I leave with you; My peace I give to you. Do not let your hearts be troubled, nor afraid.",
+    "Trust in the LORD with all your heart and lean not on your own understanding; in all your ways acknowledge Him, and He will make your paths straight.",
+    "Be kind and compassionate to one another, forgiving each other, just as in Christ God forgave you.",
+    "The Lord is patient with you, not wanting anyone to perish, but everyone to come to repentance."
+   ],
+   "top": [
+    {
+     "id": "v3:39.004.004-006",
+     "score": 0.7107,
+     "variant": 0
+    },
+    {
+     "id": "v3:45.001.005-008",
+     "score": 0.7806,
+     "variant": 1
+    },
+    {
+     "id": "v3:43.016.031-033",
+     "score": 0.7095,
+     "variant": 2
+    },
+    {
+     "id": "v3:20.003.001-010",
+     "score": 0.7726,
+     "variant": 3
+    },
+    {
+     "id": "v3:56.004.025-032",
+     "score": 0.7428,
+     "variant": 4
+    },
+    {
+     "id": "v3:47.003.008-013",
+     "score": 0.7133,
+     "variant": 5
+    },
+    {
+     "id": "v3:24.003.013-020",
+     "score": 0.6953,
+     "variant": 0
+    },
+    {
+     "id": "v3:45.003.013-018",
+     "score": 0.7092,
+     "variant": 1
+    },
+    {
+     "id": "v3:43.014.015-031",
+     "score": 0.7086,
+     "variant": 2
+    },
+    {
+     "id": "v3:58.003.005-015",
+     "score": 0.7222,
+     "variant": 4
+    }
+   ]
+  },
+  {
+   "scenario_id": "en-005",
+   "source": "retrieval",
+   "queries": [
+    "You are worth more than many sparrows",
+    "I am fearfully and wonderfully made",
+    "You are precious and honored in my sight, and I love you",
+    "I know the plans I have for you, plans to give you hope and a future",
+    "Nothing can separate us from the love of God",
+    "Cast all your anxiety on him because he cares for you"
+   ],
+   "top": [
+    {
+     "id": "v3:40.010.028-031",
+     "score": 0.7124,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.139.001-024",
+     "score": 0.7213,
+     "variant": 1
+    },
+    {
+     "id": "v3:22.007.001-006",
+     "score": 0.672,
+     "variant": 2
+    },
+    {
+     "id": "v3:24.029.001-015",
+     "score": 0.7059,
+     "variant": 3
+    },
+    {
+     "id": "v3:52.008.026-039",
+     "score": 0.7066,
+     "variant": 4
+    },
+    {
+     "id": "v3:19.055.000-023",
+     "score": 0.6774,
+     "variant": 5
+    },
+    {
+     "id": "v3:42.012.022-034",
+     "score": 0.688,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.008.000-009",
+     "score": 0.6583,
+     "variant": 1
+    },
+    {
+     "id": "v3:23.043.001-013",
+     "score": 0.6489,
+     "variant": 2
+    },
+    {
+     "id": "v3:24.032.036-044",
+     "score": 0.6817,
+     "variant": 3
+    }
+   ]
+  },
+  {
+   "scenario_id": "en-006",
+   "source": "safe_pool",
+   "queries": [],
+   "top": [
+    "v3:19.023.001-006",
+    "v3:40.011.027-030",
+    "v3:19.046.000-011",
+    "v3:25.003.021-039",
+    "v3:19.136.001-026",
+    "v3:19.100.001-005",
+    "v3:19.121.001-008",
+    "v3:57.004.001-009",
+    "v3:40.006.025-034"
+   ]
+  },
+  {
+   "scenario_id": "en-007",
+   "source": "retrieval",
+   "queries": [
+    "You will seek Me and find Me when you search for Me with all your heart.",
+    "I have loved you with an everlasting love; therefore I have drawn you with loving devotion.",
+    "The Lord is not slow in keeping His promise, but is patient with you, not wanting anyone to perish, but everyone to come to repentance.",
+    "Come to Me, all you who are weary and burdened, and I will give you rest.",
+    "I will give you a new heart and put a new spirit within you; I will remove your heart of stone and give you a heart of flesh.",
+    "The Lord is near to the brokenhearted and saves the contrite in spirit."
+   ],
+   "top": [
+    {
+     "id": "v3:40.007.007-011",
+     "score": 0.6864,
+     "variant": 0
+    },
+    {
+     "id": "v3:24.031.002-009",
+     "score": 0.7188,
+     "variant": 1
+    },
+    {
+     "id": "v3:47.003.008-013",
+     "score": 0.7426,
+     "variant": 2
+    },
+    {
+     "id": "v3:40.011.027-030",
+     "score": 0.7801,
+     "variant": 3
+    },
+    {
+     "id": "v3:26.036.026-038",
+     "score": 0.7786,
+     "variant": 4
+    },
+    {
+     "id": "v3:19.032.001-011",
+     "score": 0.6976,
+     "variant": 5
+    },
+    {
+     "id": "v3:19.004.000-008",
+     "score": 0.6253,
+     "variant": 0
+    },
+    {
+     "id": "v3:28.011.001-008",
+     "score": 0.7142,
+     "variant": 1
+    },
+    {
+     "id": "v3:26.011.014-021",
+     "score": 0.7255,
+     "variant": 4
+    },
+    {
+     "id": "v3:19.034.000-022",
+     "score": 0.6884,
+     "variant": 5
+    }
+   ]
+  },
+  {
+   "scenario_id": "uk-001",
+   "source": "retrieval",
+   "queries": [
+    "Господь — мій Пастир, я не потребую нічого.",
+    "Благословлю Господа на всякий час, хвала Йому завжди в устах моїх.",
+    "Хто живе під покровом Всевишнього, той у тіні Всемогутнього спочиває.",
+    "Не бійся, бо Я з тобою; не лякайся, бо Я Бог твій.",
+    "Увечері плач, а радість на ранок.",
+    "Мир Божий, що вищий за всякий розум, нехай береже ваші серця та думки."
+   ],
+   "top": [
+    {
+     "id": "v3:19.023.001-006",
+     "score": 0.7702,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.145.001-021",
+     "score": 0.769,
+     "variant": 1
+    },
+    {
+     "id": "v3:19.091.001-016",
+     "score": 0.773,
+     "variant": 2
+    },
+    {
+     "id": "v3:54.002.001-004",
+     "score": 0.7044,
+     "variant": 4
+    },
+    {
+     "id": "v3:57.004.001-009",
+     "score": 0.7553,
+     "variant": 5
+    },
+    {
+     "id": "v3:19.016.001-011",
+     "score": 0.7066,
+     "variant": 0
+    },
+    {
+     "id": "v3:65.013.020-021",
+     "score": 0.7369,
+     "variant": 5
+    },
+    {
+     "id": "v3:43.010.001-018",
+     "score": 0.692,
+     "variant": 0
+    },
+    {
+     "id": "v3:54.004.001-006",
+     "score": 0.6289,
+     "variant": 5
+    },
+    {
+     "id": "v3:45.004.001-010",
+     "score": 0.6126,
+     "variant": 4
+    }
+   ]
+  },
+  {
+   "scenario_id": "uk-002",
+   "source": "retrieval",
+   "queries": [
+    "Не бійся, бо Я з тобою, не лякайся, бо Я Бог твій. Я зміцню тебе, і допоможу тобі.",
+    "Під покровом Всевишнього я перебуваю, у тіні Всемогутнього.",
+    "Мир Божий, що вищий від усякого розуму, нехай береже серце твоє та думки твої.",
+    "Мир залишаю вам, мир Свій даю вам; нехай не тривожиться серце ваше, і не лякається.",
+    "Хоч я піду долиною смертної тіні, не злякаюся лиха, бо Ти зі мною.",
+    "Поклади на Господа всю журбу твою, бо Він опікується тобою."
+   ],
+   "top": [
+    {
+     "id": "v3:19.091.001-016",
+     "score": 0.7804,
+     "variant": 1
+    },
+    {
+     "id": "v3:57.004.001-009",
+     "score": 0.7515,
+     "variant": 2
+    },
+    {
+     "id": "v3:43.014.015-031",
+     "score": 0.6951,
+     "variant": 3
+    },
+    {
+     "id": "v3:19.023.001-006",
+     "score": 0.7385,
+     "variant": 4
+    },
+    {
+     "id": "v3:40.006.025-034",
+     "score": 0.7124,
+     "variant": 5
+    },
+    {
+     "id": "v3:19.121.001-008",
+     "score": 0.7487,
+     "variant": 1
+    },
+    {
+     "id": "v3:65.013.020-021",
+     "score": 0.7373,
+     "variant": 2
+    },
+    {
+     "id": "v3:19.061.000-008",
+     "score": 0.717,
+     "variant": 1
+    },
+    {
+     "id": "v3:43.016.031-033",
+     "score": 0.6854,
+     "variant": 3
+    },
+    {
+     "id": "v3:49.001.001-003",
+     "score": 0.7306,
+     "variant": 2
+    }
+   ]
+  },
+  {
+   "scenario_id": "uk-003",
+   "source": "retrieval",
+   "queries": [
+    "Дякуйте Господу, бо Він добрий, бо навіки милість Його!",
+    "Дякуйте Господу, кличте Ім'я Його, звіщайте між народами діла Його!",
+    "Увійдіть у браму Його з подякою, у двори Його з хвалою!",
+    "Благослови, душе моя, Господа, і не забувай за всі добродійства Його!",
+    "За все дякуйте, бо це Божа воля про вас у Христі Ісусі.",
+    "Не журіться нічим, а в усьому молитвою й благанням із подякою відкривайте свої прохання перед Богом."
+   ],
+   "top": [
+    {
+     "id": "v3:19.136.001-026",
+     "score": 0.7974,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.100.001-005",
+     "score": 0.7503,
+     "variant": 2
+    },
+    {
+     "id": "v3:19.103.001-022",
+     "score": 0.7994,
+     "variant": 3
+    },
+    {
+     "id": "v3:53.001.004-009",
+     "score": 0.7465,
+     "variant": 4
+    },
+    {
+     "id": "v3:57.004.001-009",
+     "score": 0.7101,
+     "variant": 5
+    },
+    {
+     "id": "v3:19.096.001-013",
+     "score": 0.7399,
+     "variant": 1
+    },
+    {
+     "id": "v3:59.005.012-022",
+     "score": 0.7349,
+     "variant": 4
+    },
+    {
+     "id": "v3:58.001.009-013",
+     "score": 0.6992,
+     "variant": 5
+    },
+    {
+     "id": "v3:59.004.001-008",
+     "score": 0.668,
+     "variant": 4
+    },
+    {
+     "id": "v3:61.004.001-005",
+     "score": 0.6055,
+     "variant": 5
+    }
+   ]
+  },
+  {
+   "scenario_id": "uk-004",
+   "source": "retrieval",
+   "queries": [
+    "Господь буде стерегти вихід твій та вхід твій відтепер і аж до віку.",
+    "Пізнавай Його на всіх дорогах своїх, і Він випростає ті стежки твої.",
+    "Бо Він накаже про тебе Своїм ангелам, щоб вони тебе стерегли на всіх дорогах твоїх.",
+    "Ти зберігаєш у мирі того, чий розум утверджений на Тебе, бо він на Тебе надіється.",
+    "Хоч я піду долиною смертної тіні, не побоюся злого, бо Ти зі мною.",
+    "Я напоумлю тебе, і навчу тебе дороги, якою маєш іти; око Моє буде на тебе."
+   ],
+   "top": [
+    {
+     "id": "v3:19.121.001-008",
+     "score": 0.7503,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.023.001-006",
+     "score": 0.7397,
+     "variant": 4
+    },
+    {
+     "id": "v3:19.145.001-021",
+     "score": 0.6329,
+     "variant": 1
+    },
+    {
+     "id": "v3:19.091.001-016",
+     "score": 0.7274,
+     "variant": 2
+    },
+    {
+     "id": "v3:52.008.018-025",
+     "score": 0.6032,
+     "variant": 3
+    },
+    {
+     "id": "v3:40.006.022-023",
+     "score": 0.628,
+     "variant": 5
+    },
+    {
+     "id": "v3:45.001.005-008",
+     "score": 0.6517,
+     "variant": 1
+    },
+    {
+     "id": "v3:40.004.001-011",
+     "score": 0.6178,
+     "variant": 2
+    },
+    {
+     "id": "v3:42.004.001-013",
+     "score": 0.5926,
+     "variant": 2
+    },
+    {
+     "id": "v3:65.002.005-009",
+     "score": 0.6469,
+     "variant": 2
+    }
+   ]
+  },
+  {
+   "scenario_id": "uk-005",
+   "source": "retrieval",
+   "queries": [
+    "Бо мій батько та мати моя покинули мене, та Господь мене прийме.",
+    "Чи забуде жінка своє немовля, щоб не змилуватися над сином утроби своєї? Але якби вона й забула, то Я не забуду тебе.",
+    "Я тебе не покину й не залишу.",
+    "Не бійся, бо Я з тобою; не лякайся, бо Я Бог твій; Я зміцню тебе, і допоможу тобі, і підтримаю тебе правицею Своєї правди.",
+    "Господь близький до розбитих серцем, і впокорених духом спасає.",
+    "Коли я піду хоча б долиною смертної тіні, то зла не злякаюся, бо Ти зо мною, Твоє жезло й Твій посох — вони мене потішать."
+   ],
+   "top": [
+    {
+     "id": "v3:43.014.015-031",
+     "score": 0.6903,
+     "variant": 2
+    },
+    {
+     "id": "v3:19.034.000-022",
+     "score": 0.7218,
+     "variant": 4
+    },
+    {
+     "id": "v3:19.023.001-006",
+     "score": 0.7446,
+     "variant": 5
+    },
+    {
+     "id": "v3:19.027.001-014",
+     "score": 0.6752,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.086.001-017",
+     "score": 0.7148,
+     "variant": 4
+    },
+    {
+     "id": "v3:43.016.023-030",
+     "score": 0.7012,
+     "variant": 0
+    },
+    {
+     "id": "v3:49.001.001-003",
+     "score": 0.6822,
+     "variant": 2
+    },
+    {
+     "id": "v3:65.013.001-006",
+     "score": 0.6628,
+     "variant": 2
+    },
+    {
+     "id": "v3:40.008.018-022",
+     "score": 0.6928,
+     "variant": 0
+    },
+    {
+     "id": "v3:43.013.031-038",
+     "score": 0.6754,
+     "variant": 2
+    }
+   ]
+  },
+  {
+   "scenario_id": "uk-006",
+   "source": "safe_pool",
+   "queries": [],
+   "top": [
+    "v3:19.023.001-006",
+    "v3:40.011.027-030",
+    "v3:19.046.000-011",
+    "v3:19.136.001-026",
+    "v3:19.100.001-005",
+    "v3:19.121.001-008",
+    "v3:57.004.001-009",
+    "v3:40.006.025-034"
+   ]
+  },
+  {
+   "scenario_id": "uk-007",
+   "source": "retrieval",
+   "queries": [
+    "Навчай дитину на дорозі, якою вона має йти, і вона не відхилиться від неї, коли й постаріє.",
+    "І всі сини твої будуть навчені Господом, і великий буде мир у твоїх дітей.",
+    "Ось спадщина від Господа: діти; нагорода від Нього — плід утроби.",
+    "Пізнавай Його на всіх дорогах своїх, і Він випростає твої стежки.",
+    "Бо Я знаю думки, які думаю про вас, думки миру, а не зла, щоб дати вам майбутнє та надію.",
+    "Мир Божий, що вищий від усякого розуму, нехай береже серця ваші."
+   ],
+   "top": [
+    {
+     "id": "v3:19.127.001-005",
+     "score": 0.7457,
+     "variant": 2
+    },
+    {
+     "id": "v3:65.013.020-021",
+     "score": 0.7009,
+     "variant": 4
+    },
+    {
+     "id": "v3:57.004.001-009",
+     "score": 0.7473,
+     "variant": 5
+    },
+    {
+     "id": "v3:19.128.001-006",
+     "score": 0.7205,
+     "variant": 2
+    },
+    {
+     "id": "v3:19.145.001-021",
+     "score": 0.6281,
+     "variant": 3
+    },
+    {
+     "id": "v3:46.003.008-012",
+     "score": 0.6648,
+     "variant": 4
+    },
+    {
+     "id": "v3:56.006.021-024",
+     "score": 0.6971,
+     "variant": 5
+    },
+    {
+     "id": "v3:19.037.018-033",
+     "score": 0.7041,
+     "variant": 2
+    },
+    {
+     "id": "v3:49.001.001-003",
+     "score": 0.7293,
+     "variant": 5
+    },
+    {
+     "id": "v3:45.001.005-008",
+     "score": 0.6513,
+     "variant": 3
+    }
+   ]
+  }
+ ],
+ "final_top1": {
+  "rerank_model": "gemini-3.5-flash-lite",
+  "rerank": [
+   {
+    "scenario_id": "ru-001",
+    "category": "regular",
+    "grade": "relevant",
+    "chosen": "v3:19.127.001-005 (canonical 19 127:1-5)",
+    "method": "rerank",
+    "reason": "The candidate speaks directly about children as a heritage and reward from the Lord, fitting thanksgiving for a newborn daughter.",
+    "highlight": {
+     "book": 19,
+     "chapter": 126,
+     "verse_start": 3,
+     "verse_end": 3,
+     "canonical_chapter": 127,
+     "canonical_verse_start": 3,
+     "canonical_verse_end": 3,
+     "text": "Вот наследие от Господа: дети; награда от Него — плод чрева."
+    }
+   },
+   {
+    "scenario_id": "ru-002",
+    "category": "regular",
+    "grade": "relevant",
+    "chosen": "v3:40.006.025-034 (canonical 40 6:25-34)",
+    "method": "rerank",
+    "reason": "This passage directly addresses anxiety about daily provision and job security, pointing to God's care.",
+    "highlight": {
+     "book": 40,
+     "chapter": 6,
+     "verse_start": 32,
+     "verse_end": 33,
+     "canonical_chapter": 6,
+     "canonical_verse_start": 32,
+     "canonical_verse_end": 33,
+     "text": "потому что всего этого ищут язычники, и потому что Отец ваш Небесный знает, что вы имеете нужду во всем этом. Ищите же прежде Царства Божия и правды Его, и это все приложится вам."
+    }
+   },
+   {
+    "scenario_id": "ru-003",
+    "category": "sensitive",
+    "grade": "ungraded",
+    "chosen": "v3:40.011.027-030 (canonical 40 11:27-30)",
+    "method": "rerank",
+    "reason": "Offering gentle comfort and rest to someone overwhelmed by deep grief over the loss of a mother.",
+    "highlight": {
+     "book": 40,
+     "chapter": 11,
+     "verse_start": 28,
+     "verse_end": 28,
+     "canonical_chapter": 11,
+     "canonical_verse_start": 28,
+     "canonical_verse_end": 28,
+     "text": "Придите ко Мне все труждающиеся и обремененные, и Я успокою вас;"
+    }
+   },
+   {
+    "scenario_id": "ru-004",
+    "category": "sensitive",
+    "grade": "relevant",
+    "chosen": "v3:23.040.028-031 (canonical 23 40:28-31)",
+    "method": "rerank",
+    "reason": "Offering strength, renewal, and comfort for someone facing a serious operation and fear.",
+    "highlight": {
+     "book": 23,
+     "chapter": 40,
+     "verse_start": 29,
+     "verse_end": 31,
+     "canonical_chapter": 40,
+     "canonical_verse_start": 29,
+     "canonical_verse_end": 31,
+     "text": "Он дает утомленному силу, и изнемогшему дарует крепость. Утомляются и юноши и ослабевают, и молодые люди падают, а надеющиеся на Господа обновятся в силе: поднимут крылья, как орлы, потекут — и не устанут, пойдут — и не утомятся."
+    }
+   },
+   {
+    "scenario_id": "ru-005",
+    "category": "sensitive",
+    "grade": "relevant",
+    "chosen": "v3:57.004.001-009 (canonical 57 4:1-9)",
+    "method": "rerank",
+    "reason": "This passage directly addresses anxiety and sleeplessness with God's peace and presence.",
+    "highlight": {
+     "book": 57,
+     "chapter": 4,
+     "verse_start": 6,
+     "verse_end": 7,
+     "canonical_chapter": 4,
+     "canonical_verse_start": 6,
+     "canonical_verse_end": 7,
+     "text": "Не заботьтесь ни о чем, но всегда в молитве и прошении с благодарением открывайте свои желания пред Богом, и мир Божий, который превыше всякого ума, соблюдет сердца ваши и помышления ваши во Христе Иисусе."
+    }
+   },
+   {
+    "scenario_id": "ru-006",
+    "category": "ambiguous",
+    "grade": "ungraded",
+    "chosen": "v3:19.036.000-012 (canonical 19 36:0-12)",
+    "method": "rerank",
+    "reason": "The candidate speaks about God as the source of life and light in darkness, directly addressing the prayer for light and guidance.",
+    "highlight": {
+     "book": 19,
+     "chapter": 35,
+     "verse_start": 10,
+     "verse_end": 10,
+     "canonical_chapter": 36,
+     "canonical_verse_start": 9,
+     "canonical_verse_end": 9,
+     "text": "ибо у Тебя источник жизни; во свете Твоем мы видим свет."
+    }
+   },
+   {
+    "scenario_id": "ru-007",
+    "category": "ambiguous",
+    "grade": "relevant",
+    "chosen": "v3:57.004.001-009 (canonical 57 4:1-9)",
+    "method": "rerank",
+    "reason": "The passage offers peace in anxiety and family strife through prayer and trust in God.",
+    "highlight": {
+     "book": 57,
+     "chapter": 4,
+     "verse_start": 6,
+     "verse_end": 7,
+     "canonical_chapter": 4,
+     "canonical_verse_start": 6,
+     "canonical_verse_end": 7,
+     "text": "Не заботьтесь ни о чем, но всегда в молитве и прошении с благодарением открывайте свои желания пред Богом, и мир Божий, который превыше всякого ума, соблюдет сердца ваши и помышления ваши во Христе Иисусе."
+    }
+   },
+   {
+    "scenario_id": "ru-008",
+    "category": "short",
+    "grade": "relevant",
+    "chosen": "v3:19.121.001-008 (canonical 19 121:1-8)",
+    "method": "rerank",
+    "reason": "The passage offers a direct, comforting cry and assurance of help from the Lord for a person in need.",
+    "highlight": {
+     "book": 19,
+     "chapter": 120,
+     "verse_start": 1,
+     "verse_end": 2,
+     "canonical_chapter": 121,
+     "canonical_verse_start": 1,
+     "canonical_verse_end": 2,
+     "text": "Возвожу очи мои к горам, откуда придет помощь моя. Помощь моя от Господа, сотворившего небо и землю."
+    }
+   },
+   {
+    "scenario_id": "ru-009",
+    "category": "empty",
+    "grade": "relevant",
+    "chosen": "v3:19.023.001-006 (canonical 19 23:1-6)",
+    "method": "safe_pool",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-010",
+    "category": "regular",
+    "grade": "ungraded",
+    "chosen": "v3:46.003.008-012 (canonical 46 3:8-12)",
+    "method": "rerank",
+    "reason": "The passage calls to seek peace and make steps towards reconciliation with a brother.",
+    "highlight": {
+     "book": 46,
+     "chapter": 3,
+     "verse_start": 11,
+     "verse_end": 11,
+     "canonical_chapter": 3,
+     "canonical_verse_start": 11,
+     "canonical_verse_end": 11,
+     "text": "уклоняйся от зла и делай добро; ищи мира и стремись к нему,"
+    }
+   },
+   {
+    "scenario_id": "en-001",
+    "category": "regular",
+    "grade": "ungraded",
+    "chosen": "v3:19.023.001-006 (canonical 19 23:1-6)",
+    "method": "rerank",
+    "reason": "The candidate speaks of God's overflowing blessings and goodness, which fits a prayer of thanksgiving for a new beginning.",
+    "highlight": {
+     "book": 19,
+     "chapter": 23,
+     "verse_start": 5,
+     "verse_end": 6,
+     "canonical_chapter": 23,
+     "canonical_verse_start": 5,
+     "canonical_verse_end": 6,
+     "text": "You prepare a table before me in the presence of my enemies. You anoint my head with oil; my cup overflows. Surely goodness and mercy will follow me all the days of my life, and I will dwell in the house of the Lord forever."
+    }
+   },
+   {
+    "scenario_id": "en-002",
+    "category": "sensitive",
+    "grade": "ungraded",
+    "chosen": "v3:23.061.001-003 (canonical 23 61:1-3)",
+    "method": "rerank",
+    "reason": "This passage directly addresses the mourning and brokenheartedness of losing a husband, offering comfort, beauty for ashes, and joy.",
+    "highlight": {
+     "book": 23,
+     "chapter": 61,
+     "verse_start": 2,
+     "verse_end": 3,
+     "canonical_chapter": 61,
+     "canonical_verse_start": 2,
+     "canonical_verse_end": 3,
+     "text": "to proclaim the year of the Lord’s favor and the day of our God’s vengeance, to comfort all who mourn, to console the mourners in Zion — to give them a crown of beauty for ashes, the oil of joy for mourning, and a garment of praise for a spirit of despair. So they will be called oaks of righteousness, the planting of the Lord, that He may be glorified."
+    }
+   },
+   {
+    "scenario_id": "en-003",
+    "category": "short",
+    "grade": "relevant",
+    "chosen": "v3:23.026.001-004 (canonical 23 26:1-4)",
+    "method": "rerank",
+    "reason": "Candidate 3 offers a direct promise of perfect peace for the steadfast mind trusting in God.",
+    "highlight": {
+     "book": 23,
+     "chapter": 26,
+     "verse_start": 3,
+     "verse_end": 3,
+     "canonical_chapter": 26,
+     "canonical_verse_start": 3,
+     "canonical_verse_end": 3,
+     "text": "You will keep in perfect peace the steadfast of mind, because he trusts in You."
+    }
+   },
+   {
+    "scenario_id": "en-004",
+    "category": "ambiguous",
+    "grade": "acceptable",
+    "chosen": "v3:39.004.004-006 (canonical 39 4:4-6)",
+    "method": "rerank",
+    "reason": "This passage speaks directly of turning the hearts of fathers and children toward one another.",
+    "highlight": {
+     "book": 39,
+     "chapter": 4,
+     "verse_start": 6,
+     "verse_end": 6,
+     "canonical_chapter": 4,
+     "canonical_verse_start": 6,
+     "canonical_verse_end": 6,
+     "text": "And he will turn the hearts of the fathers to their children, and the hearts of the children to their fathers. Otherwise, I will come and strike the land with a curse.”"
+    }
+   },
+   {
+    "scenario_id": "en-005",
+    "category": "sensitive",
+    "grade": "ungraded",
+    "chosen": "v3:19.008.000-009 (canonical 19 8:0-9)",
+    "method": "rerank",
+    "reason": "Affirms human worth and divine care for a person feeling worthless.",
+    "highlight": {
+     "book": 19,
+     "chapter": 8,
+     "verse_start": 4,
+     "verse_end": 5,
+     "canonical_chapter": 8,
+     "canonical_verse_start": 4,
+     "canonical_verse_end": 5,
+     "text": "what is man that You are mindful of him, or the son of man that You care for him? You made him a little lower than the angels; You crowned him with glory and honor."
+    }
+   },
+   {
+    "scenario_id": "en-006",
+    "category": "empty",
+    "grade": "relevant",
+    "chosen": "v3:19.023.001-006 (canonical 19 23:1-6)",
+    "method": "safe_pool",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "en-007",
+    "category": "regular",
+    "grade": "ungraded",
+    "chosen": "v3:24.031.002-009 (canonical 24 31:2-9)",
+    "method": "rerank",
+    "reason": "This passage speaks of God's everlasting love and gentle drawing of those who have strayed or are far off.",
+    "highlight": {
+     "book": 24,
+     "chapter": 31,
+     "verse_start": 3,
+     "verse_end": 3,
+     "canonical_chapter": 31,
+     "canonical_verse_start": 3,
+     "canonical_verse_end": 3,
+     "text": "The Lord appeared to us in the past, saying: “I have loved you with an everlasting love; therefore I have drawn you with loving devotion."
+    }
+   },
+   {
+    "scenario_id": "uk-001",
+    "category": "regular",
+    "grade": "ungraded",
+    "chosen": "v3:57.004.001-009 (canonical 57 4:1-9)",
+    "method": "rerank",
+    "reason": "The candidate speaks of rejoicing, gratitude, and bringing requests to God with thanksgiving, fitting the prayer of thanksgiving for God's care.",
+    "highlight": {
+     "book": 57,
+     "chapter": 4,
+     "verse_start": 4,
+     "verse_end": 6,
+     "canonical_chapter": 4,
+     "canonical_verse_start": 4,
+     "canonical_verse_end": 6,
+     "text": "Радуйтеся завжди у Господі; знову кажу: Радуйтеся! Хай ваша доброзичливість буде всім людям відома. Господь близько! Ні про що не журіться, але в усьому появляйте Богові ваші прохання молитвою і благанням з подякою."
+    }
+   },
+   {
+    "scenario_id": "uk-002",
+    "category": "sensitive",
+    "grade": "acceptable",
+    "chosen": "v3:19.121.001-008 (canonical 19 121:1-8)",
+    "method": "rerank",
+    "reason": "Psalm 121 offers comforting reassurance of God's constant protection over loved ones going out and coming in during times of danger.",
+    "highlight": {
+     "book": 19,
+     "chapter": 121,
+     "verse_start": 7,
+     "verse_end": 8,
+     "canonical_chapter": 121,
+     "canonical_verse_start": 7,
+     "canonical_verse_end": 8,
+     "text": "Господь тебе від усього злого стерегтиме, він стерегтиме твою душу. Господь вихід і вхід твій стерегтиме, віднині і повіки."
+    }
+   },
+   {
+    "scenario_id": "uk-003",
+    "category": "short",
+    "grade": "relevant",
+    "chosen": "v3:59.005.012-022 (canonical 59 5:12-22)",
+    "method": "rerank",
+    "reason": "This passage directly addresses thanksgiving in all circumstances as God's will.",
+    "highlight": {
+     "book": 59,
+     "chapter": 5,
+     "verse_start": 16,
+     "verse_end": 18,
+     "canonical_chapter": 5,
+     "canonical_verse_start": 16,
+     "canonical_verse_end": 18,
+     "text": "Завжди радійте. Моліться без перерви. За все дякуйте: така бо воля Божа щодо вас у Христі Ісусі."
+    }
+   },
+   {
+    "scenario_id": "uk-004",
+    "category": "ambiguous",
+    "grade": "relevant",
+    "chosen": "v3:19.091.001-016 (canonical 19 91:1-16)",
+    "method": "rerank",
+    "reason": "This passage offers protection and care during travels and journeys.",
+    "highlight": {
+     "book": 19,
+     "chapter": 91,
+     "verse_start": 11,
+     "verse_end": 12,
+     "canonical_chapter": 91,
+     "canonical_verse_start": 11,
+     "canonical_verse_end": 12,
+     "text": "Бо ангелам своїм він повелить про тебе, щоб берегли тебе на всіх твоїх дорогах. І на руках тебе носитимуть, щоб не спіткнулася нога твоя об камінь."
+    }
+   },
+   {
+    "scenario_id": "uk-005",
+    "category": "sensitive",
+    "grade": "relevant",
+    "chosen": "v3:43.014.015-031 (canonical 43 14:15-31)",
+    "method": "rerank",
+    "reason": "Offers comfort against loneliness and the promise that Jesus will not leave her as an orphan.",
+    "highlight": {
+     "book": 43,
+     "chapter": 14,
+     "verse_start": 18,
+     "verse_end": 18,
+     "canonical_chapter": 14,
+     "canonical_verse_start": 18,
+     "canonical_verse_end": 18,
+     "text": "Не полишу вас сиротами; я прийду до вас."
+    }
+   },
+   {
+    "scenario_id": "uk-006",
+    "category": "empty",
+    "grade": "relevant",
+    "chosen": "v3:19.023.001-006 (canonical 19 23:1-6)",
+    "method": "safe_pool",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "uk-007",
+    "category": "regular",
+    "grade": "ungraded",
+    "chosen": "v3:45.001.005-008 (canonical 45 1:5-8)",
+    "method": "rerank",
+    "reason": "The passage directly addresses asking God for wisdom when it is lacking, perfectly matching the parent's prayer for wisdom in raising their children.",
+    "highlight": {
+     "book": 45,
+     "chapter": 1,
+     "verse_start": 5,
+     "verse_end": 5,
+     "canonical_chapter": 1,
+     "canonical_verse_start": 5,
+     "canonical_verse_end": 5,
+     "text": "Коли ж комусь із вас мудрости бракує, нехай просить у Бога, який дає всім щедро й за це не докоряє, і вона йому дасться."
+    }
+   }
+  ],
+  "fallback_rank1": [
+   {
+    "scenario_id": "ru-001",
+    "category": "regular",
+    "grade": "ungraded",
+    "chosen": "v3:19.103.001-022 (canonical 19 103:1-22)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-002",
+    "category": "regular",
+    "grade": "relevant",
+    "chosen": "v3:40.006.025-034 (canonical 40 6:25-34)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-003",
+    "category": "sensitive",
+    "grade": "ungraded",
+    "chosen": "v3:40.011.027-030 (canonical 40 11:27-30)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-004",
+    "category": "sensitive",
+    "grade": "ungraded",
+    "chosen": "v3:23.035.003-004 (canonical 23 35:3-4)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-005",
+    "category": "sensitive",
+    "grade": "relevant",
+    "chosen": "v3:57.004.001-009 (canonical 57 4:1-9)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-006",
+    "category": "ambiguous",
+    "grade": "relevant",
+    "chosen": "v3:19.119.090-108 (canonical 19 119:90-108)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-007",
+    "category": "ambiguous",
+    "grade": "ungraded",
+    "chosen": "v3:43.016.031-033 (canonical 43 16:31-33)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-008",
+    "category": "short",
+    "grade": "relevant",
+    "chosen": "v3:19.121.001-008 (canonical 19 121:1-8)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-009",
+    "category": "empty",
+    "grade": "relevant",
+    "chosen": "v3:19.023.001-006 (canonical 19 23:1-6)",
+    "method": "safe_pool",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-010",
+    "category": "regular",
+    "grade": "relevant",
+    "chosen": "v3:40.005.021-026 (canonical 40 5:21-26)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "en-001",
+    "category": "regular",
+    "grade": "ungraded",
+    "chosen": "v3:19.136.001-026 (canonical 19 136:1-26)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "en-002",
+    "category": "sensitive",
+    "grade": "ungraded",
+    "chosen": "v3:19.023.001-006 (canonical 19 23:1-6)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "en-003",
+    "category": "short",
+    "grade": "relevant",
+    "chosen": "v3:43.014.015-031 (canonical 43 14:15-31)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "en-004",
+    "category": "ambiguous",
+    "grade": "acceptable",
+    "chosen": "v3:39.004.004-006 (canonical 39 4:4-6)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "en-005",
+    "category": "sensitive",
+    "grade": "unacceptable",
+    "chosen": "v3:40.010.028-031 (canonical 40 10:28-31)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "en-006",
+    "category": "empty",
+    "grade": "relevant",
+    "chosen": "v3:19.023.001-006 (canonical 19 23:1-6)",
+    "method": "safe_pool",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "en-007",
+    "category": "regular",
+    "grade": "ungraded",
+    "chosen": "v3:40.007.007-011 (canonical 40 7:7-11)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "uk-001",
+    "category": "regular",
+    "grade": "ungraded",
+    "chosen": "v3:19.023.001-006 (canonical 19 23:1-6)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "uk-002",
+    "category": "sensitive",
+    "grade": "acceptable",
+    "chosen": "v3:19.091.001-016 (canonical 19 91:1-16)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "uk-003",
+    "category": "short",
+    "grade": "relevant",
+    "chosen": "v3:19.136.001-026 (canonical 19 136:1-26)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "uk-004",
+    "category": "ambiguous",
+    "grade": "relevant",
+    "chosen": "v3:19.121.001-008 (canonical 19 121:1-8)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "uk-005",
+    "category": "sensitive",
+    "grade": "relevant",
+    "chosen": "v3:43.014.015-031 (canonical 43 14:15-31)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "uk-006",
+    "category": "empty",
+    "grade": "relevant",
+    "chosen": "v3:19.023.001-006 (canonical 19 23:1-6)",
+    "method": "safe_pool",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "uk-007",
+    "category": "regular",
+    "grade": "relevant",
+    "chosen": "v3:19.127.001-005 (canonical 19 127:1-5)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   }
+  ],
+  "fallback_max_score": [
+   {
+    "scenario_id": "ru-001",
+    "category": "regular",
+    "grade": "ungraded",
+    "chosen": "v3:19.103.001-022 (canonical 19 103:1-22)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-002",
+    "category": "regular",
+    "grade": "ungraded",
+    "chosen": "v3:19.023.001-006 (canonical 19 23:1-6)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-003",
+    "category": "sensitive",
+    "grade": "ungraded",
+    "chosen": "v3:40.011.027-030 (canonical 40 11:27-30)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-004",
+    "category": "sensitive",
+    "grade": "relevant",
+    "chosen": "v3:23.040.028-031 (canonical 23 40:28-31)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-005",
+    "category": "sensitive",
+    "grade": "ungraded",
+    "chosen": "v3:23.043.001-013 (canonical 23 43:1-13)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-006",
+    "category": "ambiguous",
+    "grade": "relevant",
+    "chosen": "v3:19.027.001-014 (canonical 19 27:1-14)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-007",
+    "category": "ambiguous",
+    "grade": "ungraded",
+    "chosen": "v3:19.023.001-006 (canonical 19 23:1-6)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-008",
+    "category": "short",
+    "grade": "relevant",
+    "chosen": "v3:19.121.001-008 (canonical 19 121:1-8)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-009",
+    "category": "empty",
+    "grade": "relevant",
+    "chosen": "v3:19.023.001-006 (canonical 19 23:1-6)",
+    "method": "safe_pool",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-010",
+    "category": "regular",
+    "grade": "relevant",
+    "chosen": "v3:56.004.025-032 (canonical 56 4:25-32)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "en-001",
+    "category": "regular",
+    "grade": "ungraded",
+    "chosen": "v3:19.136.001-026 (canonical 19 136:1-26)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "en-002",
+    "category": "sensitive",
+    "grade": "ungraded",
+    "chosen": "v3:19.023.001-006 (canonical 19 23:1-6)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "en-003",
+    "category": "short",
+    "grade": "relevant",
+    "chosen": "v3:57.004.001-009 (canonical 57 4:1-9)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "en-004",
+    "category": "ambiguous",
+    "grade": "ungraded",
+    "chosen": "v3:45.001.005-008 (canonical 45 1:5-8)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "en-005",
+    "category": "sensitive",
+    "grade": "relevant",
+    "chosen": "v3:19.139.001-024 (canonical 19 139:1-24)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "en-006",
+    "category": "empty",
+    "grade": "relevant",
+    "chosen": "v3:19.023.001-006 (canonical 19 23:1-6)",
+    "method": "safe_pool",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "en-007",
+    "category": "regular",
+    "grade": "acceptable",
+    "chosen": "v3:40.011.027-030 (canonical 40 11:27-30)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "uk-001",
+    "category": "regular",
+    "grade": "ungraded",
+    "chosen": "v3:19.091.001-016 (canonical 19 91:1-16)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "uk-002",
+    "category": "sensitive",
+    "grade": "acceptable",
+    "chosen": "v3:19.091.001-016 (canonical 19 91:1-16)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "uk-003",
+    "category": "short",
+    "grade": "acceptable",
+    "chosen": "v3:19.103.001-022 (canonical 19 103:1-22)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "uk-004",
+    "category": "ambiguous",
+    "grade": "relevant",
+    "chosen": "v3:19.121.001-008 (canonical 19 121:1-8)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "uk-005",
+    "category": "sensitive",
+    "grade": "ungraded",
+    "chosen": "v3:19.023.001-006 (canonical 19 23:1-6)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "uk-006",
+    "category": "empty",
+    "grade": "relevant",
+    "chosen": "v3:19.023.001-006 (canonical 19 23:1-6)",
+    "method": "safe_pool",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "uk-007",
+    "category": "regular",
+    "grade": "ungraded",
+    "chosen": "v3:57.004.001-009 (canonical 57 4:1-9)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   }
+  ]
+ }
+}

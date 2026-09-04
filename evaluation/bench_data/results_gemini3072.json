@@ -1,0 +1,256 @@
+{
+ "config": "gemini/title_text",
+ "aggregate": {
+  "label": "ALL",
+  "n": 24,
+  "hit_rate": 0.20833333333333334,
+  "recall": 0.06597222222222222,
+  "mrr": 0.08095238095238096,
+  "unacceptable_share": 0.004166666666666667
+ },
+ "info": {
+  "query_embed_ms_avg": 1065.6
+ },
+ "scenarios": [
+  {
+   "scenario_id": "ru-001",
+   "language": "ru",
+   "category": "regular",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 48.24471473693848
+  },
+  {
+   "scenario_id": "ru-002",
+   "language": "ru",
+   "category": "regular",
+   "hit": true,
+   "recall": 0.3333333333333333,
+   "rr": 0.5,
+   "unacceptable_share": 0.0,
+   "query_ms": 48.28166961669922
+  },
+  {
+   "scenario_id": "ru-003",
+   "language": "ru",
+   "category": "sensitive",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 71.02036476135254
+  },
+  {
+   "scenario_id": "ru-004",
+   "language": "ru",
+   "category": "sensitive",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 45.00126838684082
+  },
+  {
+   "scenario_id": "ru-005",
+   "language": "ru",
+   "category": "sensitive",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 49.86238479614258
+  },
+  {
+   "scenario_id": "ru-006",
+   "language": "ru",
+   "category": "ambiguous",
+   "hit": true,
+   "recall": 0.3333333333333333,
+   "rr": 1.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 55.05800247192383
+  },
+  {
+   "scenario_id": "ru-007",
+   "language": "ru",
+   "category": "ambiguous",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.1,
+   "query_ms": 48.061370849609375
+  },
+  {
+   "scenario_id": "ru-008",
+   "language": "ru",
+   "category": "short",
+   "hit": true,
+   "recall": 0.3333333333333333,
+   "rr": 0.14285714285714285,
+   "unacceptable_share": 0.0,
+   "query_ms": 37.20402717590332
+  },
+  {
+   "scenario_id": "ru-009",
+   "language": "ru",
+   "category": "empty",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 36.35549545288086
+  },
+  {
+   "scenario_id": "ru-010",
+   "language": "ru",
+   "category": "regular",
+   "hit": true,
+   "recall": 0.25,
+   "rr": 0.2,
+   "unacceptable_share": 0.0,
+   "query_ms": 23.84781837463379
+  },
+  {
+   "scenario_id": "en-001",
+   "language": "en",
+   "category": "regular",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 18.425941467285156
+  },
+  {
+   "scenario_id": "en-002",
+   "language": "en",
+   "category": "sensitive",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 17.638206481933594
+  },
+  {
+   "scenario_id": "en-003",
+   "language": "en",
+   "category": "short",
+   "hit": true,
+   "recall": 0.3333333333333333,
+   "rr": 0.1,
+   "unacceptable_share": 0.0,
+   "query_ms": 10.909318923950195
+  },
+  {
+   "scenario_id": "en-004",
+   "language": "en",
+   "category": "ambiguous",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 7.616758346557617
+  },
+  {
+   "scenario_id": "en-005",
+   "language": "en",
+   "category": "sensitive",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 9.779691696166992
+  },
+  {
+   "scenario_id": "en-006",
+   "language": "en",
+   "category": "empty",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 7.5531005859375
+  },
+  {
+   "scenario_id": "en-007",
+   "language": "en",
+   "category": "regular",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 7.552623748779297
+  },
+  {
+   "scenario_id": "uk-001",
+   "language": "uk",
+   "category": "regular",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 7.880210876464844
+  },
+  {
+   "scenario_id": "uk-002",
+   "language": "uk",
+   "category": "sensitive",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 7.666349411010742
+  },
+  {
+   "scenario_id": "uk-003",
+   "language": "uk",
+   "category": "short",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 7.371664047241211
+  },
+  {
+   "scenario_id": "uk-004",
+   "language": "uk",
+   "category": "ambiguous",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 7.568120956420898
+  },
+  {
+   "scenario_id": "uk-005",
+   "language": "uk",
+   "category": "sensitive",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 7.45701789855957
+  },
+  {
+   "scenario_id": "uk-006",
+   "language": "uk",
+   "category": "empty",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 7.349729537963867
+  },
+  {
+   "scenario_id": "uk-007",
+   "language": "uk",
+   "category": "regular",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 7.363319396972656
+  }
+ ]
+}

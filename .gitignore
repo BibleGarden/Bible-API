@@ -2,6 +2,14 @@
 __pycache__/
 *.pyc
 .venv/
-# local artifacts of evaluation/retrieval_benchmark.py (exported corpus,
-# cached embeddings, chroma store) — regenerable, never committed
-evaluation/bench_data/
+# evaluation/bench_data: the benchmark results are tracked, the caches are not.
+# Results (results_*.json) and generated rewrite variants (*_rewrites_*.json)
+# cannot be regenerated: variants from Maria's private Qwen server and the
+# OpenRouter candidates exist only as these files, and the Gemini runs depend
+# on free-tier quota and on models that may be retired (Maria, 2026-09-04).
+# Corpus exports, embedding matrices and the provider-call cache are large
+# and regenerable, and stay local.
+evaluation/bench_data/*
+!evaluation/bench_data/results_*.json
+!evaluation/bench_data/*_rewrites_*.json
+!evaluation/bench_data/*.tsv

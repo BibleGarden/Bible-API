@@ -1,0 +1,380 @@
+{
+  "meta": {
+    "model": "z-ai/glm-5.3-flash (reasoning=low)",
+    "date": "2026-08-29",
+    "rewrite_prompt_version": 7,
+    "scenarios_version": "0.7.0",
+    "provider": "openrouter",
+    "sampling": {
+      "temperature": 0.0,
+      "max_tokens": 8192,
+      "response_format": "json_object",
+      "reasoning": {
+        "effort": "low"
+      }
+    },
+    "usage_cost_usd": 0.001616
+  },
+  "scenarios": [
+    {
+      "id": "ru-001",
+      "language": "ru",
+      "variants": [
+        "Я весьма умножу плод твой, и произведу от тебя народы",
+        "Вот наследие от Господа: дети — награда от Него",
+        "Господь сотворил сие в день сей, и это дивно в очах наших",
+        "Благослови, душа моя, Господа, и не забывай всех благодеяний Его",
+        "Сердце моё благодарит Господа, возвещу все чудеса Его",
+        "Господь — Пастырь мой; я ни в чем не буду нуждаться"
+      ],
+      "latency_ms": 3934,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "ru-002",
+      "language": "ru",
+      "variants": [
+        "Не заботьтесь о том, что вам есть и что пить, ибо Отец ваш Небесный знает, что вы имеете нужду во всем этом",
+        "Уповай на Господа всем сердцем твоим, и Он направит стези твои",
+        "Не убойся, ибо Я с тобою; не смущайся, ибо Я Бог твой; Я укреплю тебя и помогу тебе",
+        "Господь — Пастырь мой; я ни в чем не буду нуждаться",
+        "Призывайте Меня в день скорби; Я избавлю тебя, и ты прославишь Меня",
+        "Мир оставляю вам, мир Мой даю вам; да не смущается сердце ваше и да не устрашается"
+      ],
+      "latency_ms": 4496,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "ru-003",
+      "language": "ru",
+      "variants": [
+        "Блаженны плачущие, ибо они утешатся",
+        "Утешаю вас, как утешает мать своих детей",
+        "Не убойся, ибо Я с тобою; не смущайся, ибо Я Бог твой",
+        "Приближающимся ко Мне Я близок, говорит Господь",
+        "Господь близок к сокрушенным сердцем и смиренных духом спасет",
+        "Вечность вошла в сердца их, и Бог отрет всякую слезу"
+      ],
+      "latency_ms": 3647,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "ru-004",
+      "language": "ru",
+      "variants": [
+        "не убойся, ибо Я с тобою; не смущайся, ибо Я Бог твой; Я укреплю тебя и помогу тебе",
+        "Господь — Пастырь мой; я ничего не буду нуждаться; Он покоит меня на водах тихих и ведёт меня путями правды",
+        "приидите ко Мне все труждающиеся и обременённые, и Я успокою вас",
+        "не бойся, ибо Я искупил тебя, призвал тебя по имени твоему; ты Мой",
+        "милость Его на боящихся Его от рода в род, и правда Его на сыновей сынов",
+        "уповающего на Господа милость окружит; надейся на Господа, мужайся, и да укрепляется сердце твоё"
+      ],
+      "latency_ms": 5135,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "ru-005",
+      "language": "ru",
+      "variants": [
+        "Не бойся, ибо Я с тобою; не смущайся, ибо Я Бог твой; Я укреплю тебя и помогу тебе",
+        "Возложи на Господа заботы твои, и Он поддержит тебя",
+        "Придите ко Мне все труждающиеся и обремененные, и Я успокою вас",
+        "Мир Божий, который превыше всякого ума, соблюдет сердца ваши и помышления ваши",
+        "Когда я ложусь, сплю спокойно, ибо Ты, Господи, един даешь мне жить в безопасности",
+        "Уповай на Господа всем сердцем твоим, и Он направит стези твои"
+      ],
+      "latency_ms": 3725,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "ru-006",
+      "language": "ru",
+      "variants": [
+        "Слово Твоё — светильник ноге моей и свет стезе моей",
+        "Господь — свет мой и спасение моё, кого мне бояться",
+        "Приди ко Мне все труждающиеся и обременённые, и Я успокою вас",
+        "Я свет миру; кто последует за Мною, тот не будет ходить во тьме",
+        "Утром насыщусь милостью Твоей, и буду радоваться и веселиться",
+        "Путь Твой, Боже, во святыне; укажи мне путь, по которому мне идти"
+      ],
+      "latency_ms": 4523,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "ru-007",
+      "language": "ru",
+      "variants": [
+        "Мир оставляю вам, мир Мой даю вам; не смущается сердце ваше и да не устрашается",
+        "Придите ко Мне все труждающиеся и обремененные, и Я успокою вас",
+        "И мир Божий, который превыше всякого ума, соблюдет сердца ваши",
+        "Господь — Пастырь мой; Он покоит меня на водах тихих",
+        "В мире будешь ты, потому что уповаешь на Господа",
+        "Блаженны миротворцы, ибо они будут наречены сынами Божиими"
+      ],
+      "latency_ms": 4135,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "ru-008",
+      "language": "ru",
+      "variants": [
+        "не убойся, ибо Я с тобою; не смущайся, ибо Я Бог твой; Я укреплю тебя и помогу тебе",
+        "уповаю на Господа всем сердцем моим и не полагаюсь на разум мой",
+        "придите ко Мне все труждающиеся и обремененные, и Я успокою вас",
+        "Господь — Пастырь мой; я ни в чем не буду нуждаться",
+        "близок Господь к сокрушенным сердцем и смиренных духом спасет",
+        "милость Господня от века и до века на боящихся Его"
+      ],
+      "latency_ms": 4696,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "ru-009",
+      "language": "ru",
+      "variants": [
+        "не убойся, ибо Я с тобою, не смущайся, ибо Я Бог твой",
+        "уповаю на Господа, буду надеяться и не бояться",
+        "Господь — Пастырь мой, я ни в чем не буду нуждаться",
+        "придите ко Мне все труждающиеся и обремененные, и Я успокою вас",
+        "милость Господня от века и до века на боящихся Его",
+        "мир Мой даю вам, не так, как мир дает, даю вам"
+      ],
+      "latency_ms": 4222,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "ru-010",
+      "language": "ru",
+      "variants": [
+        "прощайте брату от сердца вашего согрешения его",
+        "блаженны миротворцы, ибо они будут наречены сынами Божиими",
+        "любовь долготерпит, милосердствует, не мыслит зла, все покрывает",
+        "если брат твой согрешил против тебя, прости его",
+        "милость Господня от века и до века на боящихся Его",
+        "Господь близок к сокрушенным сердцем и смиренных духом спасет"
+      ],
+      "latency_ms": 3509,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "en-001",
+      "language": "en",
+      "variants": [
+        "give thanks to the LORD for He is good, His love endures forever",
+        "trust in the LORD with all your heart and He will make your paths straight",
+        "the LORD has done great things for us, we are filled with joy",
+        "commit to the LORD whatever you do, and your plans will succeed",
+        "I can do all things through Christ who strengthens me",
+        "surely goodness and mercy shall follow me all the days of my life"
+      ],
+      "latency_ms": 3182,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "en-002",
+      "language": "en",
+      "variants": [
+        "He heals the brokenhearted and binds up their wounds",
+        "Blessed are those who mourn, for they will be comforted",
+        "Even though I walk through the valley of the shadow of death, I will fear no evil, for You are with me",
+        "The LORD is near to the brokenhearted and saves the crushed in spirit",
+        "Come to me, all who are weary and burdened, and I will give you rest",
+        "Weeping may stay for the night, but rejoicing comes in the morning"
+      ],
+      "latency_ms": 2790,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "en-003",
+      "language": "en",
+      "variants": [
+        "Peace I leave with you; my peace I give to you",
+        "Do not be anxious about anything, but in everything by prayer present your requests to God",
+        "Cast all your anxiety on Him because He cares for you",
+        "The LORD gives strength to His people; the LORD blesses His people with peace",
+        "You keep in perfect peace the one whose mind is stayed on You",
+        "In Me you may have peace; take heart, I have overcome the world"
+      ],
+      "latency_ms": 2622,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "en-004",
+      "language": "en",
+      "variants": [
+        "if we confess our sins he is faithful and just to forgive",
+        "love covers a multitude of sins",
+        "be kind and compassionate to one another forgiving each other as God in Christ forgave you",
+        "trust in the LORD with all your heart and lean not on your own understanding",
+        "the LORD is near to all who call on him in truth",
+        "he heals the brokenhearted and binds up their wounds"
+      ],
+      "latency_ms": 3908,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "en-005",
+      "language": "en",
+      "variants": [
+        "I praise you because I am fearfully and wonderfully made",
+        "before I formed you in the womb I knew you",
+        "are not two sparrows sold for a penny, yet not one falls without your Father",
+        "I have loved you with an everlasting love",
+        "I have called you by name, you are mine",
+        "how precious to me are your thoughts, O God"
+      ],
+      "latency_ms": 4602,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "en-006",
+      "language": "en",
+      "variants": [
+        "do not be anxious about anything",
+        "the LORD is my shepherd",
+        "cast all your anxiety on Him because He cares for you",
+        "come to me all who are weary and burdened",
+        "peace I leave with you, my peace I give to you",
+        "those who hope in the LORD will renew their strength"
+      ],
+      "latency_ms": 2955,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "en-007",
+      "language": "en",
+      "variants": [
+        "the Lord is not slow but is patient, not wanting anyone to perish but everyone to come to repentance",
+        "seek and you will find, knock and the door will be opened to you",
+        "I will give you a new heart and put a new spirit within you",
+        "come to me all who are weary and burdened and I will give you rest",
+        "he heals the brokenhearted and binds up their wounds",
+        "I have loved you with an everlasting love, I have drawn you with unfailing kindness"
+      ],
+      "latency_ms": 3163,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "uk-001",
+      "language": "uk",
+      "variants": [
+        "Славте Господа, бо Він добрий, і милість Його навіки",
+        "Не залишив я праведника, і Господь не дав йому зазнати нужди",
+        "Господь — Пастир мій, я не збіднію",
+        "Благослови, душе моя, Господа і не забувай усіх благодінь Його",
+        "Великий вірний Твій, Господи, милість Твоя зранку",
+        "Ось, око Господнє над тими, хто боїться Його і уповає на милість Його"
+      ],
+      "latency_ms": 5886,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "uk-002",
+      "language": "uk",
+      "variants": [
+        "Не бійся, бо Я з тобою; не зневірюйся, бо Я Бог твій, зміцню тебе й поможу тобі",
+        "Уповай на Господа всім серцем твоїм і не покладайся на розум твій",
+        "Мир лишаю вам, мир мій даю вам; не хай тривожиться серце ваше і не страшиться",
+        "Захищаючий тебе Господь не задрімає і не засне; Господь охороняє тебе при всякому виході твоєму",
+        "Господь — пастух мій, я не зазнаю нестатку; коли йду долиною смертної тіні, не боюся лиха, бо Ти зо мною",
+        "Не тривожтесь ні про що, але в усьому молитвою і проханням з подякою відкривайте свої прохання перед Богом — і мир Божий збереже серця ваші"
+      ],
+      "latency_ms": 6472,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "uk-003",
+      "language": "uk",
+      "variants": [
+        "Дякуйте Господові, бо Він добрий, бо навіки милість Його",
+        "Славте Господа, душе моя, і все, що в мені, ім'я святе Його",
+        "Благослови, душе моя, Господа, Який дарує всі благодаті тобі",
+        "Дякую Тобі, Господи, всім серцем моїм, оповідаю всі дивні діла Твої",
+        "Господь — пастир мій, я не збіднію, доброта і милість супроводжують мене",
+        "Все давайте дякувати Богові й Отцеві, у всякий час, ім'ям Господа нашого Ісуса Христа"
+      ],
+      "latency_ms": 5600,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "uk-004",
+      "language": "uk",
+      "variants": [
+        "Вси шляхи Господні — милість і правда, для тих, хто зберігає заповіді Його",
+        "Ангелам Своїм заповідав про тебе — охороняти тебе на всіх шляхах твоїх",
+        "Господь пильнує вихід і вхід твій віднині і повіки",
+        "Не бійся, бо Я з тобою; Я поведу тебе дорогою, якою ти підеш",
+        "Уповай на Господа всім серцем твоїм, і Він зробить прямими шляхи твої",
+        "Господь — пастир мій, я не збіднію; Він веде мене на пасовиська праведні"
+      ],
+      "latency_ms": 5094,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "uk-005",
+      "language": "uk",
+      "variants": [
+        "Не бійся, бо Я з тобою; не зневіряйся, бо Я Бог твій, Я зміцню тебе, допоможу тобі",
+        "Я з вами по всі дні до кінця віку",
+        "Господь близько до тих, що мають розбите серце, і пониклих духом спасає",
+        "Не залишу тебе і не покину тебе",
+        "Поклади на Господа шлях твій, і уповай на Нього, і Він зробить",
+        "Як жереб у торбі, так серце людини, але від Господа походить відповідь"
+      ],
+      "latency_ms": 4530,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "uk-006",
+      "language": "uk",
+      "variants": [
+        "Не бійся, Я з тобою, не злякайся, Я Бог твій, Я зміцню тебе і поможу тобі",
+        "Уповай на Господа всім серцем твоїм, і Він направить стежки твої",
+        "Господь — Пастир мій, я не збіднію, Він мене на пасовиська водить",
+        "Прийдіть до Мене всі струджені та обтяжені, і Я заспокою вас",
+        "Милість Господня не вичерпується, вона щоранку нова, велика вірність Твоя",
+        "Мир Я лишаю вам, мир Мій даю вам, нехай не тривожиться серце ваше"
+      ],
+      "latency_ms": 6408,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "uk-007",
+      "language": "uk",
+      "variants": [
+        "Настав юнака на початок шляху його, і він не ухилиться від нього і в старості",
+        "Якщо хтось бракує мудрості, нехай просить у Бога, Який дає всім просто і без докорів",
+        "Уповай на Господа всім серцем твоїм, і на свою розумність не покладайся; на всіх шляхах твоїх пізнавай Його",
+        "Сини твої і дочки твої будуть научені Господом, і великий буде мир дітей твоїх",
+        "Я і дім мій будемо служити Господеві",
+        "Сій правду для себе, пожни милість; розорюй новину свою, бо час шукати Господа"
+      ],
+      "latency_ms": 5754,
+      "attempts": 1,
+      "error": null
+    }
+  ]
+}
