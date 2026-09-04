@@ -16,3 +16,6 @@ evaluation/bench_data/*
 !evaluation/bench_data/*_rewrites_*.json
 !evaluation/bench_data/*_reranks_*.json
 !evaluation/bench_data/*.tsv
+# The probe id list is a few hundred bytes and is what makes the
+# description probe set (86cbeef7h) reproducible on another machine.
+!evaluation/bench_data/description_probe_ids.txt

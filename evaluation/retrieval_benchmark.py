@@ -67,6 +67,9 @@ PSALMS_BOOK = 19
 
 # language -> (translation code, alias) used as the retrieval corpus
 LANGUAGE_CORPUS = {"ru": (1, "syn"), "en": (16, "bsb"), "uk": (20, "ubh")}
+TRANSLATION_LANGUAGE = {
+    code: language for language, (code, _alias) in LANGUAGE_CORPUS.items()
+}
 
 # ---------------------------------------------------------------------------
 # Model registry
@@ -88,6 +91,25 @@ MODELS = {
     "gemini": ("gemini", "gemini-embedding-001", "", "", 3072),
 }
 VARIANTS = ("text", "title_text")
+
+# Which text of a fragment is EMBEDDED as the document (ClickUp 86cbeef7h).
+# `title_text` is what every measurement so far used and stays the default,
+# byte for byte. The two description variants come from a `gen_descriptions.py`
+# artifact: the hypothesis under test is that a one-off description of "who
+# this passage can serve, and in what state" bridges the register gap between
+# a raw prayer and Scripture better than a per-request rewrite does.
+DOC_TEXT_VARIANTS = (
+    "text", "title_text", "description", "title_text_description",
+)
+PIPELINE_DEFAULT_DOC_TEXT = "title_text"
+# The variants that cannot be built without --descriptions-file.
+DOC_TEXT_NEEDS_DESCRIPTIONS = ("description", "title_text_description")
+# How much of an evaluated language the sense file must cover before the run
+# is an honest measurement of the description index rather than of the old
+# title_text one with a few senses sprinkled in. A language below this is a
+# hard error naming --languages / --allow-partial-coverage; a language at
+# ZERO is refused whatever the flags say.
+MIN_DESCRIPTION_COVERAGE = 0.95
 
 # Per-model encoding limits for the CPU host. Only models that need them are
 # listed; everything else keeps the historical batch of 16 and the model's own
@@ -134,6 +156,167 @@ def load_chunks() -> tuple[list[ChunkMeta], list[str], list[str]]:
             title = (row.get("title") or "").strip()
             title_texts.append(f"{title}\n\n{row['text']}" if title else row["text"])
     return metas, texts, title_texts
+
+
+# ---------------------------------------------------------------------------
+# Document text of a fragment (ClickUp 86cbeef7h)
+# ---------------------------------------------------------------------------
+
+def load_descriptions(path: str) -> tuple[dict[tuple[int, str], list[str]], dict, str]:
+    """Senses produced by `gen_descriptions.py`, keyed by (translation, id).
+
+    The file is JSONL, one line per fragment, each carrying a LIST of senses
+    plus a structured `caution` flag. Returns
+    `({(translation, canonical_id): [sense, ...]}, meta, sha1_prefix)`.
+
+    * a row with no senses (an error row) contributes nothing — the fragment
+      counts as un-annotated and the caller degrades it, loudly;
+    * the LAST row wins for a fragment that appears twice, which is what a
+      `--resume` run produces when it retries a failed fragment;
+    * the sha1 prefix is of the file BYTES and goes into the name of the
+      embedding matrix: two different sense files must never share a cached
+      matrix, and the fingerprint sidecar cannot tell them apart (it pins
+      which fragments and how many senses each, not what the senses say).
+    """
+    import hashlib
+
+    file_path = Path(path)
+    raw = file_path.read_bytes()
+    digest = hashlib.sha1(raw).hexdigest()[:12]
+    by_key: dict[tuple[int, str], list[str]] = {}
+    cautions = 0
+    for line in raw.decode("utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        row = json.loads(line)
+        senses = [s for s in (row.get("senses") or []) if s and s.strip()]
+        if not senses:
+            continue
+        by_key[(row["translation"], row["canonical_id"])] = senses
+        if row.get("caution"):
+            cautions += 1
+    meta_file = file_path.with_name(file_path.name + ".meta.json")
+    meta = json.loads(meta_file.read_text()) if meta_file.exists() else {}
+    meta = dict(meta)
+    meta["caution_rows"] = cautions
+    return by_key, meta, digest
+
+
+def parse_languages(value: str | list[str] | None) -> list[str]:
+    """`--languages` as a canonically ordered list; empty means all of them."""
+    if not value:
+        return list(LANGUAGE_CORPUS)
+    wanted = (
+        [v.strip() for v in value.split(",") if v.strip()]
+        if isinstance(value, str) else list(value)
+    )
+    unknown = [v for v in wanted if v not in LANGUAGE_CORPUS]
+    if unknown:
+        raise SystemExit(
+            f"--languages: unknown {unknown}, expected a subset of "
+            f"{list(LANGUAGE_CORPUS)}"
+        )
+    # Canonical order, so the label of a run does not depend on typing order.
+    return [language for language in LANGUAGE_CORPUS if language in wanted]
+
+
+def doc_matrix_variant(
+    doc_text: str, descriptions_sha: str, languages: list[str] | None = None,
+) -> str:
+    """Name under which the document matrix of this doc-text is cached.
+
+    `text` and `title_text` keep their historical names untouched, so every
+    matrix and sidecar on disk stays valid and every recorded measurement
+    stays reproducible. A description variant carries the sha1 prefix of the
+    sense file, because the same fragments annotated by another model are a
+    different index entirely — and, when the run is restricted to some
+    languages, their names too, because such a matrix holds only those
+    languages' rows.
+    """
+    if doc_text in VARIANTS:
+        return doc_text
+    if not descriptions_sha:
+        raise ValueError(f"doc-text {doc_text} needs a descriptions file")
+    name = f"{doc_text}_{descriptions_sha}"
+    if languages and list(languages) != list(LANGUAGE_CORPUS):
+        name += "_" + "+".join(languages)
+    return name
+
+
+def build_doc_texts(
+    doc_text: str,
+    metas: list[ChunkMeta],
+    texts: list[str],
+    title_texts: list[str],
+    descriptions: dict[tuple[int, str], list[str]],
+    languages: list[str] | None = None,
+) -> tuple[list[str], list[int], dict]:
+    """The documents to embed, and which chunk each of them belongs to.
+
+    Returns `(doc_texts, owners, stats)` where `owners[row]` is the index in
+    `metas` of the fragment that row describes. For every variant except
+    `description` that is the identity mapping and the returned texts are
+    exactly what the benchmark embedded before this option existed — byte for
+    byte, which is what keeps the default comparable with every recorded run.
+
+    `description` is the one variant with MORE rows than fragments: each
+    sense is indexed as its own vector under the same fragment, so a passage
+    that serves several situations is found by whichever of them the prayer
+    is about. The search de-duplicates by fragment before fusion.
+
+    A fragment the sense file does not cover falls back to its `title_text`
+    and is counted (`stats["missing"]`, reported and refused per LANGUAGE by
+    the caller — a whole language degrading in silence is exactly what this
+    experiment must not do).
+
+    `languages`, when it names a subset, drops the other languages' rows from
+    a description matrix entirely: those scenarios are not being scored, and
+    embedding 8 000 documents nobody searches costs ~20 CPU-minutes and makes
+    the artifact claim to be an index it is not. The matrix name records the
+    subset. Non-description variants ignore it, so the default stays
+    byte-identical.
+    """
+    stats = {
+        "missing": 0, "senses": 0, "rows": 0,
+        "missing_by_language": {}, "fragments_by_language": {},
+    }
+    docs: list[str] = []
+    owners: list[int] = []
+    subset = (
+        set(languages) if languages and list(languages) != list(LANGUAGE_CORPUS)
+        else None
+    )
+    for i, meta in enumerate(metas):
+        senses = descriptions.get((meta.translation, meta.canonical_id), [])
+        if doc_text in ("text", "title_text"):
+            docs.append(texts[i] if doc_text == "text" else title_texts[i])
+            owners.append(i)
+            continue
+        language = TRANSLATION_LANGUAGE.get(meta.translation, "?")
+        if subset is not None and language not in subset:
+            continue
+        stats["fragments_by_language"][language] = (
+            stats["fragments_by_language"].get(language, 0) + 1
+        )
+        if not senses:
+            stats["missing"] += 1
+            stats["missing_by_language"][language] = (
+                stats["missing_by_language"].get(language, 0) + 1
+            )
+            docs.append(title_texts[i])
+            owners.append(i)
+            continue
+        stats["senses"] += len(senses)
+        if doc_text == "description":
+            for sense in senses:
+                docs.append(sense)
+                owners.append(i)
+        else:  # title_text_description: one row, everything in it
+            docs.append(title_texts[i] + "\n\n" + "\n".join(senses))
+            owners.append(i)
+    stats["rows"] = len(docs)
+    return docs, owners, stats
 
 
 def load_psalm_maps() -> dict[int, PsalmMap]:
@@ -201,6 +384,13 @@ def corpus_fingerprint(metas: list[ChunkMeta]) -> str:
     sha1 over `translation:canonical_id` in file order — the same order the
     matrix rows are in, so it detects a re-export that kept the row COUNT but
     moved, replaced or re-chunked the documents. The row count alone cannot.
+
+    The argument is one entry per matrix ROW, which is the same thing as one
+    per chunk for every doc-text variant except `description`: there a
+    fragment contributes one row per sense, so its meta repeats and the
+    fingerprint also pins how many senses each fragment had and in what
+    order. Existing single-row matrices keep exactly the fingerprint they
+    have (86cbeef7h).
     """
     import hashlib
 
@@ -226,6 +416,7 @@ def save_corpus_matrix(
 
 def load_corpus_matrix(
     model_key: str, variant: str, metas: list[ChunkMeta],
+    rebuild_hint: str = "",
 ) -> np.ndarray:
     """The cached document matrix of one config, or a loud refusal.
 
@@ -241,17 +432,25 @@ def load_corpus_matrix(
     Two checks, both hard errors: the row count, and (when the sidecar
     exists) the corpus fingerprint. A matrix written before the sidecar
     existed passes on the row count with a warning naming the risk.
+
+    `metas` is one entry per matrix ROW (see `corpus_fingerprint`).
+    `rebuild_hint` replaces the `embed` command in the error messages for
+    variants that command cannot build — the doc-text matrices of 86cbeef7h,
+    which the `pipeline` run makes itself.
     """
     path = emb_path(model_key, variant)
+    rebuild = rebuild_hint or (
+        f"  python retrieval_benchmark.py embed --model {model_key} "
+        f"--variant {variant} --force"
+    )
     if not path.exists():
         raise SystemExit(
             f"{path} does not exist. Build it:\n"
-            f"  python retrieval_benchmark.py embed --model {model_key} "
-            f"--variant {variant}"
+            + (rebuild_hint or
+               f"  python retrieval_benchmark.py embed --model {model_key} "
+               f"--variant {variant}")
         )
     vecs = np.load(path)
-    rebuild = (f"  python retrieval_benchmark.py embed --model {model_key} "
-               f"--variant {variant} --force")
     if vecs.shape[0] != len(metas):
         raise SystemExit(
             f"{path} holds {vecs.shape[0]} vectors, but {CHUNKS_FILE.name} "
@@ -844,31 +1043,39 @@ def _query_vector(text: str, api_key: str, cache: dict) -> np.ndarray:
 
 def _local_pipeline_corpus(
     model_key: str, model, prefix: str,
-    metas: list[ChunkMeta], title_texts: list[str],
+    row_metas: list[ChunkMeta], docs: list[str], variant: str,
 ) -> np.ndarray:
     """Document matrix of a local embedder for the `pipeline` command.
 
-    Reuses `emb_<key>_title_text.npy` — the very file the `embed` command
-    writes — through the shared `load_corpus_matrix` guard, and embeds the
-    corpus once when the file is absent. A cached file that does not match
-    the corpus is a hard error there rather than a silent re-embed: the
-    `run` command reads the same file, so overwriting it behind the
-    operator's back would quietly change an unrelated measurement.
+    Reuses `emb_<key>_<variant>.npy` — for the default `title_text` the very
+    file the `embed` command writes — through the shared `load_corpus_matrix`
+    guard, and embeds the documents once when the file is absent. A cached
+    file that does not match the corpus is a hard error there rather than a
+    silent re-embed: the `run` command reads the same file, so overwriting it
+    behind the operator's back would quietly change an unrelated measurement.
+
+    `row_metas` is one entry per document row, so a doc-text variant that
+    indexes several senses per fragment is fingerprinted by what it actually
+    contains.
     """
-    path = emb_path(model_key, "title_text")
+    path = emb_path(model_key, variant)
+    rebuild = (
+        f"  rm {path}\n"
+        f"  # then re-run this pipeline command; it rebuilds the matrix"
+    ) if variant not in VARIANTS else ""
     if path.exists():
-        vecs = load_corpus_matrix(model_key, "title_text", metas)
+        vecs = load_corpus_matrix(model_key, variant, row_metas, rebuild)
         print(f"corpus embeddings: {path.name} (cached, {vecs.shape})")
         return vecs
     print(f"corpus embeddings: {path.name} missing, embedding "
-          f"{len(title_texts)} chunks on CPU (minutes)...")
+          f"{len(docs)} documents on CPU (minutes)...")
     started = time.time()
     # max_seq_length is already applied to `model`; only the batch matters here
     vecs = embed_local(
-        "", title_texts, prefix, model=model,
+        "", docs, prefix, model=model,
         batch_size=LOCAL_ENCODE_LIMITS.get(model_key, {}).get("batch_size", 16),
     )
-    save_corpus_matrix(model_key, "title_text", vecs, metas)
+    save_corpus_matrix(model_key, variant, vecs, row_metas)
     print(f"corpus embeddings: saved {path.name} shape={vecs.shape} "
           f"in {time.time() - started:.0f}s")
     return vecs
@@ -916,8 +1123,8 @@ def _embedder_report(model_key: str, query_ms: list[float]) -> dict:
 
 
 def _pipeline_embedder(
-    model_key: str, metas: list[ChunkMeta], title_texts: list[str],
-    cache: dict,
+    model_key: str, row_metas: list[ChunkMeta], docs: list[str],
+    cache: dict, variant: str = PIPELINE_DEFAULT_DOC_TEXT,
 ):
     """(corpus matrix, query->vector callable) for the `pipeline` command.
 
@@ -925,23 +1132,48 @@ def _pipeline_embedder(
     pass truncated to PIPELINE_DIMS, queries embedded through the API with
     the on-disk `query_embeddings` cache.
 
-    A local sentence-transformers model embeds BOTH sides itself — corpus in
-    passage mode, queries in query mode, with the model's own prefixes. That
-    path never reads GEMINI_API_KEY and never issues an HTTP request, and it
-    does not touch the Gemini query cache (whose keys carry no model name, so
-    sharing it would mix vector spaces).
+    A local sentence-transformers model embeds BOTH sides itself — documents
+    in passage mode, queries in query mode, with the model's own prefixes.
+    That path never reads GEMINI_API_KEY and never issues an HTTP request,
+    and it does not touch the Gemini query cache (whose keys carry no model
+    name, so sharing it would mix vector spaces).
+
+    `variant` names the document matrix (`doc_matrix_variant`). Gemini
+    NEVER builds a missing one: re-embedding the corpus is ~12 000 paid API
+    calls, so an absent doc-text matrix is a hard error naming a local
+    embedder instead (86cbeef7h, and tripwire-compatible — the refusal
+    happens before any key is read).
     """
     kind, model_id, qpref, ppref, _dims = MODELS[model_key]
     if kind == "gemini":
+        if variant not in VARIANTS and not emb_path("gemini", variant).exists():
+            raise SystemExit(
+                f"{emb_path('gemini', variant).name} is not cached, and this "
+                f"run will NOT spend the paid embedding API on "
+                f"{len(docs)} documents by itself. Measure doc-text variants "
+                f"with a local embedder (--embedder e5-small|e5-base|bge-m3), "
+                f"or build that matrix deliberately first."
+            )
         api_key = require_api_key()
         corpus = truncate_mrl(
-            load_corpus_matrix("gemini", "title_text", metas), PIPELINE_DIMS)
+            load_corpus_matrix(
+                "gemini", variant, row_metas,
+                # `embed --model gemini --variant <doc-text>` is not a command
+                # that exists; a stale doc-text matrix is removed and rebuilt
+                # by a local run instead.
+                rebuild_hint=(
+                    f"  rm {emb_path('gemini', variant)}\n"
+                    f"  # then rebuild it deliberately — this run will not "
+                    f"spend the paid API on it"
+                ) if variant not in VARIANTS else "",
+            ),
+            PIPELINE_DIMS)
         return corpus, (lambda text: _query_vector(text, api_key, cache))
 
     limits = LOCAL_ENCODE_LIMITS.get(model_key, {})
     model = load_st_model(model_id, limits.get("max_seq_length", 0))
     corpus = _local_pipeline_corpus(
-        model_key, model, ppref, metas, title_texts)
+        model_key, model, ppref, row_metas, docs, variant)
 
     def query_vector(text: str) -> np.ndarray:
         vec = model.encode(
@@ -1774,6 +2006,18 @@ def pipeline_label(args, rewrite_model: str, rerank_label: str = "") -> str:
            if args.coverage_translation else "")
         + (f" embedder={args.embedder}"
            if args.embedder != PIPELINE_DEFAULT_EMBEDDER else "")
+        # `doc_cov` is the share of the WORST evaluated language covered by
+        # the sense file. It rides in the label because a doc=description run
+        # over a half-annotated corpus is a different measurement from one
+        # over a whole corpus, and the two must not look alike in an artifact.
+        + (f" doc={args.doc_text}"
+           + (f" doc_cov={args.doc_coverage:.3f}"
+              if getattr(args, "doc_coverage", None) is not None else "")
+           if getattr(args, "doc_text", PIPELINE_DEFAULT_DOC_TEXT)
+           != PIPELINE_DEFAULT_DOC_TEXT else "")
+        + (f" langs={'+'.join(args.languages)}"
+           if getattr(args, "languages", None)
+           and list(args.languages) != list(LANGUAGE_CORPUS) else "")
         # Only an OFFLINE rerank is named: a live one is reported by the
         # `rerank: model=` line and `final_top1.rerank_model`, and adding it
         # here would change the label of every run recorded so far.
@@ -1798,9 +2042,79 @@ def cmd_pipeline(args) -> None:
 
     thresholds = json.loads(THRESHOLDS_FILE.read_text())
     scenarios = json.loads(SCENARIOS_FILE.read_text())["scenarios"]
-    metas, _texts, title_texts_all = load_chunks()
+    languages = parse_languages(getattr(args, "languages", ""))
+    # Written back so `pipeline_label` names the same subset the run scored.
+    args.languages = languages
+    scenarios = [s for s in scenarios if s["language"] in languages]
+    if not scenarios:
+        raise SystemExit(f"--languages {languages} selects no scenario")
+    metas, texts_all, title_texts_all = load_chunks()
     psalm_maps = load_psalm_maps()
     cache = _load_pipeline_cache()
+
+    # --- which text of a fragment gets embedded (ClickUp 86cbeef7h)
+    doc_text = getattr(args, "doc_text", PIPELINE_DEFAULT_DOC_TEXT)
+    descriptions_file = getattr(args, "descriptions_file", "")
+    if doc_text in DOC_TEXT_NEEDS_DESCRIPTIONS and not descriptions_file:
+        raise SystemExit(f"--doc-text {doc_text} requires --descriptions-file")
+    if descriptions_file and doc_text not in DOC_TEXT_NEEDS_DESCRIPTIONS:
+        raise SystemExit(
+            f"--descriptions-file is ignored by --doc-text {doc_text}; pass "
+            f"--doc-text description or title_text_description, or drop the "
+            f"file (a silently unused input is how a run gets mislabelled)"
+        )
+    descriptions: dict[tuple[int, str], list[str]] = {}
+    descriptions_meta: dict = {}
+    descriptions_sha = ""
+    if descriptions_file:
+        descriptions, descriptions_meta, descriptions_sha = load_descriptions(
+            descriptions_file)
+    doc_texts, doc_owners, doc_stats = build_doc_texts(
+        doc_text, metas, texts_all, title_texts_all, descriptions, languages)
+    row_metas = [metas[owner] for owner in doc_owners]
+    matrix_variant = doc_matrix_variant(doc_text, descriptions_sha, languages)
+    # Per FRAGMENT a missing sense is a documented degradation to title_text;
+    # per LANGUAGE it is not allowed to happen quietly — a language covered
+    # by a handful of fragments would be scored against the OLD index under a
+    # doc=description label (Maria, 2026-09-04). So coverage is measured per
+    # evaluated language, printed, put in the label and gated.
+    coverage = {}
+    for language in languages:
+        total = doc_stats["fragments_by_language"].get(language, 0)
+        missing = doc_stats["missing_by_language"].get(language, 0)
+        coverage[language] = (total - missing) / total if total else 1.0
+    args.doc_coverage = min(coverage.values()) if coverage else 1.0
+    if doc_text in DOC_TEXT_NEEDS_DESCRIPTIONS:
+        blind = [x for x in languages if coverage[x] == 0.0]
+        thin = [
+            x for x in languages
+            if 0.0 < coverage[x] < MIN_DESCRIPTION_COVERAGE
+        ]
+        rest = ",".join(x for x in languages if x not in blind and x not in thin)
+        shares = ", ".join(f"{x}={coverage[x]:.3f}" for x in languages)
+        if blind:
+            raise SystemExit(
+                f"{descriptions_file} annotates no fragment at all in "
+                f"{blind} — those scenarios would be scored against the "
+                f"plain title_text index under a doc={doc_text} label. Run "
+                f"with --languages {rest} (or annotate those translations). "
+                f"Coverage: {shares}"
+            )
+        if thin and not getattr(args, "allow_partial_coverage", False):
+            raise SystemExit(
+                f"{descriptions_file} covers {thin} below "
+                f"{MIN_DESCRIPTION_COVERAGE:.0%} — the run would mostly "
+                f"measure the title_text index and report it as "
+                f"doc={doc_text}. Coverage: {shares}. Either drop those "
+                f"languages (--languages {rest}), finish annotating them, or "
+                f"say so explicitly with --allow-partial-coverage (the label "
+                f"and the artifact then carry the share)."
+            )
+    if doc_stats["missing"] and doc_text in DOC_TEXT_NEEDS_DESCRIPTIONS:
+        print(f"[warn] {doc_stats['missing']} of "
+              f"{sum(doc_stats['fragments_by_language'].values())} fragments "
+              f"have no senses and fall back to title_text "
+              f"({doc_stats['missing_by_language']})")
     # --reranks-file implies the final-top1 stage and answers it from disk:
     # no reranker is constructed, so the run cannot reach Gemini's rerank
     # even by accident (tripwire-compatible), and it needs no key. It and
@@ -1813,7 +2127,7 @@ def cmd_pipeline(args) -> None:
     # a missing key must not be discovered afterwards.
     api_key = require_api_key() if args.rerank else ""
     corpus, query_vector = _pipeline_embedder(
-        args.embedder, metas, title_texts_all, cache)
+        args.embedder, row_metas, doc_texts, cache, matrix_variant)
     query_ms: list[float] = []
     blacklist = load_genre_blacklist() if not args.no_blacklist else []
     safe_pool = load_safe_pool()
@@ -1923,26 +2237,51 @@ def cmd_pipeline(args) -> None:
             ]
             lexical[code] = LexicalIndex(docs)
 
-    canon_row = {
-        code: {metas[i].canonical_id: i for i in idx}
-        for code, idx in trans_idx.items()
+    # Rows of the DOCUMENT matrix (not of `metas`): with --doc-text
+    # description a fragment owns one row per sense, so the search runs over
+    # rows and collapses them back to fragments. With every other doc-text
+    # the mapping is the identity and both loops below behave exactly as they
+    # did before the option existed.
+    row_idx = {
+        # dtype is explicit: a language excluded by --languages has NO rows,
+        # and `np.array([])` would be float64 — an invalid index array.
+        code: np.array(
+            [r for r, m in enumerate(row_metas) if m.translation == code],
+            dtype=int)
+        for code, _alias in LANGUAGE_CORPUS.values()
     }
+    canon_rows: dict[int, dict[str, list[int]]] = {}
+    for code, _alias in LANGUAGE_CORPUS.values():
+        per_id: dict[str, list[int]] = {}
+        for r in row_idx[code]:
+            per_id.setdefault(row_metas[r].canonical_id, []).append(int(r))
+        canon_rows[code] = per_id
 
     def search_variant(
         code: int, query: str, qvec: np.ndarray
     ) -> list[tuple[str, float]]:
-        idx = trans_idx[code]
+        idx = row_idx[code]
         sims = corpus[idx] @ qvec
-        top_local = np.argsort(-sims)[: args.fetch_k]
-        semantic = [
-            (metas[idx[j]].canonical_id, float(sims[j])) for j in top_local
-        ]
+        semantic: list[tuple[str, float]] = []
+        seen: set[str] = set()
+        for j in np.argsort(-sims):
+            # De-duplicate by FRAGMENT, keeping its best-scoring sense, and
+            # do it here — before fusion, blacklist and diversity — so every
+            # later stage sees the list it has always seen: fetch_k distinct
+            # passages, best score first.
+            canonical_id = row_metas[idx[j]].canonical_id
+            if canonical_id in seen:
+                continue
+            seen.add(canonical_id)
+            semantic.append((canonical_id, float(sims[j])))
+            if len(semantic) >= args.fetch_k:
+                break
         lex_index = lexical.get(code)
         if lex_index is None:
             return semantic
         lex = [
             (h.canonical_id,
-             float(corpus[canon_row[code][h.canonical_id]] @ qvec))
+             max(float(corpus[r] @ qvec) for r in canon_rows[code][h.canonical_id]))
             for h in lex_index.search(query, top_k=args.lex_k)
         ]
         return merge_semantic_lexical(semantic, lex)
@@ -2110,6 +2449,34 @@ def cmd_pipeline(args) -> None:
     print_report(label, results, {"rewrite_failures": rewrite_failures},
                  thresholds)
     embedder_stats = _embedder_report(args.embedder, query_ms)
+    doc_stage = {
+        "doc_text": doc_text,
+        "matrix_variant": matrix_variant,
+        "rows": doc_stats["rows"],
+        "fragments": len(metas),
+        "senses": doc_stats["senses"],
+        "missing_descriptions": doc_stats["missing"],
+        "missing_by_language": doc_stats["missing_by_language"],
+        "coverage_by_language": {k: round(v, 4) for k, v in coverage.items()},
+        "coverage_min": round(args.doc_coverage, 4),
+        "allow_partial_coverage": bool(
+            getattr(args, "allow_partial_coverage", False)),
+        "languages": languages,
+        "descriptions_file": descriptions_file,
+        "descriptions_sha1": descriptions_sha,
+        "descriptions_meta": descriptions_meta,
+    }
+    if doc_text != PIPELINE_DEFAULT_DOC_TEXT:
+        print(
+            f"doc-text: {doc_text} | {doc_stats['rows']} rows for "
+            f"{sum(doc_stats['fragments_by_language'].values())} fragments "
+            f"({doc_stats['senses']} senses, {doc_stats['missing']} without) "
+            f"| coverage "
+            + ", ".join(f"{k}={v:.3f}" for k, v in coverage.items())
+            + f" | matrix {matrix_variant}"
+            + (f" | caution flagged: {descriptions_meta['caution_rows']}"
+               if "caution_rows" in descriptions_meta else "")
+        )
     if rerank_rows is not None:
         print(f"\nrerank: model={rerank_model} fresh_calls="
               f"{rerank_stats['calls']} failures={rerank_stats['failures']}"
@@ -2128,6 +2495,7 @@ def cmd_pipeline(args) -> None:
         payload = {
             "config": label,
             "embedding_stage": embedder_stats,
+            "doc_stage": doc_stage,
             "aggregate": aggregate(results, "ALL").__dict__,
             "scenarios": [r.__dict__ for r in results],
             "details": per_scenario,
@@ -2224,6 +2592,40 @@ def main() -> None:
                         "still calls gemini-3.7-flash on the PAID key "
                         "(AI_SCRIPTURE_REWRITE_API_KEY) for every scenario "
                         "missing from the cache")
+    p.add_argument("--doc-text", choices=DOC_TEXT_VARIANTS,
+                   default=PIPELINE_DEFAULT_DOC_TEXT,
+                   help="which text of a fragment is EMBEDDED as the document "
+                        "(default: title_text, the configuration every "
+                        "recorded measurement used). `description` indexes "
+                        "each sense of --descriptions-file as its own vector "
+                        "under the fragment's canonical id and collapses them "
+                        "back to one hit per fragment before fusion; "
+                        "`title_text_description` puts heading, text and all "
+                        "senses into a single document. Both need "
+                        "--descriptions-file. Only the EMBEDDING stage "
+                        "changes: BM25 keeps indexing the scripture text, so "
+                        "the effect of the senses alone is measured with "
+                        "--no-lexical")
+    p.add_argument("--descriptions-file", default="",
+                   help="JSONL written by evaluation/gen_descriptions.py "
+                        "(per fragment: senses[], caution, caution_note). "
+                        "Required by the description doc-text variants and "
+                        "refused by the others. A fragment it does not cover "
+                        "falls back to title_text and is counted; a LANGUAGE "
+                        "it does not cover at all is a hard error naming "
+                        "--languages")
+    p.add_argument("--allow-partial-coverage", action="store_true",
+                   help=f"accept a --descriptions-file that covers less than "
+                        f"{MIN_DESCRIPTION_COVERAGE:.0%} of an evaluated "
+                        f"language (below that the run mostly measures the "
+                        f"title_text index). A language covered by NOTHING is "
+                        f"refused even with this flag. The label and the "
+                        f"artifact carry the coverage share either way")
+    p.add_argument("--languages", default="",
+                   help="comma-separated subset of ru,en,uk — evaluate only "
+                        "those scenarios. Exists so a sense file covering one "
+                        "translation can be measured honestly instead of "
+                        "silently degrading the other languages to title_text")
     rerank_source.add_argument(
         "--reranks-file", default="",
         help="JSON with final-choice answers produced by an "

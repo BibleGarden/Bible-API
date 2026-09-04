@@ -196,6 +196,8 @@ def _pipeline_args(benchmark, **overrides):
         fusion="interleave", no_lexical=False, lex_k=20, variants=6,
         fetch_k=50, max_per_book=4, max_per_chapter=1,
         coverage_translation=0, embedder=benchmark.PIPELINE_DEFAULT_EMBEDDER,
+        doc_text=benchmark.PIPELINE_DEFAULT_DOC_TEXT, descriptions_file="",
+        languages="", allow_partial_coverage=False,
     )
     return argparse.Namespace(**{**defaults, **overrides})
 
@@ -708,3 +710,274 @@ def test_gemini_embedder_still_requires_the_key(benchmark, corpus_dir, monkeypat
         lambda: (_ for _ in ()).throw(SystemExit("GEMINI_API_KEY not found")))
     with pytest.raises(SystemExit):
         benchmark._pipeline_embedder("gemini", metas, [], {})
+
+
+# ---------------------------------------------------------------------------
+# Doc-text variants: what gets EMBEDDED as the document (ClickUp 86cbeef7h).
+#
+# The experiment indexes a fragment by descriptions of the situations it can
+# serve instead of by its own words. Three things must hold: the default must
+# not move by a single byte (every recorded measurement is against it), a
+# fragment's senses must collapse back to ONE hit before fusion, and a
+# language the sense file does not cover must be refused rather than quietly
+# scored against the old index.
+# ---------------------------------------------------------------------------
+
+def _senses_file(tmp_path, rows, meta=None):
+    path = tmp_path / "senses.jsonl"
+    path.write_text(
+        "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+    if meta is not None:
+        (tmp_path / "senses.jsonl.meta.json").write_text(json.dumps(meta))
+    return path
+
+
+def test_the_default_doc_text_is_byte_identical_to_the_old_behaviour(benchmark):
+    metas = _metas(benchmark, 3)
+    texts = ["t0", "t1", "t2"]
+    title_texts = ["T0\n\nt0", "T1\n\nt1", "T2\n\nt2"]
+    docs, owners, stats = benchmark.build_doc_texts(
+        "title_text", metas, texts, title_texts, {})
+    assert docs == title_texts
+    assert owners == [0, 1, 2]
+    assert stats["missing"] == 0 and stats["senses"] == 0
+    # and the matrix keeps the historical name, so every .npy and .sha1 on
+    # disk stays valid
+    assert benchmark.doc_matrix_variant("title_text", "") == "title_text"
+    assert benchmark.doc_matrix_variant("text", "") == "text"
+
+
+def test_a_default_run_says_nothing_about_doc_text_in_its_label(benchmark):
+    label = benchmark.pipeline_label(
+        _pipeline_args(benchmark), "gemini-3.7-flash")
+    assert "doc=" not in label and "langs=" not in label
+    assert label == (
+        "pipeline rewrite=gemini-3.7-flash variants=6 raw=no fusion=interleave"
+        " blacklist=on pool=on lexical=k20 fetch_k=50 max_per_book=4"
+    )
+
+
+def test_a_doc_text_variant_and_a_language_subset_reach_the_label(benchmark):
+    args = _pipeline_args(benchmark, doc_text="description", languages=["en"])
+    args.doc_coverage = 1.0
+    assert benchmark.pipeline_label(args, "gemini-3.7-flash").endswith(
+        " doc=description doc_cov=1.000 langs=en")
+
+
+def test_partial_coverage_is_visible_in_the_label(benchmark):
+    """A half-annotated corpus is a different measurement and must say so."""
+    args = _pipeline_args(benchmark, doc_text="description")
+    args.doc_coverage = 0.4213
+    assert " doc=description doc_cov=0.421" in benchmark.pipeline_label(
+        args, "gemini-3.7-flash")
+
+
+def test_every_sense_becomes_its_own_row_under_the_same_fragment(benchmark):
+    metas = _metas(benchmark, 3)
+    descriptions = {
+        (1, metas[0].canonical_id): ["для скорбящего", "для благодарящего"],
+        (1, metas[1].canonical_id): ["для ждущего"],
+        (1, metas[2].canonical_id): ["a", "b", "c"],
+    }
+    docs, owners, stats = benchmark.build_doc_texts(
+        "description", metas, ["t"] * 3, ["T"] * 3, descriptions)
+    assert docs == ["для скорбящего", "для благодарящего", "для ждущего",
+                    "a", "b", "c"]
+    assert owners == [0, 0, 1, 2, 2, 2]
+    assert stats["senses"] == 6 and stats["rows"] == 6 and stats["missing"] == 0
+
+
+def test_the_combined_variant_keeps_one_row_per_fragment(benchmark):
+    metas = _metas(benchmark, 1)
+    descriptions = {(1, metas[0].canonical_id): ["первый", "второй"]}
+    docs, owners, _stats = benchmark.build_doc_texts(
+        "title_text_description", metas, ["t"], ["T\n\nt"], descriptions)
+    assert docs == ["T\n\nt\n\nпервый\nвторой"]
+    assert owners == [0]
+
+
+def test_a_fragment_without_senses_degrades_to_title_text_and_is_counted(
+    benchmark
+):
+    metas = _metas(benchmark, 2)
+    descriptions = {(1, metas[0].canonical_id): ["для ждущего"]}
+    docs, owners, stats = benchmark.build_doc_texts(
+        "description", metas, ["t0", "t1"], ["T0", "T1"], descriptions)
+    assert docs == ["для ждущего", "T1"]
+    assert owners == [0, 1]
+    assert stats["missing"] == 1
+    assert stats["missing_by_language"] == {"ru": 1}
+    assert stats["fragments_by_language"] == {"ru": 2}
+
+
+def test_the_matrix_name_carries_the_sense_file_and_the_languages(benchmark):
+    assert benchmark.doc_matrix_variant("description", "abc123def456") == \
+        "description_abc123def456"
+    assert benchmark.doc_matrix_variant(
+        "description", "abc123def456", ["en"]) == "description_abc123def456_en"
+    # all three languages is the same thing as no restriction
+    assert benchmark.doc_matrix_variant(
+        "description", "abc123def456", ["ru", "en", "uk"]) == \
+        "description_abc123def456"
+    with pytest.raises(ValueError):
+        benchmark.doc_matrix_variant("description", "")
+
+
+def test_a_language_subset_drops_the_other_languages_rows(benchmark):
+    ru = _metas(benchmark, 1, translation=1)
+    en = _metas(benchmark, 1, translation=16)
+    metas = ru + en
+    descriptions = {
+        (1, metas[0].canonical_id): ["ru sense"],
+        (16, metas[1].canonical_id): ["en sense"],
+    }
+    docs, owners, _stats = benchmark.build_doc_texts(
+        "description", metas, ["t", "t"], ["T", "T"], descriptions, ["en"])
+    assert docs == ["en sense"] and owners == [1]
+
+
+def test_languages_are_parsed_in_canonical_order_and_validated(benchmark):
+    assert benchmark.parse_languages("") == ["ru", "en", "uk"]
+    assert benchmark.parse_languages("uk,en") == ["en", "uk"]
+    with pytest.raises(SystemExit) as exc:
+        benchmark.parse_languages("de")
+    assert "de" in str(exc.value)
+
+
+def test_sense_files_are_read_last_row_wins_and_error_rows_ignored(
+    benchmark, tmp_path
+):
+    path = _senses_file(tmp_path, [
+        {"canonical_id": "a", "translation": 1, "senses": ["first"],
+         "caution": False},
+        {"canonical_id": "a", "translation": 1, "senses": ["retried"],
+         "caution": True},
+        {"canonical_id": "b", "translation": 1, "senses": [],
+         "caution": False, "error": "incomplete"},
+    ], meta={"model": "some-model"})
+    by_key, meta, digest = benchmark.load_descriptions(str(path))
+    # the resumed retry wins; the error row leaves the fragment un-annotated
+    assert by_key == {(1, "a"): ["retried"]}
+    assert meta["model"] == "some-model" and meta["caution_rows"] == 1
+    assert len(digest) == 12
+
+
+def test_a_sense_file_covering_no_language_of_the_run_is_refused(
+    benchmark, monkeypatch, tmp_path
+):
+    """No silent degradation of a whole language (Maria, 2026-09-04)."""
+    path = _senses_file(tmp_path, [
+        {"canonical_id": "v3:19.000.001-005", "translation": 16,
+         "senses": ["en sense"], "caution": False},
+    ])
+    args, _cache, _ids = _mini_pipeline(benchmark, monkeypatch, tmp_path, "")
+    args.doc_text = "description"
+    args.descriptions_file = str(path)
+    with pytest.raises(SystemExit) as exc:
+        benchmark.cmd_pipeline(args)
+    message = str(exc.value)
+    assert "annotates no fragment at all in ['ru']" in message
+    assert "--languages" in message
+
+
+def test_a_description_run_needs_its_file_and_refuses_an_unused_one(
+    benchmark, monkeypatch, tmp_path
+):
+    args, _cache, _ids = _mini_pipeline(benchmark, monkeypatch, tmp_path, "")
+    args.doc_text = "description"
+    with pytest.raises(SystemExit) as exc:
+        benchmark.cmd_pipeline(args)
+    assert "requires --descriptions-file" in str(exc.value)
+
+    args.doc_text = "title_text"
+    args.descriptions_file = str(_senses_file(tmp_path, []))
+    with pytest.raises(SystemExit) as exc:
+        benchmark.cmd_pipeline(args)
+    assert "is ignored by --doc-text title_text" in str(exc.value)
+
+
+def test_the_senses_of_one_fragment_collapse_to_its_best_hit(
+    benchmark, monkeypatch, tmp_path, capsys
+):
+    """One hit per fragment, best sense first, BEFORE fusion and diversity."""
+    args, _cache, ids = _mini_pipeline(benchmark, monkeypatch, tmp_path, "")
+    path = _senses_file(tmp_path, [
+        {"canonical_id": ids[0], "translation": 1,
+         "senses": ["weak sense", "strong sense"], "caution": False},
+        {"canonical_id": ids[1], "translation": 1,
+         "senses": ["middling sense"], "caution": True},
+    ])
+    args.doc_text = "description"
+    args.descriptions_file = str(path)
+    args.json_out = str(tmp_path / "out.json")
+
+    seen = {}
+
+    def fake_embedder(model_key, row_metas, docs, cache, variant):
+        seen["docs"] = list(docs)
+        seen["variant"] = variant
+        seen["row_ids"] = [m.canonical_id for m in row_metas]
+        # rows in order: chunk0/sense0, chunk0/sense1, chunk1/sense0
+        corpus = np.array([[0.1], [0.9], [0.5]], dtype=np.float32)
+        return corpus, (lambda _t: np.ones(1, dtype=np.float32))
+
+    monkeypatch.setattr(benchmark, "_pipeline_embedder", fake_embedder)
+    benchmark.cmd_pipeline(args)
+
+    assert seen["docs"] == ["weak sense", "strong sense", "middling sense"]
+    assert seen["row_ids"] == [ids[0], ids[0], ids[1]]
+    assert seen["variant"].startswith("description_")
+    payload = json.loads(Path(args.json_out).read_text())
+    top = payload["details"][0]["top"]
+    # two fragments, not three rows; the strong sense carried its fragment
+    assert [hit["id"] for hit in top] == [ids[0], ids[1]]
+    assert top[0]["score"] == pytest.approx(0.9, abs=1e-4)
+    assert payload["doc_stage"]["rows"] == 3
+    assert payload["doc_stage"]["senses"] == 3
+    assert payload["doc_stage"]["descriptions_meta"]["caution_rows"] == 1
+    assert "doc=description" in payload["config"]
+    assert "doc-text: description" in capsys.readouterr().out
+
+
+def test_gemini_never_embeds_a_doc_text_variant_by_itself(
+    benchmark, corpus_dir, monkeypatch
+):
+    """12 000 paid calls must not happen as a side effect of a flag."""
+    monkeypatch.setattr(
+        benchmark, "require_api_key",
+        lambda: (_ for _ in ()).throw(AssertionError("a key was requested")))
+    with pytest.raises(SystemExit) as exc:
+        benchmark._pipeline_embedder(
+            "gemini", _metas(benchmark, 3), ["a", "b", "c"], {},
+            "description_abc123def456")
+    message = str(exc.value)
+    assert "not cached" in message and "--embedder" in message
+
+
+def test_thin_coverage_is_refused_without_the_explicit_flag(
+    benchmark, monkeypatch, tmp_path
+):
+    """15 senses in a 4000-fragment language is the old index, relabelled."""
+    args, _cache, ids = _mini_pipeline(benchmark, monkeypatch, tmp_path, "")
+    path = _senses_file(tmp_path, [
+        {"canonical_id": ids[0], "translation": 1, "senses": ["one sense"],
+         "caution": False},
+    ])
+    args.doc_text = "description"
+    args.descriptions_file = str(path)
+    with pytest.raises(SystemExit) as exc:
+        benchmark.cmd_pipeline(args)
+    message = str(exc.value)
+    assert "--allow-partial-coverage" in message
+    assert "ru=0.500" in message
+
+    # with the flag the run proceeds, and the share is in the label
+    args.allow_partial_coverage = True
+    args.json_out = str(tmp_path / "thin.json")
+    benchmark.cmd_pipeline(args)
+    payload = json.loads(Path(args.json_out).read_text())
+    assert "doc_cov=0.500" in payload["config"]
+    assert payload["doc_stage"]["coverage_by_language"]["ru"] == 0.5
+    assert payload["doc_stage"]["allow_partial_coverage"] is True
