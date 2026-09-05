@@ -72,10 +72,11 @@ system prompt is a code constant now, not an environment value.
 - **`about.py`** — About page content, per application: `GET /api/about?app=` selects `bible-garden` (the default, byte-for-byte the pre-2026-09-05 response for released clients) or `lampada` (own website URL/subtitles and description, shared Telegram and GitHub). Unknown values are a 422; the response model and the API key are unchanged, and the selector is **not** an authorization boundary (PR #3, `architect/adr/0011-application-specific-about-content.md`)
 - **`version_check.py`** — App version check, per application: `GET /api/version-check?app=` selects `bible-garden` (the default — same fields and same `update_type` for every version a released client can send, plus the additive `app`) or `lampada` (own `LAMPADA_MIN_SUPPORTED_VERSION` / `LAMPADA_LATEST_VERSION` / `LAMPADA_STORE_URL`, and its messages name Lampada). Unknown values are a 422, exactly as in `about.py`. `app_version` is now constrained to one to three numeric components (`^[0-9]+(?:\.[0-9]+){0,2}$`, missing ones read as zero), so a malformed version is a 422 instead of the 500 it used to raise. The **activation switch is a code constant**, `LAMPADA_UPDATES_ENABLED = False`: until its App Store page is public Lampada always gets `update_type=none`, whatever its thresholds say. Not an environment variable on purpose — forcing an update is a release decision, so it lives in a reviewed commit and ADR 0008 does not apply (PR #4, `architect/adr/0013-application-version-policies.md`, ClickUp 86cbbt978)
 - **`import_data.py`** — Import data from Dashboard-API
-- **`twinkler_ai.py`** — Server-prompted AI integration with in-memory rate limiting: `POST /api/ai/question` (Gemini or an OpenAI-compatible endpoint, per `AI_QUESTION_PROVIDER`) and `POST /api/ai/transcribe` (Whisper on a remote audio server, Whisper in this process, or Gemini — per `AI_TRANSCRIBE_PROVIDER`; the seam is `transcribe()`, everything around it is unchanged) — see `architect/twinkler-ai.md`
+- **`twinkler_ai.py`** — Server-prompted AI integration with in-memory rate limiting: `POST /api/ai/question` (Gemini or an OpenAI-compatible endpoint, per `AI_QUESTION_PROVIDER`) and `POST /api/ai/transcribe` (Whisper on a remote audio server, Whisper in this process, or Gemini — per `AI_TRANSCRIBE_PROVIDER`; the seam is `transcribe()`, everything around it is unchanged). The question handler owns one request `Deadline`, both despair tiers and the novelty retry of `question_novelty.py` — see `architect/twinkler-ai.md`
 - **`transcription.py`** — the two Whisper transports of `POST /api/ai/transcribe`: `RemoteTranscriber` (multipart `POST {endpoint}/audio/transcriptions`, the OpenAI **audio** API — the production provider) and `LocalTranscriber` (faster-whisper/CTranslate2 on this CPU, weights from a read-only volume, loaded once at start-up, run on a worker thread). Same contract as the Gemini path — verbatim, no translation, the locale a weak `language=` hint — and the same `502` on failure (`architect/adr/0012-speech-transcription-providers.md`)
 - **`llm_client.py`** — the OpenAI-compatible chat-completions transport (`ChatClient`, `AsyncChatClient`): payload, `<think>` stripping, answer extraction, and the shared `gemini_retry` budget/retry policy. Prompts and parsers stay in the stage modules, so both transports send the same bytes (ADR 0009)
 - **`question_prompt.py`** — the system prompt of `POST /api/ai/question` as a versioned template (`QUESTION_PROMPT_TEMPLATE`, `build_question_prompt`, `QUESTION_PROMPT_VERSION` — **4** since 2026-09-06, ClickUp 86cbehyf8) plus `build_user_message(topic, stage, messages, skipped_questions=())`, which assembles the per-stage instructions the mobile app used to build itself (verbatim, Russian in every language, as the client always sent them). Versioned the way `query_rewrite`/`passage_rerank` version theirs; moved out of `TWINKLER_SYSTEM_PROMPT` on 2026-08-30. v2 named the answer language in the prompt (resolved by `safety.detect_language`, one placeholder) and banned interpreting the person's feelings back at them; v3 removed the one sentence about the incoming layout ("the whole conversation so far … never repeat a question you have already asked") — the stage blocks say it structurally — and nothing else. The skipped-questions block of 86cbehyfe is **additive**: rendered only when the `skipped_questions` field is non-empty, so it moved no version by itself. v4 is the anti-loop revision chosen by measuring candidate wordings (86cbehyf8): the `next` instruction stopped asking for «другую сторону» — which the model read as permission to argue with the person and looped on — and asks it to develop the last answer instead, and one system-prompt sentence takes the person's grammatical gender from their own words
+- **`question_novelty.py`** — the repeat filter of `POST /api/ai/question` (ClickUp 86cbehyg0): `normalize` + character-trigram Jaccard, `is_repeat(candidate, shown)` against the `assistant` turns and `skipped_questions`. Dependency-free like `question_prompt.py`, and the metric is `evaluation/check_questions.py`'s own, so the benchmark number and the production filter are one measurement. Thresholds are reviewed constants with their table in the docstring, never environment (ADR 0008). Lexical only — a reworded return to the same thought is 86cbehyg8 (`architect/adr/0016-question-novelty-check.md`)
 - **`safety.py`** — the despair / self-harm rule of `POST /api/ai/question` in code rather than in the prompt (ru/uk/en dictionary + regex, no model, no network): tier 1 answers the versioned fixed reply (`SAFETY_REPLIES`, `SAFETY_REPLY_VERSION`) without calling the provider, tier 2 replaces a model reply that came back as a question for a weaker despair signal. Reason: Qwen3-30B answered the explicit despair input with a question 3/3 while Gemini obeyed the prompt (ClickUp 86cbegctz/86cbegg23) — see `architect/twinkler-ai.md`, "The despair rule is code". Since 86cbegmzz, and since Maria's 2026-09-05 decision, **both tiers** read the person's **last reply** (the topic at `stage: first`, nothing at `next`/`reflect` with no history): a phrase that already got the fixed reply must not answer every later question of that prayer with it. Tier 2's fixed reply takes its **language** from the same source the prompt uses (`language_source`), not from the matched text, so it speaks the prayer's language rather than the tier-2 pattern's
 - **`scripture_select.py`** — Public scripture-selection endpoint `POST /api/ai/scripture` over `retrieval.select_final`; owns the process-local corpus cache: vector + BM25 indexes, Psalm maps, catalogue, coverage sets (see `architect/scripture-select.md`, `architect/adr/0006-scripture-select-api.md`, `architect/adr/0007-reference-translation-rendering.md`)
 - **`passage_render.py`** — renders a canonical passage window in a translation that has no chunk corpus (coordinates through `psalm_verse_mappings`, text from `translation_verses` with `chunking.build_text` semantics) and builds the per-translation coverage sets used to filter candidates before the rerank (ADR 0007)
@@ -1126,6 +1127,37 @@ reaches the **model and nothing else**: it votes on neither the answer's
 language nor either tier of the despair rule, because it is our own generated
 text in a Russian block whatever language the prayer is in
 (`architect/adr/0015-skipped-questions-in-question-request.md`).
+
+**`novel` — the answer is checked against what was already shown (ClickUp
+86cbehyg0, 2026-09-06).** Telling the model which questions were declined does
+not stop it offering them again: the replacement-series baseline has Qwen
+answering six "replace" presses with six variants of one sentence, the last
+five differing only in the tail. So the handler compares the generated text
+with the `assistant` turns plus `skipped_questions` (`app/question_novelty.py`
+— normalize + character-trigram Jaccard ≥ **0.60**, or a shared opening of ≥ 4
+words covering ≥ 0.7 of the shorter question; the same metric
+`evaluation/check_questions.py` reports for those series, pinned by a test).
+On a repeat it generates **exactly once more**, with the rejected question
+appended to the skipped list for that call only, and never a third time.
+
+The response gains an additive `novel: bool` (`QuestionResponse`, a subclass —
+`/api/ai/transcribe` keeps the plain `CompleteResponse`). `true` = the text
+returned repeats nothing shown, including when there was nothing to compare
+with and when a safety tier replaced it; `false` = it repeats something and the
+second generation repeated too, was unaffordable, or failed. A `false` answer
+still carries the best text obtained (the less similar of the two) — a repeat
+is never `true`, an answer is never withheld, and a failing *second* generation
+is never a `502`. The whole request, both generations, runs under **one**
+`Deadline` of `AI_QUESTION_TIMEOUT_SECONDS`; the second starts only with
+`MIN_SECOND_ATTEMPT_SECONDS` (3.0) left. That budget also reached the Gemini
+transport, which handed httpx a bare number until now — per *phase*, so a 20 s
+ceiling authorised 80 s for one call. Both despair tiers are untouched: tier 1
+before any call, tier 2 on **every** reply including the second. One `INFO`
+line per answered request carries the fact and no text:
+`question novelty: attempts=2 repeat=near score=0.78 novel=false stage=next`.
+It is a lexical check and **not** a measure of semantic diversity — a reworded
+return to the same thought passes; that is 86cbehyg8
+(`architect/adr/0016-question-novelty-check.md`).
 
 The request statistics store the path verbatim, so `api_requests` and
 `api_request_daily_stats` carry the old names before the rename and the new

@@ -79,6 +79,20 @@ def question_body(
     return body
 
 
+def _assert_called_with(generated, message: str, language_source_text: str) -> None:
+    """One generation, with the assembled message and the language source.
+
+    The third argument is the request's `Deadline` (ClickUp 86cbehyg0): one
+    budget object for the whole request, so a second generation runs in what
+    the first one left rather than in a fresh ceiling. Its value cannot be
+    asserted here — it is created inside the handler — so its type and
+    presence are what these tests pin.
+    """
+    assert generated.await_count == 1
+    assert generated.await_args.args[:2] == (message, language_source_text)
+    assert isinstance(generated.await_args.args[2], twinkler_ai.Deadline)
+
+
 @pytest.fixture(autouse=True)
 def allow_ai_requests(monkeypatch):
     twinkler_ai._limiter.reset()
@@ -379,9 +393,9 @@ def test_returns_generated_text(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json() == {"text": "Ответ"}
-    generated.assert_awaited_once_with(
-        question_prompt.build_user_message("Запрос", "first", []), "Запрос"
+    assert response.json() == {"text": "Ответ", "novel": True}
+    _assert_called_with(
+        generated, question_prompt.build_user_message("Запрос", "first", []), "Запрос"
     )
 
 
@@ -431,7 +445,7 @@ def test_the_model_gets_the_assembled_message_and_the_language_of_the_person(
         body["stage"],
         [(message["role"], message["text"]) for message in body["messages"]],
     )
-    generated.assert_awaited_once_with(expected_message, expected_language_source)
+    _assert_called_with(generated, expected_message, expected_language_source)
 
 
 def test_the_language_follows_the_last_reply_not_the_question_it_answers(
@@ -444,7 +458,7 @@ def test_the_language_follows_the_last_reply_not_the_question_it_answers(
     """
     sent = {}
 
-    async def fake_complete(user, language_source_text=None):
+    async def fake_complete(user, language_source_text=None, deadline=None):
         sent["prompt"] = twinkler_ai.question_prompt_for(language_source_text)
         return "Answer"
 
@@ -776,7 +790,7 @@ def test_the_skipped_questions_never_decide_the_language(monkeypatch):
     """An English prayer with our Russian questions is answered in English."""
     sent = {}
 
-    async def fake_complete(user, language_source_text=None):
+    async def fake_complete(user, language_source_text=None, deadline=None):
         sent["prompt"] = twinkler_ai.question_prompt_for(language_source_text)
         return "Answer"
 
@@ -825,7 +839,7 @@ def test_a_despair_phrase_in_a_skipped_question_never_fires_the_rule(monkeypatch
 
     assert response.status_code == 200
     generated.assert_awaited_once()
-    assert response.json() == {"text": "Что помогло тебе сегодня?"}
+    assert response.json() == {"text": "Что помогло тебе сегодня?", "novel": True}
     assert twinkler_ai.safety_input_text(
         twinkler_ai.CompleteRequest(**question_body(
             topic="Развод",
@@ -876,7 +890,7 @@ def test_an_explicit_despair_message_never_reaches_the_model(monkeypatch, body):
     )
 
     assert response.status_code == 200
-    assert response.json() == {"text": safety.SAFETY_REPLIES["ru"]}
+    assert response.json() == {"text": safety.SAFETY_REPLIES["ru"], "novel": True}
     generated.assert_not_awaited()
     assert "?" not in response.json()["text"]
 
@@ -915,7 +929,7 @@ def test_despair_in_an_older_reply_lets_the_conversation_go_on(monkeypatch):
     generated.assert_awaited_once()
     # The last reply carries no despair signal of its own, so the model's
     # real question is kept — the fixed reply does not answer for it.
-    assert response.json() == {"text": "Что помогло тебе сегодня?"}
+    assert response.json() == {"text": "Что помогло тебе сегодня?", "novel": True}
 
 
 def test_an_older_despair_reply_keeps_a_warm_answer(monkeypatch):
@@ -938,7 +952,7 @@ def test_an_older_despair_reply_keeps_a_warm_answer(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json() == {"text": warm}
+    assert response.json() == {"text": warm, "novel": True}
 
 
 def test_a_topic_is_never_read_as_a_reply_the_person_did_not_send(monkeypatch):
@@ -959,7 +973,7 @@ def test_a_topic_is_never_read_as_a_reply_the_person_did_not_send(monkeypatch):
 
     assert response.status_code == 200
     generated.assert_awaited_once()
-    assert response.json() == {"text": "Ты не один с этим."}
+    assert response.json() == {"text": "Ты не один с этим.", "novel": True}
 
 
 def test_the_same_topic_on_the_first_question_is_answered_in_code(monkeypatch):
@@ -974,7 +988,7 @@ def test_the_same_topic_on_the_first_question_is_answered_in_code(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json() == {"text": safety.SAFETY_REPLIES["ru"]}
+    assert response.json() == {"text": safety.SAFETY_REPLIES["ru"], "novel": True}
     generated.assert_not_awaited()
 
 
@@ -1006,7 +1020,7 @@ def test_the_fixed_reply_is_in_the_language_of_the_person_not_of_the_blocks(
     )
 
     assert response.status_code == 200
-    assert response.json() == {"text": safety.SAFETY_REPLIES["en"]}
+    assert response.json() == {"text": safety.SAFETY_REPLIES["en"], "novel": True}
 
 
 def test_the_last_reply_now_outvotes_a_long_russian_topic(monkeypatch):
@@ -1039,7 +1053,7 @@ def test_the_last_reply_now_outvotes_a_long_russian_topic(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json() == {"text": safety.SAFETY_REPLIES["en"]}
+    assert response.json() == {"text": safety.SAFETY_REPLIES["en"], "novel": True}
     # The person's last words are English, and that is what the prompt and
     # tier 1 already used — tier 2's reply language now agrees with them.
     assert safety.detect_language("I'm a burden") == "en"
@@ -1082,7 +1096,7 @@ def test_a_weak_signal_answered_with_a_question_is_replaced(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json() == {"text": safety.SAFETY_REPLIES["en"]}
+    assert response.json() == {"text": safety.SAFETY_REPLIES["en"], "novel": True}
     generated.assert_awaited_once()
 
 
@@ -1098,7 +1112,7 @@ def test_a_weak_signal_answered_warmly_keeps_the_model_answer(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json() == {"text": warm}
+    assert response.json() == {"text": warm, "novel": True}
 
 
 def test_an_ordinary_message_is_untouched_by_either_tier(monkeypatch):
@@ -1113,9 +1127,9 @@ def test_an_ordinary_message_is_untouched_by_either_tier(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json() == {"text": "Что тебе сейчас труднее всего?"}
-    generated.assert_awaited_once_with(
-        question_prompt.build_user_message(topic, "first", []), topic
+    assert response.json() == {"text": "Что тебе сейчас труднее всего?", "novel": True}
+    _assert_called_with(
+        generated, question_prompt.build_user_message(topic, "first", []), topic
     )
 
 
@@ -1157,6 +1171,447 @@ def test_the_safety_log_records_the_rule_and_not_the_message(
     assert f"reply_version={safety.SAFETY_REPLY_VERSION}" in caplog.text
     for word in private_words:
         assert word not in caplog.text
+
+
+# --- the novelty check (ClickUp 86cbehyg0) ---------------------------------
+#
+# `skipped_questions` tells the model which questions were declined; it does
+# not stop it from offering them again, and the measured series show it doing
+# exactly that. The handler compares the answer with everything the person has
+# already been shown, asks for ONE more generation when it repeats, and says
+# in `novel` what came of it. The comparison itself is
+# `tests/test_question_novelty.py`; what is pinned here is the endpoint's
+# behaviour around it — how many calls, which text comes back, which budget
+# they share, and that neither safety tier is weakened by the retry.
+
+LOOP_STEM = (
+    "А если завтра окажется, что то, что ты считаешь готовым, на самом деле "
+    "ещё не то, что нужно Господу"
+)
+SHOWN_QUESTION = f"{LOOP_STEM}?"
+# Two repeats of it, deliberately of different similarity: the near one is the
+# reworded tail from the bug report, the far one only shares the sentence's
+# opening (0.45, below the threshold — the prefix rule catches it).
+NEAR_REPEAT = f"{LOOP_STEM} — как ты будешь узнавать это?"
+FAR_REPEAT = (
+    f"{LOOP_STEM} — а что ты хочешь услышать от близкого человека завтра "
+    "вечером, когда всё это уже будет позади и можно будет просто помолчать "
+    "вместе?"
+)
+NEW_QUESTION = "Что из сделанного сегодня тебе хочется принести Богу первым?"
+PERSON_REPLY = "Я рада тому, что сегодня немало сделано."
+
+
+def novelty_body(skipped=None, shown=SHOWN_QUESTION, reply=PERSON_REPLY):
+    """A `next` request whose one asked question is `shown`."""
+    return question_body(
+        topic="Понять масштаб целей на завтра",
+        stage="next",
+        messages=(("assistant", shown), ("user", reply)),
+        skipped=skipped,
+    )
+
+
+class ScriptedComplete:
+    """A `complete` stand-in answering a script, and counting the calls.
+
+    An `Exception` in the script is raised instead of returned. Running past
+    the end of the script is an error rather than a repeat of the last entry:
+    "never a third call" is a property several of these tests assert, and it
+    must fail loudly rather than quietly answer.
+    """
+
+    def __init__(self, *replies):
+        self.replies = list(replies)
+        self.calls = []
+
+    async def __call__(self, user, language_source_text=None, deadline=None):
+        self.calls.append(
+            SimpleNamespace(
+                user=user, language=language_source_text, deadline=deadline
+            )
+        )
+        assert len(self.calls) <= len(self.replies), (
+            f"call {len(self.calls)} is past the script of "
+            f"{len(self.replies)} replies"
+        )
+        reply = self.replies[len(self.calls) - 1]
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
+
+
+def post_question(body):
+    return client.post(
+        "/api/ai/question", headers={"X-API-Key": "test-api-key"}, json=body
+    )
+
+
+def test_a_question_that_repeats_nothing_is_answered_with_one_call(monkeypatch):
+    """No repeat, no change: one call, the bytes v3 always sent, `novel` true."""
+    generated = ScriptedComplete(NEW_QUESTION)
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+    body = novelty_body(skipped=("Что ты хочешь унести из этой молитвы?",))
+
+    response = post_question(body)
+
+    assert response.status_code == 200
+    assert response.json() == {"text": NEW_QUESTION, "novel": True}
+    assert len(generated.calls) == 1
+    assert generated.calls[0].user == question_prompt.build_user_message(
+        body["topic"],
+        "next",
+        [(m["role"], m["text"]) for m in body["messages"]],
+        body["skipped_questions"],
+    )
+
+
+def test_a_repeated_question_is_generated_once_more(monkeypatch):
+    """The second generation succeeds: its text is returned, `novel` true.
+
+    The rejected question is handed to the model the way a declined one is —
+    through `skipped_questions` of that call only. It is never stored, and the
+    person never saw it.
+    """
+    generated = ScriptedComplete(NEAR_REPEAT, NEW_QUESTION)
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+    body = novelty_body()
+
+    response = post_question(body)
+
+    assert response.status_code == 200
+    assert response.json() == {"text": NEW_QUESTION, "novel": True}
+    assert len(generated.calls) == 2
+    assert generated.calls[1].user == question_prompt.build_user_message(
+        body["topic"],
+        "next",
+        [(m["role"], m["text"]) for m in body["messages"]],
+        [NEAR_REPEAT],
+    )
+    assert question_prompt.SKIPPED_HEADER in generated.calls[1].user
+    # One budget object for the whole request, not one per call.
+    assert generated.calls[0].deadline is generated.calls[1].deadline
+    assert generated.calls[0].deadline.total == (
+        twinkler_ai.AI_QUESTION_TIMEOUT_SECONDS
+    )
+
+
+def test_a_rejected_question_joins_the_ones_the_person_declined(monkeypatch):
+    """The retry's block carries both, newest last, within the same ceiling."""
+    declined = tuple(f"Вопрос номер {index}?" for index in range(10))
+    generated = ScriptedComplete(NEAR_REPEAT, NEW_QUESTION)
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+
+    response = post_question(novelty_body(skipped=declined))
+
+    assert response.status_code == 200
+    retry = generated.calls[1].user
+    block = retry.split(question_prompt.SKIPPED_HEADER)[1].split(
+        question_prompt.ANSWERED_HEADER
+    )[0]
+    bullets = [line for line in block.splitlines() if line.startswith("— ")]
+    # Ten is the request's own ceiling, so the oldest declined question makes
+    # room for the rejected one instead of the block growing past it.
+    assert len(bullets) == twinkler_ai.MAX_SKIPPED_QUESTIONS == 10
+    assert bullets[-1] == f"— {NEAR_REPEAT}"
+    assert declined[0] not in retry
+    assert declined[-1] in retry
+
+
+def test_at_reflect_the_retry_is_a_re_roll_of_the_same_bytes(monkeypatch):
+    """The one stage where the rejected question does not reach the model.
+
+    `build_user_message` deliberately renders no skipped block at `reflect`
+    (ADR 0015: that stage looks back at what the *person* said), so the second
+    generation there is a re-roll at temperature 0.7 rather than an informed
+    retry. Pinned rather than fixed: rendering our questions at `reflect` is a
+    prompt-design change (ClickUp 86cbehyf8). If that changes, this test is
+    the place that says so.
+    """
+    generated = ScriptedComplete(NEAR_REPEAT, NEW_QUESTION)
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+
+    response = post_question(
+        question_body(
+            topic="Понять масштаб целей на завтра",
+            stage="reflect",
+            messages=(("assistant", SHOWN_QUESTION), ("user", PERSON_REPLY)),
+        )
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"text": NEW_QUESTION, "novel": True}
+    assert len(generated.calls) == 2
+    assert generated.calls[1].user == generated.calls[0].user
+    assert NEAR_REPEAT not in generated.calls[1].user
+
+
+def test_both_generations_repeat_and_the_less_similar_one_wins(monkeypatch):
+    """`novel: false`, and the answer is still the best text obtained.
+
+    Never a third call: the script holds five replies and only two may be
+    taken.
+    """
+    generated = ScriptedComplete(NEAR_REPEAT, FAR_REPEAT, *[NEW_QUESTION] * 3)
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+
+    response = post_question(novelty_body())
+
+    assert response.status_code == 200
+    assert response.json() == {"text": FAR_REPEAT, "novel": False}
+    assert len(generated.calls) == 2
+
+
+def test_a_second_repeat_that_is_no_better_keeps_the_first_text(monkeypatch):
+    generated = ScriptedComplete(FAR_REPEAT, NEAR_REPEAT, *[NEW_QUESTION] * 3)
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+
+    response = post_question(novelty_body())
+
+    assert response.status_code == 200
+    assert response.json() == {"text": FAR_REPEAT, "novel": False}
+    assert len(generated.calls) == 2
+
+
+def test_a_failed_second_generation_still_answers_with_the_first_text(
+    monkeypatch, caplog
+):
+    """Not a 502: an answer is in hand, and a repeat beats an error screen."""
+    generated = ScriptedComplete(
+        NEAR_REPEAT, twinkler_ai.GeminiError("second call exploded")
+    )
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+
+    with caplog.at_level("WARNING", logger="twinkler_ai"):
+        response = post_question(novelty_body())
+
+    assert response.status_code == 200
+    assert response.json() == {"text": NEAR_REPEAT, "novel": False}
+    assert len(generated.calls) == 2
+    assert "second generation failed" in caplog.text
+    assert PERSON_REPLY not in caplog.text
+
+
+def test_a_failed_first_generation_is_still_a_502_and_never_retried(monkeypatch):
+    generated = ScriptedComplete(twinkler_ai.GeminiError("first call exploded"))
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+
+    response = post_question(novelty_body())
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": "AI service unavailable"}
+    assert len(generated.calls) == 1
+
+
+def test_no_second_generation_without_the_budget_for_it(monkeypatch):
+    """The fake-clock ceiling of `tests/test_deadline.py`, on this endpoint.
+
+    The first generation spends all but two seconds of the request budget, so
+    the second one — which needs `MIN_SECOND_ATTEMPT_SECONDS` — is not started
+    at all. The repeat is returned with `novel: false` rather than the person
+    waiting out a call that cannot finish.
+    """
+    from test_gemini_retry import FakeClock
+
+    clock = FakeClock()
+    real_deadline = twinkler_ai.Deadline
+    monkeypatch.setattr(
+        twinkler_ai,
+        "Deadline",
+        lambda seconds: real_deadline(seconds, clock=clock),
+    )
+
+    async def burn_the_budget(user, language_source_text=None, deadline=None):
+        clock.advance(twinkler_ai.AI_QUESTION_TIMEOUT_SECONDS - 2.0)
+        calls.append(user)
+        return NEAR_REPEAT
+
+    calls: list[str] = []
+    monkeypatch.setattr(twinkler_ai, "complete", burn_the_budget)
+
+    response = post_question(novelty_body())
+
+    assert response.status_code == 200
+    assert response.json() == {"text": NEAR_REPEAT, "novel": False}
+    assert len(calls) == 1
+    assert 2.0 < twinkler_ai.MIN_SECOND_ATTEMPT_SECONDS
+
+
+def test_a_skipped_question_counts_as_shown(monkeypatch):
+    """Both halves of "shown": the assistant turns AND `skipped_questions`."""
+    generated = ScriptedComplete(NEAR_REPEAT, NEW_QUESTION)
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+
+    response = post_question(
+        novelty_body(
+            shown="Что сейчас внутри тебя, когда ты только начинаешь молитву?",
+            skipped=(SHOWN_QUESTION,),
+        )
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"text": NEW_QUESTION, "novel": True}
+    assert len(generated.calls) == 2
+
+
+def test_the_persons_own_replies_are_not_questions_they_were_shown(monkeypatch):
+    """A question is never a repeat of an ANSWER, however close the wording."""
+    generated = ScriptedComplete(NEAR_REPEAT)
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+
+    response = post_question(
+        question_body(
+            topic="Понять масштаб целей на завтра",
+            stage="next",
+            messages=(("user", NEAR_REPEAT),),
+        )
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"text": NEAR_REPEAT, "novel": True}
+    assert len(generated.calls) == 1
+
+
+def test_tier_two_runs_on_the_second_reply_as_well(monkeypatch):
+    """The despair rule is not weakened by the retry (86cbehyg0).
+
+    The first reply repeats the question already asked and carries no question
+    mark, so tier 2 lets it stand; the second one is question-shaped and the
+    person's last reply carries a weak despair signal, so the fixed text
+    replaces it — and a fixed text repeats nothing, so `novel` is true.
+    """
+    statement = "Расскажи, что было сегодня трудным."
+    generated = ScriptedComplete(statement, "Что тебе сейчас труднее всего?")
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+
+    response = post_question(
+        novelty_body(shown=statement, reply="Я не могу больше так жить.")
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "text": safety.SAFETY_REPLIES["ru"], "novel": True
+    }
+    assert len(generated.calls) == 2
+
+
+def test_an_explicit_despair_message_needs_no_novelty_check(monkeypatch):
+    """Tier 1 is still before everything: no generation, `novel` true."""
+    generated = ScriptedComplete()
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+
+    response = post_question(
+        novelty_body(reply="Я больше не хочу жить.")
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "text": safety.SAFETY_REPLIES["ru"], "novel": True
+    }
+    assert generated.calls == []
+
+
+def test_the_novelty_log_records_the_fact_and_not_the_texts(monkeypatch, caplog):
+    generated = ScriptedComplete(NEAR_REPEAT, FAR_REPEAT, *[NEW_QUESTION] * 3)
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+
+    with caplog.at_level("INFO", logger="twinkler_ai"):
+        response = post_question(novelty_body())
+
+    assert response.status_code == 200
+    assert "question novelty: attempts=2 repeat=near" in caplog.text
+    assert "novel=false" in caplog.text
+    assert "stage=next" in caplog.text
+    for private in (
+        "завтра", "готовым", "Господу", "сделано", "молитв", "рада"
+    ):
+        assert private not in caplog.text
+
+
+def test_one_call_is_logged_as_one_attempt(monkeypatch, caplog):
+    monkeypatch.setattr(twinkler_ai, "complete", ScriptedComplete(NEW_QUESTION))
+
+    with caplog.at_level("INFO", logger="twinkler_ai"):
+        response = post_question(novelty_body())
+
+    assert response.status_code == 200
+    assert "question novelty: attempts=1 repeat=none" in caplog.text
+    assert "novel=true" in caplog.text
+
+
+def test_the_openai_compat_provider_generates_twice_too(monkeypatch):
+    """The retry lives in the handler, so both transports get it (ADR 0009).
+
+    Driven through the real `_complete_openai_compat` seam: only the chat
+    client is replaced, so the two calls are two real trips through the
+    provider branch — and they share one `Deadline`.
+    """
+    replies = [NEAR_REPEAT, NEW_QUESTION]
+    seen = []
+
+    class RecordingChatClient:
+        def __init__(self, *args, **kwargs):
+            self.timeout = kwargs.get("timeout")
+
+        async def complete(self, prompt, user, deadline=None, **kwargs):
+            seen.append(deadline)
+            return replies[len(seen) - 1]
+
+    monkeypatch.setattr(twinkler_ai, "AsyncChatClient", RecordingChatClient)
+    monkeypatch.setattr(
+        twinkler_ai,
+        "QUESTION_PROVIDER",
+        config.StageProvider(
+            "question", "openai_compat", "qwen3-30b",
+            "https://llm.example:8443/v1", "chat-key",
+        ),
+    )
+
+    response = post_question(novelty_body())
+
+    assert response.status_code == 200
+    assert response.json() == {"text": NEW_QUESTION, "novel": True}
+    assert len(seen) == 2
+    assert seen[0] is seen[1] is not None
+
+
+def test_the_gemini_call_is_bounded_by_the_request_budget(monkeypatch):
+    """The Gemini branch got the same budget (86cbehyg0).
+
+    It used to hand httpx a bare number, which httpx applies to each of its
+    four phases separately — so two generations could have walked to eight
+    times the ceiling. The phases are carved out of what the budget has left,
+    and the second call is given strictly less than the first.
+    """
+    timeouts = []
+    real_async_client = httpx.AsyncClient
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        timeouts.append(dict(request.extensions.get("timeout", {})))
+        text = NEAR_REPEAT if len(timeouts) == 1 else NEW_QUESTION
+        return httpx.Response(
+            200, json={"candidates": [{"content": {"parts": [{"text": text}]}}]}
+        )
+
+    transport = httpx.MockTransport(handler)
+    monkeypatch.setattr(
+        twinkler_ai.httpx,
+        "AsyncClient",
+        lambda *args, **kwargs: real_async_client(
+            *args, transport=transport, **kwargs
+        ),
+    )
+    monkeypatch.setattr(twinkler_ai, "GEMINI_API_KEY", "secret-test-key")
+    monkeypatch.setattr(twinkler_ai, "AI_QUESTION_MODEL", "gemini-test")
+
+    response = post_question(novelty_body())
+
+    assert response.status_code == 200
+    assert response.json() == {"text": NEW_QUESTION, "novel": True}
+    assert len(timeouts) == 2
+    for phases in timeouts:
+        assert sum(phases.values()) <= twinkler_ai.AI_QUESTION_TIMEOUT_SECONDS
+    assert sum(timeouts[1].values()) < sum(timeouts[0].values())
 
 
 def test_ignores_forwarded_for_from_untrusted_peer(monkeypatch, allow_ai_requests):
