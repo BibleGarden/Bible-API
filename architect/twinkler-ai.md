@@ -135,15 +135,15 @@ string, written out in full rather than imported from the module it checks.
 
 ### Which text each rule reads
 
-Three different questions are asked of one request, and they deliberately read
-three different parts of it:
+Two different questions are asked of one request, deliberately reading
+different parts of it — but as of Maria's 2026-09-05 decision, the two tiers
+of the despair rule now agree with each other on which part:
 
 | | text | why |
 | --- | --- | --- |
 | the model | the whole assembled message | that is the request |
-| **tier 1** of the despair rule | the **last `user` turn** — or `topic` when `stage` is `first`, where the topic is the newest thing the person wrote | see below |
-| **tier 2** | the topic and **every** `user` turn | an older phrase must still refuse a question-shaped answer |
-| the answer's language | the last `user` turn → the topic → their earlier replies, newest first → else the last `assistant` turn → else English | the person's own words decide; a question of ours must not vote |
+| **both tiers** of the despair rule | the **last `user` turn** — or `topic` when `stage` is `first`, where the topic is the newest thing the person wrote | see below |
+| the answer's language (prompt, and tier 2's fixed reply) | the last `user` turn → the topic → their earlier replies, newest first → else the last `assistant` turn → else English | the person's own words decide; a question of ours must not vote |
 
 That language chain is walked by **decidability, not presence**: `detect_language`
 answers `None` for a line that does not say which language it is («Помоги»
@@ -164,11 +164,23 @@ last reply is also why the topic is **not** substituted for a missing one at
 `next`/`reflect`: the person said nothing new, so nothing new can be found —
 and substituting it would rebuild the same loop out of a topic.
 
-Tier 2 reads the person's words rather than the assembled message on purpose.
-The words are the same either way, but the *language* is not: the assembled
-message is mostly Russian instructions, and `safety.check_reply` takes the
-language of the fixed reply from the text it is given. An English prayer must
-not be answered in Russian because our own wrapper outvoted it.
+Tier 2 reads the person's words rather than the assembled message, same as
+tier 1 — and, since Maria's 2026-09-05 decision, the exact same **last**
+reply as tier 1, not the topic plus every reply it used to read. The request
+is split into turns precisely so this rule looks at the last one: an older
+despair phrase is someone else's turn now, already answered one way or
+another, and must not keep replacing every later answer of the prayer with
+the fixed text.
+
+What did **not** change is `safety.check_reply` itself — it stays a pure
+function of the text it is handed and still resolves its own `SafetyFinding.language`
+from that text if asked. What changed is that the caller
+(`twinkler_ai.twinkler_complete`) no longer trusts that resolution for the
+*reply's* language: it looks it up separately, through `language_source` — the
+same source the prompt and tier 1 use — because the phrase that trips the
+tier-2 pattern is not necessarily the language the rest of the prayer is in.
+An English prayer must not be answered in Russian because our own wrapper
+outvoted it.
 
 `POST /api/ai/transcribe` accepts `multipart/form-data` with a required
 M4A `file` and an optional BCP 47 `locale`. The response is the same
@@ -343,7 +355,7 @@ tier-2 corpus grows.
 
 | | Tier 1 — skip the model | Tier 2 — post-check the reply |
 | --- | --- | --- |
-| Reads (since 86cbegmzz) | the person's **last** reply — the topic at `stage: first`, nothing at `next`/`reflect` with no history | the topic and **every** reply of theirs |
+| Reads (since 86cbegmzz; both tiers since Maria's 2026-09-05 decision) | the person's **last** reply — the topic at `stage: first`, nothing at `next`/`reflect` with no history | the same last reply |
 | Fires on | an explicit statement: "не хочу жить", "хочу умереть", "покончить с собой", "не хочу жити", "покінчити з собою", "don't want to live", "kill myself", "no reason to live", "better off dead", self-harm | a weaker signal with a plausible ordinary reading: "устала жить", "всем будет лучше без меня", "everyone would be fine without me", "I can't go on like this", "I'm a burden" |
 | Provider | **never called** | called normally |
 | Effect | the fixed reply is returned | the reply is kept — **unless it contains a question mark**, in which case the fixed reply replaces it |
@@ -364,8 +376,10 @@ whole reference corpus by `tests/test_safety.py`: the 24 approved scenarios of
 `evaluation/scenarios.json` and the probe inputs of
 `evaluation/question_probe_inputs.json` raise **no** tier 1, and no tier 2
 either bar the one case below. Since the probe file became a set of *requests*
-(schema v2.0.0) the sweep runs on both views of each probe — what tier 1 reads
-and what tier 2 reads — so the two selections are covered separately.
+(schema v2.0.0) the sweep runs on the one view both tiers read now
+(`probe_inputs`); the older view of the topic plus every reply
+(`probe_conversations`) is kept in `tests/test_safety.py` only to show that
+`check_reply` is still a pure function of whatever text it is handed.
 
 `en-005` ("Feeling worthless / I keep thinking everyone would be fine without
 me") is that case, and it is tier 2 on purpose: passive ideation stated about
@@ -411,9 +425,9 @@ writer. Pinned by `test_praying_for_a_suicidal_person_is_answered_by_the_rule_to
 
 Before matching, the text is normalised: casefolded, `ё` folded to `е`, all
 apostrophe spellings unified, whitespace flattened (one answer can be a typed
-line plus two transcriptions joined with newlines, and tier 2 is handed every
-reply at once, so a phrase may straddle a line break) and
-invisible characters removed by reusing `prompt_safety.neutralize_prompt_markers`
+line plus two transcriptions joined with newlines, so a phrase may straddle a
+line break) and invisible characters removed by reusing
+`prompt_safety.neutralize_prompt_markers`
 — a soft hyphen from a phone keyboard must not hide "не хо­чу жить".
 
 ### The reply, and its version

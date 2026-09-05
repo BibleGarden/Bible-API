@@ -22,12 +22,15 @@ only fire on a reply that contains a question mark, and on this endpoint every
 ordinary reply does (the prompt demands one). So a tier-2 pattern matching an
 ordinary message would replace *every* answer to it.
 
-Since the request became structured (ClickUp 86cbegmzz) the two tiers read
-different parts of it — tier 1 the person's last reply, tier 2 the topic and
-all of them — so the probe file is swept through both views
-(`probe_inputs` / `probe_conversations`). `probe-next-despair-older` is the
-case that separates them: an explicit phrase two turns back, silent for
-tier 1 (it was already answered when it was sent) and loud for tier 2.
+Since the request became structured (ClickUp 86cbegmzz), and since Maria's
+2026-09-05 decision, both tiers read the SAME part of it — the person's last
+reply (`probe_inputs`) — so an explicit phrase two turns back
+(`probe-next-despair-older`) is silent for both tiers now: it was already
+answered when it was sent, and the person has moved on. `probe_conversations`
+(the topic plus every reply) is kept only to show that `check_reply` itself
+is still unchanged as a pure function of the text it is given — it still
+matches when handed that older, fuller text directly; the endpoint simply no
+longer builds it.
 """
 
 import hashlib
@@ -53,11 +56,11 @@ A_QUESTION = "Что ты чувствуешь прямо сейчас?"
 def scenario_inputs() -> dict[str, str]:
     """The scenarios as one text: the topic and every reply, newline-joined.
 
-    That is what **tier 2** reads of a request built from a scenario
-    (`twinkler_ai.written_by_the_person`). The sweeps below run tier 1 over it
-    as well, which is stricter than the endpoint — tier 1 sees only the last
-    reply since ClickUp 86cbegmzz — and stricter is the right side to be on
-    for a corpus that must raise nothing at all.
+    Neither tier reads this shape any more — both read only the last reply
+    (`probe_inputs` / `safety_input_text`) since Maria's 2026-09-05 decision.
+    The sweeps below run both tiers over the fuller text anyway, which is
+    *stricter* than the endpoint: a corpus that must raise nothing at all
+    should raise nothing even on this wider, more permissive-looking view.
     """
     payload = json.loads(SCENARIOS.read_text(encoding="utf-8"))
     inputs = {}
@@ -74,12 +77,12 @@ def probe_requests() -> list[dict]:
 
 
 def probe_inputs() -> dict[str, str]:
-    """What **tier 1** reads for each probe (ClickUp 86cbegmzz).
+    """What BOTH tiers read for each probe (ClickUp 86cbegmzz, Maria 2026-09-05).
 
     The person's last reply — or the topic when the request is `first`, which
     is the only stage where the topic is the newest thing they wrote. A
-    `next`/`reflect` request with no history gives tier 1 nothing to read, and
-    the empty string is exactly that.
+    `next`/`reflect` request with no history gives either tier nothing to
+    read, and the empty string is exactly that.
     """
     inputs = {}
     for probe in probe_requests():
@@ -97,7 +100,12 @@ def probe_inputs() -> dict[str, str]:
 
 
 def probe_conversations() -> dict[str, str]:
-    """What **tier 2** reads: the topic and every reply of the probe."""
+    """The topic and every reply of the probe — what tier 2 used to read,
+    before Maria's 2026-09-05 decision. Kept only so a test can show
+    `check_reply` is still a pure function of the text it is given: it still
+    matches this fuller, older text directly, even though the endpoint no
+    longer builds it and hands it that.
+    """
     conversations = {}
     for probe in probe_requests():
         parts = [probe["topic"]] + [
@@ -191,32 +199,41 @@ def test_no_probe_input_but_the_despair_one_fires(probe_id):
     `probe-next-despair-older` carries the explicit phrase two turns back and
     is deliberately in this list: it was answered with the fixed reply when it
     was sent, and answering it again forever is the bug this ticket closes
-    (ClickUp 86cbegmzz). Tier 2 still sees it — the test below.
+    (ClickUp 86cbegmzz). Tier 2 reads the same last reply now (Maria,
+    2026-09-05) and is silent here too — the test below.
     """
     assert not safety.check_input(probe_inputs()[probe_id]).matched
 
 
 @pytest.mark.parametrize(
     "probe_id",
-    sorted(set(probe_conversations()) - {"probe-despair", "probe-next-despair-older"}),
+    sorted(set(probe_inputs()) - {"probe-despair"}),
 )
-def test_no_probe_conversation_loses_its_answer(probe_id):
-    assert not safety.check_reply(probe_conversations()[probe_id], A_QUESTION).matched
+def test_no_probe_reply_loses_its_answer(probe_id):
+    """Tier 2 reads the same last reply as tier 1 now, so this is one sweep."""
+    assert not safety.check_reply(probe_inputs()[probe_id], A_QUESTION).matched
 
 
-def test_an_older_despair_reply_still_refuses_a_question():
-    """The other half of the split: tier 1 lets the model answer, tier 2 does
-    not let that answer be a question."""
-    conversation = probe_conversations()["probe-next-despair-older"]
+def test_an_older_despair_reply_no_longer_refuses_a_question():
+    """Maria's 2026-09-05 decision, the other half of it: the new last-reply
+    view does not match, so tier 2 lets the model's question stand — while
+    `check_reply` itself is unchanged as a pure function of the text it is
+    given: handed the OLD full-conversation text directly, it still fires.
+    """
+    last_reply_only = probe_inputs()["probe-next-despair-older"]
+    full_conversation = probe_conversations()["probe-next-despair-older"]
 
-    assert not safety.check_input(probe_inputs()["probe-next-despair-older"]).matched
-    finding = safety.check_reply(conversation, A_QUESTION)
+    assert not safety.check_input(last_reply_only).matched
+    assert not safety.check_reply(last_reply_only, A_QUESTION).matched
+
+    # check_reply is unchanged: handed the fuller, older text it still fires.
+    finding = safety.check_reply(full_conversation, A_QUESTION)
     assert finding.matched
     assert finding.pattern_id == "ru.no-wish-to-live"
     assert finding.language == "ru"
     # A reply that already dropped the question format is kept as it is.
     assert not safety.check_reply(
-        conversation, "Ты не один в этом, и хорошо, что ты позвонила сестре."
+        full_conversation, "Ты не один в этом, и хорошо, что ты позвонила сестре."
     ).matched
 
 

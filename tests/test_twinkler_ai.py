@@ -581,9 +581,11 @@ def test_despair_in_an_older_reply_lets_the_conversation_go_on(monkeypatch):
 
     Tier 1 read the whole conversation while the request was one string, so
     the phrase that was answered with the fixed reply kept answering every
-    later question of that prayer with it. It reads the LAST reply now: the
-    model is called again — and tier 2 still refuses to let it come back with
-    a question.
+    later question of that prayer with it. Both tiers read the LAST reply now
+    (Maria, 2026-09-05): the model is called again, and this time tier 2 no
+    longer refuses its question either — the older phrase is someone else's
+    turn now, and the companion must be able to keep asking for the rest of
+    the prayer.
     """
     generated = AsyncMock(return_value="Что помогло тебе сегодня?")
     monkeypatch.setattr(twinkler_ai, "complete", generated)
@@ -606,9 +608,9 @@ def test_despair_in_an_older_reply_lets_the_conversation_go_on(monkeypatch):
 
     assert response.status_code == 200
     generated.assert_awaited_once()
-    # Tier 2: the older phrase is still in the conversation, so a
-    # question-shaped answer is replaced by the fixed reply.
-    assert response.json() == {"text": safety.SAFETY_REPLIES["ru"]}
+    # The last reply carries no despair signal of its own, so the model's
+    # real question is kept — the fixed reply does not answer for it.
+    assert response.json() == {"text": "Что помогло тебе сегодня?"}
 
 
 def test_an_older_despair_reply_keeps_a_warm_answer(monkeypatch):
@@ -676,8 +678,8 @@ def test_the_fixed_reply_is_in_the_language_of_the_person_not_of_the_blocks(
 ):
     """The assembled message is Russian whatever the prayer is; the reply is not.
 
-    Tier 2 reads the person's own words (`written_by_the_person`) precisely so
-    the stage instructions cannot outvote an English prayer.
+    Tier 2 reads the person's own last reply, same as tier 1, precisely so the
+    stage instructions cannot outvote an English prayer.
     """
     monkeypatch.setattr(
         twinkler_ai,
@@ -702,25 +704,17 @@ def test_the_fixed_reply_is_in_the_language_of_the_person_not_of_the_blocks(
     assert response.json() == {"text": safety.SAFETY_REPLIES["en"]}
 
 
-# product decision pending, ClickUp 86cbegmzz — this test pins TODAY's
-# behaviour so that changing it is a deliberate edit with a red test, not a
-# silent drift. Whoever decides the other way flips the expectation here.
-def test_a_long_russian_topic_still_outvotes_a_short_english_reply(monkeypatch):
-    """Tier 2 takes the fixed reply's language from topic + ALL replies.
+def test_the_last_reply_now_outvotes_a_long_russian_topic(monkeypatch):
+    """Maria's 2026-09-05 decision: tier 2's reply language follows
+    `language_source`, same as tier 1 and the prompt — not a vote over
+    topic + every reply.
 
-    `written_by_the_person` joins them, and `safety.check_reply` resolves the
-    language from that one string — so a long Russian topic can outvote the
-    short English reply that actually carried the tier-2 phrase, and the
-    person reading English gets the Russian text. That is the residual half of
-    the reason tier 2 does not read the assembled message at all (the Russian
-    stage blocks would outvote it far more often); tier 1 and the prompt both
-    read the last reply alone and would answer English here, so the two halves
-    of one request can disagree.
-
-    NOT changed in the review of 86cbegmzz: making tier 2 follow
-    `language_source` would fix this case and break the mirror one (a bare
-    "ok" in an otherwise Russian prayer would switch the crisis reply to
-    English), and which way that trades is Maria's call, not a reviewer's.
+    A long Russian topic used to outvote a short English reply that actually
+    carried the tier-2 phrase (`written_by_the_person` joined them, and
+    `safety.check_reply` resolved the language from that one string), so a
+    person answering in English could get the fixed reply in Russian. Now the
+    last reply alone decides, the same source the prompt and tier 1 already
+    used — so the two halves of one request can no longer disagree.
     """
     monkeypatch.setattr(
         twinkler_ai, "complete", AsyncMock(return_value="Что тебя сейчас держит?")
@@ -740,9 +734,9 @@ def test_a_long_russian_topic_still_outvotes_a_short_english_reply(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json() == {"text": safety.SAFETY_REPLIES["ru"]}
-    # The two halves that disagree, spelled out: the person's last words are
-    # English, and that is what the prompt and tier 1 would have used.
+    assert response.json() == {"text": safety.SAFETY_REPLIES["en"]}
+    # The person's last words are English, and that is what the prompt and
+    # tier 1 already used — tier 2's reply language now agrees with them.
     assert safety.detect_language("I'm a burden") == "en"
 
 

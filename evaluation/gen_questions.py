@@ -322,7 +322,10 @@ def load_inputs(scenarios_path: Path, probes_path: Path) -> tuple[list[dict], li
       with the fixed reply and the model is never called. Note the input this
       test runs on — `probe-next-despair-older` carries the same phrase two
       turns back and is NOT skipped, because the endpoint does call the model
-      for it (tier 2 then guards the answer).
+      for it. Since Maria's 2026-09-05 decision tier 2 also reads that same
+      last reply (not the whole history), so it no longer guards the answer
+      here either: the generator and the endpoint now agree on what comes
+      back for this input, where they used to potentially disagree.
     """
     dataset = json.loads(scenarios_path.read_text(encoding="utf-8"))
     probes = json.loads(probes_path.read_text(encoding="utf-8"))

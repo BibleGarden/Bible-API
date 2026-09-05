@@ -269,13 +269,17 @@ def language_source(request: CompleteRequest) -> str:
 
 
 def safety_input_text(request: CompleteRequest) -> str | None:
-    """What tier 1 of the despair rule reads, or `None` when there is nothing.
+    """What BOTH tiers of the despair rule read, or `None` when there is nothing.
 
     The person's **last reply**, which is the whole point of the structured
-    request: a despair phrase two turns back has already been answered by the
-    fixed reply, and re-answering it forever would end the conversation the
-    first time it happened (the bug that opened this ticket). An older reply
-    is still read by tier 2, which sees the assembled message.
+    request: a despair phrase two turns back has already been answered (by
+    the fixed reply, or by a real question tier 2 let stand), and re-matching
+    it forever would end the conversation the first time it happened (the bug
+    that opened this ticket). Tier 2 used to read the topic plus every reply
+    instead, precisely so an older phrase kept refusing a question-shaped
+    answer — Maria reversed that on 2026-09-05: the request is split into
+    turns exactly so this rule looks at the last one, and the companion must
+    not keep answering the fixed text for the rest of the prayer.
 
     For `first` there is no reply yet and the topic is what the person typed,
     so the topic is checked. For `next`/`reflect` with an empty history there
@@ -283,6 +287,11 @@ def safety_input_text(request: CompleteRequest) -> str | None:
     the person said nothing new, so nothing new can be found in it, and using
     the topic there would fire the fixed reply on every question of a prayer
     whose topic once carried the phrase.
+
+    Tier 2's fixed reply still needs a *language*, and that is resolved
+    separately by the caller through `language_source` — not by matching this
+    same text a second time — because the language the matched phrase happens
+    to be in is not necessarily the language the rest of the prayer is in.
     """
     last_user = request.last_text("user")
     if last_user is not None:
@@ -290,25 +299,6 @@ def safety_input_text(request: CompleteRequest) -> str | None:
     if request.stage == "first":
         return request.topic
     return None
-
-
-def written_by_the_person(request: CompleteRequest) -> str:
-    """Everything in the request the person wrote, oldest first.
-
-    What tier 2 reads: the topic and **every** reply, so a despair signal two
-    turns back still refuses a question-shaped answer even though tier 1 no
-    longer answers it. The assembled message would have done as well for the
-    *matching* — it contains the same words — but not for the *language*: it
-    is mostly Russian stage instructions whatever language the prayer is in
-    (see `question_prompt.build_user_message`), and `safety.check_reply`
-    resolves the language of the fixed reply from the text it is given. An
-    English prayer must not be answered in Russian because our own wrapper
-    outvoted it.
-    """
-    parts = [request.topic] + [
-        message.text for message in request.messages if message.role == "user"
-    ]
-    return "\n".join(part for part in parts if part.strip())
 
 
 def _reserve_rate_limit(client_key: str) -> None:
@@ -627,22 +617,29 @@ async def twinkler_complete(
         logger.warning("Twinkler AI request failed: %s", error)
         raise HTTPException(status_code=502, detail="AI service unavailable") from error
 
-    # Tier 2: the conversation carried a weaker despair signal — or an
-    # explicit one in an OLDER reply, which tier 1 no longer answers — and the
-    # model asked a question anyway. Replace the answer, keep the fact. Every
-    # reply of the prayer is read here, not only the last one.
-    guard = check_reply(written_by_the_person(request), text)
+    # Tier 2: the LAST reply carried a weaker despair signal and the model
+    # answered it with a question anyway. Replace the answer, keep the fact.
+    # Same text as tier 1 (`checked`) since 2026-09-05 (Maria): an OLDER
+    # despair phrase is someone else's turn now, already answered one way or
+    # another, and must not keep replacing every later question of the
+    # prayer — only the person's last word does that.
+    guard = check_reply(checked or "", text)
     if guard.matched:
+        # The reply's language is not the matched phrase's language: it is
+        # whatever `language_source`/the prompt already resolved for this
+        # request, so the fixed reply speaks the prayer's language even when
+        # the despair phrase itself was undecidable on its own.
+        reply_language = detect_language(language_source(request))
         logger.warning(
             "Safety rule fired on the model reply: tier=%d pattern=%s "
             "language=%s reply_version=%d stage=%s",
             guard.tier,
             guard.pattern_id,
-            guard.language,
+            reply_language,
             SAFETY_REPLY_VERSION,
             request.stage,
         )
-        text = safety_reply(guard.language)
+        text = safety_reply(reply_language)
     return CompleteResponse(text=text)
 
 
