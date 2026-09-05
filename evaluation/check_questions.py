@@ -558,6 +558,226 @@ def render_sameness(runs: dict[str, list[dict]]) -> list[str]:
     return lines
 
 
+# ---------------------------------------------------------------------------
+# Replacement series: does pressing «заменить вопрос» give a new thought?
+# ---------------------------------------------------------------------------
+# ClickUp 86cbehyez (bug 86cbehtkh). A series is one input sent N times in a
+# row — today the client re-sends the identical body for every replacement, so
+# the only thing that can differ is sampling. These numbers describe HOW MUCH
+# differs; none of them is a threshold and none of them judges whether a
+# question is good. That judgement is Maria's, as everywhere else in this file.
+#
+# The measures, all over one series (one `sample` of one `series_id`):
+#
+# * **openings** — distinct first-three-word beginnings, over the number of
+#   steps. «А что, если завтра…» four times in a row is one opening out of
+#   four, and it is what the person sees first.
+# * **max similarity** — the largest pairwise similarity between two answers of
+#   the series. Normalisation: casefold, ё→е, drop punctuation, quotes and
+#   dashes, collapse whitespace; then Jaccard over character 3-grams. Character
+#   trigrams rather than the word-set Jaccard the `no_repeat` rule uses,
+#   because a loop reworded ("что ты считаешь готовым" / "что ты сегодня
+#   считал готовым") keeps the letters and moves the words. A HELPER number:
+#   1.0 means "the same sentence twice", 0.2 means "unrelated", and there is
+#   deliberately no line drawn between them here.
+# * **duplicates** — pairs of steps that are byte-identical after that
+#   normalisation. Unlike the similarity this one needs no interpretation.
+#
+# And one rule of grammar rather than of sameness:
+#
+# * **gender** — the person wrote of herself in the feminine past tense
+#   («рада», «сделала», «устала») and the question addresses her in the
+#   masculine («считал», «сделал», «устал»). That is the second half of the
+#   observed bug: Maria wrote «я рада» and was asked «что ты считал готовым».
+#   **A heuristic with a short word list, and it has real false positives:**
+#   a past-tense verb in the question may belong to a third person («сын
+#   сказал», «колега звільнився» in the input), the person may quote someone
+#   else, and a household with two people («мы с мужем гуляли») gives the
+#   detector no gender at all. It is reported as a flag to look at, never as a
+#   violation counted in the rules table.
+
+_PUNCTUATION = re.compile(r"[^\w\s]", re.UNICODE)
+_TRIGRAM_SIZE = 3
+_OPENING_WORDS = 3
+
+# Feminine past tense of the person about herself, and the masculine forms an
+# answer would use back at her. Short and literal on purpose: a generated list
+# of every -ла/-л verb would match nouns ("дела", "школа") and third persons.
+_FEMININE_SELF = frozenset({
+    "рада", "довольна", "сделала", "считала", "устала", "думала", "хотела",
+    "могла", "смогла", "была", "пришла", "решила", "поняла", "сказала",
+    "начала", "закончила", "успела", "боялась", "чувствовала", "молилась",
+    "старалась", "ждала", "работала", "верила", "написала", "заснула",
+    "видела", "жила", "шла", "держалась", "справилась", "вимкнула",
+    "зробила", "вважала", "втомилася", "хотіла", "прийшла", "зрозуміла",
+    "почала", "закінчила", "встигла", "боялася", "молилася", "старалася",
+    "чекала", "працювала", "вірила", "бачила",
+})
+_MASCULINE_SELF = frozenset({
+    "рад", "доволен", "сделал", "считал", "устал", "думал", "хотел", "мог",
+    "смог", "был", "пришел", "пришёл", "решил", "понял", "сказал", "начал",
+    "закончил", "успел", "боялся", "чувствовал", "молился", "старался",
+    "ждал", "работал", "верил", "написал", "заснул", "видел", "жил", "шёл",
+    "шел", "держался", "справился", "готов", "уверен",
+    "зробив", "вважав", "втомився", "хотів", "міг", "прийшов", "зрозумів",
+    "почав", "закінчив", "встиг", "боявся", "молився", "старався", "чекав",
+    "працював", "вірив", "написав", "бачив", "жив", "готовий",
+})
+# The pronoun that makes a masculine past tense an address to the reader
+# rather than a report about somebody else. Both languages spell it the same.
+_SECOND_PERSON = re.compile(
+    r"\b(ти|ты|тебе|тебя|тобі|тобой|твій|твой|твоя|твоє|твоё|твое|твої|твои)\b"
+)
+
+
+def normalise_series_text(text: str) -> str:
+    """casefold, ё→е, no punctuation/quotes/dashes, single spaces."""
+    lowered = text.casefold().replace("ё", "е")
+    # Dashes and quotes are punctuation to `\w`, so one substitution covers
+    # them; the explicit replace keeps a hyphenated word from fusing.
+    stripped = _PUNCTUATION.sub(" ", lowered)
+    return " ".join(stripped.split())
+
+
+def _trigrams(text: str) -> set[str]:
+    normalised = normalise_series_text(text)
+    if len(normalised) < _TRIGRAM_SIZE:
+        return {normalised} if normalised else set()
+    return {
+        normalised[i : i + _TRIGRAM_SIZE]
+        for i in range(len(normalised) - _TRIGRAM_SIZE + 1)
+    }
+
+
+def trigram_similarity(left: str, right: str) -> float:
+    """Jaccard over character 3-grams: 1.0 identical, 0.0 nothing shared."""
+    a, b = _trigrams(left), _trigrams(right)
+    if not a or not b:
+        return 0.0
+    return len(a & b) / len(a | b)
+
+
+def opening(text: str) -> str:
+    """The first three words, normalised — what the eye reads first."""
+    return " ".join(normalise_series_text(text).split()[:_OPENING_WORDS])
+
+
+def gender_mismatch(question: str, person_words: list[str]) -> bool:
+    """She wrote of herself in the feminine; the question answers in the masculine.
+
+    Requires a second-person pronoun in the question, so «сын сказал» and
+    «колега звільнився» do not fire. Still a heuristic — see the block comment.
+    """
+    hers = set()
+    for text in person_words:
+        hers |= {word.casefold() for word in _WORD.findall(text)}
+    if not hers & _FEMININE_SELF:
+        return False
+    asked = {word.casefold() for word in _WORD.findall(question)}
+    if not asked & _MASCULINE_SELF:
+        return False
+    return _SECOND_PERSON.search(question.casefold()) is not None
+
+
+def series_runs(records: list[dict]) -> dict[tuple[str, int], list[dict]]:
+    """The rows of one artifact grouped into series, each in step order."""
+    grouped: dict[tuple[str, int], list[dict]] = {}
+    for record in records:
+        if not record.get("series_id"):
+            continue
+        grouped.setdefault((record["series_id"], record["sample"]), []).append(record)
+    for rows in grouped.values():
+        rows.sort(key=lambda row: row["step"])
+    return grouped
+
+
+def series_metrics(rows: list[dict]) -> dict:
+    """The four numbers for ONE series (one sample of one input)."""
+    texts = [row["text"] for row in rows if row.get("text")]
+    person = rows[0].get("person_words") or []
+    openings = {opening(text) for text in texts}
+    similarities = [
+        trigram_similarity(texts[i], texts[j])
+        for i in range(len(texts))
+        for j in range(i + 1, len(texts))
+    ]
+    normalised = [normalise_series_text(text) for text in texts]
+    duplicates = sum(
+        1
+        for i in range(len(normalised))
+        for j in range(i + 1, len(normalised))
+        if normalised[i] == normalised[j]
+    )
+    return {
+        "steps": len(texts),
+        "unique_openings": len(openings),
+        "opening_share": len(openings) / len(texts) if texts else 0.0,
+        "max_similarity": max(similarities) if similarities else 0.0,
+        "duplicate_pairs": duplicates,
+        "gender_flags": sum(
+            1 for text in texts if gender_mismatch(text, person)
+        ),
+    }
+
+
+def series_report(records: list[dict]) -> dict[str, dict]:
+    """Per `series_id`: the metrics averaged over samples, plus the worst case."""
+    per_series: dict[str, list[dict]] = {}
+    for (series_id, _sample), rows in series_runs(records).items():
+        per_series.setdefault(series_id, []).append(series_metrics(rows))
+    report = {}
+    for series_id, runs in sorted(per_series.items()):
+        report[series_id] = {
+            "samples": len(runs),
+            "steps": max(run["steps"] for run in runs),
+            "opening_share": statistics.mean(run["opening_share"] for run in runs),
+            "max_similarity_mean": statistics.mean(
+                run["max_similarity"] for run in runs
+            ),
+            "max_similarity_worst": max(run["max_similarity"] for run in runs),
+            "duplicate_pairs": sum(run["duplicate_pairs"] for run in runs),
+            "gender_flags": sum(run["gender_flags"] for run in runs),
+            "answers": sum(run["steps"] for run in runs),
+        }
+    return report
+
+
+def render_series(runs: dict[str, list[dict]]) -> list[str]:
+    lines = [
+        "| прогон | серия | сэмплов x шагов | доля уникальных зачинов | "
+        "макс. похожесть (среднее / худшее) | точных повторов | "
+        "род не сходится |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    any_rows = False
+    for name, records in runs.items():
+        for series_id, item in series_report(records).items():
+            any_rows = True
+            lines.append(
+                f"| {name} | `{series_id}` | {item['samples']} x {item['steps']} | "
+                f"{item['opening_share']:.2f} | "
+                f"{item['max_similarity_mean']:.2f} / "
+                f"{item['max_similarity_worst']:.2f} | "
+                f"{item['duplicate_pairs']} | "
+                f"{item['gender_flags']}/{item['answers']} |"
+            )
+    if not any_rows:
+        return ["_в этих артефактах нет серий (`series_id`)._"]
+    return lines
+
+
+def render_series_transcript(
+    records: list[dict], series_id: str, sample: int
+) -> list[str]:
+    """One series verbatim, step by step — the thing Maria reads."""
+    rows = series_runs(records).get((series_id, sample), [])
+    lines = []
+    for row in rows:
+        text = row.get("text") or "(вызов не удался)"
+        lines.append(f"{row['step']}. {text}")
+    return lines
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Automatic prompt-compliance checks over gen_questions.py artifacts."
@@ -566,6 +786,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--markdown", action="store_true",
         help="print the README tables instead of the console summary",
+    )
+    parser.add_argument(
+        "--transcript", default="",
+        help="print one replacement series verbatim, step by step: "
+             "`<series_id>` or `<series_id>:<sample>` (default sample 1). "
+             "ClickUp 86cbehyez — the sequence a human reads to see whether "
+             "the loop is there.",
     )
     args = parser.parse_args(argv)
 
@@ -640,6 +867,31 @@ def main(argv: list[str] | None = None) -> int:
             inputs[probe["id"]]["text"] = " / ".join(
                 part for part in parts if part.strip()
             )
+    series_file = HERE / "question_series_inputs.json"
+    if series_file.exists():
+        for item in json.loads(series_file.read_text(encoding="utf-8"))["inputs"]:
+            if item["id"] not in inputs:
+                continue
+            parts = [item.get("topic") or ""] + [
+                message["text"]
+                for message in item.get("messages", [])
+                if message["role"] == "user"
+            ]
+            inputs[item["id"]]["text"] = " / ".join(
+                part for part in parts if part.strip()
+            )
+
+    if args.transcript:
+        wanted, _, sample = args.transcript.partition(":")
+        number = int(sample) if sample else 1
+        for name, records in runs.items():
+            lines = render_series_transcript(records, wanted, number)
+            if not lines:
+                continue
+            print(f"{name} — `{wanted}`, сэмпл {number}\n")
+            print("\n".join(lines))
+            print()
+        return 0
 
     if args.markdown:
         print("#### Сводка нарушений (доля ответов, нарушивших правило)\n")
@@ -650,6 +902,8 @@ def main(argv: list[str] | None = None) -> int:
         print("\n".join(render_per_input(runs, inputs)))
         print("\n#### Взаимозаменяемость вопросов\n")
         print("\n".join(render_sameness(runs)))
+        print("\n#### Серии замен вопроса\n")
+        print("\n".join(render_series(runs)))
         print("\n#### Кейс отчаяния: все сэмплы обоих провайдеров\n")
         print("\n".join(render_despair(runs)))
         return 0
@@ -686,6 +940,15 @@ def main(argv: list[str] | None = None) -> int:
         for item in report["shared"]:
             print(f"    {'=' if item['verbatim'] else '~'} {', '.join(item['inputs'])}"
                   f" — {shorten(item['answers'][0], 70)}")
+        for series_id, item in series_report(records).items():
+            print(
+                f"  series {series_id:<22} {item['samples']}x{item['steps']} "
+                f"openings {item['opening_share']:.2f}  "
+                f"max sim {item['max_similarity_mean']:.2f}/"
+                f"{item['max_similarity_worst']:.2f}  "
+                f"dup {item['duplicate_pairs']}  "
+                f"gender {item['gender_flags']}/{item['answers']}"
+            )
     return 0
 
 

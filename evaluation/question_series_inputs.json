@@ -1,0 +1,150 @@
+{
+  "name": "question-series-inputs",
+  "version": "1.0.0",
+  "ticket": "ClickUp 86cbehyez (child of 86cbehxm2, bug 86cbehtkh)",
+  "created": "2026-09-06",
+  "purpose": "Inputs for POST /api/ai/question that reproduce the bug of 86cbehtkh: pressing «заменить вопрос» several times in a row returns the same thought again and again. A replacement is not a new kind of request — today the client re-sends the SAME body (same topic, same stage, same messages), so the only thing that differs between two replacements is the model's sampling. That is why these inputs cannot live in question_probe_inputs.json: a probe there is one request, graded once, while a series is N sequential requests whose interesting property is the relation BETWEEN their answers. The probe file stays untouched (schema v2.0.0, its ids are what makes the v1/v2/v3 artifacts comparable) and this file adds the second shape.",
+  "schema": "Every input carries `kind`: `single` is one request, exactly like a probe (`stage`, `topic`, `messages`); `series` is one request plus `replacements` — the number of times the person presses «заменить вопрос», i.e. how many times that identical body is sent. `messages` is chronological, roles are `assistant`|`user`, a non-empty history ends with `user` — the same contract the endpoint validates. Nothing here is graded reference data: scenarios.json remains the only approved set. `note` is for humans and is never sent.",
+  "inputs": [
+    {
+      "id": "series-scale-ru",
+      "kind": "series",
+      "language": "ru",
+      "category": "series",
+      "stage": "next",
+      "replacements": 6,
+      "expect_question": true,
+      "topic": "Понять масштаб целей на завтра",
+      "messages": [
+        {"role": "assistant", "text": "Что сейчас внутри тебя, когда ты только начинаешь молитву?"},
+        {"role": "user", "text": "Я рада тому, что сегодня немало сделано. Вчера казалось, что дел еще на неделю, а сейчас выглядит, что уже можно переходить к публикации. Наверное можно было бы собрать сборку для работы на проде и выложить в testflight. Кстати, надо версию апи в приложении выводить, а то путаница."},
+        {"role": "assistant", "text": "А что, если завтра окажется, что всё, что ты сегодня считал готовым, всё ещё не совсем то, что нужно?"},
+        {"role": "user", "text": "Ну буду доделывать. Я все делаю для Господа, стараюсь сделать очень качественно"}
+      ],
+      "note": "The observed case, verbatim from Maria's prayer journal of 2026-09-05 (she gave permission to quote it in the public repository). After the second question she pressed «заменить вопрос» repeatedly and got variations of the SAME thought — «А если завтра окажется, что то, что ты считаешь готовым, на самом деле ещё не то, что нужно Господу?», sometimes near-verbatim, sometimes with a tail «— как ты будешь узнавать это?». Two defects sit in this one input: the loop, and the gender — she wrote «я рада» and the second question addresses her as «ты считал»."
+    },
+
+    {
+      "id": "gratitude-ru-first",
+      "kind": "single",
+      "language": "ru",
+      "category": "gratitude",
+      "stage": "first",
+      "expect_question": true,
+      "topic": "Поблагодарить за сегодняшний день",
+      "messages": [],
+      "note": "The opening question of a grateful prayer: no history at all, and no consolation register."
+    },
+    {
+      "id": "gratitude-ru-next",
+      "kind": "single",
+      "language": "ru",
+      "category": "gratitude",
+      "stage": "next",
+      "expect_question": true,
+      "topic": "Поблагодарить за сегодняшний день",
+      "messages": [
+        {"role": "assistant", "text": "Что сегодня было таким, за что хочется сказать спасибо?"},
+        {"role": "user", "text": "Успела закончить отчёт, хотя не верила, что смогу. А вечером мы с мужем просто гуляли и ни о чём не говорили."}
+      ],
+      "note": "One continuation after one answer. The person is female and says so twice («успела», «не верила»); «с мужем» removes any doubt."
+    },
+    {
+      "id": "series-gratitude-ru",
+      "kind": "series",
+      "language": "ru",
+      "category": "gratitude",
+      "stage": "next",
+      "replacements": 5,
+      "expect_question": true,
+      "topic": "Поблагодарить за сегодняшний день",
+      "messages": [
+        {"role": "assistant", "text": "Что сегодня было таким, за что хочется сказать спасибо?"},
+        {"role": "user", "text": "Успела закончить отчёт, хотя не верила, что смогу. А вечером мы с мужем просто гуляли и ни о чём не говорили."}
+      ],
+      "note": "The same body as gratitude-ru-next, pressed five times. Two things to watch: does the run circle one thought, and does it keep the feminine forms."
+    },
+
+    {
+      "id": "choice-en-first",
+      "kind": "single",
+      "language": "en",
+      "category": "choice",
+      "stage": "first",
+      "expect_question": true,
+      "topic": "Choosing whether to move to another city for work",
+      "messages": [],
+      "note": "English, no history: the language regression case for the opening question."
+    },
+    {
+      "id": "choice-en-next",
+      "kind": "single",
+      "language": "en",
+      "category": "choice",
+      "stage": "next",
+      "expect_question": true,
+      "topic": "Choosing whether to move to another city for work",
+      "messages": [
+        {"role": "assistant", "text": "What weighs most on you in this choice?"},
+        {"role": "user", "text": "The offer pays twice what I earn now, but my mother is here alone and she is seventy nine. I keep putting the answer off."}
+      ],
+      "note": "A hard choice with two goods on the two sides — the shape that most invites an advice-flavoured question."
+    },
+    {
+      "id": "series-choice-en",
+      "kind": "series",
+      "language": "en",
+      "category": "choice",
+      "stage": "next",
+      "replacements": 5,
+      "expect_question": true,
+      "topic": "Choosing whether to move to another city for work",
+      "messages": [
+        {"role": "assistant", "text": "What weighs most on you in this choice?"},
+        {"role": "user", "text": "The offer pays twice what I earn now, but my mother is here alone and she is seventy nine. I keep putting the answer off."}
+      ],
+      "note": "The English series: the answers must stay English through all five replacements, and must not converge on «what does your mother need»."
+    },
+
+    {
+      "id": "exhaustion-uk-first",
+      "kind": "single",
+      "language": "uk",
+      "category": "exhaustion",
+      "stage": "first",
+      "expect_question": true,
+      "topic": "Немає сил, прошу відпочинку",
+      "messages": [],
+      "note": "Ukrainian, no history. Ordinary exhaustion, NOT despair: the question must be about something concrete, never about how much more she can bear."
+    },
+    {
+      "id": "exhaustion-uk-next",
+      "kind": "single",
+      "language": "uk",
+      "category": "exhaustion",
+      "stage": "next",
+      "expect_question": true,
+      "topic": "Немає сил, прошу відпочинку",
+      "messages": [
+        {"role": "assistant", "text": "Що зараз забирає найбільше сил?"},
+        {"role": "user", "text": "Третій місяць працюю без вихідних, бо колега звільнився. Учора заснула просто в одязі, навіть не вимкнула світло."}
+      ],
+      "note": "One continuation. She is female and says so («заснула», «не вимкнула»)."
+    },
+    {
+      "id": "series-exhaustion-uk",
+      "kind": "series",
+      "language": "uk",
+      "category": "exhaustion",
+      "stage": "next",
+      "replacements": 5,
+      "expect_question": true,
+      "topic": "Немає сил, прошу відпочинку",
+      "messages": [
+        {"role": "assistant", "text": "Що зараз забирає найбільше сил?"},
+        {"role": "user", "text": "Третій місяць працюю без вихідних, бо колега звільнився. Учора заснула просто в одязі, навіть не вимкнула світло."}
+      ],
+      "note": "The Ukrainian series: the language regression across five replacements, and the gender agreement in an inflected language other than Russian."
+    }
+  ]
+}

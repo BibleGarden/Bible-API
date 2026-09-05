@@ -45,10 +45,18 @@ request now, not a string:
   person in the request at all the prompt names English by contract, and the
   scenario's declared language stops being an expectation anything can be
   graded against.
+* `question_series_inputs.json` (v1.0.0, ClickUp 86cbehyez) is the third
+  source and the only one that is off by default: `--series <file>`. Its
+  `series` inputs are **N sequential requests**, which is what pressing
+  «заменить вопрос» N times is today — the client re-sends the SAME body every
+  time, so the only thing that differs between two replacements is sampling.
+  See `--accumulate-skipped` for the hypothesis that subtask 86cbehyfe will
+  make real.
 
-Artifacts: one JSONL row per (input, sample) plus a `<out>.meta.json`
-sidecar. Neither ever carries a key: transport failures are recorded as a
-category and, for an HTTP error, a status code — never the URL.
+Artifacts: one JSONL row per (input, sample) — and per **step** for a series,
+carrying `series_id` and `step` — plus a `<out>.meta.json` sidecar. Neither
+ever carries a key: transport failures are recorded as a category and, for an
+HTTP error, a status code — never the URL.
 
 Examples:
 
@@ -66,6 +74,14 @@ Examples:
     # production Gemini, free tier: 15 requests per minute
     python gen_questions.py --provider gemini --sleep 4.5 \\
         --out bench_data/questions_gemini35lite_v1.jsonl
+
+    # the replacement series alone (86cbehyez) — the other two sources off
+    QWEN_API_KEY="$(ssh -o BatchMode=yes root@193.39.168.166 \\
+        'sed -n "s/^VLLM_SECONDARY_API_KEY=//p" /etc/vllm/api-secondary.env')" \\
+    python gen_questions.py --provider qwen \\
+        --endpoint https://llm.ai2.ru/v1 --model qwen3-30b-a3b-instruct-2507 \\
+        --scenarios '' --probes '' --series question_series_inputs.json \\
+        --samples 6 --out bench_data/questions_qwen30b_v3_series.jsonl
 """
 
 from __future__ import annotations
@@ -99,7 +115,12 @@ from safety import check_input, detect_language  # noqa: E402
 
 SCENARIOS_FILE = HERE / "scenarios.json"
 PROBE_FILE = HERE / "question_probe_inputs.json"
+SERIES_FILE = HERE / "question_series_inputs.json"
 ENV_FILE = HERE.parent / ".env"
+
+# `build_user_message` takes `(role, text)` pairs; these are the two roles the
+# contract allows, named here so `--accumulate-skipped` does not spell one out.
+ROLE_ASSISTANT = "assistant"
 
 # The production values of `app/twinkler_ai.complete`. They are the
 # measurement, not a knob: changing one makes the run incomparable with the
@@ -231,9 +252,26 @@ def turns(entry: dict) -> list[tuple[str, str]]:
     ]
 
 
-def user_message(entry: dict) -> str:
-    """The bytes `POST /api/ai/question` sends as the user content."""
-    return build_user_message(entry["topic"], entry["stage"], turns(entry))
+def user_message(entry: dict, skipped_questions: list[str] | None = None) -> str:
+    """The bytes `POST /api/ai/question` sends as the user content.
+
+    `skipped_questions` is `--accumulate-skipped` and is **empty on every
+    production-shaped run**: the request contract has no such field today, so
+    the default (`None`) reproduces the endpoint byte for byte and is what the
+    baseline of 86cbehyez measures. When the flag is on, the questions the
+    person already replaced are folded in as extra `assistant` turns, which is
+    where `build_user_message` renders them — under «Уже прозвучали вопросы:»,
+    after the ones that were answered. That is a *preview* of what subtask
+    86cbehyfe will add to the request, assembled by the production function
+    rather than by a prompt re-typed here; it is a hypothesis about the fix,
+    not a measurement of production.
+    """
+    history = turns(entry)
+    if skipped_questions:
+        history = history + [
+            (ROLE_ASSISTANT, question) for question in skipped_questions
+        ]
+    return build_user_message(entry["topic"], entry["stage"], history)
 
 
 def last_reply(entry: dict) -> str | None:
@@ -304,8 +342,77 @@ def scenario_request(scenario: dict) -> dict:
     }
 
 
-def load_inputs(scenarios_path: Path, probes_path: Path) -> tuple[list[dict], list[dict]]:
+def asked_questions(entry: dict) -> list[str]:
+    """Every question already in this history — what `no_repeat` grades against.
+
+    Deliberately NOT the questions a series produced at steps 1..k-1: today's
+    request cannot carry them (that is the bug 86cbehtkh is about), so grading
+    a replacement against them would grade the model on information it was
+    never given. `check_questions.py` measures the step-to-step repetition
+    separately, as a series metric.
+    """
+    explicit = entry.get("avoid_question") or []
+    if isinstance(explicit, str):
+        explicit = [explicit]
+    asked = [text for role, text in turns(entry) if role == ROLE_ASSISTANT]
+    return list(dict.fromkeys(explicit + asked))
+
+
+def load_series(path: Path) -> list[dict]:
+    """`question_series_inputs.json` as generator inputs.
+
+    A `single` becomes the same kind of entry a probe does; a `series` carries
+    `replacements` — how many times the identical body is sent — and is
+    executed as that many sequential calls per sample.
+    """
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    entries: list[dict] = []
+    for item in payload["inputs"]:
+        kind = item.get("kind", "single")
+        if kind not in ("single", "series"):
+            raise SystemExit(f"{path}: {item['id']} has unknown kind {kind!r}")
+        entry = {
+            "id": item["id"],
+            "source": "series",
+            "language": item["language"],
+            "category": item["category"],
+            "expect_question": bool(item.get("expect_question", True)),
+            "topic": item["topic"],
+            "stage": item["stage"],
+            "messages": item["messages"],
+            "steps": int(item["replacements"]) if kind == "series" else 1,
+            "is_series": kind == "series",
+        }
+        if entry["steps"] < 1:
+            raise SystemExit(f"{path}: {item['id']} has replacements < 1")
+        avoid = asked_questions(item)
+        if avoid:
+            entry["avoid_question"] = avoid
+        # The person's own words, carried into every row of this input so the
+        # gender-agreement heuristic in check_questions.py works on the
+        # artifact alone — an artifact that needs its input file to stay
+        # unchanged to be readable is not a baseline.
+        person = [
+            text for role, text in turns(entry) if role == "user" and text.strip()
+        ]
+        if entry["topic"].strip():
+            person = [entry["topic"]] + person
+        entry["person_words"] = person
+        entries.append(entry)
+    return entries
+
+
+def load_inputs(
+    scenarios_path: Path | None,
+    probes_path: Path | None,
+    series_path: Path | None = None,
+) -> tuple[list[dict], list[dict]]:
     """(inputs to send, inputs skipped with a reason).
+
+    Any of the three sources may be `None` — "this run does not use that set".
+    The series file is `None` unless `--series` names it; the other two are
+    switched off with `--scenarios ''` / `--probes ''`, which is how the
+    86cbehyez baseline runs the series alone.
 
     Two kinds of input are skipped, both because sending them would measure
     something the endpoint does not do:
@@ -327,8 +434,16 @@ def load_inputs(scenarios_path: Path, probes_path: Path) -> tuple[list[dict], li
       here either: the generator and the endpoint now agree on what comes
       back for this input, where they used to potentially disagree.
     """
-    dataset = json.loads(scenarios_path.read_text(encoding="utf-8"))
-    probes = json.loads(probes_path.read_text(encoding="utf-8"))
+    dataset = (
+        json.loads(scenarios_path.read_text(encoding="utf-8"))
+        if scenarios_path
+        else {"scenarios": []}
+    )
+    probes = (
+        json.loads(probes_path.read_text(encoding="utf-8"))
+        if probes_path
+        else {"inputs": []}
+    )
     inputs: list[dict] = []
     skipped: list[dict] = []
 
@@ -389,13 +504,16 @@ def load_inputs(scenarios_path: Path, probes_path: Path) -> tuple[list[dict], li
         # What `check_questions.no_repeat` compares the answer against: every
         # question already in this history, plus anything the probe names
         # explicitly (a question asked before the trimmed head, say).
-        asked = [text for role, text in turns(entry) if role == "assistant"]
-        explicit = probe.get("avoid_question") or []
-        if isinstance(explicit, str):
-            explicit = [explicit]
-        avoid = list(dict.fromkeys(explicit + asked))
+        avoid = asked_questions(
+            {**entry, "avoid_question": probe.get("avoid_question")}
+        )
         if avoid:
             entry["avoid_question"] = avoid
+        if answered_in_code(entry):
+            continue
+        inputs.append(entry)
+
+    for entry in load_series(series_path) if series_path else []:
         if answered_in_code(entry):
             continue
         inputs.append(entry)
@@ -473,13 +591,19 @@ def generate_one(
     model: str,
     entry: dict,
     sample: int,
+    step: int = 1,
+    skipped_questions: list[str] | None = None,
 ) -> dict:
-    """One sample for one input, with the transport ladder and wall time.
+    """One call for one input, with the transport ladder and wall time.
 
     The prompt is built per input, exactly as `twinkler_ai.complete` builds
     it: since v2 it names the language the detector resolved for THIS message
     (`None` — the detector has no evidence — is a case the prompt itself
     handles, see `question_prompt.UNDETERMINED_LANGUAGE`).
+
+    `step` and `skipped_questions` belong to a series (86cbehyez). In the
+    default mode `skipped_questions` is empty at every step, because that is
+    what the client sends: the same body, again.
     """
     started = time.monotonic()
     attempts = 0
@@ -491,7 +615,7 @@ def generate_one(
     # the documented answer there rather than v1's "detect it yourself".
     prompt_language = detect_language(source) if source.strip() else "en"
     prompt = build_question_prompt(prompt_language)
-    sent = user_message(entry)
+    sent = user_message(entry, skipped_questions)
 
     while attempts < TRANSPORT_ATTEMPTS:
         attempts += 1
@@ -534,6 +658,17 @@ def generate_one(
     }
     if entry.get("avoid_question"):
         record["avoid_question"] = entry["avoid_question"]
+    if entry.get("is_series"):
+        # A series row is read as a sequence, so it names the sequence it
+        # belongs to and its place in it. `sample` stays the repetition of the
+        # WHOLE series, exactly as it is the repetition of a single call
+        # elsewhere.
+        record["series_id"] = entry["id"]
+        record["step"] = step
+        record["series_steps"] = entry["steps"]
+        record["skipped_questions"] = list(skipped_questions or [])
+    if entry.get("person_words"):
+        record["person_words"] = entry["person_words"]
     return record
 
 
@@ -545,13 +680,13 @@ def build_meta(
     skipped: list[dict],
     records: list[dict],
 ) -> dict:
-    expected = len(inputs) * args.samples
+    expected = sum(entry.get("steps", 1) for entry in inputs) * args.samples
     return {
         "provider": args.provider,
         "model": model,
         "endpoint": url_host,
         "date": date.today().isoformat(),
-        "ticket": "ClickUp 86cbegctz, 86cbegg3f, 86cbegmzz",
+        "ticket": "ClickUp 86cbegctz, 86cbegg3f, 86cbegmzz, 86cbehyez",
         "prompt": (
             "app/question_prompt.build_question_prompt(detect_language(last "
             "words of the person)) over "
@@ -560,6 +695,16 @@ def build_meta(
         "prompt_version": QUESTION_PROMPT_VERSION,
         "scenarios_file": args.scenarios,
         "probes_file": args.probes,
+        "series_file": args.series,
+        # Off = the client of today: every replacement re-sends the same body.
+        # On = the preview of subtask 86cbehyfe, so an artifact says which of
+        # the two it measured (see `user_message`).
+        "accumulate_skipped": bool(args.accumulate_skipped),
+        "series": {
+            entry["id"]: entry["steps"]
+            for entry in inputs
+            if entry.get("is_series")
+        },
         "sampling": {
             "temperature": TEMPERATURE,
             "max_output_tokens": MAX_OUTPUT_TOKENS,
@@ -579,7 +724,9 @@ def build_meta(
 def select_inputs(args: argparse.Namespace, parser: argparse.ArgumentParser):
     """(inputs, skipped) after `--only`, or a parser error naming what is off."""
     inputs, skipped = load_inputs(
-        resolve_path(args.scenarios), resolve_path(args.probes)
+        resolve_path(args.scenarios) if args.scenarios else None,
+        resolve_path(args.probes) if args.probes else None,
+        resolve_path(args.series) if args.series else None,
     )
     wanted = {value.strip() for value in args.only.split(",") if value.strip()}
     if wanted:
@@ -610,7 +757,14 @@ def dry_run(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
         source = language_source(entry)
         language = detect_language(source) if source.strip() else "en"
         checked = safety_input(entry)
-        print(f"=== {entry['id']} ({entry['language']}, stage {entry['stage']})")
+        series = (
+            f", series of {entry['steps']} replacements"
+            if entry.get("is_series")
+            else ""
+        )
+        print(
+            f"=== {entry['id']} ({entry['language']}, stage {entry['stage']}{series})"
+        )
         print(f"    prompt language: {language or 'undetermined'}")
         print(
             "    despair rule reads: "
@@ -618,6 +772,14 @@ def dry_run(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
         )
         for line in user_message(entry).splitlines():
             print(f"    | {line}")
+        if entry.get("is_series"):
+            print(
+                "    every replacement sends exactly these bytes again"
+                if not args.accumulate_skipped
+                else "    --accumulate-skipped: each replacement adds the "
+                     "previous questions to «Уже прозвучали вопросы:» "
+                     "(preview of 86cbehyfe, NOT production)"
+            )
         print()
     for entry in skipped:
         print(f"--- {entry['id']} skipped: {entry['reason']}")
@@ -662,8 +824,31 @@ def main(argv: list[str] | None = None) -> int:
              "path is resolved against the evaluation/ directory. Required "
              "for a real run, meaningless with --dry-run.",
     )
-    parser.add_argument("--scenarios", default="scenarios.json")
-    parser.add_argument("--probes", default="question_probe_inputs.json")
+    parser.add_argument(
+        "--scenarios", default="scenarios.json",
+        help="the approved benchmark set; '' switches this source off",
+    )
+    parser.add_argument(
+        "--probes", default="question_probe_inputs.json",
+        help="the single-request probes; '' switches this source off",
+    )
+    parser.add_argument(
+        "--series", default="",
+        help="question_series_inputs.json — the replacement series of ClickUp "
+             "86cbehyez. OFF by default: a series costs `replacements` calls "
+             "per sample, so it is opted into rather than inherited by every "
+             "existing run.",
+    )
+    parser.add_argument(
+        "--accumulate-skipped", action="store_true",
+        help="FOR SUBTASK 86cbehyfe, not for a production-shaped run: carry "
+             "the questions already replaced into the next request of a "
+             "series (as `skipped_questions`, rendered by the production "
+             "build_user_message under «Уже прозвучали вопросы:»). Inert by "
+             "default — today's client re-sends the identical body, and the "
+             "endpoint has no such field yet, so a run with this flag "
+             "measures a hypothesis about the fix, never production.",
+    )
     parser.add_argument(
         "--only", default="",
         help="comma-separated input ids — a probe run over a subset",
@@ -715,9 +900,12 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(f"{out} exists — move it aside rather than mixing two runs")
 
     records: list[dict] = []
+    calls = sum(entry.get("steps", 1) for entry in inputs) * args.samples
     print(
         f"{args.provider}: {model} @ {url_host} — {len(inputs)} inputs x "
-        f"{args.samples} samples, {len(skipped)} inputs skipped",
+        f"{args.samples} samples = {calls} calls, {len(skipped)} inputs skipped"
+        + (" — --accumulate-skipped IS ON (preview of 86cbehyfe)"
+           if args.accumulate_skipped else ""),
         flush=True,
     )
 
@@ -725,24 +913,43 @@ def main(argv: list[str] | None = None) -> int:
         with httpx.Client(timeout=httpx.Timeout(args.timeout)) as client:
             for entry in inputs:
                 for sample in range(1, args.samples + 1):
-                    record = generate_one(
-                        client, args, url, api_key, model, entry, sample
-                    )
-                    records.append(record)
-                    append_record(out, record)
-                    mark = "ok " if record["error"] is None else "ERR"
-                    preview = record["text"].replace("\n", " ⏎ ")[:70]
-                    print(
-                        f"  {mark} {record['id']:<14} #{sample} "
-                        f"{record['latency_ms'] / 1000:5.1f}s  "
-                        f"{preview or record['error']}",
-                        flush=True,
-                    )
-                    write_meta(
-                        out, build_meta(args, model, url_host, inputs, skipped, records)
-                    )
-                    if args.sleep > 0:
-                        time.sleep(args.sleep)
+                    # One series = one sample. The steps are sequential
+                    # because that is what the person does — press, read,
+                    # press again — and because --accumulate-skipped feeds
+                    # each step from the ones before it.
+                    replaced: list[str] = []
+                    for step in range(1, entry.get("steps", 1) + 1):
+                        record = generate_one(
+                            client, args, url, api_key, model, entry, sample,
+                            step=step,
+                            skipped_questions=(
+                                list(replaced) if args.accumulate_skipped else None
+                            ),
+                        )
+                        if record["text"]:
+                            replaced.append(record["text"])
+                        records.append(record)
+                        append_record(out, record)
+                        mark = "ok " if record["error"] is None else "ERR"
+                        preview = record["text"].replace("\n", " ⏎ ")[:70]
+                        place = (
+                            f"#{sample}.{step}" if entry.get("is_series")
+                            else f"#{sample}"
+                        )
+                        print(
+                            f"  {mark} {record['id']:<22} {place:<7} "
+                            f"{record['latency_ms'] / 1000:5.1f}s  "
+                            f"{preview or record['error']}",
+                            flush=True,
+                        )
+                        write_meta(
+                            out,
+                            build_meta(
+                                args, model, url_host, inputs, skipped, records
+                            ),
+                        )
+                        if args.sleep > 0:
+                            time.sleep(args.sleep)
     finally:
         write_meta(out, build_meta(args, model, url_host, inputs, skipped, records))
 
