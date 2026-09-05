@@ -26,10 +26,14 @@ FIRST_TAIL = (
     "чувствует. Не пересказывай цель дословно. Ответь только текстом вопроса, "
     "без кавычек и пояснений."
 )
+# v4 (ClickUp 86cbehyf8, 2026-09-06): «смотрит на ситуацию с другой стороны»
+# is gone — the model read it as an invitation to argue with the person, and
+# answered the journal case with the same contestation six times running.
 NEXT_TAIL = (
-    "Задай один новый вопрос, который смотрит на ситуацию с другой стороны и "
-    "не повторяет прозвучавшие. Ответь только текстом вопроса, без кавычек и "
-    "пояснений."
+    "Задай один новый вопрос: разверни то, что человек написал в последнем "
+    "ответе. Не повторяй мысль уже прозвучавшего вопроса другими словами. Не "
+    "спорь с тем, что он сказал, и не ставь это под сомнение, если он сам не "
+    "усомнился. Ответь только текстом вопроса, без кавычек и пояснений."
 )
 REFLECT_TAIL = (
     "Задай один тёплый итоговый вопрос, который поможет ему назвать главное "
@@ -256,20 +260,26 @@ def test_a_whitespace_only_turn_never_becomes_an_empty_bullet(question_stage):
 # ---------------------------------------------------------------------------
 # Additive: the block and the extra sentence appear only when the list is
 # non-empty, so every golden string above is also the proof that a request
-# without the field still renders the v3 bytes — which is why
-# QUESTION_PROMPT_VERSION did not move.
+# without the field renders exactly what a client that never skips a question
+# gets — which is why the field itself did not move
+# QUESTION_PROMPT_VERSION (v4 did, and these strings are v4's).
 
 SKIPPED_HEADER = "Человек попросил другой вопрос вместо этих:\n"
+# Both strings are v3's, kept by v4 on purpose: the two rewordings tried in
+# 86cbehyf8 measured worse on the endpoint's own inputs (see
+# `app/question_prompt.py`, and `evaluation/question_prompts.py` for the texts).
 NEXT_SKIPPED_TAIL = (
-    "Задай один новый вопрос, который смотрит на ситуацию с другой стороны и "
-    "не повторяет прозвучавшие. Выбери другое направление, а не "
-    "переформулировку тех вопросов, и оттолкнись от того, что человек написал "
-    "сам. Ответь только текстом вопроса, без кавычек и пояснений."
+    "Задай один новый вопрос: разверни то, что человек написал в последнем "
+    "ответе. Не повторяй мысль уже прозвучавшего вопроса другими словами. Не "
+    "спорь с тем, что он сказал, и не ставь это под сомнение, если он сам не "
+    "усомнился. Выбери другое направление, а не переформулировку тех "
+    "вопросов, и оттолкнись от того, что человек написал сам. Ответь только "
+    "текстом вопроса, без кавычек и пояснений."
 )
 
 
 @pytest.mark.parametrize("question_stage", STAGES)
-def test_no_skipped_questions_renders_exactly_what_v3_always_rendered(
+def test_no_skipped_questions_renders_exactly_what_the_field_free_request_gets(
     question_stage,
 ):
     messages = [] if question_stage == "first" else [("user", "Ответ.")]
@@ -379,6 +389,72 @@ def test_an_unknown_stage_is_a_programming_error():
     so reaching this means a caller invented one."""
     with pytest.raises(ValueError, match="unknown stage"):
         build_user_message("Тема", "summary", [])
+
+
+# ---------------------------------------------------------------------------
+# v4: the wording that won the measurement (ClickUp 86cbehyf8)
+# ---------------------------------------------------------------------------
+
+def test_the_next_instruction_asks_to_develop_and_not_to_contest():
+    """The half of the loop bug that lived in the `next` instruction.
+
+    v3 asked for a question that «смотрит на ситуацию с другой стороны», and
+    the model read that as permission to argue: it answered «я всё делаю для
+    Господа» with «а что, если завтра окажется, что готовое — не то?» six
+    replacements running. The three properties below are what replaced it —
+    quoted, not derived, so a later edit that drops one is a failure here.
+    """
+    import question_prompt
+
+    opening = question_prompt.NEXT_INSTRUCTION_OPENING
+
+    assert "смотрит на ситуацию с другой стороны" not in opening
+    assert "разверни то, что человек написал в последнем ответе" in opening
+    assert "Не повторяй мысль уже прозвучавшего вопроса другими словами" in opening
+    assert "если он сам не усомнился" in opening
+    # It is still one instruction ending in the output-format sentence, and the
+    # skipped-question variant still appends before that sentence.
+    assert question_prompt.NEXT_INSTRUCTION.endswith(
+        "Ответь только текстом вопроса, без кавычек и пояснений."
+    )
+    assert question_prompt.NEXT_SKIPPED_INSTRUCTION.startswith(opening)
+
+
+def test_the_production_wording_is_the_candidate_that_won():
+    """`evaluation/question_prompts.py` candidate `b` IS what ships.
+
+    The v4 table was measured on candidates built by that module; if the
+    promoted text and the measured one ever drifted apart, the published
+    numbers would describe a prompt nobody runs. Same guarantee
+    `tests/test_rewrite_prompts.py` gives for the rewrite stage.
+    """
+    import importlib.util
+    import sys
+    from pathlib import Path
+
+    module_path = (
+        Path(__file__).resolve().parents[1] / "evaluation" / "question_prompts.py"
+    )
+    if not module_path.exists():
+        pytest.skip("evaluation/ is not present in this container copy")
+    sys.path.insert(0, str(module_path.parent))
+    spec = importlib.util.spec_from_file_location("question_prompts", module_path)
+    variants = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(variants)
+
+    for language in ("ru", "uk", "en", None):
+        assert variants.system_prompt("b", language) == variants.system_prompt(
+            variants.PRODUCTION, language
+        )
+    history = [("assistant", "Что сейчас важнее всего?"), ("user", "Я рада.")]
+    for stage in STAGES:
+        messages = [] if stage == "first" else history
+        for skipped in ([], ["Первый вопрос?"]):
+            assert variants.user_message(
+                "b", "Тема", stage, messages, skipped
+            ) == variants.user_message(
+                variants.PRODUCTION, "Тема", stage, messages, skipped
+            )
 
 
 def test_the_bullets_are_the_only_place_a_turn_is_quoted():

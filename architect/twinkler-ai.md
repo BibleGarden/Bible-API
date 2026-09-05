@@ -116,7 +116,7 @@ instruction. A block with nothing in it is omitted, not left empty:
 — {each assistant turn}
 Что человек ответил (опирайся на это, но не цитируй дословно):
 — {each user turn}
-Задай один новый вопрос, который смотрит на ситуацию с другой стороны и не повторяет прозвучавшие. Ответь только текстом вопроса, без кавычек и пояснений.
+Задай один новый вопрос: разверни то, что человек написал в последнем ответе. Не повторяй мысль уже прозвучавшего вопроса другими словами. Не спорь с тем, что он сказал, и не ставь это под сомнение, если он сам не усомнился. Ответь только текстом вопроса, без кавычек и пояснений.
 ```
 
 With no topic the first line is `Молитва без конкретной темы.`
@@ -155,9 +155,9 @@ replaced belongs here. The two lists do not overlap. The list is reset with the
 prayer, and it is empty (or absent) when nothing was replaced.
 
 The field is **additive**: a request without it produces byte for byte the
-message the endpoint assembled before, which is why `QUESTION_PROMPT_VERSION`
-stays **3**. `build_user_message` renders one extra block and one extra
-sentence, at `next` only:
+message a client that never replaces a question gets, which is why the field
+itself did not move `QUESTION_PROMPT_VERSION` (v4 did, for its own reason —
+below — and the block below is v4's `next` instruction):
 
 ```
 Цель молитвы: «{topic}».
@@ -167,15 +167,15 @@ sentence, at `next` only:
 — {each skipped question}
 Что человек ответил (опирайся на это, но не цитируй дословно):
 — {each user turn}
-Задай один новый вопрос, который смотрит на ситуацию с другой стороны и не повторяет прозвучавшие. Выбери другое направление, а не переформулировку тех вопросов, и оттолкнись от того, что человек написал сам. Ответь только текстом вопроса, без кавычек и пояснений.
+Задай один новый вопрос: разверни то, что человек написал в последнем ответе. Не повторяй мысль уже прозвучавшего вопроса другими словами. Не спорь с тем, что он сказал, и не ставь это под сомнение, если он сам не усомнился. Выбери другое направление, а не переформулировку тех вопросов, и оттолкнись от того, что человек написал сам. Ответь только текстом вопроса, без кавычек и пояснений.
 ```
 
 The header states **what the person did and nothing else**. Pressing "replace"
 says they want a different question — never that they disagree with the thought
 behind it, and a block that told the model so would be us inventing their
-opinion and then answering it. The wording is deliberately minimal: revising it
-is prompt work (ClickUp 86cbehyf8, prompt v4), and that is where the version
-will move.
+opinion and then answering it. The wording was deliberately minimal, and
+86cbehyf8 (prompt v4) tried two rewordings of it on the endpoint's own inputs
+— **both measured worse**, so this wording stayed. See "v4" below.
 
 At **`reflect`** the field is accepted but **not rendered**. That stage looks
 back at what the *person* said and shows none of our questions at all (above),
@@ -297,7 +297,7 @@ reason it is not a `413` is that `413` is this endpoint's promise about the
 
 The system prompt of `POST /api/ai/question` lives in
 `app/question_prompt.py`, versioned by `QUESTION_PROMPT_VERSION` (currently
-`3`) in the same way as `query_rewrite.REWRITE_PROMPT_VERSION` and
+`4`) in the same way as `query_rewrite.REWRITE_PROMPT_VERSION` and
 `passage_rerank.RERANK_PROMPT_VERSION`. Changing the wording means editing
 that file and bumping the version.
 
@@ -396,11 +396,42 @@ takeaway. That is still one question, so the form rules hold; if it ever stops
 being a question, `question`/`len160` in `evaluation/check_questions.py` need a
 per-stage expectation the way `expect_question` works today.
 
-**Not measured yet.** v3 changes the bytes the model receives, and no run has
-been made against it: `evaluation/gen_questions.py` builds the new request
-(and has a `--dry-run` that prints it without contacting a provider), but the
-v3 numbers are a separate step. Until then the tables in
-`evaluation/README.md` describe v2.
+**Measured on 2026-09-05** (`evaluation/README.md`, "Промпт v3 и
+структурированный запрос"): 96 clean answers of 99 on Qwen3-30B, no language
+violation, the three that failed each once and on a different input.
+
+### v4: stop asking for another *side* of the situation (ClickUp 86cbehyf8, 2026-09-06)
+
+v4 is the first revision **chosen between candidate wordings** rather than
+written to fix a named violation, and it answers the bug of 86cbehtkh: six
+presses of «заменить вопрос» returned the same thought six times, and a woman
+was addressed in the masculine.
+
+- **The `next` instruction.** «Задай один новый вопрос, который **смотрит на
+  ситуацию с другой стороны**» was read by the model as permission to argue
+  with the person: to «я всё делаю для Господа, стараюсь очень качественно» it
+  answered «а что, если завтра окажется, что готовое — не то, что нужно
+  Господу?», six replacements running, sometimes verbatim. It now asks the
+  opposite move — develop the person's last answer, do not restate an earlier
+  question's thought, and do not doubt what they said unless they doubted it
+  themselves.
+- **One sentence of the system prompt** takes the person's grammatical gender
+  and number from their own words and forbids defaulting to the masculine.
+
+Measured (baseline v3 → v4, `series-scale-ru`, 6 samples, identical body):
+distinct openings 0.17 → 0.33, mean max-similarity 0.98 → 0.93, verbatim
+duplicate pairs 11 → 5; the Ukrainian series' gender mismatch 30/30 → **0/30**;
+probes and scenarios 96/99 → **99/99** clean with no language violation. Two
+rewordings of the `skipped_questions` block and Qwen's own `top_p`/`top_k` were
+measured in the same run and **rejected** — the table, the losing texts and the
+transcripts are in `evaluation/README.md`, "Промпт наводящего вопроса v4", and
+`evaluation/question_prompts.py`.
+
+**What v4 does not fix:** with an identical request the model still cannot know
+what it already offered, so the loop is weakened, not closed. The
+`skipped_questions` field is what breaks it (mean max-similarity 0.86 over 12
+samples once the questions are actually sent), and re-generating a repeated
+question is ClickUp 86cbehyg0.
 
 It used to be the environment variable `TWINKLER_SYSTEM_PROMPT`. That was the
 wrong home for it: the prompt is product behaviour, not a deployment knob, so

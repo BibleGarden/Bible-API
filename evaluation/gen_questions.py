@@ -50,8 +50,10 @@ request now, not a string:
   `series` inputs are **N sequential requests**, which is what pressing
   «заменить вопрос» N times is today — the client re-sends the SAME body every
   time, so the only thing that differs between two replacements is sampling.
-  See `--accumulate-skipped` for the hypothesis that subtask 86cbehyfe will
-  make real.
+  `--accumulate-skipped` runs the same series as the client of ADR 0015 does
+  — every replacement carries the questions already skipped — and
+  `--prompt-variant` runs any of them on a candidate wording of ClickUp
+  86cbehyf8 (`question_prompts.py`) instead of the shipped text.
 
 Artifacts: one JSONL row per (input, sample) — and per **step** for a series,
 carrying `series_id` and `step` — plus a `<out>.meta.json` sidecar. Neither
@@ -106,20 +108,23 @@ sys.path.insert(0, str(HERE.parent / "app"))
 # dance the other generators need. `safety` imports only `prompt_safety`, both
 # of them from `app/`, for the same reason: the language the prompt names is
 # resolved by THE production detector, never by a copy of it living here.
-from question_prompt import (  # noqa: E402
-    QUESTION_PROMPT_VERSION,
-    build_question_prompt,
-    build_user_message,
-)
+from question_prompt import QUESTION_PROMPT_VERSION  # noqa: E402
 from safety import check_input, detect_language  # noqa: E402
+
+# The candidate wordings of ClickUp 86cbehyf8 (v4). `PRODUCTION` — the default
+# — returns `build_question_prompt` / `build_user_message` themselves, so a run
+# without `--prompt-variant` is the endpoint byte for byte, exactly as before
+# this flag existed.
+sys.path.insert(0, str(HERE))
+import question_prompts  # noqa: E402
 
 SCENARIOS_FILE = HERE / "scenarios.json"
 PROBE_FILE = HERE / "question_probe_inputs.json"
 SERIES_FILE = HERE / "question_series_inputs.json"
 ENV_FILE = HERE.parent / ".env"
 
-# `build_user_message` takes `(role, text)` pairs; these are the two roles the
-# contract allows, named here so `--accumulate-skipped` does not spell one out.
+# `build_user_message` takes `(role, text)` pairs; this is the role a question
+# of ours carries in a history.
 ROLE_ASSISTANT = "assistant"
 
 # The production values of `app/twinkler_ai.complete`. They are the
@@ -252,26 +257,34 @@ def turns(entry: dict) -> list[tuple[str, str]]:
     ]
 
 
-def user_message(entry: dict, skipped_questions: list[str] | None = None) -> str:
+def user_message(
+    entry: dict,
+    skipped_questions: list[str] | None = None,
+    variant: str = question_prompts.PRODUCTION,
+) -> str:
     """The bytes `POST /api/ai/question` sends as the user content.
 
-    `skipped_questions` is `--accumulate-skipped` and is **empty on every
-    production-shaped run**: the request contract has no such field today, so
-    the default (`None`) reproduces the endpoint byte for byte and is what the
-    baseline of 86cbehyez measures. When the flag is on, the questions the
-    person already replaced are folded in as extra `assistant` turns, which is
-    where `build_user_message` renders them — under «Уже прозвучали вопросы:»,
-    after the ones that were answered. That is a *preview* of what subtask
-    86cbehyfe will add to the request, assembled by the production function
-    rather than by a prompt re-typed here; it is a hypothesis about the fix,
-    not a measurement of production.
+    `skipped_questions` is `--accumulate-skipped`. It is empty in the mode that
+    reproduces **today's client**, which re-sends an identical body for every
+    replacement — that is what the baseline of 86cbehyez measured. With the
+    flag on, the questions already replaced are passed in the request's own
+    `skipped_questions` field (ADR 0015, merged 2026-09-05), so the block and
+    the extra instruction sentence are rendered by the production
+    `build_user_message` itself. Until that field existed this argument folded
+    them in as extra `assistant` turns instead — a preview that measured a
+    different prompt from the one the endpoint now sends, hence the change
+    (ClickUp 86cbehyf8).
+
+    `variant` names a candidate wording of 86cbehyf8; the default is the live
+    production text.
     """
-    history = turns(entry)
-    if skipped_questions:
-        history = history + [
-            (ROLE_ASSISTANT, question) for question in skipped_questions
-        ]
-    return build_user_message(entry["topic"], entry["stage"], history)
+    return question_prompts.user_message(
+        variant,
+        entry["topic"],
+        entry["stage"],
+        turns(entry),
+        list(skipped_questions or ()),
+    )
 
 
 def last_reply(entry: dict) -> str | None:
@@ -522,9 +535,22 @@ def load_inputs(
 
 
 def call_qwen(
-    client: httpx.Client, url: str, api_key: str, model: str, user: str, prompt: str
+    client: httpx.Client,
+    url: str,
+    api_key: str,
+    model: str,
+    user: str,
+    prompt: str,
+    sampling: dict | None = None,
 ) -> str:
-    """One OpenAI-compatible chat completion with the production pair."""
+    """One OpenAI-compatible chat completion with the production pair.
+
+    `sampling` is the fourth lever of ClickUp 86cbehyf8 and is empty in every
+    other run: production sends temperature and max_tokens and nothing else, so
+    the server's own defaults for `top_p`/`top_k` are part of what is being
+    measured. When `--top-p`/`--top-k` are given they are added here and named
+    in the sidecar, so an artifact can never be mistaken for a wording result.
+    """
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
@@ -536,6 +562,7 @@ def call_qwen(
         ],
         "temperature": TEMPERATURE,
         "max_tokens": MAX_OUTPUT_TOKENS,
+        **(sampling or {}),
     }
     response = client.post(url, json=payload, headers=headers)
     response.raise_for_status()
@@ -583,6 +610,16 @@ def call_gemini(
     return text
 
 
+def sampling(args: argparse.Namespace) -> dict:
+    """The optional sampling overrides, empty unless a flag named one."""
+    extra: dict = {}
+    if getattr(args, "top_p", None) is not None:
+        extra["top_p"] = args.top_p
+    if getattr(args, "top_k", None) is not None:
+        extra["top_k"] = args.top_k
+    return extra
+
+
 def generate_one(
     client: httpx.Client,
     args: argparse.Namespace,
@@ -614,8 +651,9 @@ def generate_one(
     # history) is the one case the detector cannot speak for, and English is
     # the documented answer there rather than v1's "detect it yourself".
     prompt_language = detect_language(source) if source.strip() else "en"
-    prompt = build_question_prompt(prompt_language)
-    sent = user_message(entry, skipped_questions)
+    variant = getattr(args, "prompt_variant", question_prompts.PRODUCTION)
+    prompt = question_prompts.system_prompt(variant, prompt_language)
+    sent = user_message(entry, skipped_questions, variant)
 
     while attempts < TRANSPORT_ATTEMPTS:
         attempts += 1
@@ -623,7 +661,9 @@ def generate_one(
             if args.provider == "gemini":
                 text = call_gemini(client, url, api_key, sent, prompt)
             else:
-                text = call_qwen(client, url, api_key, model, sent, prompt)
+                text = call_qwen(
+                    client, url, api_key, model, sent, prompt, sampling(args)
+                )
             break
         except (httpx.HTTPError, ValueError) as exc:
             last_error = transport_error(exc) if isinstance(exc, httpx.HTTPError) \
@@ -651,6 +691,9 @@ def generate_one(
         # is the model's or the detector's.
         "prompt_language": prompt_language,
         "prompt_version": QUESTION_PROMPT_VERSION,
+        # Which wording produced this answer. `production` is the shipped text
+        # of `app/question_prompt.py`; a candidate name belongs to 86cbehyf8.
+        "prompt_variant": variant,
         "text": text,
         "latency_ms": int((time.monotonic() - started) * 1000),
         "attempts": attempts,
@@ -686,19 +729,23 @@ def build_meta(
         "model": model,
         "endpoint": url_host,
         "date": date.today().isoformat(),
-        "ticket": "ClickUp 86cbegctz, 86cbegg3f, 86cbegmzz, 86cbehyez",
+        "ticket": (
+            "ClickUp 86cbegctz, 86cbegg3f, 86cbegmzz, 86cbehyez, 86cbehyf8"
+        ),
         "prompt": (
             "app/question_prompt.build_question_prompt(detect_language(last "
             "words of the person)) over "
             "app/question_prompt.build_user_message(topic, stage, messages)"
         ),
         "prompt_version": QUESTION_PROMPT_VERSION,
+        "prompt_variant": args.prompt_variant,
+        "prompt_variant_note": question_prompts.describe(args.prompt_variant),
         "scenarios_file": args.scenarios,
         "probes_file": args.probes,
         "series_file": args.series,
-        # Off = the client of today: every replacement re-sends the same body.
-        # On = the preview of subtask 86cbehyfe, so an artifact says which of
-        # the two it measured (see `user_message`).
+        # Off = the released client: every replacement re-sends the same body.
+        # On = the client of ADR 0015, which accumulates them, so an artifact
+        # says which of the two it measured (see `user_message`).
         "accumulate_skipped": bool(args.accumulate_skipped),
         "series": {
             entry["id"]: entry["steps"]
@@ -708,6 +755,9 @@ def build_meta(
         "sampling": {
             "temperature": TEMPERATURE,
             "max_output_tokens": MAX_OUTPUT_TOKENS,
+            # Empty = production: the server's own top_p/top_k. Non-empty is
+            # the separate sampling lever of 86cbehyf8 and never a wording run.
+            "overrides": sampling(args),
             "samples_per_input": args.samples,
             "timeout_seconds": args.timeout,
             "sleep_between_calls_seconds": args.sleep,
@@ -751,7 +801,9 @@ def dry_run(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     inputs, skipped = select_inputs(args, parser)
     print(
         f"dry run — {len(inputs)} inputs, {len(skipped)} skipped, "
-        f"prompt v{QUESTION_PROMPT_VERSION}, no provider contacted\n"
+        f"prompt v{QUESTION_PROMPT_VERSION}, "
+        f"{question_prompts.describe(args.prompt_variant)}, "
+        "no provider contacted\n"
     )
     for entry in inputs:
         source = language_source(entry)
@@ -770,15 +822,17 @@ def dry_run(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
             "    despair rule reads: "
             + (repr(checked) if checked else "nothing (no reply of theirs)")
         )
-        for line in user_message(entry).splitlines():
+        for line in user_message(
+            entry, variant=args.prompt_variant
+        ).splitlines():
             print(f"    | {line}")
         if entry.get("is_series"):
             print(
                 "    every replacement sends exactly these bytes again"
                 if not args.accumulate_skipped
-                else "    --accumulate-skipped: each replacement adds the "
-                     "previous questions to «Уже прозвучали вопросы:» "
-                     "(preview of 86cbehyfe, NOT production)"
+                else "    --accumulate-skipped: each replacement sends the "
+                     "previous questions in `skipped_questions` (ADR 0015 — "
+                     "the client that accumulates them, not today's)"
             )
         print()
     for entry in skipped:
@@ -841,13 +895,30 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--accumulate-skipped", action="store_true",
-        help="FOR SUBTASK 86cbehyfe, not for a production-shaped run: carry "
-             "the questions already replaced into the next request of a "
-             "series (as `skipped_questions`, rendered by the production "
-             "build_user_message under «Уже прозвучали вопросы:»). Inert by "
-             "default — today's client re-sends the identical body, and the "
-             "endpoint has no such field yet, so a run with this flag "
-             "measures a hypothesis about the fix, never production.",
+        help="send the questions already replaced in the request's own "
+             "`skipped_questions` field (ADR 0015), so each replacement of a "
+             "series knows what the person skipped. Inert by default: TODAY'S "
+             "client re-sends the identical body, which is what the 86cbehyez "
+             "baseline measured, so a run with this flag measures the client "
+             "that accumulates them rather than the one that ships.",
+    )
+    parser.add_argument(
+        "--prompt-variant", default=question_prompts.PRODUCTION,
+        choices=(*question_prompts.VARIANTS, question_prompts.PRODUCTION),
+        help="candidate wording of ClickUp 86cbehyf8 "
+             "(evaluation/question_prompts.py). The default is the shipped "
+             "text of app/question_prompt.py, byte for byte.",
+    )
+    parser.add_argument(
+        "--top-p", type=float, default=None,
+        help="qwen only, and NEVER together with a wording comparison: "
+             "override the server's own top_p (the Qwen3 model card asks for "
+             "0.8). Production sends neither this nor --top-k, so a run that "
+             "sets one measures the sampling lever alone (86cbehyf8).",
+    )
+    parser.add_argument(
+        "--top-k", type=int, default=None,
+        help="qwen only: same as --top-p (the model card asks for 20).",
     )
     parser.add_argument(
         "--only", default="",
@@ -874,6 +945,11 @@ def main(argv: list[str] | None = None) -> int:
 
     api_key = ""
     if args.provider == "gemini":
+        if sampling(args):
+            parser.error(
+                "--top-p/--top-k are qwen options: the gemini run must send "
+                "the production generationConfig or it measures something else"
+            )
         if args.endpoint or args.model or args.api_key:
             parser.error(
                 "--endpoint/--model/--api-key are qwen options; the gemini run "
@@ -903,8 +979,10 @@ def main(argv: list[str] | None = None) -> int:
     calls = sum(entry.get("steps", 1) for entry in inputs) * args.samples
     print(
         f"{args.provider}: {model} @ {url_host} — {len(inputs)} inputs x "
-        f"{args.samples} samples = {calls} calls, {len(skipped)} inputs skipped"
-        + (" — --accumulate-skipped IS ON (preview of 86cbehyfe)"
+        f"{args.samples} samples = {calls} calls, {len(skipped)} inputs "
+        f"skipped, {question_prompts.describe(args.prompt_variant)}"
+        + (f", sampling overrides {sampling(args)}" if sampling(args) else "")
+        + (" — --accumulate-skipped IS ON (the client of ADR 0015)"
            if args.accumulate_skipped else ""),
         flush=True,
     )

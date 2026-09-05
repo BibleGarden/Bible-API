@@ -51,6 +51,17 @@ plus one extra sentence of the instruction, and read by nothing else.
   minimal on purpose; revising it is prompt work (ClickUp 86cbehyf8, v4) and
   that is where the version moves.
 
+  **Outcome (2026-09-06, 86cbehyf8).** The version did move — for the `next`
+  instruction and a gender sentence, not for this block. Both rewordings of the
+  block tried there measured **worse** on the same inputs («Эти вопросы
+  человеку не подошли, он их пропустил» left 10 series of 12 with a verbatim
+  duplicate pair against 4 of 12 for the wording above; naming «другого
+  человека» in the instruction sent the question off to an invented third
+  party), so the header and the sentence of this ADR are unchanged and are now
+  measured rather than merely provisional. The `tests/test_question_prompt.py`
+  guard on what the block may not say is unchanged and still applies to any
+  future rewording.
+
 ## Why a field and not a fake `user` turn
 
 The cheapest implementation would have been to fold the replaced questions into

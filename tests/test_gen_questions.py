@@ -290,7 +290,10 @@ def _run_series(monkeypatch, tmp_path, *extra: str):
     """Run the tool over one series with the provider call stubbed out."""
     sent: list[str] = []
 
-    def fake_call(client, url, api_key, model, user, prompt):
+    def fake_call(client, url, api_key, model, user, prompt, sampling=None):
+        # `sampling` is the optional top_p/top_k of ClickUp 86cbehyf8: empty in
+        # every run that measures a wording, which is every run here.
+        assert not sampling
         sent.append(user)
         return f"Ответ номер {len(sent)}?"
 
@@ -338,20 +341,49 @@ def test_every_replacement_sends_the_identical_body(monkeypatch, tmp_path):
     assert "test-model" == meta["model"]
 
 
-def test_accumulate_skipped_folds_the_previous_questions_in(monkeypatch, tmp_path):
-    """The preview of subtask 86cbehyfe — off by default, and visible when on."""
+def test_accumulate_skipped_sends_them_in_the_request_field(monkeypatch, tmp_path):
+    """The client of ADR 0015 — off by default, and visible when on.
+
+    Until the field existed (ClickUp 86cbehyfe) this flag folded the replaced
+    questions in as extra `assistant` turns, which put them under «Уже
+    прозвучали вопросы:» — a different prompt from the one the endpoint sends
+    now. It passes them as `skipped_questions`, so the block and the extra
+    instruction sentence are the production ones (86cbehyf8).
+    """
     sent, records, meta = _run_series(monkeypatch, tmp_path, "--accumulate-skipped")
 
     assert len(set(sent)) == 5  # every step now sends a different body
     assert "Ответ номер 1?" not in sent[0]
     assert "Ответ номер 1?" in sent[1]
     assert "Ответ номер 4?" in sent[4]
-    # They land in the block the production message builder renders them in.
-    asked, _, answered = sent[4].partition("Что человек ответил")
+    # Their own block, not the "already asked" one: that list means a question
+    # that was asked AND answered, and the two must stay distinguishable.
+    asked, _, skipped = sent[4].partition("Человек попросил другой вопрос")
     assert "Уже прозвучали вопросы:" in asked
-    assert "Ответ номер 4?" in asked and "Ответ номер 4?" not in answered
+    assert "Ответ номер 4?" in skipped and "Ответ номер 4?" not in asked
+    assert "Выбери другое направление" in skipped
     assert records[4]["skipped_questions"] == [f"Ответ номер {n}?" for n in (1, 2, 3, 4)]
     assert meta["accumulate_skipped"] is True
+
+
+def test_a_candidate_variant_is_measured_and_named(monkeypatch, tmp_path):
+    """`--prompt-variant` changes the bytes and says so in the artifact.
+
+    The default is the production wording byte for byte — that is what every
+    run before ClickUp 86cbehyf8 measured and what the flag must not disturb.
+    """
+    default_sent, default_records, default_meta = _run_series(monkeypatch, tmp_path)
+    sent, records, meta = _run_series(
+        monkeypatch, tmp_path / "variant", "--prompt-variant", "v3"
+    )
+
+    assert default_meta["prompt_variant"] == "production"
+    assert all(r["prompt_variant"] == "production" for r in default_records)
+    assert meta["prompt_variant"] == "v3"
+    assert all(record["prompt_variant"] == "v3" for record in records)
+    # v3 is the wording v4 replaced, so the two differ in exactly that sentence.
+    assert "смотрит на ситуацию с другой стороны" in sent[0]
+    assert "смотрит на ситуацию с другой стороны" not in default_sent[0]
 
 
 def test_the_dry_run_says_which_bytes_a_replacement_repeats(capsys):

@@ -109,19 +109,19 @@ def test_question_prompt_is_a_usable_constant():
     # Pins the wording itself, not just its shape: if this fails, the
     # prompt text changed. Update the hash/len together with a bump of
     # QUESTION_PROMPT_VERSION (app/question_prompt.py says why).
-    assert len(template) == 2143
+    assert len(template) == 2466
     assert (
         hashlib.sha256(template.encode("utf-8")).hexdigest()
-        == "7b860999e1ce7df3a349a585b9791e5e5f587c473596012dd38016ed365f6a45"
+        == "9407c6f267c80e723557a8238278eb0889495db2e7d3f7b49bf98b2103df8d57"
     )
 
 
 def test_question_prompt_is_versioned():
     version = question_prompt.QUESTION_PROMPT_VERSION
     assert isinstance(version, int) and version >= 1
-    # v3 = the structured request of 2026-09-05 (86cbegmzz), which took the
-    # layout sentence out of the prompt; bumped with the hash above.
-    assert version == 3
+    # v4 = the anti-loop revision of 2026-09-06 (86cbehyf8): the `next`
+    # instruction and the gender sentence; bumped with the hash above.
+    assert version == 4
 
 
 def test_v3_dropped_only_the_sentence_about_the_layout():
@@ -138,11 +138,11 @@ def test_v3_dropped_only_the_sentence_about_the_layout():
     assert "never repeat a question you have already asked" not in template
     assert "Respond to the most recent thing the person said" not in template
     # The neighbouring sentences are untouched, so the removal is a deletion
-    # and not a rewrite.
-    assert (
-        "closely when you compress a sentence to fit the line. Never speak as "
-        "God" in template
-    )
+    # and not a rewrite. (v4 inserted its gender sentence between these two —
+    # deliberately, and it is asserted by its own test below; what this one
+    # claims is that the v2 sentences on either side are still here.)
+    assert "closely when you compress a sentence to fit the line." in template
+    assert "Never speak as God or claim to deliver a verdict" in template
 
 
 # --- the prompt names the language of the message (ClickUp 86cbegg3f) -----
@@ -210,10 +210,37 @@ def test_the_prompt_bans_interpreting_and_rhetorical_questions():
     assert "never one that can be answered with yes or no" in template
     # And nothing was added to make the companion nicer (Maria, 2026-09-05:
     # a prompt must not turn the model faceless and monotonously positive).
-    # The one tone sentence is v1's, unchanged.
+    # The one tone sentence is v1's, unchanged — through v4 as well.
     assert template.count("Tone: warm and quiet.") == 1
     for softener in ("supportive", "encourag", "positive", "comforting"):
         assert softener not in template.lower()
+
+
+def test_v4_takes_the_persons_gender_from_their_own_words():
+    """The second half of the bug of 86cbehtkh, in the prompt (86cbehyf8).
+
+    A woman wrote «я рада» / «заснула» and was addressed as «ты считал» /
+    «зробив» — 30 answers of 30 on the Ukrainian series. The rule sits beside
+    the sentence about inflected languages, names the forms rather than
+    describing them (that is what made v2's rules hold), and says what to do
+    when the words do not say: ask something that needs no gender.
+    """
+    template = question_prompt.QUESTION_PROMPT_TEMPLATE
+
+    assert "grammatical gender and number from their own words" in template
+    assert "never fall back to the masculine" in template
+    # The sentence follows the one about compressing an inflected sentence —
+    # the place the prompt already talks about Russian and Ukrainian grammar.
+    assert (
+        "sentence to fit the line. Take the person's grammatical gender"
+        in template
+    )
+    # Every language keeps the rule: it is not conditional on the one detected.
+    for language in ("ru", "uk", "en", None):
+        assert (
+            "never fall back to the masculine"
+            in question_prompt.build_question_prompt(language)
+        )
 
 
 def test_the_prompt_is_built_from_whatever_text_it_is_given():

@@ -1,0 +1,47 @@
+{
+  "provider": "qwen",
+  "model": "qwen3-30b-a3b-instruct-2507",
+  "endpoint": "https://llm.ai2.ru",
+  "date": "2026-09-06",
+  "ticket": "ClickUp 86cbegctz, 86cbegg3f, 86cbegmzz, 86cbehyez",
+  "prompt": "app/question_prompt.build_question_prompt(detect_language(last words of the person)) over app/question_prompt.build_user_message(topic, stage, messages)",
+  "prompt_version": 3,
+  "prompt_variant": "b",
+  "prompt_variant_note": "candidate b: a + the gender/number sentence in the system prompt",
+  "scenarios_file": "scenarios.json",
+  "probes_file": "question_probe_inputs.json",
+  "series_file": "",
+  "accumulate_skipped": false,
+  "series": {},
+  "sampling": {
+    "temperature": 0.7,
+    "max_output_tokens": 1024,
+    "overrides": {},
+    "samples_per_input": 3,
+    "timeout_seconds": 180.0,
+    "sleep_between_calls_seconds": 0.0
+  },
+  "inputs_sent": 33,
+  "inputs_skipped": [
+    {
+      "id": "ru-009",
+      "reason": "empty request: no topic and no history, so it carries none of the person's words. The endpoint answers it (a generic first question) but names English by contract, and the scenario's language can no longer be graded"
+    },
+    {
+      "id": "en-006",
+      "reason": "empty request: no topic and no history, so it carries none of the person's words. The endpoint answers it (a generic first question) but names English by contract, and the scenario's language can no longer be graded"
+    },
+    {
+      "id": "uk-006",
+      "reason": "empty request: no topic and no history, so it carries none of the person's words. The endpoint answers it (a generic first question) but names English by contract, and the scenario's language can no longer be graded"
+    },
+    {
+      "id": "probe-despair",
+      "reason": "app/safety.py answers this in code (tier 1, pattern ru.no-wish-to-live): POST /api/ai/question returns the fixed reply and never calls a provider, so there is no model answer to measure"
+    }
+  ],
+  "records_expected": 99,
+  "records_written": 99,
+  "records_failed": 0,
+  "partial": false
+}

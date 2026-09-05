@@ -98,17 +98,74 @@ what makes the v2 → v3 comparison meaningful.
 model was told nothing and looped on the same thought. The request now carries
 `skipped_questions`, and `build_user_message` renders one extra block plus one
 extra sentence of the `next` instruction **only when that list is non-empty**.
-A request without the field produces the very bytes v3 always produced — pinned
-by `tests/test_question_prompt.py` — so `QUESTION_PROMPT_VERSION` does not
-move: a version separates two texts that can answer the *same* request
-differently, and these cannot. The wording is deliberately minimal; revising it
-is prompt work and belongs to ClickUp 86cbehyf8 (v4), which is where the
-version will move. Two properties of the block are not stylistic and must
-survive that revision: it states only what the person *did* (asked for another
-question), never that they disagreed with the thought — pressing "replace" is
-not an argument — and it is our own generated Russian text, so it is excluded
+A request without the field produced the very bytes v3 always produced — pinned
+by `tests/test_question_prompt.py` — so `QUESTION_PROMPT_VERSION` did not move
+then: a version separates two texts that can answer the *same* request
+differently, and these could not. (v4 below is a real wording change and does
+move it; the same test now pins v4's own output.) The wording was deliberately
+minimal, and revising it was 86cbehyf8's to try — it did, on the endpoint's own
+inputs, and **kept this wording**, because both rewordings measured worse (see
+v4). Two properties of the block are not stylistic: it states only what the
+person *did* (asked for another question), never that they disagreed with the
+thought — pressing "replace" is not an argument — and it is our own generated
+Russian text, so it is excluded
 from language detection and from the despair rule (see
 `architect/adr/0015-skipped-questions-in-question-request.md`).
+
+**v4 (2026-09-06, ClickUp 86cbehyf8)** — the anti-loop revision, and the first
+one chosen by measuring candidate wordings against each other rather than by
+fixing a named violation. The bug (86cbehtkh): pressing «заменить вопрос» six
+times on the journal case returned the same thought six times. The baseline of
+86cbehyez measured it — `series-scale-ru` on Qwen3-30B, 6 samples: one opening
+in 6 of 6 samples, mean max-similarity 0.98, **11 verbatim duplicate pairs**
+out of 36 answers — and, in the same input set, a woman («заснула», «не
+вимкнула») addressed as «зробив» in **30 answers of 30**. Two changes, one for
+each, both measured on the same inputs (the table and the losing candidates:
+`evaluation/README.md`, «Промпт наводящего вопроса v4»,
+`evaluation/question_prompts.py`):
+
+1. **The `next` instruction stopped asking for another *side*.**
+   `NEXT_INSTRUCTION_OPENING` said «задай один новый вопрос, который **смотрит
+   на ситуацию с другой стороны** и не повторяет прозвучавшие», and the model
+   read it as an invitation to *contest* the person: to «я всё делаю для
+   Господа, стараюсь очень качественно» it answered «а что, если завтра
+   окажется, что готовое — не то, что нужно Господу?» — the thought of a
+   question already asked, reworded, six times running. It now asks for the
+   opposite move: develop what the person just wrote, do not restate an earlier
+   question's thought in other words, and **do not doubt what they said unless
+   they doubted it themselves**. Measured (identical body, which is what the
+   released client sends on every replacement): openings 0.17 → 0.33, mean
+   max-similarity 0.98 → 0.93, duplicate pairs 11 → 5, and the answers moved
+   from arguing with her to unfolding her own sentence.
+2. **The person's grammatical gender comes from their own words.** One sentence
+   in the system prompt, next to the existing one about inflected languages,
+   with the forms named: «рада»/«сделала»/«втомилася» is a woman, and when the
+   words do not say, ask something that needs no gender — **never** default to
+   the masculine. Measured: the Ukrainian series went 30/30 → **0/30**, and the
+   Russian journal case 0/36 with it (v3 plus the `skipped_questions` field,
+   without this sentence, produced 14/36).
+
+Everything else is byte for byte v3, deliberately: the language rule named
+twice with the last sentence, the interpretation ban, the open-question and
+160-character rules, the "no advice / never speak as God" sentences, the
+informal register — and, once again, **nothing** that makes the companion
+warmer or more encouraging (Maria, 2026-09-05). The despair rule stays in
+`app/safety.py`. `SKIPPED_HEADER` and `NEXT_SKIPPED_SENTENCE` are unchanged
+**because the rewordings lost their measurement**: «Эти вопросы человеку не
+подошли, он их пропустил» plus «возьми... другой момент, другого человека,
+другое дело» made the model ask the person about an invented third party («а
+что, если кто-то из тех, кто будет использовать приложение…»), and even with
+that sentence reverted the reworded header alone left 10 of 12 samples with an
+exact duplicate pair against 4 of 12 for the wording that shipped. A fourth
+lever — Qwen's own `top_p=0.8`/`top_k=20` instead of the server defaults —
+changed nothing (distinct texts 113 → 105 of 162) and was not adopted.
+
+**What v4 does not fix.** With an identical request the model still has no way
+to know what it already offered, so a replacement is still a fresh sample of
+the same distribution: `series-scale-ru` keeps a mean max-similarity of 0.93.
+The wording moved what the loop is *about*; the field of ADR 0015 is what lets
+the loop be broken (mean max-similarity 0.86 over 12 samples once the skipped
+questions are actually sent), and a re-generation filter is 86cbehyg0.
 """
 
 from collections.abc import Sequence
@@ -117,8 +174,10 @@ from collections.abc import Sequence
 # as TWINKLER_SYSTEM_PROMPT up to 2026-08-30, carried over unchanged; v2 is
 # the language/interpretation revision of 2026-09-05 described above; v3 is
 # the structured request of the same day — the layout sentence removed from
-# the system prompt, the stage blocks assembled by `build_user_message`.
-QUESTION_PROMPT_VERSION = 3
+# the system prompt, the stage blocks assembled by `build_user_message`; v4 is
+# the anti-loop revision of 2026-09-06 (the `next` instruction and the gender
+# sentence).
+QUESTION_PROMPT_VERSION = 4
 
 # `safety.detect_language` returns `ru`, `uk`, `en` — or `None` for a message
 # that does not say (a bare Cyrillic "Помоги" carries none of the four letters
@@ -164,7 +223,12 @@ QUESTION_PROMPT_TEMPLATE = (
     "subordinate clauses. Your grammar must be flawless in whatever "
     "language you write. In inflected languages such as Russian and "
     "Ukrainian, watch case endings and preposition agreement especially "
-    "closely when you compress a sentence to fit the line. Never speak as God "
+    "closely when you compress a sentence to fit the line. Take the person's "
+    "grammatical gender and number from their own words - 'рада', 'сделала', "
+    "'втомилася' are a woman speaking about herself, 'рад', 'сделал', "
+    "'втомився' a man - and address them in that same form; when their words "
+    "do not say, word the question so that it needs no gender, and never fall "
+    "back to the masculine. Never speak as God "
     "or claim to deliver a verdict on God behalf, never suggest that "
     "someone's pain is a punishment, and give no medical, legal or "
     "financial advice. Answer in {language}."
@@ -217,8 +281,10 @@ ANSWERED_HEADER = (
 # assembled here byte for byte — it is what a request without
 # `skipped_questions` gets, and what `tests/test_question_prompt.py` quotes.
 NEXT_INSTRUCTION_OPENING = (
-    "Задай один новый вопрос, который смотрит на ситуацию с другой стороны и "
-    "не повторяет прозвучавшие."
+    "Задай один новый вопрос: разверни то, что человек написал в последнем "
+    "ответе. Не повторяй мысль уже прозвучавшего вопроса другими словами. Не "
+    "спорь с тем, что он сказал, и не ставь это под сомнение, если он сам не "
+    "усомнился."
 )
 NEXT_INSTRUCTION_CLOSING = " Ответь только текстом вопроса, без кавычек и пояснений."
 NEXT_INSTRUCTION = NEXT_INSTRUCTION_OPENING + NEXT_INSTRUCTION_CLOSING
@@ -231,6 +297,13 @@ NEXT_INSTRUCTION = NEXT_INSTRUCTION_OPENING + NEXT_INSTRUCTION_CLOSING
 # opinion. The sentence added to the instruction asks for a different
 # direction anchored in the person's own words, which is the whole point of
 # telling the model about them.
+#
+# **Both strings survived v4 by measurement, not by inertia** (86cbehyf8): the
+# two rewordings tried — «Эти вопросы человеку не подошли, он их пропустил:»,
+# and a sentence naming «другой момент, другого человека, другое дело» — lost
+# on the same inputs. The second turned the question towards an invented third
+# party; the first, alone, left 10 of 12 samples of the journal case with an
+# exact duplicate pair against 4 of 12 here.
 SKIPPED_HEADER = "Человек попросил другой вопрос вместо этих:\n"
 NEXT_SKIPPED_SENTENCE = (
     " Выбери другое направление, а не переформулировку тех вопросов, и "
