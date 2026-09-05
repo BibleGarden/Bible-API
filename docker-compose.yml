@@ -6,6 +6,19 @@ services:
       - "9084:8000"
     env_file:
       - .env
+    # AI provider keys for the company server (Qwen chat + Whisper +
+    # embeddings): passed through by NAME ONLY from the invoking shell, never
+    # from .env. Compose fills each from the shell environment at
+    # `docker compose up`; export them first (see .env for the exact
+    # commands and where the values come from). If the shell does not have
+    # them (e.g. a reboot restarted this `restart: always` container without
+    # a fresh `up`), the variable reaches the container empty and the app
+    # runs with key=none — a loud 502 on the AI endpoints, not a silent
+    # fallback to any file-stored key.
+    environment:
+      - AI_OPENAI_COMPAT_API_KEY
+      - AI_TRANSCRIBE_API_KEY
+      - EMBEDDING_API_KEY
     volumes:
       # Host path with mp3 files. Set AUDIO_DIR in .env
       - ${AUDIO_DIR:?set AUDIO_DIR}:/audio
