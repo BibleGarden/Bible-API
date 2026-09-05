@@ -1,16 +1,24 @@
 {
   "name": "scripture-selection-quality-thresholds",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "status": "approved",
   "approved_by": "Мария",
-  "approved_date": "2026-08-24",
+  "approved_date": "2026-09-05",
+  "changelog": [
+    {
+      "version": "0.4.0",
+      "date": "2026-09-05",
+      "approved_by": "Мария",
+      "change": "retrieval_top_k.mrr_min 0.60 → 0.50 для локальных эмбеддингов bge-m3@1024 (ClickUp 86cbegg2r, ADR 0010; замер 86cbe4n7e: hit@10 0.875, recall@10 0.688, MRR 0.524 против 0.664 у gemini-embedding-001). Первая ступень отдаёт десятку кандидатов, вторая (rerank) читает всю десятку и выбирает сама, поэтому позиция правильного отрывка внутри десятки на итоговый ответ почти не влияет. Пороги final_top1 и остальные пороги retrieval_top_k не менялись."
+    }
+  ],
   "applies_to_dataset": "scripture-selection-benchmark >= 0.1.0",
   "matching_rule": "Найденный отрывок считается совпавшим с эталонной ссылкой, если совпадают book_number и chapter, а диапазоны стихов пересекаются (canonical psalm numbering — см. coordinate_system набора).",
   "retrieval_top_k": {
     "k": 10,
     "hit_rate_at_k_min": 0.90,
     "recall_at_k_min": 0.60,
-    "mrr_min": 0.60,
+    "mrr_min": 0.50,
     "unacceptable_share_in_top_k_max": 0.05
   },
   "final_top1": {

@@ -164,6 +164,17 @@ class DiversityThresholds(BaseModel):
     min_distinct_books_in_window: int = Field(ge=1)
 
 
+class ThresholdChange(BaseModel):
+    """One entry of the thresholds changelog: who changed which value, when, why."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    version: str = Field(pattern=SEMVER_PATTERN)
+    date: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    approved_by: str = Field(min_length=1)
+    change: str = Field(min_length=1)
+
+
 class Thresholds(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -172,6 +183,7 @@ class Thresholds(BaseModel):
     status: Literal["draft", "approved"]
     approved_by: Optional[str]
     approved_date: Optional[str] = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    changelog: list[ThresholdChange] = Field(default_factory=list)
     applies_to_dataset: str
     matching_rule: str
     retrieval_top_k: RetrievalThresholds

@@ -256,9 +256,10 @@ Each chat stage names its transport, so moving one to another model is an
   needs no network and no key at all. Query embedding: median 39 ms.
 - Retrieval quality (86cbe4n7e, full pipeline): hit@10 0.875, recall@10
   0.688, MRR 0.524 against Gemini's 1.000 / 0.789 / 0.664 — recall passes,
-  ranking is worse and the grounded rerank absorbs it. The **retrieval-stage
-  MRR threshold in `evaluation/thresholds.json` now fails by design**; see
-  ADR 0010's open question 1.
+  ranking is worse and the grounded rerank absorbs it. Maria lowered the
+  retrieval-stage MRR threshold to 0.50 on 2026-09-05 (`thresholds.json`
+  0.4.0); the `final_top1` thresholds are unchanged — see ADR 0010's open
+  question 1.
 
 RAG / scripture selection:
 

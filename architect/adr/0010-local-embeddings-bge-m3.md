@@ -20,7 +20,7 @@ bge-m3 measures
 |---|---|---|---|
 | hit@10 | ≥ 0.90 | 1.000 | 0.875 |
 | recall@10 | ≥ 0.60 | 0.789 | 0.688 |
-| MRR | ≥ 0.60 | 0.664 | 0.524 |
+| MRR | ≥ 0.60 (0.50 since thresholds 0.4.0, see open question 1) | 0.664 | 0.524 |
 | unacceptable@10 | ≤ 0.05 | 0.004 | 0.004 |
 
 — that is, recall passes and ranking is worse, which is exactly the part the
@@ -232,11 +232,16 @@ rather than two runs of the same encoder.
 
 ## Open questions
 
-1. The retrieval thresholds of `evaluation/thresholds.json` are **not** met
+1. ~~The retrieval thresholds of `evaluation/thresholds.json` are **not** met
    by this embedder on MRR (0.524 against 0.60). The rerank compensates in
    the final top-1 measurement, but the retrieval-stage threshold now fails
    by design. Whether to re-baseline those thresholds for the local pipeline
-   or keep them as a record of what Gemini did is Maria's call (step 8).
+   or keep them as a record of what Gemini did is Maria's call (step 8).~~
+   **Resolved 2026-09-05:** Maria lowered `retrieval_top_k.mrr_min` to 0.50
+   (`thresholds.json` 0.4.0). The reasoning she accepted: MRR measures the
+   position of the right passage *inside* the top-10, and the rerank reads
+   the whole top-10, so that position barely reaches the final answer; the
+   `final_top1` thresholds are unchanged and remain the acceptance gate.
 2. `AI_SCRIPTURE_TIMEOUT_SECONDS` / `AI_SCRIPTURE_PROVIDER_TIMEOUT_SECONDS`
    now have to cover local CPU embedding *and* a self-hosted chat model; the
    right pair is a measurement (step 8, inherited from ADR 0009).
