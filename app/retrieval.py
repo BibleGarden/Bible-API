@@ -186,6 +186,25 @@ def load_genre_blacklist(path: Path = GENRE_BLACKLIST_FILE) -> list[BlacklistRan
     return entries
 
 
+def blacklist_match(
+    blacklist: list[BlacklistRange],
+    book: int,
+    chapter: int,
+    verse_start: int,
+    verse_end: int,
+) -> BlacklistRange | None:
+    """The first blacklist entry that blocks this canonical range, or None.
+
+    Same scan (and same short-circuit) as `is_blacklisted`, which is written
+    in terms of it; the entry itself is what a diagnostic observer needs in
+    order to say WHICH rule cut a passage.
+    """
+    for entry in blacklist:
+        if entry.blocks(book, chapter, verse_start, verse_end):
+            return entry
+    return None
+
+
 def is_blacklisted(
     blacklist: list[BlacklistRange],
     book: int,
@@ -193,7 +212,10 @@ def is_blacklisted(
     verse_start: int,
     verse_end: int,
 ) -> bool:
-    return any(e.blocks(book, chapter, verse_start, verse_end) for e in blacklist)
+    return (
+        blacklist_match(blacklist, book, chapter, verse_start, verse_end)
+        is not None
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -350,6 +372,7 @@ def apply_diversity(
     top_k: int,
     max_per_book: int = MAX_PER_BOOK,
     max_per_chapter: int = MAX_PER_CHAPTER,
+    on_skip=None,
 ) -> list[FusedHit]:
     """Greedy top-K selection with per-chapter and per-book caps.
 
@@ -359,6 +382,12 @@ def apply_diversity(
     (benchmark: the cap freed slots that recovered missed references). The
     book cap keeps one book from flooding the list. When the caps leave the
     list short of top_k, the best skipped candidates fill the remainder.
+
+    `on_skip(hit, reason)` is an optional diagnostic observer called for
+    every hit a cap pushes aside ("book_cap" / "chapter_cap"); its return
+    value is ignored and it cannot influence the selection. A skipped hit
+    may still be backfilled below — the observer reports what the caps did,
+    not the final list.
     """
     selected: list[FusedHit] = []
     skipped: list[FusedHit] = []
@@ -368,11 +397,12 @@ def apply_diversity(
         if len(selected) >= top_k:
             break
         _v, book, chapter, _s, _e = parse_canonical_id(hit.canonical_id)
-        if (
-            per_book.get(book, 0) >= max_per_book
-            or per_chapter.get((book, chapter), 0) >= max_per_chapter
-        ):
+        book_full = per_book.get(book, 0) >= max_per_book
+        chapter_full = per_chapter.get((book, chapter), 0) >= max_per_chapter
+        if book_full or chapter_full:
             skipped.append(hit)
+            if on_skip is not None:
+                on_skip(hit, "book_cap" if book_full else "chapter_cap")
             continue
         per_book[book] = per_book.get(book, 0) + 1
         per_chapter[(book, chapter)] = per_chapter.get((book, chapter), 0) + 1
@@ -523,6 +553,18 @@ class ScriptureRetriever:
     serve-time saving (measured 1.6 s -> 0.31 s, ADR 0006). Under
     concurrency the fail-fast heuristic is moot (all calls are already in
     flight); the shared deadline bounds them instead.
+
+    trace           - optional diagnostic observer `trace(stage, payload)`
+                      called after each pipeline stage with the objects that
+                      stage produced (ClickUp 86cbegawh, the tracing stand
+                      `evaluation/trace_picker.py`). It is None everywhere in
+                      production. It is READ-ONLY by contract: its return
+                      value is ignored, an exception it raises is swallowed
+                      with a category-only warning, and no stage consults it
+                      — so a selection run with a hook decides exactly what
+                      the same selection decides without one. The payload
+                      carries live internal objects (hit lists, candidates)
+                      rather than copies; an observer must not mutate them.
     """
 
     def __init__(
@@ -542,6 +584,7 @@ class ScriptureRetriever:
         include_raw_query: bool = False,
         embed_workers: int = 1,
         allowed_canonical_ids: frozenset[str] | set[str] | None = None,
+        trace=None,
     ):
         self.index = index
         self.embedder = embedder
@@ -558,7 +601,27 @@ class ScriptureRetriever:
         self.include_raw_query = include_raw_query
         self.embed_workers = max(1, embed_workers)
         self.allowed_canonical_ids = allowed_canonical_ids
+        self.trace = trace
         self._vector_rows_cache: dict[str, dict[str, list[int]]] = {}
+
+    # -- diagnostics --------------------------------------------------------
+
+    def _trace(self, stage: str, **payload) -> None:
+        """Report one finished stage to the optional observer (no-op by default).
+
+        Called AFTER the stage has decided, with what it decided, and its
+        result is discarded — the pipeline never branches on a trace. A hook
+        that raises is contained here for the same reason: an observer must
+        not be able to fail a selection.
+        """
+        if self.trace is None:
+            return
+        try:
+            self.trace(stage, payload)
+        except Exception as exc:      # category only — never the context
+            logger.warning(
+                "retrieval trace hook failed: %s", type(exc).__name__
+            )
 
     # -- public entry point -------------------------------------------------
 
@@ -589,8 +652,18 @@ class ScriptureRetriever:
             return result
 
         fused = fuse_interleave(variant_hits)
+        self._trace("fused", hits=fused)
         filtered = self._filter(fused, request.exclude_canonical_ids)
-        final = apply_diversity(filtered, request.top_k, self.max_per_book)
+        skipped: list[tuple[FusedHit, str]] = []
+        final = apply_diversity(
+            filtered, request.top_k, self.max_per_book,
+            on_skip=(
+                (lambda hit, reason: skipped.append((hit, reason)))
+                if self.trace is not None
+                else None
+            ),
+        )
+        self._trace("diversity", selected=final, skipped=skipped)
         candidates = self._resolve_candidates(request.language, final)
         if not candidates:
             # ADR 0007 fix F1, extended to the primary path: retrieval ran,
@@ -630,6 +703,7 @@ class ScriptureRetriever:
             result.query_variants = searched_queries
             result.rewrite_failed = rewrite_failed
             return result
+        self._trace("candidates", candidates=candidates)
         return SelectionResult(
             candidates=candidates,
             source="retrieval",
@@ -690,6 +764,7 @@ class ScriptureRetriever:
         key_verses = any(
             _is_numbered(candidate) for candidate in selection.candidates
         )
+        self._trace("rerank_request", texts=texts, key_verses=key_verses)
         try:
             choice = self.reranker.choose(
                 topic=request.topic,
@@ -701,16 +776,19 @@ class ScriptureRetriever:
         except PassageRerankError as exc:
             # failure category only — never the prayer context or model text
             logger.warning("passage rerank failed: %s", exc)
+            self._trace("rerank_failed", error=str(exc))
             return FinalSelection(
                 candidate=top1, reason=None, method="fallback_top1",
                 fallback_reason="rerank_failed", selection=selection,
             )
         except Exception as exc:  # defensive: any AI failure -> fallback
             logger.warning("passage rerank failed: %s", type(exc).__name__)
+            self._trace("rerank_failed", error=type(exc).__name__)
             return FinalSelection(
                 candidate=top1, reason=None, method="fallback_top1",
                 fallback_reason="rerank_failed", selection=selection,
             )
+        self._trace("rerank_choice", choice=choice)
         if not 0 <= choice.index < len(selection.candidates):
             # The reranker validates this already; keep the belt anyway.
             logger.warning("passage rerank returned an out-of-range index")
@@ -750,6 +828,10 @@ class ScriptureRetriever:
         queries = list(variants)
         if self.include_raw_query or not queries:
             queries.append(raw_query)
+        self._trace(
+            "rewrite", variants=variants, queries=queries,
+            rewrite_failed=rewrite_failed,
+        )
         return queries, rewrite_failed
 
     def _embed_queries(
@@ -803,15 +885,18 @@ class ScriptureRetriever:
         vectors = self._embed_queries(queries, deadline)
         variant_hits: list[list[tuple[str, float]]] = []
         searched: list[str] = []
-        for query, vector in zip(queries, vectors):
+        for variant, (query, vector) in enumerate(zip(queries, vectors)):
             if vector is None:
+                self._trace("variant_skipped", variant=variant, query=query)
                 continue
             hits = self.index.search(
                 vector, top_k=self.fetch_k, language=language
             )
             semantic = [(h.canonical_id, h.score) for h in hits]
             variant_hits.append(
-                self._merge_lexical(language, query, vector, semantic)
+                self._merge_lexical(
+                    language, query, vector, semantic, variant=variant
+                )
             )
             searched.append(query)
         return variant_hits, searched
@@ -822,16 +907,26 @@ class ScriptureRetriever:
         query: str,
         query_vector,
         semantic: list[tuple[str, float]],
+        variant: int | None = None,
     ) -> list[tuple[str, float]]:
         lexical_index = self.lexical_indexes.get(language)
         if lexical_index is None:
+            self._trace(
+                "variant_search", variant=variant, query=query,
+                semantic=semantic, lexical=[], merged=semantic,
+            )
             return semantic
         lexical = [
             (hit.canonical_id, self._cosine_for(language, hit.canonical_id,
                                                 query_vector))
             for hit in lexical_index.search(query, top_k=self.lexical_k)
         ]
-        return merge_semantic_lexical(semantic, lexical)
+        merged = merge_semantic_lexical(semantic, lexical)
+        self._trace(
+            "variant_search", variant=variant, query=query,
+            semantic=semantic, lexical=lexical, merged=merged,
+        )
+        return merged
 
     def _cosine_for(self, language: str, canonical_id: str, query_vector) -> float:
         """Cosine of one chunk (best translation) against a query vector —
@@ -864,15 +959,22 @@ class ScriptureRetriever:
         self, fused: list[FusedHit], exclude: frozenset[str] | set[str]
     ) -> list[FusedHit]:
         result = []
+        # (hit, reason, blacklist entry or None) — diagnostics only.
+        dropped: list[tuple[FusedHit, str, BlacklistRange | None]] = []
         for hit in fused:
             if hit.canonical_id in exclude:
+                dropped.append((hit, "excluded", None))
                 continue
             if not self._allowed(hit.canonical_id):
+                dropped.append((hit, "coverage", None))
                 continue
             _v, book, chapter, start, end = parse_canonical_id(hit.canonical_id)
-            if is_blacklisted(self.blacklist, book, chapter, start, end):
+            entry = blacklist_match(self.blacklist, book, chapter, start, end)
+            if entry is not None:
+                dropped.append((hit, "blacklist", entry))
                 continue
             result.append(hit)
+        self._trace("filtered", kept=result, dropped=dropped)
         return result
 
     # -- candidate resolution ------------------------------------------------
@@ -1046,6 +1148,7 @@ class ScriptureRetriever:
             candidate.score = None
             candidate.best_variant = None
             candidate.variant_scores = {}
+        self._trace("safe_pool", reason=reason, candidates=candidates)
         return SelectionResult(
             candidates=candidates,
             source="safe_pool",

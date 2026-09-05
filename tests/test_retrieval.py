@@ -1483,3 +1483,224 @@ def test_concurrent_embedding_survives_a_failing_variant():
 
     assert result.source == "retrieval"
     assert result.query_variants == ["вариант два"]
+
+
+# ---------------------------------------------------------------------------
+# Diagnostic trace hook (ClickUp 86cbegawh)
+#
+# The tracing stand `evaluation/trace_picker.py` watches the production
+# pipeline through an optional observer. The contract it relies on — and the
+# only reason the hook is allowed to exist in serving code — is that a traced
+# selection decides EXACTLY what an untraced one decides. These tests compare
+# the two runs field by field, including what the reranker was shown.
+# ---------------------------------------------------------------------------
+
+def _passage_fingerprint(passage):
+    return (
+        passage.translation, passage.alias, passage.book_number,
+        passage.chapter_number, passage.verse_number_start,
+        passage.verse_number_end, passage.title, passage.text,
+        tuple(
+            (v.verse_number, v.text, v.start_paragraph, v.title_break)
+            for v in passage.verses
+        ),
+    )
+
+
+def _candidate_fingerprint(candidate):
+    return (
+        candidate.canonical_id, candidate.book_number,
+        candidate.chapter_number, candidate.verse_start, candidate.verse_end,
+        candidate.score, candidate.best_variant,
+        tuple(sorted(candidate.variant_scores.items())),
+        tuple(_passage_fingerprint(p) for p in candidate.passages),
+    )
+
+
+def _final_fingerprint(final):
+    selection = final.selection
+    return (
+        final.method, final.fallback_reason, final.reason, final.highlight,
+        None if final.candidate is None
+        else _candidate_fingerprint(final.candidate),
+        selection.source, selection.fallback_reason,
+        tuple(selection.query_variants), selection.rewrite_failed,
+        tuple(_candidate_fingerprint(c) for c in selection.candidates),
+    )
+
+
+class RecordingTrace:
+    """Observer that records every stage and touches nothing."""
+
+    def __init__(self):
+        self.events: list[tuple[str, dict]] = []
+
+    def __call__(self, stage: str, payload: dict) -> None:
+        self.events.append((stage, payload))
+
+    def stages(self) -> list[str]:
+        return [stage for stage, _payload in self.events]
+
+    def payload(self, stage: str) -> dict:
+        return next(p for s, p in self.events if s == stage)
+
+
+def _traced_and_untraced(build, request):
+    """Run the same selection with and without a trace hook."""
+    plain_reranker, traced_reranker = FakeReranker(index=1), FakeReranker(index=1)
+    plain = build(plain_reranker, None).select_final(request)
+    trace = RecordingTrace()
+    traced = build(traced_reranker, trace).select_final(request)
+    return plain, traced, trace, plain_reranker, traced_reranker
+
+
+# Two variants whose BM25 terms really occur in the stand-in lexical index:
+# the first pulls an ordinary chunk into the ranking through BM25 alone, the
+# second pulls a blacklisted one — so the trace has both a lexical hit list
+# and a genre-blacklist drop to report.
+TRACE_VARIANTS = ["надейся на Господа всем сердцем", "родословие сынов адама"]
+
+
+def _retrieval_build(reranker, trace):
+    embedder = FakeEmbedder({
+        TRACE_VARIANTS[0]: query_vector({
+            "v3:19.127.003-005": 0.9, "v3:45.001.017-017": 0.5,
+        }),
+        TRACE_VARIANTS[1]: query_vector({
+            "v3:09.001.027-028": 0.8, "v3:20.003.005-006": 0.4,
+        }),
+    })
+    return make_retriever(
+        embedder=embedder,
+        rewriter=FakeRewriter(list(TRACE_VARIANTS)),
+        reranker=reranker,
+        trace=trace,
+        lexical_indexes={
+            "ru": LexicalIndex([
+                ("v3:20.003.005-006", "надейся на Господа всем сердцем твоим"),
+                ("v3:13.001.001-004", "родословие сынов адама и его потомков"),
+            ])
+        },
+        load_verses=fake_verse_loader,
+    )
+
+
+def _safe_pool_build(reranker, trace):
+    return make_retriever(reranker=reranker, trace=trace)
+
+
+@pytest.mark.parametrize(
+    "build, request_",
+    [
+        (_retrieval_build, final_request()),
+        (_retrieval_build, final_request(
+            exclude_canonical_ids=frozenset({"v3:19.127.003-005"}))),
+        (_safe_pool_build, SelectionRequest(language="ru")),
+    ],
+)
+def test_trace_hook_does_not_change_the_selection(build, request_):
+    plain, traced, trace, plain_reranker, traced_reranker = _traced_and_untraced(
+        build, request_
+    )
+    assert _final_fingerprint(traced) == _final_fingerprint(plain)
+    # and the AI stage was asked exactly the same question
+    assert traced_reranker.calls == plain_reranker.calls
+    assert trace.events, "the hook must have seen something"
+
+
+def test_trace_hook_reports_every_stage_of_the_retrieval_path():
+    trace = RecordingTrace()
+    final = _retrieval_build(FakeReranker(index=1), trace).select_final(
+        final_request()
+    )
+    stages = trace.stages()
+    assert stages[0] == "rewrite"
+    for expected in (
+        "variant_search", "fused", "filtered", "diversity", "candidates",
+        "rerank_request", "rerank_choice",
+    ):
+        assert expected in stages, expected
+
+    rewrite = trace.payload("rewrite")
+    assert rewrite["variants"] == TRACE_VARIANTS
+    assert rewrite["rewrite_failed"] is False
+
+    # one variant_search per searched variant, semantic and lexical apart
+    searches = [p for s, p in trace.events if s == "variant_search"]
+    assert [p["variant"] for p in searches] == [0, 1]
+    assert [p["query"] for p in searches] == TRACE_VARIANTS
+    assert all(p["lexical"] for p in searches), "BM25 hits are reported too"
+
+    # the genre blacklist names the rule that cut a passage
+    dropped = trace.payload("filtered")["dropped"]
+    blacklisted = [d for d in dropped if d[1] == "blacklist"]
+    assert blacklisted, "the lexical index offered a blacklisted chunk"
+    assert blacklisted[0][0].canonical_id == "v3:13.001.001-004"
+    assert isinstance(blacklisted[0][2], BlacklistRange)
+
+    choice = trace.payload("rerank_choice")["choice"]
+    assert choice.index == 1
+    assert trace.payload("rerank_request")["texts"] == (
+        [_candidate_prompt_text(c) for c in final.selection.candidates]
+    )
+
+
+def test_trace_hook_reports_an_exclusion_and_a_rerank_failure():
+    trace = RecordingTrace()
+    final = _retrieval_build(
+        FakeReranker(error=PassageRerankError("bad index")), trace
+    ).select_final(
+        final_request(exclude_canonical_ids=frozenset({"v3:19.127.003-005"}))
+    )
+    assert final.fallback_reason == "rerank_failed"
+    dropped = trace.payload("filtered")["dropped"]
+    assert ("v3:19.127.003-005", "excluded") in [
+        (hit.canonical_id, reason) for hit, reason, _entry in dropped
+    ]
+    assert "rerank_failed" in trace.stages()
+
+
+def test_trace_hook_reports_the_safe_pool():
+    trace = RecordingTrace()
+    make_retriever(trace=trace).select(SelectionRequest(language="ru"))
+    assert trace.stages() == ["safe_pool"]
+    assert trace.payload("safe_pool")["reason"] == "empty_topic"
+
+
+def test_a_raising_trace_hook_cannot_fail_a_selection():
+    def explode(stage, payload):
+        raise RuntimeError("observer is broken")
+
+    plain = _retrieval_build(FakeReranker(index=1), None).select_final(
+        final_request()
+    )
+    traced = _retrieval_build(FakeReranker(index=1), explode).select_final(
+        final_request()
+    )
+    assert _final_fingerprint(traced) == _final_fingerprint(plain)
+
+
+def test_diversity_skips_are_reported_without_changing_the_result():
+    ranked = [hit(cid) for cid in (
+        "v3:19.023.001-003", "v3:19.023.004-006", "v3:19.127.003-005",
+    )]
+    skips = []
+    with_hook = apply_diversity(
+        list(ranked), top_k=2, on_skip=lambda h, r: skips.append((h.canonical_id, r))
+    )
+    without_hook = apply_diversity(list(ranked), top_k=2)
+    assert [h.canonical_id for h in with_hook] == [
+        h.canonical_id for h in without_hook
+    ]
+    assert skips == [("v3:19.023.004-006", "chapter_cap")]
+
+
+def test_blacklist_match_returns_the_entry_is_blacklisted_only_counts():
+    from retrieval import blacklist_match
+
+    blacklist = load_genre_blacklist()
+    entry = blacklist_match(blacklist, 13, 1, 1, 4)
+    assert entry is not None and entry.book == 13
+    assert is_blacklisted(blacklist, 13, 1, 1, 4) is True
+    assert blacklist_match(blacklist, 19, 23, 1, 6) is None
+    assert is_blacklisted(blacklist, 19, 23, 1, 6) is False
