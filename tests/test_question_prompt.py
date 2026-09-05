@@ -440,6 +440,13 @@ def test_the_production_wording_is_the_candidate_that_won():
     sys.path.insert(0, str(module_path.parent))
     spec = importlib.util.spec_from_file_location("question_prompts", module_path)
     variants = importlib.util.module_from_spec(spec)
+    # Registered BEFORE the module body runs: its `@dataclass(frozen=True)`
+    # resolves the annotations of `Candidate` through
+    # `sys.modules[cls.__module__]`, so an unregistered exec dies with an
+    # AttributeError inside `dataclasses` instead of comparing anything. It
+    # passed in a full run only because `tests/test_gen_questions.py` imports
+    # the same module first — this guard must not depend on the file order.
+    sys.modules[spec.name] = variants
     spec.loader.exec_module(variants)
 
     for language in ("ru", "uk", "en", None):

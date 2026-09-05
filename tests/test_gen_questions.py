@@ -366,6 +366,41 @@ def test_accumulate_skipped_sends_them_in_the_request_field(monkeypatch, tmp_pat
     assert meta["accumulate_skipped"] is True
 
 
+def test_accumulating_stops_where_the_request_field_stops(monkeypatch, capsys):
+    """A series longer than the field allows is refused, not silently sent.
+
+    At step N the accumulating client carries N-1 skipped questions, and
+    `CompleteRequest` accepts at most `MAX_SKIPPED_QUESTIONS` of them. This
+    tool talks to the provider directly, so nothing else would notice: the run
+    would quietly measure a body `POST /api/ai/question` answers with a 422.
+    Today's inputs stop at 6 replacements, which is why this is a guard rather
+    than a bug — and why the two constants are pinned to each other here.
+    """
+    import twinkler_ai
+
+    assert tool.MAX_SKIPPED_QUESTIONS == twinkler_ai.MAX_SKIPPED_QUESTIONS
+
+    # The real file first: 6 replacements carry 5 skipped questions, so nothing
+    # in the repository trips the guard.
+    assert tool.main(["--dry-run", *series_only("--accumulate-skipped")]) == 0
+
+    def one_long_series(*_args, **_kwargs):
+        entry = dict(
+            next(e for e in tool.load_series(SERIES) if e["id"] == "series-scale-ru")
+        )
+        entry["steps"] = tool.MAX_SKIPPED_QUESTIONS + 2
+        return [entry], []
+
+    monkeypatch.setattr(tool, "load_inputs", one_long_series)
+    with pytest.raises(SystemExit):
+        tool.main(["--dry-run", *series_only("--accumulate-skipped")])
+    assert "skipped_questions" in capsys.readouterr().err
+    # Without the flag the same series is a legitimate run: every replacement
+    # re-sends the identical body and the field is never populated.
+    monkeypatch.setattr(tool, "load_inputs", one_long_series)
+    assert tool.main(["--dry-run", *series_only()]) == 0
+
+
 def test_a_candidate_variant_is_measured_and_named(monkeypatch, tmp_path):
     """`--prompt-variant` changes the bytes and says so in the artifact.
 

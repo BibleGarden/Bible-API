@@ -365,7 +365,10 @@ def build_user_message(
     is accepted by the endpoint but deliberately not rendered — that stage
     looks back at what the *person* said and never shows our questions at all
     (the 86cbegmzz contract), so putting them there is a prompt-design change
-    and belongs to ClickUp 86cbehyf8 rather than to the field that carries them.
+    rather than a property of the field that carries them. The prompt work
+    (86cbehyf8, v4) left it that way: it changed the `next` instruction and the
+    system prompt, and measured no candidate that renders the block at
+    `reflect`.
     """
     if stage not in STAGES:
         raise ValueError(f"unknown stage: {stage!r}")

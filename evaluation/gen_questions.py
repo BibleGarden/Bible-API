@@ -127,6 +127,13 @@ ENV_FILE = HERE.parent / ".env"
 # of ours carries in a history.
 ROLE_ASSISTANT = "assistant"
 
+# `CompleteRequest.skipped_questions` takes at most this many entries
+# (`app/twinkler_ai.MAX_SKIPPED_QUESTIONS`). Re-typed rather than imported:
+# `twinkler_ai` drags in FastAPI and the fail-fast config, which this tool
+# deliberately does without — `tests/test_gen_questions.py` pins the two
+# numbers to each other instead, so a change on the endpoint side fails here.
+MAX_SKIPPED_QUESTIONS = 10
+
 # The production values of `app/twinkler_ai.complete`. They are the
 # measurement, not a knob: changing one makes the run incomparable with the
 # endpoint, so they are constants with CLI overrides only where a provider
@@ -786,6 +793,27 @@ def select_inputs(args: argparse.Namespace, parser: argparse.ArgumentParser):
             parser.error(f"--only names unknown or skipped ids: {sorted(missing)}")
     if not inputs:
         parser.error("no inputs selected")
+    if getattr(args, "accumulate_skipped", False):
+        # At step N the request carries the N-1 questions already replaced, so
+        # a series of more than MAX_SKIPPED_QUESTIONS + 1 steps would build a
+        # body the endpoint answers with 422 — the run would be measuring a
+        # request nobody can send. Refused rather than trimmed on purpose:
+        # which end a real client would drop is a client decision nobody has
+        # made, and inventing one here would measure a prompt no endpoint
+        # renders. Unreachable with today's inputs (6 replacements at most).
+        too_long = sorted(
+            entry["id"]
+            for entry in inputs
+            if entry.get("steps", 1) - 1 > MAX_SKIPPED_QUESTIONS
+        )
+        if too_long:
+            parser.error(
+                "--accumulate-skipped cannot run these series: "
+                f"{too_long} — after {MAX_SKIPPED_QUESTIONS + 1} replacements "
+                f"the request would carry more than {MAX_SKIPPED_QUESTIONS} "
+                "skipped_questions, which POST /api/ai/question refuses with "
+                "422"
+            )
     return inputs, skipped
 
 
