@@ -1,0 +1,49 @@
+{
+  "model": "qwen3:4b-instruct-2507-q4_K_M",
+  "mode": "api",
+  "date": "2026-09-04",
+  "prompt_version": 1,
+  "chunking_version": 3,
+  "corpus": "/root/cep/Bible-API/evaluation/bench_data/chunks.jsonl",
+  "corpus_size": 11960,
+  "partial": true,
+  "annotated": 51,
+  "errors": 12,
+  "senses": 184,
+  "caution": 15,
+  "batches": 32,
+  "per_translation": {
+    "syn": {
+      "annotated": 16,
+      "errors": 6,
+      "senses": 67,
+      "caution": 5
+    },
+    "bsb": {
+      "annotated": 17,
+      "errors": 3,
+      "senses": 58,
+      "caution": 5
+    },
+    "ubh": {
+      "annotated": 18,
+      "errors": 3,
+      "senses": 59,
+      "caution": 5
+    }
+  },
+  "endpoint": "http://localhost:11434",
+  "sampling": {
+    "temperature": 0.0,
+    "max_tokens": 1200,
+    "response_format": "json_object",
+    "batch_size": 2
+  },
+  "selection": {
+    "only_translation": "",
+    "limit_per_translation": 0,
+    "ids": true,
+    "resume": false
+  },
+  "note": "PARTIAL run: fewer fragments annotated than bench_data/chunks.jsonl holds (--limit, --only-translation, --ids, or the run was interrupted). `pipeline --doc-text description` falls back to title_text for every fragment missing here and says how many; a LANGUAGE with no coverage at all is refused outright rather than degraded, so the numbers of such a run are NOT comparable with a full-corpus one."
+}

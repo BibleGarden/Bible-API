@@ -71,7 +71,7 @@ from prompt_safety import neutralize_prompt_markers
 
 # Bump on ANY change to the wording of SAFETY_REPLIES. v1 is the first
 # reviewed draft (ClickUp 86cbegg23, 2026-09-05).
-SAFETY_REPLY_VERSION = 1
+SAFETY_REPLY_VERSION = 2  # v2: reviewer's wording of the second sentence, approved by Maria 2026-09-05
 
 DEFAULT_LANGUAGE = "en"
 SUPPORTED_LANGUAGES = ("ru", "uk", "en")
@@ -84,19 +84,19 @@ SUPPORTED_LANGUAGES = ("ru", "uk", "en")
 SAFETY_REPLIES: dict[str, str] = {
     "ru": (
         "Мне очень жаль, что тебе сейчас так больно, и с этим не нужно "
-        "оставаться один на один. Пожалуйста, скажи о том, что "
-        "чувствуешь, кому-то близкому прямо сейчас или обратись в службу "
-        "экстренной помощи."
+        "оставаться один на один. Пожалуйста, прямо сейчас поговори с "
+        "кем-то близким о том, что ты чувствуешь, или обратись за "
+        "экстренной помощью."
     ),
     "uk": (
         "Мені дуже шкода, що тобі зараз так боляче, і з цим не треба "
-        "залишатися сам на сам. Будь ласка, скажи про те, що відчуваєш, "
-        "комусь близькому просто зараз або звернися по екстрену допомогу."
+        "залишатися сам на сам. Будь ласка, просто зараз поговори з кимось "
+        "близьким про те, що відчуваєш, або звернися по екстрену допомогу."
     ),
     "en": (
         "I am so sorry it hurts this much right now, and this is not "
         "something you have to carry on your own. Please tell someone close "
-        "to you how you are feeling, or reach out to emergency help right "
+        "to you how you are feeling, or reach out for emergency help right "
         "away."
     ),
 }

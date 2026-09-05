@@ -519,7 +519,7 @@ def test_the_fixed_replies_are_versioned():
     joined = "\n".join(safety.SAFETY_REPLIES[lang] for lang in ("ru", "uk", "en"))
     assert (
         hashlib.sha256(joined.encode("utf-8")).hexdigest()
-        == "facd9b0aaf89ebee95430deecebfc8ce59383da42a2d708b7a3009dcfaad686a"
+        == "f9f95e011471cc84bb872b9a8a4433d6046b5b68d2877abd72c914a68d929be9"
     )
 
 

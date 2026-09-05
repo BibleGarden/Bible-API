@@ -194,8 +194,8 @@ because uvicorn leaves the root logger without handlers, so an `INFO` record
 would never reach `docker logs`:
 
 ```
-Safety rule fired on the request: tier=1 pattern=ru.no-wish-to-live language=ru reply_version=1
-Safety rule fired on the model reply: tier=2 pattern=en.better-without-me language=en reply_version=1
+Safety rule fired on the request: tier=1 pattern=ru.no-wish-to-live language=ru reply_version=2
+Safety rule fired on the model reply: tier=2 pattern=en.better-without-me language=en reply_version=2
 ```
 
 A pattern id names the rule, never the words that matched it, so the whole
