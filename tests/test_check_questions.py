@@ -32,6 +32,7 @@ import pytest
 EVALUATION = Path(__file__).resolve().parents[1] / "evaluation"
 TOOL = EVALUATION / "check_questions.py"
 BASELINE = EVALUATION / "bench_data" / "questions_qwen30b_v3_series.jsonl"
+V4_SAME_BODY = EVALUATION / "bench_data" / "questions_qwen30b_v4b_series.jsonl"
 
 pytestmark = pytest.mark.skipif(
     not TOOL.exists(), reason="evaluation/ is not present in this container copy"
@@ -179,6 +180,106 @@ def test_samples_of_a_single_input_are_read_as_a_series_too():
     assert set(report) == {"one"}  # a one-sample input says nothing; a series
     assert report["one"]["duplicate_pairs"] == 1  # is measured by series_report
     assert report["one"]["steps"] == 2
+
+
+# ---------------------------------------------------------------------------
+# `--novelty-sim`: the production filter replayed over a series
+# ---------------------------------------------------------------------------
+
+JOURNAL = "Что сейчас внутри тебя, когда ты только начинаешь молитву?"
+
+
+def test_novelty_sim_compares_a_step_with_the_journal_and_the_earlier_steps():
+    """The shown list is the assistant turns plus every earlier step.
+
+    Step 2 repeats a question that was never generated in this series — it
+    came from the journal — and step 3 repeats step 1, which is the loop the
+    ticket is about. Both cost a generation; the two genuinely different
+    questions do not.
+    """
+    records = [
+        row("Что завтра будет самым трудным для тебя?",
+            step=1, avoid_question=[JOURNAL]),
+        row(JOURNAL, step=2, avoid_question=[JOURNAL]),
+        row("Что завтра будет самым трудным для тебя?",
+            step=3, avoid_question=[JOURNAL]),
+        row("Что из сделанного сегодня хочется принести Богу первым?",
+            step=4, avoid_question=[JOURNAL]),
+    ]
+
+    item = tool.novelty_simulation(records)["s"]
+
+    assert (item["answers"], item["retries"]) == (4, 2)
+    assert (item["exact"], item["near"]) == (2, 0)
+    assert item["series_with_retry"] == 1 and item["samples"] == 1
+
+
+def test_novelty_sim_sees_the_reworded_loop_the_filter_is_for():
+    """One sentence, one new tail — a `near` verdict, not an `exact` one."""
+    stem = (
+        "А если завтра окажется, что то, что ты считаешь готовым, на самом "
+        "деле ещё не то, что нужно Господу"
+    )
+    records = [
+        row(f"{stem}?", step=1),
+        row(f"{stem} — как ты будешь узнавать это?", step=2),
+    ]
+
+    item = tool.novelty_simulation(records)["s"]
+
+    assert (item["retries"], item["exact"], item["near"]) == (1, 0, 1)
+    assert item["median_score"] > 0
+
+
+def test_novelty_sim_skips_a_failed_call_instead_of_comparing_with_it():
+    records = [
+        row("Что завтра будет самым трудным для тебя?", step=1),
+        row("", step=2, error="transport: ConnectError"),
+        row("Что завтра будет самым трудным для тебя?", step=3),
+    ]
+
+    item = tool.novelty_simulation(records)["s"]
+
+    assert (item["answers"], item["retries"], item["exact"]) == (2, 1, 1)
+
+
+def test_novelty_sim_reads_the_samples_of_a_single_input_when_asked():
+    """`--samples-as-series` again: N samples of one body is a replacement."""
+    records = [
+        {"id": "one", "sample": 1, "text": "Что сейчас внутри тебя?"},
+        {"id": "one", "sample": 2, "text": "Что сейчас внутри тебя?"},
+        {"id": "lonely", "sample": 1, "text": "Единственный сэмпл?"},
+    ]
+
+    assert tool.novelty_simulation(records) == {}
+
+    report = tool.novelty_simulation(records, samples_as_series=True)
+
+    assert set(report) == {"one"}
+    assert (report["one"]["answers"], report["one"]["retries"]) == (2, 1)
+
+
+@pytest.mark.skipif(not V4_SAME_BODY.exists(), reason="v4 artifact not copied in")
+def test_the_readme_retry_counts_are_the_counts_in_the_v4_artifact():
+    """ClickUp 86cbehyg0: the «Фильтр повторов на v4» numbers of the README."""
+    records = [
+        json.loads(line)
+        for line in V4_SAME_BODY.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+
+    report = tool.novelty_simulation(records)
+
+    assert {
+        series_id: (item["answers"], item["retries"], item["series_with_retry"])
+        for series_id, item in report.items()
+    } == {
+        "series-scale-ru": (36, 15, 6),
+        "series-exhaustion-uk": (30, 9, 4),
+        "series-gratitude-ru": (30, 5, 4),
+        "series-choice-en": (30, 5, 4),
+    }
+    assert sum(item["retries"] for item in report.values()) == 34
 
 
 # ---------------------------------------------------------------------------

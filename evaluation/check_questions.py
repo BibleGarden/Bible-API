@@ -49,6 +49,15 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent / "app"))
+
+# The production repeat filter itself, imported the way `gen_questions.py`
+# imports the production prompt: `question_novelty` depends on the standard
+# library only, so `--novelty-sim` below simulates the endpoint rather than a
+# copy of it. Its metric is `normalise_series_text` / `trigram_similarity` of
+# this file, character for character (`tests/test_question_novelty.py` pins the
+# equality), so the two never drift apart.
+from question_novelty import KIND_EXACT, is_repeat  # noqa: E402
 
 # Order matters: it is the column order of every table below.
 RULES = (
@@ -817,6 +826,102 @@ def render_sample_series(runs: dict[str, list[dict]]) -> list[str]:
     return lines
 
 
+# ---------------------------------------------------------------------------
+# The production repeat filter, replayed over a measured series
+# ---------------------------------------------------------------------------
+# ClickUp 86cbehyg0. `app/question_novelty.is_repeat` runs on every answer of
+# `POST /api/ai/question`; a verdict of "repeat" costs one extra generation.
+# This walks a recorded series the way the endpoint walks a prayer — step by
+# step, each answer against everything the person has already SEEN — and counts
+# how often the retry would have fired. It is an offline LOWER bound and not a
+# replay: the retry itself is not simulated, so the answer that a real retry
+# would have produced (and the questions the following steps would then have
+# been compared against) is not in any artifact.
+#
+# `shown` = the `assistant` turns of the request (`avoid_question` in the
+# artifact — the questions already in the person's journal) plus every earlier
+# step of this series. That is what the endpoint compares against once the
+# client accumulates (ADR 0015), and it is applied to the identical-body runs
+# too: those measure what the model was sent, while the filter sees what the
+# person has read, which is the same list either way.
+
+
+def novelty_simulation(
+    records: list[dict], *, samples_as_series: bool = False
+) -> dict[str, dict]:
+    """Per `series_id`: how many steps `is_repeat` would have sent back."""
+    runs = dict(series_runs(records))
+    if samples_as_series:
+        # The samples of a non-series input ARE a replacement series when the
+        # body is identical (see `sample_series`); they carry no `step`, so
+        # they are ordered by `sample`.
+        grouped: dict[str, list[dict]] = {}
+        for record in records:
+            if not record.get("series_id") and record.get("text"):
+                grouped.setdefault(record["id"], []).append(record)
+        for input_id, rows in grouped.items():
+            if len(rows) > 1:
+                runs[(input_id, 0)] = sorted(rows, key=lambda row: row["sample"])
+
+    report: dict[str, dict] = {}
+    for (series_id, _sample), rows in sorted(runs.items()):
+        item = report.setdefault(series_id, {
+            "samples": 0, "answers": 0, "retries": 0, "exact": 0, "near": 0,
+            "series_with_retry": 0, "scores": [],
+        })
+        item["samples"] += 1
+        shown = list(rows[0].get("avoid_question") or [])
+        fired = 0
+        for row in rows:
+            text = row.get("text")
+            if not text:
+                continue
+            verdict = is_repeat(text, shown)
+            item["answers"] += 1
+            item["scores"].append(verdict.score)
+            if verdict.repeat:
+                item["retries"] += 1
+                fired += 1
+                item["exact" if verdict.kind == KIND_EXACT else "near"] += 1
+            shown.append(text)
+        item["series_with_retry"] += fired > 0
+    for item in report.values():
+        item["median_score"] = (
+            statistics.median(item["scores"]) if item["scores"] else 0.0
+        )
+        del item["scores"]
+    return report
+
+
+def render_novelty_sim(runs: dict[str, list[dict]]) -> list[str]:
+    lines = [
+        "| прогон | серия | сэмплов | шагов | перегенераций | точных / близких | "
+        "серий с перегенерацией | медиана близости |",
+        "|---|---|---|---|---|---|---|---|",
+    ]
+    any_rows = False
+    for name, records in runs.items():
+        report = novelty_simulation(records)
+        for series_id, item in report.items():
+            any_rows = True
+            lines.append(
+                f"| {name} | `{series_id}` | {item['samples']} | "
+                f"{item['answers']} | {item['retries']} | "
+                f"{item['exact']} / {item['near']} | "
+                f"{item['series_with_retry']}/{item['samples']} | "
+                f"{item['median_score']:.2f} |"
+            )
+        if report:
+            lines.append(
+                f"| {name} | **всего** | | "
+                f"{sum(i['answers'] for i in report.values())} | "
+                f"{sum(i['retries'] for i in report.values())} | | | |"
+            )
+    if not any_rows:
+        return ["_в этих артефактах нет серий (`series_id`)._"]
+    return lines
+
+
 def render_series_transcript(
     records: list[dict], series_id: str, sample: int
 ) -> list[str]:
@@ -844,6 +949,14 @@ def main(argv: list[str] | None = None) -> int:
              "were a series — which is what they are when the body is "
              "identical (ClickUp 86cbehyez). This is the command behind the "
              "«одиночные входы» table of the README.",
+    )
+    parser.add_argument(
+        "--novelty-sim", action="store_true",
+        help="replay the production repeat filter (`app/question_novelty."
+             "is_repeat`) over every series: how many steps would have cost an "
+             "extra generation, each answer against the journal questions plus "
+             "the earlier steps. ClickUp 86cbehyg0 — an offline lower bound, "
+             "the retry itself is not simulated.",
     )
     parser.add_argument(
         "--transcript", default="",
@@ -987,6 +1100,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.samples_as_series:
             print("\n#### Одиночные входы: сэмплы одного и того же тела\n")
             print("\n".join(render_sample_series(runs)))
+        if args.novelty_sim:
+            print("\n#### Фильтр повторов: сколько шагов ушло бы на перегенерацию\n")
+            print("\n".join(render_novelty_sim(runs)))
         print("\n#### Кейс отчаяния: все сэмплы обоих провайдеров\n")
         print("\n".join(render_despair(runs)))
         return 0
@@ -1040,6 +1156,24 @@ def main(argv: list[str] | None = None) -> int:
                     f"max sim {item['max_similarity']:.2f}  "
                     f"dup {item['duplicate_pairs']}  "
                     f"gender {item['gender_flags']}/{item['steps']}"
+                )
+        if args.novelty_sim:
+            report = novelty_simulation(
+                records, samples_as_series=args.samples_as_series
+            )
+            for series_id, item in report.items():
+                print(
+                    f"  novelty {series_id:<21} retry "
+                    f"{item['retries']}/{item['answers']}  "
+                    f"(exact {item['exact']}, near {item['near']})  "
+                    f"series with a retry {item['series_with_retry']}/"
+                    f"{item['samples']}  median {item['median_score']:.2f}"
+                )
+            if report:
+                print(
+                    f"  novelty {'TOTAL':<21} retry "
+                    f"{sum(i['retries'] for i in report.values())}/"
+                    f"{sum(i['answers'] for i in report.values())}"
                 )
     return 0
 

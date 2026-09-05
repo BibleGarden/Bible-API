@@ -100,6 +100,52 @@ better, the better of the two is returned anyway with `novel: false`.
 Deliberately NOT tuned to three decimal places. 0.60 is a round number the
 data supports; these are reviewed constants, and moving one is a code change
 with this table redone under it.
+
+## The same table on v4, where the classes stop separating
+
+ClickUp 86cbehyg0, 2026-09-06. Prompt v4 (86cbehyf8) landed after these
+constants were chosen and it changes what the metric measures: its `next`
+instruction tells the model to unfold the person's own last reply, so every
+answer of a series is now built on one frame taken from the same words — «А
+что значит для тебя „делать всё для Господа" в …», «Що сталося з тобою, коли
+ти заснула в одязі …». The letters are shared whether or not the thought is.
+
+Measured on the three v4 artifacts of the production prompt (candidate b):
+`questions_qwen30b_v4b_series.jsonl` (identical body, 6 samples) and
+`..._v4b_series_accum{,_r2}.jsonl` (the accumulating client of ADR 0015, 6
+samples each) — 810 within-series pairs. The 168 pairs scoring >= 0.45 were
+read one by one; the 615 below were not, and a 40-pair sample of them was.
+
+| set | pairs | min | median | max | flagged |
+| --- | --- | --- | --- | --- | --- |
+| positives — verbatim duplicates | 27 | 1.000 | 1.000 | 1.000 | 27/27 |
+| positives — reworded repeats among the pairs >= 0.45 | 155 | 0.451 | 0.574 | 0.973 | 80/155 |
+| negatives — different questions in that same band | 13 | 0.451 | 0.496 | 0.595 | 0/13 |
+| not read one by one: every pair below 0.45 | 615 | 0.054 | 0.238 | 0.447 | 0/615 |
+
+**They do not separate any more, and no threshold would.** On v3 the classes
+were 0.500 against 0.610; on v4 they interleave across the whole 0.45-0.60
+band, and 15 of the 40 sampled pairs *below* 0.45 still read as the same
+question asked again (0.330-0.447). What the constants draw is now a
+conservative line rather than a wrong one: **no false positive** in the
+material read (0/13), at the price of missing 75 of the 155 reworded repeats
+above 0.45 and all of those below it. 16 of the 80 it does catch are caught by
+the opening rule alone, so that branch earns its place on v4 as well.
+
+Score alone, for the two obvious candidates: of the 155 reworded pairs it
+catches 64 at 0.60, 85 at 0.55 and 109 at 0.50; of the 13 different ones, 0, 2
+and 6. So the headroom is not small, it is gone — buying repeats costs false
+positives from the first step down. **The constants are therefore unchanged**:
+moving them is a decision with a cost (one wasted generation per false
+positive), not a tuning, and the reading this table supports is the one this
+module already states — v4 moved the problem out of reach of a lexical metric,
+and the semantic check is ClickUp 86cbehyg8.
+
+Replayed the way the endpoint runs it (`evaluation/check_questions.py
+--novelty-sim`, each step against the journal questions plus the earlier steps
+of its series), the filter fires on **34 of 126** steps in the identical-body
+run and **42 of 252** in the two accumulating ones; per series and per
+threshold, `evaluation/README.md`, «Фильтр повторов на v4».
 """
 
 from __future__ import annotations

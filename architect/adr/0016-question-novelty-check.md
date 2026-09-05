@@ -145,3 +145,22 @@ fixed text is returned immediately when it fires.
   mistake in either direction costs at most one generation, never a wrong
   answer — but a materially different model (another provider, another prompt
   version) should have the table redone rather than assumed.
+
+## Re-measured on prompt v4 (2026-09-06, same ticket)
+
+The prompt version this warned about arrived the same day. Redone on the three
+v4 artifacts (`questions_qwen30b_v4b_series{,_accum,_accum_r2}.jsonl`, 810
+within-series pairs; the table is in the module docstring), the headroom is not
+small — it is gone. v4's `next` instruction tells the model to unfold the
+person's own last reply, so every answer of a series sits on one frame built
+from the same words, and the metric now measures the frame: reworded repeats
+run from 0.33 to 0.97 and the pairs a reader calls genuinely different run from
+0.05 to 0.60, interleaved. What 0.60 buys on v4 is **no false positive at all**
+in the material read (0/13 different pairs flagged) and a miss on 75 of the 155
+reworded repeats above 0.45 — it is a floor under the worst repeats, not a
+detector of the loop. Replayed as the endpoint runs it, it fires on 34/126
+steps with the identical body and 42/252 with the accumulating client, i.e. it
+still earns the retry it costs. The constants stay: every candidate that buys
+more repeats (0.55, 0.50) starts paying false positives immediately, and the
+class of miss it leaves — the same thought in a new dress — is exactly what
+this ADR said a lexical metric cannot see (ClickUp 86cbehyg8).
