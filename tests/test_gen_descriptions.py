@@ -602,6 +602,44 @@ def test_the_instruction_forbids_the_first_person_and_repetition(prompts):
     assert prompts.DESCRIPTION_PROMPT_VERSION >= 2
 
 
+def test_prompt_v3_requires_present_day_prayer_situations(prompts):
+    """Pilot regression: generic plot actors are still a plot retelling."""
+    text = prompts.build_description_instruction("ru", 8)
+    assert "At least two senses" in text
+    assert "PRESENT-DAY prayer situation" in text
+    assert "use only two when it honestly supports no more" in text
+    assert "give fewer when the passage honestly meets fewer" not in text
+    assert "People and animals suffering from an insect plague" in text
+    assert "a young man thrown into a pit and sold into slavery" in text
+    assert "A person betrayed by people close to them out of envy" in text
+    assert prompts.DESCRIPTION_PROMPT_VERSION >= 3
+
+
+def test_prompt_v3_calibrates_caution_to_reader_danger(prompts):
+    """Pilot regression: historical harm alone must not flag caution."""
+    text = prompts.build_description_instruction("en", 8)
+    assert "ONLY when a person already suffering" in text
+    assert "dangerous words directed at them" in text
+    assert "punishment presented as the explanation of their suffering" in text
+    assert "hopeless lament without consolation" in text
+    assert "historical violence involving third parties" in text
+    assert "rituals or sacrifices" in text
+    assert "blessing that conditionally mentions a curse on enemies" in text
+    assert '"Shepherds are despised here" remains false' in text
+
+
+def test_prompt_v4_keeps_direct_threats_inside_ritual_laws_cautious(prompts):
+    """Control-shard regression: ritual context must not hide a threat."""
+    text = prompts.build_description_instruction("en", 8)
+    assert "A ritual or sacrifice by itself is not caution" in text
+    assert "if a ritual law separately addresses its participant" in text
+    assert "direct threat of death, being destroyed or punished" in text
+    assert "directly accuses them" in text
+    assert 'still requires "caution": true' in text
+    assert "Do not let the ritual context hide it" in text
+    assert prompts.DESCRIPTION_PROMPT_VERSION == 4
+
+
 def test_an_unsupported_language_is_refused(prompts):
     with pytest.raises(ValueError):
         prompts.build_description_instruction("de", 4)
