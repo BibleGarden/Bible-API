@@ -1122,9 +1122,51 @@ def _embedder_report(model_key: str, query_ms: list[float]) -> dict:
     return stats
 
 
+def _remote_query_vector(model_key: str, model_id: str, prefix: str):
+    """Query embeddings through the production remote client (ADR 0014).
+
+    The one thing `--embedder-provider openai_compat` changes: the QUERIES
+    are embedded by `app/embeddings.RemoteEmbeddingClient` against the
+    company server instead of by a local sentence-transformers model. The
+    document matrix is the cached one, which is the point — it is the same
+    matrix the production index was built from, so this run measures the
+    production configuration (remote queries against a locally built index)
+    rather than a second, differently built corpus.
+
+    Endpoint and key come from the environment/`.env` the same way every
+    other credential in this file does. Nothing is written and nothing is
+    cached: the query cache of the Gemini path is keyed without a model name,
+    so sharing it would mix vector spaces.
+    """
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
+    from embeddings import RemoteEmbeddingClient
+
+    endpoint = _dotenv_value("EMBEDDING_ENDPOINT") or _dotenv_value(
+        "AI_OPENAI_COMPAT_ENDPOINT")
+    if not endpoint:
+        raise SystemExit(
+            "--embedder-provider openai_compat needs EMBEDDING_ENDPOINT (or "
+            "AI_OPENAI_COMPAT_ENDPOINT) in the environment or in .env"
+        )
+    api_key = _dotenv_value("EMBEDDING_API_KEY") or _dotenv_value(
+        "AI_OPENAI_COMPAT_API_KEY")
+    client = RemoteEmbeddingClient(
+        endpoint=endpoint, api_key=api_key, model=model_id,
+        dimensions=MODELS[model_key][4], timeout=60.0,
+    )
+
+    def query_vector(text: str) -> np.ndarray:
+        return np.asarray(client.embed_query(prefix + text), dtype=np.float32)
+
+    return query_vector
+
+
 def _pipeline_embedder(
     model_key: str, row_metas: list[ChunkMeta], docs: list[str],
     cache: dict, variant: str = PIPELINE_DEFAULT_DOC_TEXT,
+    provider: str = "local",
 ):
     """(corpus matrix, query->vector callable) for the `pipeline` command.
 
@@ -1145,6 +1187,27 @@ def _pipeline_embedder(
     happens before any key is read).
     """
     kind, model_id, qpref, ppref, _dims = MODELS[model_key]
+    if provider == "openai_compat":
+        if kind != "local":
+            raise SystemExit(
+                f"--embedder-provider openai_compat is for the "
+                f"sentence-transformers models this file lists; "
+                f"--embedder {model_key} is a {kind} model"
+            )
+        # The document matrix must already exist: re-embedding 11 960
+        # documents over the network is an hour of someone else's CPU, and
+        # the matrix this run must measure against is the one the production
+        # index was built from anyway.
+        if not emb_path(model_key, variant).exists():
+            raise SystemExit(
+                f"{emb_path(model_key, variant).name} is not cached. Build "
+                f"it locally first (--embedder-provider local); this run "
+                f"embeds QUERIES remotely and reads the documents from disk."
+            )
+        corpus = load_corpus_matrix(model_key, variant, row_metas)
+        print(f"corpus embeddings: {emb_path(model_key, variant).name} "
+              f"(cached, {corpus.shape}); queries through the remote provider")
+        return corpus, _remote_query_vector(model_key, model_id, qpref)
     if kind == "gemini":
         if variant not in VARIANTS and not emb_path("gemini", variant).exists():
             raise SystemExit(
@@ -2127,7 +2190,8 @@ def cmd_pipeline(args) -> None:
     # a missing key must not be discovered afterwards.
     api_key = require_api_key() if args.rerank else ""
     corpus, query_vector = _pipeline_embedder(
-        args.embedder, row_metas, doc_texts, cache, matrix_variant)
+        args.embedder, row_metas, doc_texts, cache, matrix_variant,
+        provider=getattr(args, "embedder_provider", "local"))
     query_ms: list[float] = []
     blacklist = load_genre_blacklist() if not args.no_blacklist else []
     safe_pool = load_safe_pool()
@@ -2592,6 +2656,16 @@ def main() -> None:
                         "still calls gemini-3.7-flash on the PAID key "
                         "(AI_SCRIPTURE_REWRITE_API_KEY) for every scenario "
                         "missing from the cache")
+    p.add_argument("--embedder-provider", choices=("local", "openai_compat"),
+                   default="local",
+                   help="WHO runs --embedder: this process (default) or the "
+                        "company server over POST {EMBEDDING_ENDPOINT}/"
+                        "embeddings (ADR 0014, the production configuration). "
+                        "`openai_compat` embeds only the QUERIES remotely and "
+                        "reads the document matrix from bench_data — the same "
+                        "matrix the production index was built from — so it "
+                        "measures the deployed pipeline rather than a second "
+                        "corpus. It loads no weights at all")
     p.add_argument("--doc-text", choices=DOC_TEXT_VARIANTS,
                    default=PIPELINE_DEFAULT_DOC_TEXT,
                    help="which text of a fragment is EMBEDDED as the document "

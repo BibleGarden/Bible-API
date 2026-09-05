@@ -915,9 +915,10 @@ def test_the_senses_of_one_fragment_collapse_to_its_best_hit(
 
     seen = {}
 
-    def fake_embedder(model_key, row_metas, docs, cache, variant):
+    def fake_embedder(model_key, row_metas, docs, cache, variant, provider="local"):
         seen["docs"] = list(docs)
         seen["variant"] = variant
+        seen["provider"] = provider
         seen["row_ids"] = [m.canonical_id for m in row_metas]
         # rows in order: chunk0/sense0, chunk0/sense1, chunk1/sense0
         corpus = np.array([[0.1], [0.9], [0.5]], dtype=np.float32)

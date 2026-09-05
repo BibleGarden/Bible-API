@@ -1,6 +1,14 @@
 # ADR 0010: Local embeddings — BAAI/bge-m3 in the API process
 
-Status: accepted (2026-09-05).
+Status: accepted (2026-09-05). **Superseded in production by ADR 0014 the
+same day** (ClickUp 86cbehd6h): the model, the dimensions and the index
+version are unchanged — `local` no longer means "in this process" for
+production, which now asks the company's server for the same vectors.
+`EMBEDDING_PROVIDER=local` remains supported, and remains the **fallback and
+the rebuild path**: it is how the index on this machine is (re)built, and it
+is what a deployment with no route to that server falls back to. Everything
+below stands as written for that provider; only "production runs this" does
+not.
 Ticket: ClickUp 86cbegg2r (step 3 of the local-models umbrella 86cbe4mtq).
 Supersedes the *model* decision of ADR 0002; its storage decision
 (`chunk_embeddings` in MySQL + in-process cosine search) is untouched.
@@ -245,10 +253,23 @@ rather than two runs of the same encoder.
 2. `AI_SCRIPTURE_TIMEOUT_SECONDS` / `AI_SCRIPTURE_PROVIDER_TIMEOUT_SECONDS`
    now have to cover local CPU embedding *and* a self-hosted chat model; the
    right pair is a measurement (step 8, inherited from ADR 0009).
-3. The production VM move (8 GB) is a prerequisite, not a consequence: the
+3. ~~The production VM move (8 GB) is a prerequisite, not a consequence: the
    current one cannot hold the weights. Until it happens, production stays on
    `EMBEDDING_PROVIDER=gemini` — which is exactly why the two index versions
-   can coexist.
+   can coexist.~~ **Resolved 2026-09-05 by ADR 0014**: production reads the
+   same vectors from the company's server and holds no weights, so the 8 GB
+   move stopped being a prerequisite for this index version. It may still be
+   wanted for other reasons; it is no longer this one's blocker.
 4. bge-m3's sparse and ColBERT heads are unused; only the dense CLS vector is
    read. Whether the sparse head could replace or strengthen BM25 was not
    measured.
+5. The 512-token window is **not** free after all, and this ADR said it was
+   ("the longest chunk of this corpus is far below 512 tokens"). Measured
+   against the bge-m3 tokenizer while building ADR 0014: **811 of the 11 960
+   indexed chunks (6.8%) are longer**, up to 1168 tokens. The stored index
+   therefore truncates those chunks, and a server with a larger window
+   answers a fuller — different — vector for exactly them (cosine 0.94-0.97
+   against the stored row; cut the same chunk at 512 tokens and it is
+   1.000000). Whether the fuller vector retrieves better was not measured —
+   the corpus was never re-embedded for it, and queries are nowhere near the
+   window. See ADR 0014.

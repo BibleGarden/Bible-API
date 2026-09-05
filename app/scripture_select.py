@@ -143,6 +143,16 @@ _PROVIDER_ATTEMPTS = 2
 # and `LocalEmbeddingClient` serialises them through a lock anyway, which
 # would turn the pool into six threads queueing for one. Hence 1 there:
 # the same vectors, without the thread-pool theatre (ADR 0010).
+#
+# `openai_compat` is a round trip again, so it takes the pool — measured, not
+# assumed (ADR 0014, this host against the live server, 5 rounds of the six
+# variants): 842 ms sequential vs **592 ms** through a 6-thread pool, one
+# query 137 ms. The gain is smaller than Gemini's because the server batches
+# on its own CPU rather than serving six requests in parallel, but it is
+# 250 ms of a 15 s budget for one shared `httpx.Client` (thread-safe) and no
+# other cost. Sending all six in ONE request would be 504 ms — not done here,
+# because `retrieval._embed_queries` degrades per variant and a single batch
+# would make one bad variant lose all six.
 _EMBED_WORKERS = (
     1 if EMBEDDING_PROVIDER == EMBEDDING_PROVIDER_LOCAL else REWRITE_VARIANTS
 )
@@ -976,9 +986,11 @@ def _provider_clients() -> tuple:
     endpoint/key/model that belong to it — ADR 0009), and each stage's key is
     still its own (`AI_SCRIPTURE_*_API_KEY` when the deployment splits
     billing, the provider's shared key otherwise). The embedder is chosen the
-    same way, by `EMBEDDING_PROVIDER` (ADR 0010); on `local` the timeout and
-    retry budget below are meaningless and ignored — there is no call to time
-    out — and the weights are already in memory, loaded at start-up.
+    same way, by `EMBEDDING_PROVIDER` (ADR 0010/0014); on `local` the timeout
+    and retry budget below are meaningless and ignored — there is no call to
+    time out — and the weights are already in memory, loaded at start-up. On
+    `openai_compat` they mean what they mean everywhere else, and the shared
+    `httpx.Client` is what makes the six-variant pool worth having.
     """
     global _clients
     with _clients_lock:

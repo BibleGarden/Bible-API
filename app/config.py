@@ -229,18 +229,25 @@ CHAT_PROVIDER_VARS = tuple(stage.provider_var for stage in AI_STAGE_VARS)
 AI_PROVIDER_VARS = CHAT_PROVIDER_VARS + (TRANSCRIBE_PROVIDER_VAR,)
 
 # ---------------------------------------------------------------------------
-# Who computes the embeddings (ClickUp 86cbegg2r, ADR 0010)
+# Who computes the embeddings (ClickUp 86cbegg2r/86cbehd6h, ADR 0010/0014)
 #
-# `EMBEDDING_PROVIDER` is `gemini` (the API of ADR 0002) or `local` (bge-m3
-# in this process through sentence-transformers). Unlike the three chat
+# `EMBEDDING_PROVIDER` is `gemini` (the API of ADR 0002), `local` (bge-m3 in
+# this process through sentence-transformers) or `openai_compat` (the same
+# bge-m3, on the company's CPU, through `POST {endpoint}/embeddings` — ADR
+# 0014, the production provider since 2026-09-05). Unlike the four chat/audio
 # providers it is required ALWAYS, with or without any AI key — for the same
 # reason `EMBEDDING_MODEL` / `EMBEDDING_DIMENSIONS` are: those three name the
 # index this service READS, and the read path runs even in the documented
 # no-AI deployment (`fallback_reason=ai_unavailable` is still resolved
-# through the loaded corpus). There is no correct value to guess: the two
+# through the loaded corpus). There is no correct value to guess: the
 # providers produce different vector spaces, and picking one silently would
 # search a 1024-dimension index with a 768-dimension query — or, worse,
 # rebuild the index in the other space.
+#
+# `local` and `openai_compat` name the SAME vectors, which is why the index
+# version does not change between them (`c3:BAAI/bge-m3@1024`): one runs the
+# weights here, the other asks a server that runs the same model. The
+# difference is 2.1 GB of RSS, not a vector space.
 #
 # This breaks every `.env` written before this change, exactly as the three
 # `AI_*_PROVIDER` variables did in step 2, and for the same reason: the
@@ -256,13 +263,36 @@ AI_PROVIDER_VARS = CHAT_PROVIDER_VARS + (TRANSCRIBE_PROVIDER_VAR,)
 # stored index version — while the path says where its bytes are on THIS
 # machine; conflating the two would put a filesystem path into
 # `chunk_embeddings.embedding_version`.
+#
+# `EMBEDDING_ENDPOINT` / `EMBEDDING_API_KEY` are the per-stage overrides of
+# the shared `AI_OPENAI_COMPAT_*` pair, resolved by the same `resolve_stage`
+# every chat stage uses. They matter here for the reason they matter for
+# transcription: the embedding server is a different process from the chat
+# one and may well be on another path or port. Both are REFUSED on the other
+# two providers — a variable that could never be read is the same gap between
+# `.env` and reality as `EMBEDDING_MODEL_PATH` beside a remote provider.
 # ---------------------------------------------------------------------------
 
 EMBEDDING_PROVIDER_GEMINI = "gemini"
 EMBEDDING_PROVIDER_LOCAL = "local"
-EMBEDDING_PROVIDERS = (EMBEDDING_PROVIDER_GEMINI, EMBEDDING_PROVIDER_LOCAL)
+EMBEDDING_PROVIDER_OPENAI_COMPAT = PROVIDER_OPENAI_COMPAT
+EMBEDDING_PROVIDERS = (
+    EMBEDDING_PROVIDER_GEMINI,
+    EMBEDDING_PROVIDER_LOCAL,
+    EMBEDDING_PROVIDER_OPENAI_COMPAT,
+)
 EMBEDDING_PROVIDER_VAR = "EMBEDDING_PROVIDER"
 EMBEDDING_MODEL_PATH_VAR = "EMBEDDING_MODEL_PATH"
+# The embedding "stage", in the shape every other one has. `EMBEDDING_MODEL`
+# is its model variable because it already is exactly that — the model whose
+# vectors this deployment reads and writes.
+EMBEDDING_STAGE_VARS = StageVars(
+    "embeddings",
+    EMBEDDING_PROVIDER_VAR,
+    "EMBEDDING_MODEL",
+    "EMBEDDING_ENDPOINT",
+    "EMBEDDING_API_KEY",
+)
 
 
 @dataclass(frozen=True)
@@ -538,11 +568,20 @@ def missing_required_vars(env: Mapping[str, str]) -> list[str]:
         name for name in ALWAYS_REQUIRED_VARS if not env.get(name, "").strip()
     ]
     missing.extend(name for name in PRESENCE_REQUIRED_VARS if name not in env)
+    embedding_provider = env.get(EMBEDDING_PROVIDER_VAR, "").strip()
     if (
-        env.get(EMBEDDING_PROVIDER_VAR, "").strip() == EMBEDDING_PROVIDER_LOCAL
+        embedding_provider == EMBEDDING_PROVIDER_LOCAL
         and not env.get(EMBEDDING_MODEL_PATH_VAR, "").strip()
     ):
         missing.append(EMBEDDING_MODEL_PATH_VAR)
+    # Deliberately BEFORE the `ai_configured` gate below: embeddings are not
+    # part of the AI surface that switch guards. A deployment with no chat
+    # provider and no Gemini key still reads the index, and if it reads it
+    # through a server it must say which server (ADR 0014).
+    if embedding_provider == EMBEDDING_PROVIDER_OPENAI_COMPAT:
+        for name in _openai_compat_missing(env, EMBEDDING_STAGE_VARS):
+            if name not in missing:
+                missing.append(name)
     if not ai_configured(env):
         return missing
     missing.extend(
@@ -636,20 +675,48 @@ def invalid_required_values(env: Mapping[str, str]) -> list[str]:
             f"{embedding_provider!r}, expected one of "
             f"{', '.join(EMBEDDING_PROVIDERS)}"
         )
-    # A path set for the API provider is not a harmless leftover: it reads as
+    # A path set for a REMOTE provider is not a harmless leftover: it reads as
     # "this deployment serves embeddings locally" while every vector still
-    # comes from Gemini, which is precisely the gap between .env and reality
-    # ADR 0008 exists to close.
+    # comes over the network, which is precisely the gap between .env and
+    # reality ADR 0008 exists to close. The message names the provider that is
+    # actually configured — the lesson of the 86cbegg3m review: an operator
+    # who reads "set while EMBEDDING_PROVIDER=gemini" on an openai_compat
+    # deployment doubts the error rather than the variable.
     if (
-        embedding_provider == EMBEDDING_PROVIDER_GEMINI
+        embedding_provider
+        in (EMBEDDING_PROVIDER_GEMINI, EMBEDDING_PROVIDER_OPENAI_COMPAT)
         and env.get(EMBEDDING_MODEL_PATH_VAR, "").strip()
     ):
         problems.append(
             f"{EMBEDDING_MODEL_PATH_VAR}: set while {EMBEDDING_PROVIDER_VAR}"
-            f"={EMBEDDING_PROVIDER_GEMINI} — the weights would never be "
+            f"={embedding_provider} — the weights would never be "
             f"loaded; remove it or switch the provider to "
             f"{EMBEDDING_PROVIDER_LOCAL}"
         )
+    # The mirror image: the endpoint and key of the embedding server, set on a
+    # provider that has no server to reach. Same rule, same reason — and here
+    # it also catches the migration half-done in the other direction (the
+    # openai_compat pair pasted in while the provider still says `local`).
+    if embedding_provider and embedding_provider != EMBEDDING_PROVIDER_OPENAI_COMPAT:
+        for name in (
+            EMBEDDING_STAGE_VARS.endpoint_var, EMBEDDING_STAGE_VARS.api_key_var
+        ):
+            if env.get(name, "").strip():
+                problems.append(
+                    f"{name}: set while {EMBEDDING_PROVIDER_VAR}="
+                    f"{embedding_provider} — it would never be read; remove "
+                    f"it or switch the provider to "
+                    f"{EMBEDDING_PROVIDER_OPENAI_COMPAT}"
+                )
+    if embedding_provider == EMBEDDING_PROVIDER_OPENAI_COMPAT:
+        for name in (
+            EMBEDDING_STAGE_VARS.endpoint_var, OPENAI_COMPAT_ENDPOINT_VAR
+        ):
+            value = env.get(name, "").strip()
+            if value:
+                problem = validate_endpoint(name, value)
+                if problem and problem not in problems:
+                    problems.append(problem)
     for stage in AI_STAGE_VARS:
         provider = env.get(stage.provider_var, "").strip()
         if provider and provider not in AI_PROVIDERS:
@@ -791,14 +858,16 @@ def _required_reason(env: Mapping[str, str], name: str) -> str:
         return (
             f"{name} is required when a stage runs on "
             f"{PROVIDER_OPENAI_COMPAT} (or name the endpoint of that stage "
-            f"alone in AI_<STAGE>_ENDPOINT)"
+            f"alone in AI_<STAGE>_ENDPOINT — "
+            f"{EMBEDDING_STAGE_VARS.endpoint_var} for embeddings)"
         )
     if name == OPENAI_COMPAT_API_KEY_VAR:
         return (
             f"{name} must be present when a stage runs on "
             f"{PROVIDER_OPENAI_COMPAT} — it may be empty, which states that "
             f"the endpoint needs no Authorization header (or set "
-            f"AI_<STAGE>_API_KEY for that stage alone)"
+            f"AI_<STAGE>_API_KEY for that stage alone — "
+            f"{EMBEDDING_STAGE_VARS.api_key_var} for embeddings)"
         )
     if name in AI_REQUIRED_VARS:
         if (
@@ -982,14 +1051,24 @@ AI_REQUESTS_PER_CLIENT_PER_MINUTE = min(
 # unreachable: _validate() rejects a missing or non-positive value.
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "")
 EMBEDDING_DIMENSIONS = _get_int("EMBEDDING_DIMENSIONS", 0)
-# Who computes them (ADR 0010): `gemini` (the API — ADR 0002) or `local`
-# (bge-m3 in this process). Required always; `_validate` below has already
-# refused an unknown value, so `build_embedding_client` can dispatch on it
-# without a fallback branch. EMBEDDING_MODEL_PATH is the read-only directory
-# the local weights are mounted at, required only for `local` — the model
-# IDENTITY stays EMBEDDING_MODEL, which is what the index version carries.
+# Who computes them (ADR 0010/0014): `gemini` (the API — ADR 0002), `local`
+# (bge-m3 in this process) or `openai_compat` (the same bge-m3 on the
+# company's server, over `POST {endpoint}/embeddings`). Required always;
+# `_validate` below has already refused an unknown value, so
+# `build_embedding_client` can dispatch on it without a fallback branch.
+# EMBEDDING_MODEL_PATH is the read-only directory the local weights are
+# mounted at, required only for `local` — the model IDENTITY stays
+# EMBEDDING_MODEL, which is what the index version carries.
 EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "").strip()
 EMBEDDING_MODEL_PATH = os.getenv("EMBEDDING_MODEL_PATH", "").strip()
+# The resolved transport of the embedding stage, in the shape every other
+# stage has (ADR 0014). Endpoint and key are empty on `gemini` and `local`,
+# where `_validate` has already refused them as set-but-unreadable; on
+# `openai_compat` they are `EMBEDDING_ENDPOINT`/`EMBEDDING_API_KEY` falling
+# back to the shared `AI_OPENAI_COMPAT_*` pair. `.model` repeats
+# EMBEDDING_MODEL rather than replacing it: the flat name is what the index
+# version is built from, everywhere.
+EMBEDDING_STAGE = resolve_stage(os.environ, EMBEDDING_STAGE_VARS)
 # Model for LLM query reformulation in the retrieval pipeline (see
 # architect/adr/0004-retrieval-pipeline.md). Deliberately NOT following
 # AI_QUESTION_MODEL: the benchmark passes the retrieval thresholds only with

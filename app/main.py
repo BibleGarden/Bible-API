@@ -31,6 +31,8 @@ from config import (
     EMBEDDING_MODEL_PATH,
     EMBEDDING_PROVIDER,
     EMBEDDING_PROVIDER_LOCAL,
+    EMBEDDING_PROVIDER_OPENAI_COMPAT,
+    EMBEDDING_STAGE,
     AI_TRANSCRIBE_MODEL_PATH,
     QUESTION_PROVIDER,
     SCRIPTURE_REWRITE_PROVIDER,
@@ -215,21 +217,32 @@ def log_and_load_embedding_provider() -> None:
     `fallback_reason=ai_unavailable` and look, from outside, like a provider
     being briefly down.
 
-    Nothing happens on `EMBEDDING_PROVIDER=gemini`, which is why the test
-    suite — and every deployment that has not migrated — never imports torch
-    at all.
+    Nothing happens on `gemini` or on `openai_compat` (ADR 0014) — which is
+    why the test suite, the production deployment and every deployment that
+    has not migrated never import torch at all. On `openai_compat` the banner
+    is the whole of this function: there are no weights, and a server that is
+    down is a provider outage the pipeline degrades through, not a reason to
+    refuse to start.
     """
     ensure_visible_handler(logger)
     # Said out loud whichever provider it is, next to the AI-stage banner:
     # which vector space this process searches in is the first question of
     # any retrieval-quality report. `grep 'Embeddings:'` after a deploy.
+    if EMBEDDING_PROVIDER == EMBEDDING_PROVIDER_LOCAL:
+        where = f" from {EMBEDDING_MODEL_PATH or '<no path>'}"
+    elif EMBEDDING_PROVIDER == EMBEDDING_PROVIDER_OPENAI_COMPAT:
+        # Host only, never the URL: the same rule the AI-stage banner follows,
+        # for the same reason (a path or query could carry a pasted key).
+        where = f" at {endpoint_host(EMBEDDING_STAGE.endpoint) or '<no endpoint>'}"
+    else:
+        where = ""
     logger.info(
-        "Embeddings: provider=%s model=%s dims=%s%s",
+        "Embeddings: provider=%s model=%s dims=%s%s key=%s",
         EMBEDDING_PROVIDER or "<none: unconfigured>",
         EMBEDDING_MODEL or "<none>",
         EMBEDDING_DIMENSIONS,
-        f" from {EMBEDDING_MODEL_PATH}"
-        if EMBEDDING_PROVIDER == EMBEDDING_PROVIDER_LOCAL else "",
+        where,
+        "set" if EMBEDDING_STAGE.api_key else "none",
     )
     if EMBEDDING_PROVIDER != EMBEDDING_PROVIDER_LOCAL:
         return

@@ -331,11 +331,16 @@ counterpart outside Gemini is the rerank `responseSchema`; on
 (ADR 0005).
 
 The embedding stage has its own provider variable, `EMBEDDING_PROVIDER`
-(ClickUp 86cbegg2r, ADR 0010): `gemini` (the API) or `local` (BAAI/bge-m3 on
-CPU inside this process, weights from a read-only volume, no network and no
-key). It is separate from the three chat providers, and required in every
-deployment rather than only when AI is configured, because the model and its
-dimensions name the **stored index version** — `c3:BAAI/bge-m3@1024` against
+(ClickUp 86cbegg2r/86cbehd6h, ADR 0010/0014): `gemini` (the API), `local`
+(BAAI/bge-m3 on CPU inside this process, weights from a read-only volume, no
+network and no key) or `openai_compat` (**the production value since
+2026-09-05** — the same bge-m3 on the company server, `POST
+{EMBEDDING_ENDPOINT}/embeddings`, no weights in this process). The last two
+name the SAME index version and the same vectors, so switching between them
+is an `.env` edit and a restart, never a rebuild. The variable is separate
+from the three chat providers, and required in every deployment rather than
+only when AI is configured, because the model and its dimensions name the
+**stored index version** — `c3:BAAI/bge-m3@1024` against
 `c3:gemini-embedding-001@768` — which the read path needs even when nothing
 else is configured. `build_embedding_client` returns the configured client
 and `ScriptureRetriever` cannot tell those apart either.
@@ -345,7 +350,10 @@ overlapped on the local provider (`embed_workers=1`): there is no round trip
 to overlap and torch already uses every core for one encode. Measured: 39 ms
 median per query, 334 ms for six variants in sequence and 320 ms for the same
 six through a thread pool — against ~0.31 s of concurrent network on Gemini,
-so the stage costs the same wall time and spends CPU instead of waiting.
+so the stage costs the same wall time and spends CPU instead of waiting. On
+`openai_compat` there is a round trip again, so the pool comes back
+(`embed_workers=6`, as on Gemini): 137 ms median for one query, 842 ms for
+six in sequence against 592 ms through the pool (ADR 0014).
 
 And the retrieval
 quality is the one measured in 86cbe4n7e (hit@10 0.875, recall@10 0.688,
@@ -388,7 +396,11 @@ bills the same key without repeating the rule. Since ADR 0009 the two other
 chat stages have the same option (`AI_QUESTION_API_KEY`,
 `AI_SCRIPTURE_RERANK_API_KEY`) and fall back to their provider's shared key.
 `GeminiEmbeddingClient` reads `GEMINI_API_KEY` directly; on
-`EMBEDDING_PROVIDER=local` the embedding stage bills nothing at all.
+`EMBEDDING_PROVIDER=local` the embedding stage bills nothing at all, and on
+`openai_compat` it carries `EMBEDDING_API_KEY` — falling back to the shared
+`AI_OPENAI_COMPAT_API_KEY` through the same `config.resolve_stage`, which is
+why the embedding server may be a different host from the chat one
+(ADR 0014).
 
 A stage key set while that stage runs on Gemini and `GEMINI_API_KEY` is empty
 is a configuration error in the aggregated startup list: it pays for one

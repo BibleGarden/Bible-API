@@ -1,18 +1,22 @@
 """
 Embedding clients for the scripture-selection RAG index.
 
-Two providers, chosen by `EMBEDDING_PROVIDER` through
-`build_embedding_client()` (ADR 0010):
+Three providers, chosen by `EMBEDDING_PROVIDER` through
+`build_embedding_client()` (ADR 0010, ADR 0014):
 
 - `gemini` — `GeminiEmbeddingClient`, the API of
   architect/adr/0002-embedding-model-and-vector-store.md;
 - `local` — `LocalEmbeddingClient`, BAAI/bge-m3 on CPU in this process
-  through sentence-transformers, weights from a read-only volume.
+  through sentence-transformers, weights from a read-only volume;
+- `openai_compat` — `RemoteEmbeddingClient`, the SAME bge-m3 on the company
+  server's CPU, over `POST {endpoint}/embeddings`. The production provider
+  since 2026-09-05: identical vectors (verified, ADR 0014), and this process
+  holds no weights at all.
 
-Both expose the same three things — `embed_documents(texts)`,
+All three expose the same three things — `embed_documents(texts)`,
 `embed_query(text, deadline=None)` and the context-manager/`close()` pair —
-and both signal every failure as `EmbeddingUnavailable`, so no caller knows
-which one it holds.
+and all three signal every failure as `EmbeddingUnavailable`, so no caller
+knows which one it holds.
 
 Gemini-specific properties:
 
@@ -57,6 +61,8 @@ from config import (
     EMBEDDING_MODEL_PATH,
     EMBEDDING_PROVIDER,
     EMBEDDING_PROVIDER_LOCAL,
+    EMBEDDING_PROVIDER_OPENAI_COMPAT,
+    EMBEDDING_STAGE,
     GEMINI_API_KEY,
 )
 from deadline import Deadline
@@ -66,6 +72,7 @@ from gemini_retry import (
     rate_limit_of,
     retry_pause,
 )
+from llm_client import transport_error
 
 logger = logging.getLogger(__name__)
 
@@ -253,11 +260,19 @@ class GeminiEmbeddingClient:
 # The window and batch of the measurement (ClickUp 86cbe4n7e), as code
 # constants rather than environment knobs: they are properties of this model
 # on a CPU host, not of a deployment. bge-m3 advertises 8192 tokens, and a
-# batch of 16 of those allocates gigabytes of activations — while the longest
-# chunk of this corpus is far below 512 tokens, so the cap costs nothing and
-# the pair is what the published corpus pass (11 960 chunks) actually ran
-# with; its memory peak is in ADR 0010, which is the one place that number
-# is maintained.
+# batch of 16 of those allocates gigabytes of activations; the pair is what
+# the published corpus pass (11 960 chunks) actually ran with, and its memory
+# peak is in ADR 0010, which is the one place that number is maintained.
+#
+# ADR 0010 claimed the cap costs nothing because "the longest chunk of this
+# corpus is far below 512 tokens". Measured against the bge-m3 tokenizer
+# while building the remote provider (ClickUp 86cbehd6h): that is wrong —
+# **811 of the 11 960 indexed chunks (6.8%) are longer**, up to 1168 tokens.
+# So the stored index truncates those, and the remote provider (whose server
+# applies its own, larger window) answers a different — fuller — vector for
+# exactly those chunks. It is the whole of the difference between the two
+# providers: cut a long chunk at this window and the cosine against the
+# stored row is 1.000000. Queries are never near it. See ADR 0014.
 LOCAL_MAX_SEQ_LENGTH = 512
 LOCAL_DOCUMENT_BATCH_SIZE = 4
 
@@ -428,13 +443,304 @@ class LocalEmbeddingClient:
         return [row.astype(float).tolist() for row in vectors]
 
 
+# ---------------------------------------------------------------------------
+# Remote embeddings: bge-m3 on the company server (ClickUp 86cbehd6h, ADR 0014)
+# ---------------------------------------------------------------------------
+
+# Texts per request. The server (Infinity on CPU) accepts more, but a batch is
+# also the unit of retry and of failure: 64 keeps one HTTP call under a minute
+# on the measured host (their own 64x500-character batch took 26.7 s) and a
+# rebuild's progress at a granularity an operator can watch.
+REMOTE_MAX_BATCH_SIZE = 64
+
+# How far a returned vector may be from unit length before we renormalise it.
+# The server answers normalised vectors today (measured: |‖v‖-1| < 4e-8), and
+# the stored index is normalised too — cosine search over it IS a dot product
+# (`vector_index.InMemoryVectorIndex`). So this is not a preference: a vector
+# of another length would silently rank against the stored ones on magnitude.
+# 1e-3 is far above float32 round-trip noise and far below any real change of
+# behaviour (a server switched to a non-normalising model, an averaged pooling
+# change), which is exactly the event that must be loud.
+REMOTE_NORM_TOLERANCE = 1e-3
+
+_unnormalised_lock = threading.Lock()
+_unnormalised_warned = False
+
+
+def _warn_unnormalised_once(norm: float) -> None:
+    """Say ONCE per process that the server stopped answering unit vectors.
+
+    Once, not per vector: a server that changed its pooling answers this way
+    for every request, and a per-vector warning would bury the log it is
+    supposed to be found in. The vectors are still corrected (`normalize`) —
+    the alternative, trusting them, would corrupt the index silently, which is
+    the one outcome this check exists to prevent.
+    """
+    global _unnormalised_warned
+    with _unnormalised_lock:
+        if _unnormalised_warned:
+            return
+        _unnormalised_warned = True
+    logger.warning(
+        "The embedding server returned a vector of length %.6f, not 1.0 — "
+        "normalising it here. The stored index is unit-length, so this "
+        "would otherwise change ranking silently; check EMBEDDING_MODEL "
+        "against the model the server actually serves. Logged once.",
+        norm,
+    )
+
+
+class RemoteEmbeddingClient:
+    """The other two clients' interface, served by bge-m3 over HTTP.
+
+    `POST {endpoint}/embeddings` with `{"model": ..., "input": [texts]}` —
+    the OpenAI embeddings shape, which Infinity, TEI and vLLM all expose —
+    and the answer's `data[]` re-ordered by its own `index` field. Same
+    `EmbeddingUnavailable` contract as `GeminiEmbeddingClient` and
+    `LocalEmbeddingClient`, including the `provider_down` split (retries
+    exhausted / transport down / not configured = True; a malformed body or a
+    request-specific status = False, so the caller may still try other texts).
+
+    Transport discipline is `RemoteTranscriber`'s, which is `llm_client`'s,
+    which is `app/gemini_retry.py`: `provider_timeout` carves one call's
+    ceiling across httpx's four phases (a bare number would authorise four
+    times it), `retry_pause` refuses to sleep unless the attempt after it
+    still fits in the request budget, and `RETRYABLE_STATUS` decides what is
+    worth another attempt at all.
+
+    Never logged and never quoted in an error: the text being embedded, the
+    key, and the endpoint URL — an httpx message carries that URL, so every
+    transport failure is reported by CATEGORY and raised `from None`.
+    """
+
+    def __init__(
+        self,
+        endpoint: str = EMBEDDING_STAGE.endpoint,
+        api_key: str = EMBEDDING_STAGE.api_key,
+        model: str = EMBEDDING_MODEL,
+        dimensions: int = EMBEDDING_DIMENSIONS,
+        http_client: httpx.Client | None = None,
+        sleep=time.sleep,
+        timeout: float = 60.0,
+        max_retries: int = _MAX_RETRIES,
+        batch_size: int = REMOTE_MAX_BATCH_SIZE,
+    ):
+        self.endpoint = endpoint
+        self.api_key = api_key
+        self.model = model
+        self.dimensions = dimensions
+        self._owns_client = http_client is None
+        self._client = http_client or httpx.Client(timeout=httpx.Timeout(timeout))
+        self._sleep = sleep
+        self.timeout = timeout
+        self.max_retries = max(1, max_retries)
+        # Capped, not merely defaulted: a caller that asks for 500 would build
+        # a request the server may refuse whole, and one refusal would then
+        # cost 500 chunks instead of 64.
+        self.batch_size = max(1, min(batch_size, REMOTE_MAX_BATCH_SIZE))
+
+    def close(self) -> None:
+        if self._owns_client:
+            self._client.close()
+
+    def __enter__(self) -> "RemoteEmbeddingClient":
+        return self
+
+    def __exit__(self, *exc_info) -> None:
+        self.close()
+
+    @property
+    def url(self) -> str:
+        """`https://host/v1` -> `https://host/v1/embeddings`.
+
+        An endpoint that already names the method is left alone, the way
+        `llm_client.completions_url` and `transcription.transcriptions_url`
+        accept both spellings of theirs.
+        """
+        base = self.endpoint.rstrip("/")
+        if base.endswith("/embeddings"):
+            return base
+        return f"{base}/embeddings"
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        if not texts:
+            return []
+        vectors: list[list[float]] = []
+        started = time.time()
+        for start in range(0, len(texts), self.batch_size):
+            vectors.extend(self._embed_batch(texts[start:start + self.batch_size]))
+        # Progress of a rebuild, and nothing else: how many texts and how long
+        # — never the texts. `python app/index_cli.py rebuild` on this provider
+        # is an hour of these lines.
+        logger.info(
+            "Remote embeddings: %d texts in %d call(s), %.1f s",
+            len(texts),
+            (len(texts) + self.batch_size - 1) // self.batch_size,
+            time.time() - started,
+        )
+        return vectors
+
+    def embed_query(
+        self, text: str, deadline: Deadline | None = None
+    ) -> list[float]:
+        return self._embed_batch([text], deadline)[0]
+
+    def _check_configured(self) -> None:
+        """Unreachable in a started service (`config._validate` refuses an
+        incomplete stage), but a CLI or a test that bypasses config must fail
+        loudly instead of posting a prayer-derived query to an empty URL."""
+        if not self.endpoint:
+            raise EmbeddingUnavailable(
+                "EMBEDDING_ENDPOINT is not configured", provider_down=True
+            )
+        if not self.model:
+            raise EmbeddingUnavailable(
+                "EMBEDDING_MODEL is not configured", provider_down=True
+            )
+
+    def _headers(self) -> dict[str, str]:
+        """Bearer, or nothing: an empty key states "no Authorization here"."""
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        return headers
+
+    def _unit(self, values: list) -> list[float]:
+        """One vector, unit length, of the configured width.
+
+        The server normalises today and is expected to keep doing so; this
+        checks rather than assumes, because the failure it guards against is
+        invisible — vectors of another length rank against a normalised index
+        by magnitude and simply return worse passages.
+        """
+        try:
+            norm = math.sqrt(sum(float(x) * float(x) for x in values))
+        except (TypeError, ValueError):
+            raise EmbeddingUnavailable(
+                "the embedding response is not a vector of numbers"
+            ) from None
+        if abs(norm - 1.0) < REMOTE_NORM_TOLERANCE:
+            return [float(x) for x in values]
+        _warn_unnormalised_once(norm)
+        return normalize([float(x) for x in values])
+
+    def _vectors_of(
+        self, response: httpx.Response, expected: int
+    ) -> list[list[float]]:
+        """`data[]` as vectors in INPUT order, or EmbeddingUnavailable.
+
+        The order of `data` is the server's business — the protocol says each
+        item carries its own `index` — and a silently mis-ordered batch would
+        attach every chunk's vector to its neighbour. So the position is read,
+        never assumed, and a duplicate or out-of-range one is an error.
+
+        Nothing here echoes the body: on a server that answers an error as a
+        200 with prose, that prose is about the text being embedded.
+        """
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            # An HTTP 200 with a broken body must surface as
+            # EmbeddingUnavailable, not json.JSONDecodeError (retrieval m3).
+            raise EmbeddingUnavailable(
+                "invalid JSON in embedding response"
+            ) from exc
+        data = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(data, list) or len(data) != expected:
+            raise EmbeddingUnavailable(
+                f"the embedding response holds "
+                f"{len(data) if isinstance(data, list) else 0} vectors for "
+                f"{expected} inputs"
+            )
+        rows: list[list[float] | None] = [None] * expected
+        for position, item in enumerate(data):
+            index = item.get("index", position) if isinstance(item, dict) else None
+            if (
+                not isinstance(index, int)
+                or isinstance(index, bool)
+                or not 0 <= index < expected
+                or rows[index] is not None
+            ):
+                raise EmbeddingUnavailable(
+                    "the embedding response does not carry one vector per input"
+                )
+            values = item.get("embedding")
+            if not isinstance(values, list) or len(values) != self.dimensions:
+                raise EmbeddingUnavailable(
+                    "unexpected embedding size: "
+                    f"{len(values) if isinstance(values, list) else 0}"
+                )
+            rows[index] = self._unit(values)
+        return [row for row in rows if row is not None]
+
+    def _embed_batch(
+        self, texts: list[str], deadline: Deadline | None = None
+    ) -> list[list[float]]:
+        self._check_configured()
+        body = {
+            "model": self.model,
+            # An empty string is a degenerate input for a tokenizer; a single
+            # space keeps result positions aligned with the input, exactly as
+            # both other clients do for the same reason.
+            "input": [text if text.strip() else " " for text in texts],
+        }
+        headers = self._headers()
+        url = self.url
+        last_error = "unknown error"
+        provider_down = False
+        for attempt in range(self.max_retries):
+            last_attempt = attempt + 1 == self.max_retries
+            backoff = min(
+                _RETRY_BASE_SECONDS * (2 ** attempt), _RETRY_MAX_SECONDS
+            )
+            timeout = provider_timeout(deadline, self.timeout)
+            if timeout is None:
+                raise EmbeddingUnavailable(
+                    "embedding budget exhausted", provider_down=True
+                )
+            try:
+                response = self._client.post(
+                    url, json=body, headers=headers, timeout=timeout
+                )
+            except httpx.HTTPError as exc:
+                # Category only: an httpx message quotes the request URL and
+                # the body, and on the serve path that body is a query
+                # rewritten from the prayer context.
+                last_error = f"transport error: {transport_error(exc)}"
+                provider_down = True
+            else:
+                if response.status_code == 200:
+                    return self._vectors_of(response, len(texts))
+                # Status only — a provider error body can echo the request.
+                last_error = f"HTTP {response.status_code}"
+                provider_down = response.status_code in _RETRYABLE_STATUS
+                if response.status_code not in _RETRYABLE_STATUS or last_attempt:
+                    break
+                # None = retrying is pointless or no longer affordable: give
+                # up NOW so the caller can degrade in time.
+                pause = retry_pause(deadline, backoff, rate_limit_of(response))
+                if pause is None:
+                    break
+                self._sleep(pause)
+                continue
+            if last_attempt:  # no pointless backoff before giving up
+                break
+            pause = retry_pause(deadline, backoff)
+            if pause is None:
+                break
+            self._sleep(pause)
+        raise EmbeddingUnavailable(
+            f"remote embedding failed: {last_error}", provider_down=provider_down
+        ) from None
+
+
 def build_embedding_client(
     provider: str = EMBEDDING_PROVIDER,
     timeout: float = 60.0,
     max_retries: int = _MAX_RETRIES,
     **kwargs,
 ):
-    """The embedding client this deployment configured (ADR 0010).
+    """The embedding client this deployment configured (ADR 0010, ADR 0014).
 
     The one place that maps `EMBEDDING_PROVIDER` onto a class, so the
     endpoint, both CLIs and the tests all get the same answer. An unknown
@@ -442,11 +748,15 @@ def build_embedding_client(
 
     `timeout` and `max_retries` describe a network call and are ignored by
     the local client, which has neither; they stay in the signature so the
-    two call sites that tune the Gemini ladder (serve-time budgets vs the
+    two call sites that tune the remote ladders (serve-time budgets vs the
     patient offline CLI) do not have to know which provider they got.
     """
     if provider == EMBEDDING_PROVIDER_LOCAL:
         return LocalEmbeddingClient(**kwargs)
+    if provider == EMBEDDING_PROVIDER_OPENAI_COMPAT:
+        return RemoteEmbeddingClient(
+            timeout=timeout, max_retries=max_retries, **kwargs
+        )
     return GeminiEmbeddingClient(
         timeout=timeout, max_retries=max_retries, **kwargs
     )

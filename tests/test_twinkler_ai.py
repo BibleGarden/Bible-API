@@ -20,9 +20,15 @@ from fastapi.testclient import TestClient
 import config
 import threading
 
+import embeddings
+import passage_rerank
+import query_rewrite
 import twinkler_ai
 import transcription
 import client_ip
+from embeddings import build_embedding_client
+from passage_rerank import build_passage_reranker
+from query_rewrite import build_query_rewriter
 import middleware
 import question_prompt
 import rate_limit
@@ -1737,20 +1743,41 @@ def test_a_remote_failure_is_the_same_502(monkeypatch):
     assert "fire" not in response.text
 
 
-def test_no_google_host_is_dialled_when_no_stage_is_gemini(monkeypatch):
-    """The tripwire of the whole local-models umbrella: with the chat stages
-    on an OpenAI-compatible server and transcription on the audio one, a
-    request must not reach generativelanguage.googleapis.com — the address
-    every Gemini path in this module hard-codes."""
+def test_no_google_host_is_dialled_on_any_of_the_five_stages(monkeypatch):
+    """The tripwire of the whole local-models umbrella (ClickUp 86cbe4mtq).
+
+    All FIVE stages away from Google at once — question, rewrite, rerank and
+    embeddings on an OpenAI-compatible server, transcription on the audio one
+    — and not one request may reach a host under googleapis.com, the address
+    every Gemini path in this codebase hard-codes.
+
+    Behavioural, not structural: a recording httpx transport is installed for
+    both client colours, and every stage is driven through its REAL client
+    class (the factories' own answer for an `openai_compat` stage) with only
+    the model's replies mocked. The structural half — that no factory builds
+    a Gemini class in this configuration — is asserted at the end, because a
+    stage that dialled nothing at all would otherwise pass silently.
+    """
     hosts = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         hosts.append(request.url.host)
         if request.url.path.endswith("/audio/transcriptions"):
             return httpx.Response(200, json={"text": "Господи, помоги мне."})
+        if request.url.path.endswith("/embeddings"):
+            return httpx.Response(
+                200,
+                json={"data": [{"index": 0, "embedding": [0.6, 0.8]}]},
+            )
+        # One body both stage parsers accept: `queries` for the rewrite,
+        # `candidate` for the rerank (its parser reads the whole object).
         return httpx.Response(
             200,
-            json={"choices": [{"message": {"content": "Что ты сейчас чувствуешь?"}}]},
+            json={"choices": [{"message": {"content": json.dumps({
+                "queries": [{"ref": "Ps 23", "query": "Господь Пастырь мой"}],
+                "candidate": 1,
+                "reason": "ok",
+            })}}]},
         )
 
     transport = httpx.MockTransport(handler)
@@ -1787,10 +1814,48 @@ def test_no_google_host_is_dialled_when_no_stage_is_gemini(monkeypatch):
     )
     recording = post_recording()
 
+    # The three selection stages, each through the factory that production
+    # calls, each with the shared recording transport as its http client.
+    rewrite_stage = config.StageProvider(
+        "scripture_rewrite", "openai_compat", "qwen3-30b",
+        "https://llm.example:8443/v1", "chat-key",
+    )
+    rerank_stage = config.StageProvider(
+        "scripture_rerank", "openai_compat", "qwen3-30b",
+        "https://llm.example:8443/v1", "chat-key",
+    )
+    rewriter = build_query_rewriter(
+        rewrite_stage, http_client=httpx.Client(transport=transport)
+    )
+    reranker = build_passage_reranker(
+        rerank_stage, http_client=httpx.Client(transport=transport)
+    )
+    embedder = build_embedding_client(
+        provider=config.EMBEDDING_PROVIDER_OPENAI_COMPAT,
+        endpoint="https://embeddings.example:8443/v1",
+        api_key="embed-key",
+        model="BAAI/bge-m3",
+        dimensions=2,
+        http_client=httpx.Client(transport=transport),
+    )
+    queries = rewriter.rewrite("ru", "Мне тревожно перед разговором", [])
+    vector = embedder.embed_query(queries[0])
+    choice = reranker.choose("Мне тревожно", [], ["[1] Господь Пастырь мой"])
+
     assert question.status_code == 200
     assert recording.status_code == 200
-    assert set(hosts) == {"llm.example", "whisper.example"}
-    assert not any("google" in host for host in hosts)
+    assert queries and len(vector) == 2 and choice.index == 0
+    assert set(hosts) == {
+        "llm.example", "whisper.example", "embeddings.example"
+    }
+    assert not any(host.endswith("googleapis.com") for host in hosts)
+    # Structural: the five stages resolved to the five non-Gemini classes.
+    assert isinstance(rewriter, query_rewrite.OpenAICompatQueryRewriter)
+    assert isinstance(reranker, passage_rerank.OpenAICompatPassageReranker)
+    assert isinstance(embedder, embeddings.RemoteEmbeddingClient)
+    assert not isinstance(embedder, embeddings.GeminiEmbeddingClient)
+    assert twinkler_ai.QUESTION_PROVIDER.is_openai_compat
+    assert twinkler_ai.TRANSCRIBE_PROVIDER.is_openai_compat
 
 
 def test_the_gemini_path_is_still_the_default_provider(monkeypatch):

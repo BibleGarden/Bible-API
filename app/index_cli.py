@@ -4,7 +4,8 @@ architect/adr/0002-embedding-model-and-vector-store.md).
 
 Embeds `translation_chunks` rows with the configured embedding model
 (EMBEDDING_MODEL / EMBEDDING_DIMENSIONS) through the configured provider
-(EMBEDDING_PROVIDER: the Gemini API, or bge-m3 in this process — ADR 0010)
+(EMBEDDING_PROVIDER: the Gemini API, bge-m3 in this process — ADR 0010 — or
+bge-m3 on the company server over `POST {endpoint}/embeddings` — ADR 0014)
 and stores the vectors in `cep_public.chunk_embeddings`. MySQL remains the
 canonical store; the whole index is rebuilt by one command and the run is
 idempotent — re-running embeds nothing new and never creates duplicates.
@@ -40,11 +41,17 @@ import time
 
 from config import (
     EMBEDDING_PROVIDER,
+    EMBEDDING_PROVIDER_GEMINI,
     EMBEDDING_PROVIDER_LOCAL,
+    EMBEDDING_PROVIDER_OPENAI_COMPAT,
     GEMINI_API_KEY,
 )
 from database import create_connection
-from embeddings import EmbeddingUnavailable, build_embedding_client
+from embeddings import (
+    REMOTE_MAX_BATCH_SIZE,
+    EmbeddingUnavailable,
+    build_embedding_client,
+)
 from vector_index import (
     IndexVersionUnavailable,
     MissingChunksError,
@@ -63,8 +70,13 @@ from vector_index import (
 # computed. Measured on this corpus, same machine, same encode batch:
 # 0.75 chunks/s at 50, **2.8 chunks/s at 512** — a two-hour rebuild instead
 # of a five-hour one, for a list of 512 vectors (2 MB) held in memory.
+#
+# On `openai_compat` it is the size of one HTTP request, and the client caps
+# it at `REMOTE_MAX_BATCH_SIZE` anyway (ADR 0014): asking for more here would
+# only make the commit coarser than the retry unit.
 DEFAULT_BATCH_SIZE = 50
 LOCAL_DEFAULT_BATCH_SIZE = 512
+REMOTE_DEFAULT_BATCH_SIZE = REMOTE_MAX_BATCH_SIZE
 
 
 def resolve_translations(cursor, spec: str | None) -> list[dict]:
@@ -101,7 +113,7 @@ def cmd_rebuild(connection, cursor, args) -> int:
     # that disappeared, or every other version with --drop-other-versions),
     # so an unresolvable target version — or an embedder that cannot produce
     # a single vector — must stop the run here rather than on the first call.
-    if EMBEDDING_PROVIDER != EMBEDDING_PROVIDER_LOCAL and not GEMINI_API_KEY:
+    if EMBEDDING_PROVIDER == EMBEDDING_PROVIDER_GEMINI and not GEMINI_API_KEY:
         print(
             "GEMINI_API_KEY is not configured — a rebuild on "
             f"EMBEDDING_PROVIDER={EMBEDDING_PROVIDER} has to embed every "
@@ -129,6 +141,21 @@ def cmd_rebuild(connection, cursor, args) -> int:
         print(f"REFUSED: {exc}. Nothing was changed.", file=sys.stderr)
         return 1
     print(f"Index version: {version}")
+    if EMBEDDING_PROVIDER == EMBEDDING_PROVIDER_OPENAI_COMPAT:
+        # The two bge-m3 providers do NOT write byte-identical rows, and the
+        # index version cannot say so (it names the model, and it is the same
+        # model). The local client caps the input at 512 tokens; the server
+        # applies its own, larger window, so the 6.8% of chunks that are
+        # longer get a fuller vector here (ClickUp 86cbehd6h, ADR 0014).
+        # Harmless in itself — but a catch-up rebuild (without --force) would
+        # leave those chunks half from one provider and half from the other,
+        # which is why this is said out loud rather than left to be noticed.
+        print(
+            "Provider is openai_compat: chunks over 512 tokens (811 of "
+            "11 960 today) get a FULLER vector than the local provider "
+            "wrote. Use --force to rebuild a translation whole rather than "
+            "mixing the two inside one index version."
+        )
     if args.drop_other_versions:
         print(
             "Rows of every OTHER index version will be DELETED "
@@ -255,6 +282,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=(
             LOCAL_DEFAULT_BATCH_SIZE
             if EMBEDDING_PROVIDER == EMBEDDING_PROVIDER_LOCAL
+            else REMOTE_DEFAULT_BATCH_SIZE
+            if EMBEDDING_PROVIDER == EMBEDDING_PROVIDER_OPENAI_COMPAT
             else DEFAULT_BATCH_SIZE
         ),
         help="chunks per embedder call and per commit (see the constants)",

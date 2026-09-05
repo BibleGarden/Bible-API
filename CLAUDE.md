@@ -90,7 +90,7 @@ system prompt is a code constant now, not an environment value.
 - **`chunk_cli.py`** — CLI that materializes chunks into `translation_chunks`
 - **`versification.py`** — Pure Psalm versification mapping to the canonical english-masoretic numbering (see `architect/adr/0003-psalm-versification-canon.md`)
 - **`versification_cli.py`** — CLI: builds/verifies `psalm_verse_mappings`, migrates the chunk corpus to the current CHUNKING_VERSION carrying embeddings over by text (`build`/`verify`/`rechunk`)
-- **`embeddings.py`** — the embedding clients of the RAG index and the factory that picks one: `GeminiEmbeddingClient` (the API of `architect/adr/0002-embedding-model-and-vector-store.md`) and `LocalEmbeddingClient` (BAAI/bge-m3 on CPU in this process, weights from a read-only volume), chosen by `EMBEDDING_PROVIDER` in `build_embedding_client` — same interface, same `EmbeddingUnavailable` contract, so no caller knows which it holds (`architect/adr/0010-local-embeddings-bge-m3.md`)
+- **`embeddings.py`** — the embedding clients of the RAG index and the factory that picks one: `GeminiEmbeddingClient` (the API of `architect/adr/0002-embedding-model-and-vector-store.md`), `LocalEmbeddingClient` (BAAI/bge-m3 on CPU in this process, weights from a read-only volume) and `RemoteEmbeddingClient` (**the production one** — the same bge-m3 on the company server, `POST {endpoint}/embeddings`, batches ≤ 64, unit length verified per vector), chosen by `EMBEDDING_PROVIDER` in `build_embedding_client` — same interface, same `EmbeddingUnavailable` contract, so no caller knows which it holds (`architect/adr/0010-local-embeddings-bge-m3.md`, `architect/adr/0014-remote-embeddings-openai-compat.md`)
 - **`vector_index.py`** — `chunk_embeddings` storage + in-process cosine search with language/translation filters
 - **`index_cli.py`** — CLI that (re)builds the vector index idempotently (`rebuild`/`status`/`search`); a rebuild **keeps** the rows of every other index version unless `--drop-other-versions` is given, so a model migration builds the new index beside the live one
 - **`query_rewrite.py`** — LLM rewrite of prayer context into scripture-register query variants (see `architect/adr/0004-retrieval-pipeline.md`); shared prompt **v8** and parser, a transport per provider (`GeminiQueryRewriter` / `OpenAICompatQueryRewriter`, chosen by `build_query_rewriter`). v8 (86cbegg36) is the benchmark prompt "8c": the model names the passage in a `ref` field before writing each `query` (the parser reads `ref` and drops it), the instruction carries six de-fingerprinted worked examples, and its last line repeats the answer language. The parser also repairs the bounded JSON breakage small models produce (`repair_json_object`: a closer of the wrong type, a truncation at a clean boundary, a trailing comma — never invented content)
@@ -140,8 +140,13 @@ those are tuning knobs. Model names never do.
 
 **Enforced always** (startup fails when unset or blank): `API_KEY`,
 `DB_HOST`, `DB_USER`, `DB_NAME`, `EMBEDDING_MODEL`, `EMBEDDING_DIMENSIONS`
-(must be ≥ 1), `EMBEDDING_PROVIDER` (`gemini` | `local`), plus
-`EMBEDDING_MODEL_PATH` when the provider is `local`. `DB_PASSWORD` must be
+(must be ≥ 1), `EMBEDDING_PROVIDER` (`gemini` | `local` | `openai_compat`),
+plus `EMBEDDING_MODEL_PATH` when the provider is `local` and an endpoint
+(`EMBEDDING_ENDPOINT`, else the shared `AI_OPENAI_COMPAT_ENDPOINT`) plus the
+presence of a key when it is `openai_compat` — checked **before** the
+"AI is configured" gate below, because embeddings are not part of that
+surface: a deployment with no chat provider and no key still reads the index.
+`DB_PASSWORD` must be
 *present* but may be empty (`DB_PASSWORD=` is an explicit statement; MySQL
 accepts a passwordless user — both the local and the production `.env` set a
 real password today). `DB_PORT` keeps its default 3306; a non-numeric value
@@ -222,10 +227,12 @@ Each chat stage names its transport, so moving one to another model is an
   `AI_TRANSCRIBE_API_KEY` overrides for the same reason the chat stages do,
   and needs them more: the audio server is a different process from the chat
   one.
-- Embeddings have their own provider variable (step 3, ClickUp 86cbegg2r —
-  see the next section): `EMBEDDING_MODEL` names the stored index, not only
-  a call, so its provider is required in every deployment rather than only
-  when the AI surface is configured.
+- Embeddings have their own provider variable (steps 3 and 10, ClickUp
+  86cbegg2r / 86cbehd6h — see the next section): `EMBEDDING_MODEL` names the
+  stored index, not only a call, so its provider is required in every
+  deployment rather than only when the AI surface is configured. On
+  `openai_compat` it uses the same shared pair, with `EMBEDDING_ENDPOINT` /
+  `EMBEDDING_API_KEY` as its per-stage override.
 - `AI_SCRIPTURE_PROVIDER_TIMEOUT_SECONDS` (8) caps ONE call inside a
   selection and `AI_QUESTION_TIMEOUT_SECONDS` (20) the question endpoint's
   single call. Both defaults are the values those stages always ran with;
@@ -234,51 +241,92 @@ Each chat stage names its transport, so moving one to another model is an
   model cannot be given more time by raising `AI_SCRIPTURE_TIMEOUT_SECONDS`
   alone.
 
-### Local embeddings: bge-m3 (ClickUp 86cbegg2r, 2026-09-05)
+### Embeddings: bge-m3, remote or local (86cbegg2r + 86cbehd6h, 2026-09-05)
 
 `EMBEDDING_PROVIDER` chooses who computes the vectors — full rationale in
-`architect/adr/0010-local-embeddings-bge-m3.md`.
+`architect/adr/0010-local-embeddings-bge-m3.md` (the model) and
+`architect/adr/0014-remote-embeddings-openai-compat.md` (who runs it).
 
-| Variable | `local` | `gemini` |
-| --- | --- | --- |
-| `EMBEDDING_PROVIDER` | `local` | `gemini` |
-| `EMBEDDING_MODEL` | `BAAI/bge-m3` | `gemini-embedding-001` |
-| `EMBEDDING_DIMENSIONS` | `1024` | `768` |
-| `EMBEDDING_MODEL_PATH` | required, e.g. `/models/bge-m3` | must NOT be set |
-| index version | `c3:BAAI/bge-m3@1024` | `c3:gemini-embedding-001@768` |
+| Variable | `openai_compat` (**production**) | `local` (fallback, rebuild path) | `gemini` |
+| --- | --- | --- | --- |
+| `EMBEDDING_PROVIDER` | `openai_compat` | `local` | `gemini` |
+| `EMBEDDING_MODEL` | `BAAI/bge-m3` | `BAAI/bge-m3` | `gemini-embedding-001` |
+| `EMBEDDING_DIMENSIONS` | `1024` | `1024` | `768` |
+| `EMBEDDING_MODEL_PATH` | must NOT be set | required, e.g. `/models/bge-m3` | must NOT be set |
+| endpoint / key | `EMBEDDING_ENDPOINT` / `EMBEDDING_API_KEY`, else the shared `AI_OPENAI_COMPAT_*` pair | must NOT be set | `GEMINI_API_KEY` |
+| index version | `c3:BAAI/bge-m3@1024` | `c3:BAAI/bge-m3@1024` | `c3:gemini-embedding-001@768` |
 
+- **The first two columns are the SAME index version and the same vectors.**
+  Switching between them is an `.env` edit and a restart — never a rebuild,
+  never an import. Verified on 40 random rows of the live index (ADR 0014):
+  cosine median and max **1.000000**, min 0.936332, and the two exceptions are
+  the local client's 512-token window (below), which queries never reach.
+- **Production is `openai_compat` since 2026-09-05** (Maria's decision, same
+  server as Whisper): `POST https://llm.ai2.ru/v1/embeddings`, server
+  **Infinity** on CPU, model `BAAI/bge-m3`, `Authorization: Bearer`, direct
+  HTTPS. The API process holds **no weights**: 72 MB of application, ~280 MB
+  once the corpus cache is loaded (that cache is provider-independent — 208 MB
+  at `@1024`, 189 MB at `@768`, measured with no network call), 344 MB peak
+  through the live acceptance. Query latency 137 ms median (six variants
+  through the pool: 592 ms; sequential 842 ms). **The 8 GB VM is no longer a
+  prerequisite** — that was ADR 0010's blocker and it is closed; production
+  reads this index on the VM it has.
+- **The index still arrives by `GET /api/import`** and is still BUILT locally
+  (`EMBEDDING_PROVIDER=local` on this machine, `index_cli rebuild`). A rebuild
+  through the remote provider is allowed and needs no weights, but the two
+  providers do not write byte-identical rows: the local client caps input at
+  512 tokens and **811 of 11 960 chunks (6.8%) are longer**, so those get a
+  fuller vector remotely. `index_cli rebuild` prints this and points at
+  `--force`; do not mix the two inside one index version.
 - **Required in every deployment**, with or without any AI key — the same
   rule as the model/dimensions pair, and for the same reason: the three
   together name the index this service *reads*. An `.env` predating this
   change does not start and the error names the variable.
-- **Weights are a read-only volume, never an image layer and never a
-  download.** `docker-compose.yml` mounts `${EMBEDDING_MODELS_DIR:-./models}`
-  at `/models:ro`; the image sets `HF_HUB_OFFLINE=1`, so a missing directory
-  is a loud startup failure. Materialise the directory once with
+- **A variable that could never be read is a startup error**, in both
+  directions: `EMBEDDING_MODEL_PATH` beside a remote provider, and
+  `EMBEDDING_ENDPOINT` / `EMBEDDING_API_KEY` beside `gemini` or `local`. The
+  message names the provider that IS configured.
+- **On `local`, weights are a read-only volume, never an image layer and
+  never a download.** `docker-compose.yml` mounts
+  `${EMBEDDING_MODELS_DIR:-./models}` at `/models:ro`; the image sets
+  `HF_HUB_OFFLINE=1`, so a missing directory is a loud startup failure.
+  Materialise the directory once with
   `huggingface-cli download BAAI/bge-m3 --local-dir <dir>/bge-m3` (2.2 GB).
-  On this machine: `/root/models/bge-m3`.
-- **Memory is the constraint.** The weights are loaded once at start-up
-  (`app/main.py`, fatal on failure — never lazily, or a missing volume would
-  look like a provider outage) and stay in the process: **2.13 GiB RSS**
-  after warm-up (`ps`; `docker stats` shows ~1.0 GiB because the mmapped
-  weight pages are file-backed — size the VM by the 2.13). A rebuild peaks
-  at 3.09 GiB. Production must be the 8 GB VM before it switches; the 2-4 GB
-  one cannot run this. Image: 1.4 GB → 2.46 GB (torch from the CPU-only
-  index — from PyPI it drags ~2.5 GB of CUDA wheels; `-c
+  On this machine: `/root/models/bge-m3`. On `openai_compat` nothing is
+  mounted and nothing is loaded — the banner is all `main.py` does.
+- **Memory was the constraint on `local`.** The weights are loaded once at
+  start-up (`app/main.py`, fatal on failure — never lazily, or a missing
+  volume would look like a provider outage) and stay in the process:
+  **2.13 GiB RSS** after warm-up (`ps`; `docker stats` shows ~1.0 GiB because
+  the mmapped weight pages are file-backed — size the VM by the 2.13). A
+  rebuild peaks at 3.09 GiB. That is what made the 8 GB VM a prerequisite for
+  `local`, and what `openai_compat` removes. Image: 1.4 GB → 2.46 GB (torch
+  from the CPU-only index — from PyPI it drags ~2.5 GB of CUDA wheels; `-c
   requirements-torch.txt` on the second pip install is what keeps it from
-  doing so).
+  doing so); the image is unchanged by ADR 0014, since `local` stays
+  supported.
 - **Two index versions coexist during a migration.** `index_cli rebuild` no
   longer deletes rows of other versions; `--drop-other-versions` is the
   explicit cleanup afterwards. So the switch is an `.env` edit plus a
   restart, and the rollback is the edit back.
 - A rebuild is ~1 h of CPU for 11 960 chunks on 8 cores (3.1 chunks/s) and
-  needs no network and no key at all. Query embedding: median 39 ms.
+  needs no network and no key at all. Query embedding: median **39 ms** on
+  `local`, **137 ms** through the company server, ~350 ms on Gemini.
 - Retrieval quality (86cbe4n7e, full pipeline): hit@10 0.875, recall@10
   0.688, MRR 0.524 against Gemini's 1.000 / 0.789 / 0.664 — recall passes,
   ranking is worse and the grounded rerank absorbs it. Maria lowered the
   retrieval-stage MRR threshold to 0.50 on 2026-09-05 (`thresholds.json`
   0.4.0); the `final_top1` thresholds are unchanged — see ADR 0010's open
-  question 1.
+  question 1. **The remote provider changes none of these numbers**: the same
+  benchmark with `--embedder bge-m3 --embedder-provider openai_compat` (the
+  new flag — remote query embeddings against the cached document matrix)
+  reproduces the local run to six decimals, every scenario's top-10 identical
+  including the scores (86cbehd6h).
+- Tests: `tests/test_embeddings.py` (the three clients side by side; the
+  remote ones on `httpx.MockTransport`, the local one on a stand-in encoder)
+  and the five-stage tripwire
+  `test_no_google_host_is_dialled_on_any_of_the_five_stages` in
+  `tests/test_twinkler_ai.py`.
 
 ### Transcription: Whisper, remote or local (ClickUp 86cbegg3m, 2026-09-05)
 

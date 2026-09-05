@@ -77,6 +77,20 @@ LOCAL_EMBEDDING_ENV = dict(
     EMBEDDING_MODEL_PATH="/models/bge-m3",
 )
 
+# The same vectors, computed on the company server (ADR 0014) — the
+# production shape since 2026-09-05. Same model, same dimensions, same index
+# version as the local pair above; no weights path, an endpoint and a key
+# instead. Deliberately without any AI stage: embeddings are required in every
+# deployment, so this must validate on its own.
+REMOTE_EMBEDDING_ENV = dict(
+    BASE_ENV,
+    EMBEDDING_PROVIDER="openai_compat",
+    EMBEDDING_MODEL="BAAI/bge-m3",
+    EMBEDDING_DIMENSIONS="1024",
+    EMBEDDING_ENDPOINT="https://llm.example/v1",
+    EMBEDDING_API_KEY="embed-key",
+)
+
 AI_ENV = dict(
     BASE_ENV,
     **ALL_GEMINI,
@@ -306,6 +320,116 @@ def test_local_embeddings_need_no_gemini_key_at_all():
     env = dict(LOCAL_EMBEDDING_ENV)
     assert "GEMINI_API_KEY" not in env
     config._validate(env, [])
+
+
+# --- embeddings on the company server (ADR 0014) ---------------------------
+
+
+def test_remote_embedding_environment_is_complete():
+    assert config.missing_required_vars(REMOTE_EMBEDDING_ENV) == []
+    assert config.invalid_required_values(REMOTE_EMBEDDING_ENV) == []
+    config._validate(REMOTE_EMBEDDING_ENV, [])
+
+
+def test_remote_embeddings_need_no_google_credentials_and_no_ai_stage():
+    """The production shape of ADR 0014 in its smallest form: the index is
+    read through a server, nothing else is configured, and neither a Gemini
+    key nor a chat provider appears anywhere."""
+    env = dict(REMOTE_EMBEDDING_ENV)
+    assert "GEMINI_API_KEY" not in env
+    assert not any(name in env for name in PROVIDER_VARS)
+    config._validate(env, [])
+
+
+def test_remote_embeddings_require_an_endpoint_even_with_no_ai_surface():
+    """Embeddings are NOT behind the `ai_configured` switch: a deployment
+    with no chat provider and no key still reads the index, and if it reads
+    it over the network it must say where."""
+    env = dict(REMOTE_EMBEDDING_ENV)
+    del env["EMBEDDING_ENDPOINT"]
+    assert not config.ai_configured(env)
+    assert config.missing_required_vars(env) == ["AI_OPENAI_COMPAT_ENDPOINT"]
+    # ...and the key is wanted the same way when neither side names one
+    del env["EMBEDDING_API_KEY"]
+    assert config.missing_required_vars(env) == [
+        "AI_OPENAI_COMPAT_ENDPOINT", "AI_OPENAI_COMPAT_API_KEY"
+    ]
+
+
+def test_remote_embeddings_take_the_shared_endpoint_and_key():
+    env = dict(BASE_ENV, EMBEDDING_PROVIDER="openai_compat",
+               EMBEDDING_MODEL="BAAI/bge-m3", EMBEDDING_DIMENSIONS="1024",
+               AI_OPENAI_COMPAT_ENDPOINT="https://llm.example/v1",
+               AI_OPENAI_COMPAT_API_KEY="shared-key")
+    assert config.missing_required_vars(env) == []
+    stage = config.resolve_stage(env, config.EMBEDDING_STAGE_VARS)
+    assert stage.endpoint == "https://llm.example/v1"
+    assert stage.api_key == "shared-key"
+    assert stage.is_openai_compat
+
+
+def test_the_embedding_stage_override_wins_over_the_shared_pair():
+    """The embedding server is a different process from the chat one — the
+    same reason transcription has its own pair (ADR 0012)."""
+    env = dict(
+        OPENAI_COMPAT_ENV,
+        EMBEDDING_PROVIDER="openai_compat",
+        EMBEDDING_MODEL="BAAI/bge-m3",
+        EMBEDDING_DIMENSIONS="1024",
+        EMBEDDING_ENDPOINT="https://embeddings.example/v1",
+        EMBEDDING_API_KEY="embed-key",
+    )
+    stage = config.resolve_stage(env, config.EMBEDDING_STAGE_VARS)
+    assert stage.endpoint == "https://embeddings.example/v1"
+    assert stage.api_key == "embed-key"
+    # ...and it does not leak into the chat stages
+    assert config.resolve_stage(env, config.QUESTION_STAGE_VARS).endpoint == (
+        "https://llm.example:8443/v1"
+    )
+    assert config.missing_required_vars(env) == []
+    assert config.invalid_required_values(env) == []
+
+
+def test_remote_embeddings_refuse_a_weights_path_naming_their_own_provider():
+    """The message must name the provider that IS configured: an operator who
+    reads "set while EMBEDDING_PROVIDER=gemini" on an openai_compat
+    deployment doubts the error rather than the variable."""
+    problems = config.invalid_required_values(
+        dict(REMOTE_EMBEDDING_ENV, EMBEDDING_MODEL_PATH="/models/bge-m3")
+    )
+    assert len(problems) == 1
+    assert "EMBEDDING_MODEL_PATH" in problems[0]
+    assert "EMBEDDING_PROVIDER=openai_compat" in problems[0]
+
+
+@pytest.mark.parametrize("name", ["EMBEDDING_ENDPOINT", "EMBEDDING_API_KEY"])
+@pytest.mark.parametrize("provider", ["gemini", "local"])
+def test_the_embedding_endpoint_and_key_are_refused_on_the_other_providers(
+    name, provider
+):
+    """The mirror of the weights-path rule: a variable that could never be
+    read is the same gap between `.env` and reality."""
+    base = LOCAL_EMBEDDING_ENV if provider == "local" else BASE_ENV
+    problems = config.invalid_required_values(dict(base, **{name: "x"}))
+    assert len(problems) == 1
+    assert name in problems[0] and f"EMBEDDING_PROVIDER={provider}" in problems[0]
+
+
+def test_an_embedding_endpoint_carrying_a_key_is_refused():
+    problems = config.invalid_required_values(
+        dict(REMOTE_EMBEDDING_ENV,
+             EMBEDDING_ENDPOINT="https://llm.example/v1?key=secret")
+    )
+    assert len(problems) == 1
+    assert "EMBEDDING_ENDPOINT" in problems[0]
+    assert "secret" not in problems[0]
+
+
+def test_the_unknown_provider_message_now_lists_all_three():
+    problems = config.invalid_required_values(
+        dict(BASE_ENV, EMBEDDING_PROVIDER="bge")
+    )
+    assert "openai_compat" in problems[0]
 
 
 # --- rewrite API key -------------------------------------------------------

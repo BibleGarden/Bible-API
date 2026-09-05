@@ -155,16 +155,33 @@ Embeddings have their own variable, because they name the stored vector
 index and not merely a call:
 
 ```dotenv
-EMBEDDING_PROVIDER=local                 # or: gemini
+EMBEDDING_PROVIDER=openai_compat         # or: local, gemini
 EMBEDDING_MODEL=BAAI/bge-m3              # gemini: gemini-embedding-001
 EMBEDDING_DIMENSIONS=1024                # gemini: 768
-EMBEDDING_MODEL_PATH=/models/bge-m3      # local only; must NOT be set on gemini
+EMBEDDING_ENDPOINT=https://llm.ai2.ru/v1 # openai_compat only (else the shared
+EMBEDDING_API_KEY=...                    #   AI_OPENAI_COMPAT_* pair is used)
+# EMBEDDING_MODEL_PATH=/models/bge-m3    # local only; a startup error otherwise
 ```
 
 `EMBEDDING_PROVIDER` is required in **every** deployment, with or without any
-AI key. `local` runs BAAI/bge-m3 on CPU inside the API process: no network
+AI key.
+
+`openai_compat` is the production value (ADR 0014): the same BAAI/bge-m3, run
+on the company server, over `POST {EMBEDDING_ENDPOINT}/embeddings`. No weights
+in this process (72 MB of application against 2.1 GiB; a *serving* instance is
+~300-350 MB either way, because the corpus cache — vector index, BM25, texts —
+is 208 MB at `@1024` whichever provider computes the vectors), 137 ms per query, and
+the index version is unchanged — `openai_compat` and `local` name the **same**
+`c3:BAAI/bge-m3@1024`, so switching between them is an `.env` edit and a
+restart, never a rebuild. Verified against 40 rows of the live index: cosine
+1.000000 median, and the two exceptions are the 512-token window of the local
+client, which queries never reach (ADR 0014).
+
+`local` runs BAAI/bge-m3 on CPU inside the API process: no network
 and no key, ~2.1 GiB of RSS held for the life of the process, ~39 ms per
-query, and a ~1-hour CPU rebuild of the index (11 960 chunks, 8 cores). The weights are a read-only volume, never a
+query, and a ~1-hour CPU rebuild of the index (11 960 chunks, 8 cores). It is
+the fallback, and it is how the index is built on the machine that owns it
+(production receives it through `GET /api/import`). The weights are a read-only volume, never a
 download — the image runs with `HF_HUB_OFFLINE=1`, so a missing directory
 fails the start instead of fetching 2.3 GB:
 
@@ -178,12 +195,14 @@ python app/index_cli.py rebuild --drop-other-versions
 
 A rebuild keeps the rows of every other index version, so the old index
 keeps serving while the new one is built and the switch is an `.env` edit
-plus a restart. That edit is **four lines, not one**, in both directions:
-provider, model, dimensions, and the path — which is required on `local` and
-a startup error on `gemini`. Rolling back to Gemini therefore means removing
-`EMBEDDING_MODEL_PATH` as well, or the service refuses to start naming it.
-See
-`architect/adr/0010-local-embeddings-bge-m3.md`.
+plus a restart. Between bge-m3 and Gemini that edit is **four lines, not
+one**, in both directions: provider, model, dimensions, and the path — which
+is required on `local` and a startup error on the other two. Rolling back to
+Gemini therefore means removing `EMBEDDING_MODEL_PATH` as well, or the service
+refuses to start naming it; moving between `local` and `openai_compat` means
+swapping the path for the endpoint/key pair, and nothing else. See
+`architect/adr/0010-local-embeddings-bge-m3.md` and
+`architect/adr/0014-remote-embeddings-openai-compat.md`.
 
 The system prompt is **not** configurable: it is the versioned
 `QUESTION_PROMPT_TEMPLATE` in `app/question_prompt.py`, filled per request by

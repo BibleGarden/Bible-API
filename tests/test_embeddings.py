@@ -1,18 +1,19 @@
-"""Unit tests for the two embedding clients (app/embeddings.py).
+"""Unit tests for the three embedding clients (app/embeddings.py).
 
-No network and no model: `httpx.MockTransport` for Gemini, a stand-in encoder
-for the local one. **Nothing here loads bge-m3** — 2.3 GB of weights have no
-place in a suite that must stay under three minutes, so `LocalEmbeddingClient`
-is always given its model, and the one test that would load a real one is
-skipped unless it is asked for explicitly.
+No network and no model: `httpx.MockTransport` for the two remote clients, a
+stand-in encoder for the local one. **Nothing here loads bge-m3** — 2.3 GB of
+weights have no place in a suite that must stay under three minutes, so
+`LocalEmbeddingClient` is always given its model, and the one test that would
+load a real one is skipped unless it is asked for explicitly.
 
-Focus: the two clients are interchangeable. Every failure surfaces as
+Focus: the three clients are interchangeable. Every failure surfaces as
 EmbeddingUnavailable (never a raw json.JSONDecodeError — retrieval m3, never
 a raw torch error), the provider_down flag lets callers fail fast when the
 provider is down for everyone (retrieval m2), and no failure message carries
 the text that was being embedded.
 """
 
+import json
 import os
 import threading
 import time
@@ -24,11 +25,14 @@ import pytest
 os.environ.setdefault("API_KEY", "test-api-key")
 
 import config
+import embeddings as embeddings_module
 from embeddings import (
+    REMOTE_MAX_BATCH_SIZE,
     EmbeddingConfig,
     EmbeddingUnavailable,
     GeminiEmbeddingClient,
     LocalEmbeddingClient,
+    RemoteEmbeddingClient,
     build_embedding_client,
     normalize,
 )
@@ -453,6 +457,355 @@ def test_load_embedding_model_reports_a_broken_directory(
     assert exc_info.value.provider_down is True
 
 
+# ---------------------------------------------------------------------------
+# The remote client: bge-m3 on the company server (ClickUp 86cbehd6h, ADR 0014)
+# ---------------------------------------------------------------------------
+
+
+def unit_row(position: int, dims: int = DIMS) -> list[float]:
+    row = [0.0] * dims
+    row[position % dims] = 1.0
+    return row
+
+
+def embeddings_body(count: int, order=None, dims: int = DIMS) -> dict:
+    """`count` unit vectors in the OpenAI embeddings shape.
+
+    `order` lets a test hand them back in another order than the input's —
+    the protocol allows it, each item carrying its own `index`.
+    """
+    positions = list(range(count)) if order is None else list(order)
+    return {
+        "object": "list",
+        "model": "BAAI/bge-m3",
+        "data": [
+            {"object": "embedding", "index": i, "embedding": unit_row(i, dims)}
+            for i in positions
+        ],
+    }
+
+
+def remote_client(handler, **kwargs) -> RemoteEmbeddingClient:
+    settings = {
+        "endpoint": "https://llm.example/v1",
+        "api_key": "embed-key",
+        "model": "BAAI/bge-m3",
+        "dimensions": DIMS,
+        "http_client": httpx.Client(transport=httpx.MockTransport(handler)),
+        "sleep": lambda _s: None,
+    }
+    settings.update(kwargs)
+    return RemoteEmbeddingClient(**settings)
+
+
+@pytest.fixture(autouse=True)
+def forget_the_normalisation_warning():
+    """The "not unit length" warning is once per PROCESS, so the flag has to
+    be reset between tests or the second one would assert on the first's."""
+    embeddings_module._unnormalised_warned = False
+    yield
+    embeddings_module._unnormalised_warned = False
+
+
+def test_remote_posts_the_openai_embeddings_shape_with_a_bearer_key():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["auth"] = request.headers.get("Authorization")
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json=embeddings_body(1))
+
+    vector = remote_client(handler).embed_query("тревога")
+
+    assert seen["url"] == "https://llm.example/v1/embeddings"
+    assert seen["auth"] == "Bearer embed-key"
+    assert seen["body"] == {"model": "BAAI/bge-m3", "input": ["тревога"]}
+    assert vector == unit_row(0)
+
+
+def test_remote_without_a_key_sends_no_authorization_header():
+    """An empty key is the explicit "this endpoint needs no Authorization",
+    exactly as it is for every other openai_compat stage; `Bearer ` would be
+    a different, wrong request."""
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["auth"] = request.headers.get("Authorization")
+        return httpx.Response(200, json=embeddings_body(1))
+
+    remote_client(handler, api_key="").embed_query("тревога")
+    assert seen["auth"] is None
+
+
+def test_remote_accepts_an_endpoint_that_already_names_the_method():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        return httpx.Response(200, json=embeddings_body(1))
+
+    client = remote_client(handler, endpoint="https://llm.example/v1/embeddings/")
+    client.embed_query("тревога")
+    assert seen["url"] == "https://llm.example/v1/embeddings"
+
+
+def test_remote_reads_the_index_of_each_item_rather_than_its_position():
+    """A silently mis-ordered batch would attach every chunk's vector to its
+    neighbour — the one failure of a rebuild that nothing downstream can
+    detect."""
+    handler = lambda r: httpx.Response(  # noqa: E731
+        200, json=embeddings_body(3, order=[2, 0, 1])
+    )
+    vectors = remote_client(handler).embed_documents(["a", "b", "c"])
+    assert vectors == [unit_row(0), unit_row(1), unit_row(2)]
+
+
+def test_remote_batches_at_sixty_four():
+    sizes = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        count = len(json.loads(request.content)["input"])
+        sizes.append(count)
+        return httpx.Response(200, json=embeddings_body(count))
+
+    vectors = remote_client(handler).embed_documents(
+        [f"chunk {i}" for i in range(150)]
+    )
+    assert len(vectors) == 150
+    assert sizes == [REMOTE_MAX_BATCH_SIZE, REMOTE_MAX_BATCH_SIZE, 22]
+
+
+def test_remote_batch_size_cannot_be_raised_past_the_cap():
+    sizes = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        count = len(json.loads(request.content)["input"])
+        sizes.append(count)
+        return httpx.Response(200, json=embeddings_body(count))
+
+    remote_client(handler, batch_size=500).embed_documents(
+        [f"chunk {i}" for i in range(70)]
+    )
+    assert sizes == [REMOTE_MAX_BATCH_SIZE, 6]
+
+
+def test_remote_keeps_the_servers_unit_vectors_as_they_are(caplog):
+    with caplog.at_level("WARNING"):
+        vector = remote_client(
+            lambda r: httpx.Response(
+                200,
+                json={"data": [{"index": 0, "embedding": [0.6, 0.8, 0.0, 0.0]}]},
+            )
+        ).embed_query("тревога")
+    assert vector == pytest.approx([0.6, 0.8, 0.0, 0.0])
+    assert caplog.records == []
+
+
+def test_remote_renormalises_a_non_unit_vector_and_says_so_once(caplog):
+    """Cosine search over the stored matrix IS a dot product, so a vector of
+    another length would rank on magnitude — silently. It is corrected, and
+    the correction is a WARNING, because trusting it is the worse trade and
+    hiding it is the worst."""
+    handler = lambda r: httpx.Response(  # noqa: E731
+        200,
+        json={"data": [
+            {"index": 0, "embedding": [3.0, 0.0, 4.0, 0.0]},
+            {"index": 1, "embedding": [0.0, 6.0, 0.0, 8.0]},
+        ]},
+    )
+    with caplog.at_level("WARNING"):
+        vectors = remote_client(handler).embed_documents(["a", "b"])
+
+    assert vectors[0] == pytest.approx(normalize([3.0, 0.0, 4.0, 0.0]))
+    assert vectors[1] == pytest.approx(normalize([0.0, 6.0, 0.0, 8.0]))
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert "EMBEDDING_MODEL" in warnings[0].getMessage()
+
+
+def test_remote_wrong_width_is_not_provider_down():
+    """The width is half of the index version: a server answering another
+    model's vectors must never be stored under this one's name."""
+    handler = lambda r: httpx.Response(  # noqa: E731
+        200, json={"data": [{"index": 0, "embedding": [1.0, 0.0]}]}
+    )
+    with pytest.raises(EmbeddingUnavailable, match="size") as exc_info:
+        remote_client(handler).embed_query("тревога")
+    assert exc_info.value.provider_down is False
+
+
+@pytest.mark.parametrize("payload", [
+    {"data": []},
+    {"data": [{"index": 0, "embedding": unit_row(0)}] * 2},
+    {"data": "junk"},
+    {"object": "list"},
+    [1, 2, 3],
+])
+def test_remote_a_body_that_is_not_one_vector_per_input_is_unavailable(payload):
+    with pytest.raises(EmbeddingUnavailable) as exc_info:
+        remote_client(lambda r: httpx.Response(200, json=payload)).embed_query("q")
+    assert exc_info.value.provider_down is False
+
+
+def test_remote_a_non_numeric_vector_is_reported_not_stored():
+    handler = lambda r: httpx.Response(  # noqa: E731
+        200, json={"data": [{"index": 0, "embedding": ["a", "b", "c", "d"]}]}
+    )
+    with pytest.raises(EmbeddingUnavailable, match="numbers"):
+        remote_client(handler).embed_query("q")
+
+
+def test_remote_http_200_with_invalid_json_raises_embedding_unavailable():
+    client = remote_client(
+        lambda r: httpx.Response(200, content=b"<html>not json</html>")
+    )
+    with pytest.raises(EmbeddingUnavailable, match="invalid JSON") as exc_info:
+        client.embed_query("текст")
+    assert exc_info.value.provider_down is False
+
+
+def test_remote_exhausted_retries_on_5xx_is_provider_down():
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(503)
+
+    with pytest.raises(EmbeddingUnavailable) as exc_info:
+        remote_client(handler).embed_query("текст")
+    assert exc_info.value.provider_down is True
+    assert calls["n"] == 6  # the full retry budget, as on Gemini
+
+
+def test_remote_non_retryable_http_error_is_not_provider_down():
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(400, json={"error": {"message": "bad"}})
+
+    with pytest.raises(EmbeddingUnavailable) as exc_info:
+        remote_client(handler).embed_query("текст")
+    assert exc_info.value.provider_down is False
+    assert calls["n"] == 1
+
+
+def test_remote_retry_then_success_recovers():
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] < 3:
+            return httpx.Response(429, json={"error": {}})
+        return httpx.Response(200, json=embeddings_body(1))
+
+    assert remote_client(handler).embed_query("текст") == unit_row(0)
+    assert calls["n"] == 3
+
+
+def test_remote_transport_errors_are_provider_down_and_carry_no_url():
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError(f"failed to POST {request.url}?q=секрет")
+
+    with pytest.raises(EmbeddingUnavailable) as exc_info:
+        remote_client(handler).embed_query("секрет")
+
+    message = str(exc_info.value)
+    assert exc_info.value.provider_down is True
+    assert "ConnectError" in message
+    assert "секрет" not in message and "llm.example" not in message
+    # `from None`: an httpx message quotes the URL, and the chained exception
+    # would carry it into any log that prints the cause.
+    assert exc_info.value.__cause__ is None
+
+
+def test_remote_provider_error_bodies_never_reach_the_exception_message():
+    secret = "переписанный запрос про тревогу"
+    client = remote_client(
+        lambda r: httpx.Response(400, text=f'{{"error": "bad input: {secret}"}}')
+    )
+
+    with pytest.raises(EmbeddingUnavailable) as exc_info:
+        client.embed_query(secret)
+
+    message = str(exc_info.value)
+    assert "HTTP 400" in message
+    assert secret not in message and "bad input" not in message
+
+
+def test_remote_empty_text_is_replaced_the_way_the_others_replace_it():
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["input"] = json.loads(request.content)["input"]
+        return httpx.Response(200, json=embeddings_body(3))
+
+    remote_client(handler).embed_documents(["", "  ", "текст"])
+    assert seen["input"] == [" ", " ", "текст"]
+
+
+def test_remote_no_texts_makes_no_call():
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(200, json=embeddings_body(0))
+
+    assert remote_client(handler).embed_documents([]) == []
+    assert calls["n"] == 0
+
+
+def test_remote_expired_deadline_refuses_before_calling():
+    from deadline import Deadline
+
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(200, json=embeddings_body(1))
+
+    with pytest.raises(EmbeddingUnavailable, match="budget") as exc_info:
+        remote_client(handler).embed_query("q", deadline=Deadline(0.0))
+    assert exc_info.value.provider_down is True
+    assert calls["n"] == 0
+
+
+def test_remote_carves_one_calls_budget_across_the_four_httpx_phases():
+    """A bare number is applied to each phase separately and would authorise
+    four times the budget (ClickUp 86cbbnaxn) — the same trap the chat and
+    audio clients avoid through `provider_timeout`."""
+    from deadline import Deadline
+
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["timeout"] = request.extensions.get("timeout")
+        return httpx.Response(200, json=embeddings_body(1))
+
+    remote_client(handler, timeout=8.0).embed_query("q", deadline=Deadline(4.0))
+    phases = seen["timeout"]
+    assert sum(phases.values()) <= 4.0 + 1e-6
+    assert phases["read"] > phases["connect"]
+
+
+@pytest.mark.parametrize("field", ["endpoint", "model"])
+def test_remote_an_unconfigured_stage_fails_loudly_before_posting(field):
+    """Unreachable in a started service — config refuses it — but a CLI that
+    bypasses config must not post a prayer-derived query to an empty URL."""
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(200, json=embeddings_body(1))
+
+    client = remote_client(handler, **{field: ""})
+    with pytest.raises(EmbeddingUnavailable) as exc_info:
+        client.embed_query("q")
+    assert exc_info.value.provider_down is True
+    assert calls["n"] == 0
+
+
 # --- the factory -----------------------------------------------------------
 
 
@@ -471,6 +824,36 @@ def test_factory_builds_the_local_client(monkeypatch):
     )
     assert isinstance(client, LocalEmbeddingClient)
     assert not isinstance(client, GeminiEmbeddingClient)
+
+
+def test_factory_builds_the_remote_client():
+    client = build_embedding_client(
+        provider=config.EMBEDDING_PROVIDER_OPENAI_COMPAT,
+        endpoint="https://llm.example/v1",
+        api_key="k",
+        model="BAAI/bge-m3",
+        dimensions=DIMS,
+    )
+    assert isinstance(client, RemoteEmbeddingClient)
+    assert not isinstance(client, GeminiEmbeddingClient)
+    client.close()
+
+
+def test_factory_hands_the_remote_client_the_call_budgets():
+    """`timeout`/`max_retries` are the serve-time budget on one provider and
+    the patient CLI ladder on the other; the remote client is the one that
+    has to honour both."""
+    client = build_embedding_client(
+        provider=config.EMBEDDING_PROVIDER_OPENAI_COMPAT,
+        timeout=8.0,
+        max_retries=2,
+        endpoint="https://llm.example/v1",
+        api_key="k",
+        model="BAAI/bge-m3",
+        dimensions=DIMS,
+    )
+    assert (client.timeout, client.max_retries) == (8.0, 2)
+    client.close()
 
 
 def test_factory_does_not_hand_network_budgets_to_the_local_client(monkeypatch):
