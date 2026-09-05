@@ -1,0 +1,361 @@
+{
+  "meta": {
+    "model": "qwen3-30b-a3b-instruct-2507",
+    "date": "2026-09-05",
+    "prompt_version": "8c",
+    "prompt_revision": 4,
+    "rewrite_prompt_version": 8,
+    "scenarios_version": "0.8.0",
+    "endpoint": "https://llm.ai2.ru:8443",
+    "provider": "openai_compat",
+    "sampling": {
+      "temperature": 0.0,
+      "max_tokens": 8192,
+      "response_format": "json_object",
+      "variants": 6
+    },
+    "transport": "app",
+    "partial": false,
+    "scenarios_covered": [
+      "ru-001",
+      "ru-002",
+      "ru-003",
+      "ru-004",
+      "ru-005",
+      "ru-006",
+      "ru-007",
+      "ru-008",
+      "ru-010",
+      "en-001",
+      "en-002",
+      "en-003",
+      "en-004",
+      "en-005",
+      "en-007",
+      "uk-001",
+      "uk-002",
+      "uk-003",
+      "uk-004",
+      "uk-005",
+      "uk-007"
+    ],
+    "scenarios_expected": 21
+  },
+  "scenarios": [
+    {
+      "id": "ru-001",
+      "language": "ru",
+      "variants": [
+        "Когда Господь возвратит пленение Сиона, будем как сны, сияющие",
+        "Ты сотворил внутренности мои, и сплел меня в чреве матери моей; благословен Ты, Господи, чудесно сотворённый",
+        "Может ли женщина забыть младенца своего, чтобы не пощадить сына чрева своего? хотя бы и забыла, Я не забуду тебя",
+        "Сие сотворил Господь, и оно чудно в очах наших",
+        "Утоляет Он жажду твою благостью и благословляет тебя юностью",
+        "Душа моя возносит Господа, и возрадовалась дух мой о Боге Спасителе моём"
+      ],
+      "latency_ms": 2773,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "ru-002",
+      "language": "ru",
+      "variants": [
+        "Вразумлю тебя, наставлю тебя на путь, по которому тебе идти, буду руководить тебя, око Мое над тобою",
+        "Не убойся, ибо Я с тобою, не ужасайся, ибо Я Бог твой, укреплю тебя, помогу тебе, удержу правою рукою моей",
+        "Ищите прежде Царствия Божия и правды Его, и это всё приложится вам",
+        "При умножении скорбей моих в сердце моём утешения Твои услаждают душу мою",
+        "Доверяй Господу всем сердцем твоим, и не советуйся с умом своим, познай Его пути, и Он выровняет стези твои",
+        "Господь совершит за меня, милость Твоя, Господи, вовек, дела рук Твоих не оставляй"
+      ],
+      "latency_ms": 2893,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "ru-003",
+      "language": "ru",
+      "variants": [
+        "Бог близок к сердцам сокрушенных, и спасает сокрушенных духом",
+        "Не бойся, ибо Я с тобою, не убойся, ибо Я Бог твой, Я укреплю тебя, помогу тебе, и поддержу правою рукою моей",
+        "Приидите ко Мне, все труждающиеся и обременённые, и Я успокою вас",
+        "Хотя иду я по долине тени смертной, не убоюсь зла, ибо Ты со мною; жезл Твой и посошок Твой — они утешают меня",
+        "И отрёт Бог всякую слезу с очей их, и смерти не будет уже, ни плача, ни крика, ни боли, прежнее прошло",
+        "Дорого в глазах Господних смерть святых Его"
+      ],
+      "latency_ms": 2813,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "ru-004",
+      "language": "ru",
+      "variants": [
+        "Не бойся, ибо Я с тобою; не убойся, ибо Я Бог твой; Я укреплю тебя, помогу тебе, и поддержу правою рукою моей",
+        "Хотя иду я по долине тени смертной, не убоюсь зла, ибо Ты со мною; жезл Твой и посошок Твой — они утешают меня",
+        "И сказал мне: Моя благодать достаточна для тебя, ибо сила моя совершается в немощи",
+        "Душа моя, благослови Господа, и не забывай всех Его благодеяний, которые прощает все беззакония твои",
+        "Приидите ко Мне, все труждающиеся и обременённые, и Я успокою вас",
+        "Он исцеляет сокрушенных сердцем и повязывает их раны"
+      ],
+      "latency_ms": 2795,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "ru-005",
+      "language": "ru",
+      "variants": [
+        "Не бойся, ибо Я с тобою; не унывай, ибо Я Бог твой; Я укреплю тебя, помогу тебе, и поддержу правою рукою моей",
+        "В покое усну и усну, ибо Ты, Господи, одни укрепляешь меня",
+        "Приидите ко Мне, все труждающиеся и обременённые, и Я успокою вас",
+        "Хотя иду я по долине тени смертной, не убоюсь зла, ибо Ты со мною; жезл Твой и посошок Твой — они утешают меня",
+        "Не заботьтесь ни о чём, но во всём творите молитву и прошение с благодарением, и мир Божий, который превосходит всякое разумение, сохранит сердца ваши и разум ваши в Христе Иисусе",
+        "Я искал Господа, и Он услышал меня, и из всех скорбей моих избавил меня"
+      ],
+      "latency_ms": 3107,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "ru-006",
+      "language": "ru",
+      "variants": [
+        "Слово Твоё — лампада стопам моим и светильник пути моего",
+        "Народ, идущий во тьме, увидит великий свет, на жителей земли, сидящих во мраке, свет воссияет",
+        "Путь праведных, как свет, светлеющий, идет и усиливается до полного дня",
+        "Я — свет миру, кто следует за Мною, не будет ходить во тьме, но будет иметь свет жизни",
+        "Господь — свет мой и спасение моё, кого же я боюсь? Господь — укрепление жизни моей, кого же я убоюсь?",
+        "Вы — свет мира; не может скрыться город, построенный на горе; так да светит свет ваш пред людьми, чтобы они видели ваши добрые дела и прославляли Отца вашего, Небесного"
+      ],
+      "latency_ms": 2779,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "ru-007",
+      "language": "ru",
+      "variants": [
+        "Ты сохранишь в полной безопасности, потому что уповаешь на Господа",
+        "В мире, в котором я ложусь, я буду спать без страха",
+        "Мир Я оставляю вам, Мой мир даю вам, не как мир даёт его мир, а как Я даю",
+        "Мир Божий, который превосходит всякое разумение, будет охранять сердца ваши и разум ваши в Христе Иисусе",
+        "Он покоит меня на зелёных пастбищах, водит меня к водам тихим",
+        "Приидите ко Мне, все труждающиеся и обременённые, и Я успокою вас"
+      ],
+      "latency_ms": 2324,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "ru-008",
+      "language": "ru",
+      "variants": [
+        "Господь близок всем сердцам сокрушенным и спасает духом сокрушенных",
+        "Не убойся, ибо Я с тобою, не ужасайся, ибо Я Бог твой, укреплю тебя, помогу тебе, удержу правою рукою моей",
+        "Приидите ко Мне, все труждающиеся и обременённые, и Я успокою вас",
+        "Бог наш прибежище и сила, помощь в скорбях, находящаяся весьма близко",
+        "Всё могу в Укрепляющем меня Христе",
+        "Воззрю на горы — откуда придет помощь моя; помощь моя от Господа, сотворившего небо и землю"
+      ],
+      "latency_ms": 2582,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "ru-010",
+      "language": "ru",
+      "variants": [
+        "Если же ты приносишь дар свой на жертвенник, а там помнишь, что брат твой имеет что-либо против тебя, оставь там дар свой пред жертвенником, и пойди прежде помирись с братом твоим, а потом приходи и п",
+        "Прощайте друг другу, как и Господь простил вас, так и вы прощайте",
+        "Если возможно, во всем — как угодно Богу — живите в мире с всеми людьми",
+        "Отврати от зла и делай добро, ищи мира и гонись за ним",
+        "Начало ссоры — как пролитие воды; оставь ссору, прежде чем она разгорится",
+        "Ибо милость Моя с тобою, говорит Господь, и мир мой с тобою, говорит Господь, не отступит от тебя, и мир мой не уйдёт от тебя"
+      ],
+      "latency_ms": 2952,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "en-001",
+      "language": "en",
+      "variants": [
+        "Your eyes saw my unformed substance, and in Your book all my days were written before one of them came to be",
+        "Trust in the LORD with all your heart, and do not rely on your own understanding; acknowledge Him in all your ways, and He will make your paths straight",
+        "Do not fear, for I am with you; do not be dismayed, for I am your God; I will strengthen you, I will help you, I will uphold you with My righteous right hand",
+        "Commit your way to the LORD, trust in Him, and He will act",
+        "Whatever you do, work at it with all your heart, as working for the Lord, not for human masters",
+        "For I know the plans I have for you, declares the LORD, plans for welfare and not for evil, to give you a future and a hope"
+      ],
+      "latency_ms": 2550,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "en-002",
+      "language": "en",
+      "variants": [
+        "The LORD is close to the brokenhearted and saves those who are crushed in spirit",
+        "Blessed are those who mourn, for they will be comforted",
+        "Do not fear, for I am with you; do not be dismayed, for I am your God; I will strengthen you, I will help you, I will uphold you with my righteous right hand",
+        "The LORD is my shepherd, I lack nothing",
+        "He will wipe every tear from their eyes, and there will be no more death or mourning or crying or pain",
+        "How precious are Your thoughts to me, O God! How vast is the sum of them! If I should count them, they would outnumber the grains of sand"
+      ],
+      "latency_ms": 2204,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "en-003",
+      "language": "en",
+      "variants": [
+        "You will keep in perfect peace those whose minds are steadfast, because they trust in You",
+        "And the peace of God, which surpasses all understanding, will guard your hearts and your minds in Christ Jesus",
+        "Peace I leave with you, My peace I give to you, not as the world gives do I give to you",
+        "In peace I will both lie down and sleep, for You alone, LORD, make me dwell in safety",
+        "May the God of hope fill you with all joy and peace as you believe, so that you may overflow with hope",
+        "Let the peace of Christ rule in your hearts, since as members of one body you were called to peace"
+      ],
+      "latency_ms": 2085,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "en-004",
+      "language": "en",
+      "variants": [
+        "No weapon formed against you will succeed, and every tongue that rises against you in judgment you will condemn",
+        "As a father has compassion on his children, so the LORD has compassion on those who fear Him",
+        "A gentle answer turns away wrath, but a harsh word stirs up anger",
+        "For I am convinced that neither death nor life, neither angels nor demons, neither the present nor the future, nor any powers, will be able to separate us from the love of God in Christ Jesus our Lord",
+        "What do you think? If a man has a hundred sheep, and one of them wanders away, will he not leave the ninety-nine on the mountains and go to look for the one that is lost?",
+        "So he got up and went to his father. But while he was still a long way off, his father saw him and was filled with compassion"
+      ],
+      "latency_ms": 2488,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "en-005",
+      "language": "en",
+      "variants": [
+        "For You formed my inward parts; You wove me in my mother's womb. I praise You because I am fearfully and wonderfully made",
+        "But now, thus says the LORD, He who created you, O Jacob, He who formed you, O Israel: Do not fear, for I have redeemed you",
+        "But even the hairs of your head are all numbered",
+        "For I know the plans I have for you, declares the LORD, plans for welfare and not for evil, to give you a future and a hope",
+        "But you are a chosen race, a royal priesthood, a holy nation, a people for His own possession, that you may proclaim the excellencies of Him who called you out of darkness into His marvelous light",
+        "For I am convinced that neither death nor life, neither angels nor demons, neither the present nor the future, nor any powers, will be able to separate us from the love of God in Christ Jesus our Lord"
+      ],
+      "latency_ms": 2621,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "en-007",
+      "language": "en",
+      "variants": [
+        "Seek the LORD while He may be found, call on Him while He is near",
+        "You will seek Me and find Me when you search for Me with all your heart",
+        "Come to Me, all who are weary and burdened, and I will give you rest",
+        "As I live, declares the Lord GOD, I have no pleasure in the death of the wicked, but that they turn from their ways and live",
+        "The LORD is near to all who call on Him, to all who call on Him in truth",
+        "The Lord is not slow in keeping His promise, as some understand slowness, but is patient with you, not wanting anyone to perish, but everyone to come to repentance"
+      ],
+      "latency_ms": 2189,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "uk-001",
+      "language": "uk",
+      "variants": [
+        "Благословляй Господа, душо моя, і не забувай усіх Його благословінь: виправляє твої недуги, виправляє твої душі, виправляє твої дні, виправляє твої дні, виправляє твої дні",
+        "Смакуйте і побачте, що Господь добрій, блаженний чоловік, що уповає на Нього",
+        "Бог же ваш відповість усім потребам вашим за багатством Своїм у славі в Христі Ісусі",
+        "Господь добрій до всіх, і милість Його над усіма, що творить",
+        "Не бійся, бо Я з тобою, не турбуйся, бо Я — Бог твій, Я утвердив тебе, допоміг тобі, підтримав правою рукою Свого праведного спасіння",
+        "Дякуйте Господові, бо він добрій, і милість Його вічна"
+      ],
+      "latency_ms": 3697,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "uk-002",
+      "language": "uk",
+      "variants": [
+        "Бо велить Ангелам Своїм про тебе, щоб охороняли тебе на всіх шляхах твоїх",
+        "Не бійся, бо Я з тобою, не злякайся, бо Я твій Бог, Я утвердив тебе, допоміг тобі, підтримав рукою праведною Свого",
+        "Нехай не втрачаєте надії, бо навіть одна ворона не падає на землю без батька вашого, а ви — більше варті за багато ворон",
+        "Господь охоронить тебе від усього зла, охоронить душу твою, Господь охоронить виходи твої і входи твої від тепер і до вічності",
+        "Я знаю наміри, які маю про вас, — наміри на мир, а не на лихо, щоб дати вам майбутнє і надію",
+        "Покликає Господь — і відповідає йому, і визволяє його з усіх скорбот його, і близький Господь до серця розбитого, і спасає дух пригнічений"
+      ],
+      "latency_ms": 3982,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "uk-003",
+      "language": "uk",
+      "variants": [
+        "Ввійдіть до Його воріт з дякуванням, до двора Його з хвальною співом, віддайте йому, благословіть ім'я Його",
+        "Дякуйте в усьому, бо це воля Божа до вас у Христі Ісусі",
+        "Дякуйте Господеві, бо він добр, бо вічна милість Його",
+        "Нехай мир Христів владарює в серцях ваших, до якого ви й звані в одному тілі, і дякуйте",
+        "Прийдімо до Нього з дякуванням, до Нього з хвальною співом"
+      ],
+      "latency_ms": 2874,
+      "attempts": 1,
+      "error": null,
+      "warning": "short answer: 5 of 6 variants"
+    },
+    {
+      "id": "uk-004",
+      "language": "uk",
+      "variants": [
+        "Уповайся на Господа всім серцем твоїм, і не довіряй своїм розумом, а визнай Його на всіх шляхах твоїх, і він вирівняє стежки твої",
+        "Господь охоронить тебе від усього зла, охоронить душу твою, Господь охоронить твоє приходження і відходження від тепер і до вічності",
+        "Не бійся, бо Я з тобою, не турбуйся, бо Я — Бог твій, Я утвердив тебе, допоміг тобі, підтримав правою рукою Свого праведного спасіння",
+        "Що ж до Бога, Його дорога — бездоганна, слово Господа — пробне, він щит для всіх, що уповають на Нього",
+        "Шукайте першість Царства Божого і правди Його, і це все додасться вам",
+        "Я вразумлю тебе і наставлю на шлях, по якому ти маєш йти, буду око моє над тобою"
+      ],
+      "latency_ms": 3762,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "uk-005",
+      "language": "uk",
+      "variants": [
+        "Господь близький до серця розбитих, і спасає духи смиренних",
+        "Не бійся, бо Я з тобою, не турбуйся, бо Я твій Бог, Я утвердив тебе, допоміг тобі, підтримав рукою праведної Своєї",
+        "Хоча й піду я долиною смертною, не боятимусь лиха, бо Ти зі мною, жезлі твій і палиця твоя — вони мене утішують",
+        "Ось Я з вами всі дні, до кінця віку, і ось Я з вами, і ніхто не візьме вас з Мене",
+        "Я знаю наміри, які маю про вас, наміри на добро, а не на зло, щоб дати вам майбутність і надію",
+        "Які дивні для мене думки Твої, Боже! Скільки їх, Господи, їх безліч! Якби я їх порахував, то були б більші, ніж пісок"
+      ],
+      "latency_ms": 3743,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "uk-007",
+      "language": "uk",
+      "variants": [
+        "Виховуй дитину на шляху, якого вона має йти, і навіть у старості не відійде від нього",
+        "Діти — спадщина від Господа, плід чрева — винагорода",
+        "Не збуджуйте гніву дітей своїх, а виховуйте їх у вихованні і навчанні Господньому",
+        "А ті, що уповівають на Господа, одержать нові сили, вони піднімуться на крилах як орли, побіжать, і не втомляться, ходитимуть, і не втомляться",
+        "Ти утворив мене всередині, вплів мене в чреві матері моєї, дивовижно мене утворив, дивовижно мене зробив",
+        "Я знаю наміри, які маю про вас, — наміри на добро, а не на зло, щоб дати вам майбутність і надію"
+      ],
+      "latency_ms": 3504,
+      "attempts": 1,
+      "error": null
+    }
+  ]
+}

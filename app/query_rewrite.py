@@ -28,7 +28,12 @@ the API key must ever be logged — callers log only failure categories.
 The prompt is generic: it knows nothing about the evaluation dataset and
 never receives reference answers. The worked examples are de-fingerprinted —
 no example topic and no example passage may touch `evaluation/scenarios.json`,
-which `tests/test_rewrite_prompts.py` checks against the live dataset.
+which `tests/test_rewrite_prompts.py` checks against the live dataset. That
+check is what moved two examples on 2026-09-05 (prompt revision 4): grading
+made Ps 62 and Ps 16 references, so the "экзамен" and "квартира" examples
+now anchor on Ps 94:19 and Deut 12:9-10. The numbers quoted above were
+measured on revision 3; revision 4 was re-measured warm and is inside the
+server's own run-to-run spread (evaluation/README.md, 86cbegg36).
 """
 
 from __future__ import annotations
@@ -126,6 +131,15 @@ def build_search_query(topic: str, user_replies: list[str]) -> str:
 # speaking, moving city, starting university, a wedding) and the quoted texts
 # are written from memory, close to the text, never copied from the dataset.
 # `tests/test_rewrite_prompts.py` enforces this against the live dataset.
+#
+# The dataset grows, so this list has to move with it. On 2026-09-05 Maria's
+# grading of the Russian top-1 pairs (86cbedtf8) turned Ps 62 and Ps 16 into
+# graded references, and the two examples that quoted them had to go
+# (86cbegg36, prompt revision 4): the "экзамен" example now anchors on
+# Ps 94:19 and the "квартира" one on Deut 12:9-10 — same function, chapters
+# that touch no reference of any grade. The test is what noticed; it is meant
+# to fail exactly like this whenever the benchmark's answers move under the
+# prompt.
 # ---------------------------------------------------------------------------
 
 _EXAMPLES: dict[str, list[dict]] = {
@@ -144,9 +158,9 @@ _EXAMPLES: dict[str, list[dict]] = {
                  "спасение ваше"),
                 ("2ti", 1, "2 Timothy 1:7",
                  "Дал нам Бог духа не боязни, но силы, и любви, и целомудрия"),
-                ("psa", 62, "Psalm 62:1-2",
-                 "Только в Боге успокаивается душа моя, от Него спасение моё, "
-                 "Он твердыня моя, не поколеблюсь более"),
+                ("psa", 94, "Psalm 94:19",
+                 "При умножении скорбей моих в сердце моём утешения Твои "
+                 "услаждают душу мою"),
                 ("psa", 138, "Psalm 138:8",
                  "Господь совершит за меня, милость Твоя, Господи, вовек, "
                  "дела рук Твоих не оставляй"),
@@ -156,9 +170,9 @@ _EXAMPLES: dict[str, list[dict]] = {
             "topic": "Ищу квартиру, скоро заканчивается аренда",
             "replies": ["Осталось меньше месяца", "Ничего подходящего не нахожу"],
             "items": [
-                ("psa", 16, "Psalm 16:5-6",
-                 "Господь есть часть наследия моего и чаши моей, межи мои "
-                 "прошли по прекрасным местам, и наследие моё приятно для меня"),
+                ("deu", 12, "Deuteronomy 12:9-10",
+                 "Господь Бог даёт вам место покоя и удел, и поселитесь на "
+                 "земле, и будете жить безопасно"),
                 ("mat", 7, "Matthew 7:7-8",
                  "Просите, и дано будет вам, ищите, и найдёте, стучите, и "
                  "отворят вам"),

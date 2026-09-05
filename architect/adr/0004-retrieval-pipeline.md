@@ -272,6 +272,23 @@ single relevant passage in top-10 (0.583 / 0.312 / 0.404 against
    established — no example topic and no example passage may touch
    `evaluation/scenarios.json` — and that is a test against the live dataset
    (`tests/test_rewrite_prompts.py`), not a claim in a comment.
+
+   **The dataset moves, so the examples move: revision 4 (2026-09-05,
+   evening).** Grading of the Russian top-1 pairs (86cbedtf8, `scenarios.json`
+   0.8.0) made Ps 62 and Ps 16 graded references, which is exactly what the
+   "экзамен" and "квартира" examples quoted; the test failed before any run,
+   naming both collisions by coordinate. The rule and the test are right and
+   the prompt is what gives way: the two examples were replaced by Ps 94:19
+   and Deut 12:9-10 — same function, chapters that touch no reference of any
+   grade. `PROMPT_REVISIONS["8c"] = 4`; `REWRITE_PROMPT_VERSION` stays 8 (v8
+   was never released). Re-measured under the warm protocol of open question
+   4 below, revision 4 against revision 3 recomputed on the same 0.8.0
+   dataset: **gemini index 0.917 / 0.592 / 0.562 against 0.875 / 0.546 /
+   0.541; bge-m3 0.875 / 0.510 / 0.456 against 0.875 / 0.505 / 0.434** — not
+   worse anywhere, and every difference inside this server's own spread, so
+   "not worse" is the whole claim. Run 3 equalled run 2 byte for byte
+   (125/125), the cold run shared 47 of 125 with it. Numbers, artifacts and
+   the ungraded top-1 list: evaluation/README.md, "Ревизия 4".
 3. **A closing reminder of the answer language**, the last line of the
    instruction: the model has just read six examples in three languages.
    This one is a precaution and not a measured gain — the language was

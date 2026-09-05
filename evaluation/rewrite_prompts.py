@@ -11,11 +11,29 @@ version 8 adds to the winning 8c revision 2 is the closing reminder of the
 answer language, hence `PROMPT_REVISIONS["8c"] = 3`: artifacts of revision 2
 are a different prompt and are not comparable byte for byte.
 
+**Revision 4 (2026-09-05, same ticket).** Two of the six worked examples
+changed: Maria's grading of the Russian top-1 pairs (86cbedtf8, `scenarios.json`
+0.8.0) made Ps 62 and Ps 16 graded references, and those were exactly the
+passages the "экзамен" and "квартира" examples quoted — a prompt showing the
+benchmark its own answers measures the prompt, not the model. They were
+replaced by Ps 94:19 and Deut 12:9-10, of the same function and in chapters
+that touch no reference of any grade (`tests/test_rewrite_prompts.py` is what
+caught it and is what keeps it true). The instruction is otherwise byte for
+byte revision 3, but the example block is part of the text the model reads, so
+this is a new revision: artifacts of revisions 2, 3 and 4 are three different
+prompts and none of them is comparable to another byte for byte. The
+historical `8b` renders the same example list and therefore moved with it —
+hence `PROMPT_REVISIONS["8b"] = 3`. Only `7` and `8a`, which carry no
+examples, are genuinely frozen; the published 8b column of the matrix was
+measured on 8b revision 2 and cannot be rebuilt from this file any more.
+
 The other three names are **history**. Version 7 is no longer production, so
 it can no longer be imported; it is frozen below verbatim as
 `_V7_INSTRUCTION`, and 8a/8b are still built by explicit surgery on that
-frozen text, exactly as they were when they were measured. They exist so the
-published matrix stays reproducible — nothing else reads them.
+frozen text. 7 and 8a are exactly what was measured; 8b is the surgery it
+always was, but over the current example list rather than the one it was
+measured on (see revision 4 above). They exist so the published matrix stays
+readable — nothing else reads them.
 
 Why the 8x family existed. The 30B local candidate (86cbbm70n) failed hard on
 v7: its variants were short generic pious formulas with none of the query's
@@ -63,11 +81,20 @@ import re
 #   8c r1/r2  same changes as 8b, since 8c embeds the same block
 #   8c r3  8c became production v8 (86cbegg36) and gained the closing
 #          language reminder; the text is now imported, not built here
+#   8b r3  8b renders the SAME example list, so the two replacements below
+#          changed its text as well. It is bumped with 8c rather than left at
+#          2: a revision constant that stays put while the text moves is worse
+#          than useless, and the published 8b column of the matrix belongs to
+#          revision 2, which no longer exists in this file
+#   8c r4  two worked examples moved off passages that `scenarios.json` 0.8.0
+#          grades as references (Ps 62 -> Ps 94:19, Ps 16 -> Deut 12:9-10).
+#          The de-fingerprint rule is not optional and the dataset moved, so
+#          the prompt had to; the rest of the text is unchanged
 PROMPT_REVISIONS = {
     "7": 0,    # frozen ex-production text, kept for the published matrix
     "8a": 1,
-    "8b": 2,
-    "8c": 3,
+    "8b": 3,
+    "8c": 4,
 }
 
 PROMPT_VERSIONS = tuple(PROMPT_REVISIONS)

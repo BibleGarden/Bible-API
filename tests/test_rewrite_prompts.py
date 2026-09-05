@@ -160,7 +160,10 @@ def test_8c_is_the_production_prompt_byte_for_byte():
             "8c", language, REWRITE_VARIANTS
         ) == build_rewrite_instruction(language, REWRITE_VARIANTS), language
     assert REWRITE_PROMPT_VERSION == 8
-    assert rewrite_prompts.PROMPT_REVISIONS["8c"] == 3
+    # Revision 4: two worked examples moved off the passages `scenarios.json`
+    # 0.8.0 grades as references (86cbegg36). The example block is part of the
+    # instruction, so changing it changes the prompt.
+    assert rewrite_prompts.PROMPT_REVISIONS["8c"] == 4
 
 
 def test_frozen_v7_is_not_production_and_keeps_its_own_wording():
