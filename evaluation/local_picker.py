@@ -157,9 +157,9 @@ import numpy as np  # noqa: E402
 import retrieval_benchmark as rb  # noqa: E402
 from lexical_index import LexicalIndex  # noqa: E402
 from retrieval import (  # noqa: E402
-    apply_diversity,
+    MAX_PER_BOOK,
+    MAX_PER_CHAPTER,
     fuse_interleave,
-    is_blacklisted,
     load_genre_blacklist,
     load_safe_pool,
     merge_semantic_lexical,
@@ -374,13 +374,68 @@ class Picker:
 
     # -- retrieval ----------------------------------------------------------
 
-    def search(self, query: str) -> list[dict]:
+    def _diversity_with_trace(
+        self, ranked: list, top_k: int,
+    ) -> tuple[list, list[dict]]:
+        """Same greedy cap loop as `retrieval.apply_diversity`, but also
+        records WHY a hit did not make it in — the one thing the plain
+        boolean-returning helper cannot show a human (Stage 6).
+
+        Deliberately not calling `apply_diversity` and diffing the result:
+        that would require re-deriving the skip reason from the OUTPUT,
+        which cannot distinguish "skipped for a book cap" from "skipped for
+        a chapter cap" once both hits are simply absent. This is the exact
+        same traversal (same break condition, same fill-back tail), just
+        also writing a reason next to a rejected hit.
+        """
+        selected: list = []
+        skipped: list = []
+        reasons: dict[str, str] = {}
+        per_book: dict[int, int] = {}
+        per_chapter: dict[tuple[int, int], int] = {}
+        for hit in ranked:
+            if len(selected) >= top_k:
+                break
+            _v, book, chapter, _s, _e = parse_canonical_id(hit.canonical_id)
+            chapter_full = per_chapter.get((book, chapter), 0) >= MAX_PER_CHAPTER
+            book_full = per_book.get(book, 0) >= MAX_PER_BOOK
+            if chapter_full or book_full:
+                skipped.append(hit)
+                reasons[hit.canonical_id] = (
+                    f"в выдаче уже есть {MAX_PER_CHAPTER} отрывок из этой главы"
+                    if chapter_full else
+                    f"в выдаче уже есть {MAX_PER_BOOK} отрывка из этой книги")
+                continue
+            per_book[book] = per_book.get(book, 0) + 1
+            per_chapter[(book, chapter)] = per_chapter.get((book, chapter), 0) + 1
+            selected.append(hit)
+        if len(selected) < top_k and skipped:
+            fill = skipped[: top_k - len(selected)]
+            fill_ids = {h.canonical_id for h in fill}
+            selected.extend(fill)
+            skipped = [h for h in skipped if h.canonical_id not in fill_ids]
+        cut = [
+            {"reference": self.reference(h.canonical_id), "reason": reasons[h.canonical_id]}
+            for h in skipped
+        ]
+        return selected, cut
+
+    def search(self, query: str) -> tuple[list[dict], list[dict]]:
         """Top-K after senses + BM25 + blacklist + diversity.
 
         Each entry carries the sense row that won the fragment, which is the
-        one thing a metric cannot show and a human review needs.
+        one thing a metric cannot show and a human review needs. Returns
+        (candidates, stage_trace) — stage_trace holds Stages 2-6 for the
+        human-readable page (ClickUp 86cbeeqjp): what each step did and what
+        it removed, not just the final list.
         """
+        stages: list[dict] = []
+
+        embed_started = time.time()
         qvec = self.query_vector(query)
+        embed_ms = int((time.time() - embed_started) * 1000)
+
+        sem_started = time.time()
         sims = self.corpus[self.row_idx] @ qvec
         semantic: list[tuple[str, float]] = []
         sense_of: dict[str, tuple[str, float]] = {}
@@ -395,7 +450,29 @@ class Picker:
             sense_of[canonical_id] = (self.doc_texts[row], float(sims[j]))
             if len(semantic) >= rb.FETCH_K_DEFAULT:
                 break
+        sem_ms = int((time.time() - sem_started) * 1000)
 
+        stages.append({
+            "n": 2, "title": "Поиск по смыслам", "ms": embed_ms + sem_ms,
+            "kind": "candidates",
+            "what": (
+                f"Превращаем текст молитвы в вектор ({EMBEDDER}, считается "
+                f"прямо на этой машине, без интернета) и сравниваем его с "
+                f"{len(self.doc_texts)} заранее описанными «смыслами» "
+                f"библейских отрывков — какой смысл ближе всего по значению."),
+            "got": {
+                "embed_ms": embed_ms,
+                "total": len(semantic),
+                "rows": [
+                    {"reference": self.reference(cid),
+                     "first_words": self.first_words(cid),
+                     "sense": sense_of[cid][0], "score": round(score, 4)}
+                    for cid, score in semantic[:10]
+                ],
+            },
+        })
+
+        lex_started = time.time()
         lex_hits = self.lexical.search(query, top_k=20)
         lexical = []
         for hit in lex_hits:
@@ -407,31 +484,108 @@ class Picker:
             lexical.append((hit.canonical_id, score))
             sense_of.setdefault(
                 hit.canonical_id, (self.doc_texts[best_row], score))
+        lex_ms = int((time.time() - lex_started) * 1000)
+
+        stages.append({
+            "n": 3, "title": "Поиск по словам (BM25)", "ms": lex_ms,
+            "kind": "candidates",
+            "what": (
+                "Ищем буквальные совпадения слов молитвы с текстом Писания "
+                "— без понимания смысла, чисто по словоформам."),
+            "got": {
+                "total": len(lexical),
+                "rows": [
+                    {"reference": self.reference(cid),
+                     "first_words": self.first_words(cid),
+                     "score": round(score, 4)}
+                    for cid, score in lexical[:10]
+                ],
+            },
+        })
 
         merged = merge_semantic_lexical(semantic, lexical)
         lexical_ids = {cid for cid, _s in lexical}
         semantic_ids = {cid for cid, _s in semantic}
         fused = fuse_interleave([merged])
 
+        def source_of(canonical_id: str) -> str:
+            parts = []
+            if canonical_id in semantic_ids:
+                parts.append("смысл")
+            if canonical_id in lexical_ids:
+                parts.append("BM25")
+            return "+".join(parts) or "смысл"
+
+        stages.append({
+            "n": 4, "title": "Объединение списков", "ms": None,
+            "kind": "merge",
+            "what": (
+                "Смешиваем список «по смыслам» и список «по словам» по "
+                "очереди (сначала лидер каждого способа, потом второе место "
+                "и так далее), без повторов."),
+            "got": {
+                "total": len(fused),
+                "rows": [
+                    {"reference": self.reference(hit.canonical_id),
+                     "source": source_of(hit.canonical_id)}
+                    for hit in fused[:15]
+                ],
+            },
+        })
+
+        bl_started = time.time()
         filtered = []
+        cut_blacklist = []
         for hit in fused:
             _v, book, chapter, start, end = parse_canonical_id(hit.canonical_id)
-            if is_blacklisted(self.blacklist, book, chapter, start, end):
+            genre = None
+            for entry in self.blacklist:
+                if entry.blocks(book, chapter, start, end):
+                    genre = entry.genre
+                    break
+            if genre is not None:
+                cut_blacklist.append({
+                    "reference": self.reference(hit.canonical_id),
+                    "reason": f"жанр «{genre}» в чёрном списке",
+                })
                 continue
             if hit.canonical_id not in self.meta_by_id:
+                cut_blacklist.append({
+                    "reference": hit.canonical_id,
+                    "reason": "текста нет в индексе этого перевода",
+                })
                 continue
             filtered.append(hit)
-        final = apply_diversity(filtered, TOP_K)
+        bl_ms = int((time.time() - bl_started) * 1000)
+
+        stages.append({
+            "n": 5, "title": "Чёрный список жанров", "ms": bl_ms,
+            "kind": "cut",
+            "what": (
+                "Убираем отрывки из жанров, которые заранее решено не "
+                "предлагать в утешении (например, судебные проклятия)."),
+            "got": {"cut": cut_blacklist},
+        })
+
+        div_started = time.time()
+        final, cut_diversity = self._diversity_with_trace(filtered, TOP_K)
+        div_ms = int((time.time() - div_started) * 1000)
+
+        stages.append({
+            "n": 6, "title": "Разнообразие", "ms": div_ms,
+            "kind": "cut",
+            "what": (
+                f"Не даём одной книге или главе занять всю выдачу (не "
+                f"больше {MAX_PER_BOOK} отрывков из одной книги, "
+                f"{MAX_PER_CHAPTER} из одной главы), чтобы модель видела "
+                f"разные варианты."),
+            "got": {"cut": cut_diversity},
+        })
 
         out = []
         for hit in final:
             sense, score = sense_of.get(hit.canonical_id, ("", hit.score))
             caution, note = self.caution_of(hit.canonical_id)
-            sources = []
-            if hit.canonical_id in semantic_ids:
-                sources.append("смысл")
-            if hit.canonical_id in lexical_ids:
-                sources.append("BM25")
             out.append({
                 "canonical_id": hit.canonical_id,
                 "reference": self.reference(hit.canonical_id),
@@ -440,9 +594,9 @@ class Picker:
                 "score": round(score, 4),
                 "caution": caution,
                 "caution_note": note,
-                "source": "+".join(sources) or "смысл",
+                "source": source_of(hit.canonical_id),
             })
-        return out
+        return out, stages
 
     def safe_pool_top(self) -> list[dict]:
         """The empty-query answer: the safe pool, no search, no model."""
@@ -553,6 +707,91 @@ class Picker:
         return rb._resolve_bench_highlight(
             meta, verses, (start, end), self.psalm_maps)
 
+    # -- stage builders (Stage 1, 7-9 — Stages 2-6 come from `search`) ------
+
+    @staticmethod
+    def _stage_raw(query: str) -> dict:
+        return {
+            "n": 1, "title": "Молитва как есть", "ms": None, "kind": "raw",
+            "what": (
+                "Берём текст молитвы буквально, без пересказа на язык "
+                "Писания — переписывания в библейские фразы нет, ищем по "
+                "сырому тексту."),
+            "got": {"text": query, "chars": len(query), "language": "ru"},
+        }
+
+    def _stage_final_candidates(self, candidates: list[dict], n: int) -> dict:
+        return {
+            "n": n, "title": "Кандидаты для выбора", "ms": None,
+            "kind": "final_candidates",
+            "what": (
+                f"После чёрного списка и разнообразия остаётся не больше "
+                f"{TOP_K} отрывков — их и увидит модель, чтобы выбрать "
+                f"лучший."),
+            "got": {
+                "total": len(candidates),
+                "rows": [
+                    {"index": i + 1, "reference": c["reference"],
+                     "text": self.first_words(c["canonical_id"], limit=150),
+                     "caution": c["caution"], "caution_note": c["caution_note"]}
+                    for i, c in enumerate(candidates)
+                ],
+            },
+        }
+
+    @staticmethod
+    def _stage_choice(choice: dict, candidates_total: int, configured: bool,
+                       n: int) -> dict:
+        if choice.get("ok"):
+            got = {
+                "done": True,
+                "model": RERANK_MODEL,
+                "chosen_index": choice["index"] + 1,
+                "candidates_total": candidates_total,
+                "key_verse_start": choice.get("key_verse_start"),
+                "key_verse_end": choice.get("key_verse_end"),
+                "reason": choice.get("reason", ""),
+                "reason_note": "диагностика модели, не для человека",
+            }
+        else:
+            got = {"done": False, "configured": configured,
+                   "reason": choice.get("reason", "")}
+        return {
+            "n": n, "title": "Выбор лучшего", "ms": choice.get("ms"),
+            "kind": "choice",
+            "what": (
+                f"Локальная модель ({RERANK_MODEL}) читает кандидатов и "
+                f"выбирает один — так же, как это делает боевой сервис."
+                if configured else
+                "Финальный выбор моделью не настроен на этом стенде."),
+            "got": got,
+        }
+
+    def _stage_final(self, chosen: dict | None, hl: dict | None,
+                      note: str, n: int) -> dict:
+        if chosen is None:
+            return {
+                "n": n, "title": "Итог", "ms": None, "kind": "final",
+                "what": note or "Ничего подходящего не нашлось.",
+                "got": {"reference": None, "canonical_id": None,
+                        "passage": "", "highlight": None,
+                        "caution": False, "caution_note": ""},
+            }
+        return {
+            "n": n, "title": "Итог", "ms": None, "kind": "final",
+            "what": note or (
+                "Показываем выбранный отрывок целиком, с подсветкой "
+                "ключевых стихов, если модель их назвала."),
+            "got": {
+                "reference": chosen["reference"],
+                "canonical_id": chosen["canonical_id"],
+                "passage": self.passage_text(chosen["canonical_id"]),
+                "highlight": hl,
+                "caution": chosen["caution"],
+                "caution_note": chosen["caution_note"],
+            },
+        }
+
     # -- one request --------------------------------------------------------
 
     def pick(self, topic: str, replies: list[str] | None = None) -> dict:
@@ -569,31 +808,59 @@ class Picker:
             started = time.time()
             queue_ms = int((started - queued) * 1000)
             query = "\n".join([topic] + replies).strip()
+            stage1 = self._stage_raw(query)
             if not query:
                 candidates = self.safe_pool_top()
+                chosen = candidates[0] if candidates else None
+                stage2 = {
+                    "n": 2, "title": "Пустой запрос — безопасный список",
+                    "ms": None, "kind": "final_candidates",
+                    "what": (
+                        "Молитва пустая, поэтому поиска и модели не было — "
+                        "показываем заранее подобранный безопасный список "
+                        "отрывков по кругу."),
+                    "got": {
+                        "total": len(candidates),
+                        "rows": [
+                            {"index": i + 1, "reference": c["reference"],
+                             "text": c["first_words"], "caution": c["caution"],
+                             "caution_note": c["caution_note"]}
+                            for i, c in enumerate(candidates)
+                        ],
+                    },
+                }
+                stage3 = self._stage_final(
+                    chosen, None,
+                    "Первый отрывок из безопасного списка (не поиск, не "
+                    "модель).", 3)
                 return {
                     "query": "", "source": "safe_pool",
                     "candidates": candidates[:TABLE_K],
-                    "chosen": candidates[0] if candidates else None,
+                    "chosen": chosen,
                     "choice": {"ok": False, "reason":
                                "пустой запрос — отвечает безопасный пул, "
                                "без поиска и без модели"},
                     "highlight": None,
-                    "passage": (self.passage_text(candidates[0]["canonical_id"])
-                                if candidates else ""),
+                    "passage": (self.passage_text(chosen["canonical_id"])
+                                if chosen else ""),
                     "queue_ms": queue_ms,
                     "ms": int((time.time() - started) * 1000),
+                    "stages": [stage1, stage2, stage3],
                 }
             search_started = time.time()
-            candidates = self.search(query)
+            candidates, stages_2_6 = self.search(query)
             search_ms = int((time.time() - search_started) * 1000)
             if not candidates:
+                stage7 = self._stage_final_candidates([], 7)
+                stage8 = self._stage_final(
+                    None, None, "Ничего не нашлось после всех фильтров.", 8)
                 return {"query": query, "source": "retrieval",
                         "candidates": [], "chosen": None,
                         "choice": {"ok": False, "reason": "ничего не найдено"},
                         "highlight": None, "passage": "",
                         "queue_ms": queue_ms,
-                        "ms": int((time.time() - started) * 1000)}
+                        "ms": int((time.time() - started) * 1000),
+                        "stages": [stage1, *stages_2_6, stage7, stage8]}
             choice = self.choose(topic, replies, candidates)
             index = choice["index"] if choice.get("ok") else 0
             chosen = candidates[index]
@@ -601,6 +868,10 @@ class Picker:
                                  choice.get("key_verse_start"),
                                  choice.get("key_verse_end"))
                   if choice.get("ok") else None)
+            stage7 = self._stage_final_candidates(candidates, 7)
+            stage8 = self._stage_choice(
+                choice, len(candidates), self.rerank_configured, 8)
+            stage9 = self._stage_final(chosen, hl, "", 9)
             return {
                 "query": query,
                 "source": "retrieval",
@@ -614,6 +885,7 @@ class Picker:
                 "search_ms": search_ms,
                 "queue_ms": queue_ms,
                 "ms": int((time.time() - started) * 1000),
+                "stages": [stage1, *stages_2_6, stage7, stage8, stage9],
             }
 
 
@@ -626,44 +898,98 @@ def _endpoint_host() -> str:
 # CLI rendering
 # ---------------------------------------------------------------------------
 
+def _stage_header_text(stage: dict) -> str:
+    ms = stage.get("ms")
+    timing = f" — {ms} мс" if ms is not None else ""
+    return f"Этап {stage['n']}. {stage['title']}{timing}"
+
+
+def _stage_body_text(stage: dict) -> list[str]:
+    """"Что получили" for one stage, as plain-text lines (Stage kind decides
+    the shape — every stage still gets a "что делаем" / "что получили" pair,
+    only the second half's layout differs)."""
+    kind = stage["kind"]
+    got = stage["got"]
+    lines: list[str] = []
+    if kind == "raw":
+        lines.append(f"  «{got['text']}» — {got['chars']} знаков, "
+                     f"язык: {got['language']}")
+    elif kind == "candidates":
+        if not got["rows"]:
+            lines.append("  ничего не нашлось")
+        for r in got["rows"]:
+            lines.append(f"  - {r['reference']}: {r['first_words']} "
+                         f"[score {r['score']}]")
+            if "sense" in r:
+                lines.append(f"      смысл: {r['sense'] or '—'}")
+        if got["total"] > len(got["rows"]):
+            lines.append(f"  … всего найдено {got['total']}")
+    elif kind == "merge":
+        for r in got["rows"]:
+            lines.append(f"  - {r['reference']} ({r['source']})")
+        if got["total"] > len(got["rows"]):
+            lines.append(f"  … всего в списке {got['total']}")
+    elif kind == "cut":
+        if not got["cut"]:
+            lines.append("  ничего не вырезано")
+        for c in got["cut"]:
+            lines.append(f"  - {c['reference']}: {c['reason']}")
+    elif kind == "final_candidates":
+        if not got["rows"]:
+            lines.append("  кандидатов нет")
+        for r in got["rows"]:
+            flag = " ⚠ caution" if r["caution"] else ""
+            lines.append(f"  [{r['index']}] {r['reference']}{flag}")
+            lines.append(f"       {r['text']}")
+            if r["caution"] and r["caution_note"]:
+                lines.append(f"       caution: {r['caution_note']}")
+    elif kind == "choice":
+        if got.get("done"):
+            lines.append(f"  модель: {got['model']}")
+            lines.append(f"  выбран кандидат {got['chosen_index']} из "
+                         f"{got['candidates_total']}")
+            if got.get("key_verse_start"):
+                lines.append(f"  ключевые стихи: {got['key_verse_start']}"
+                             f"-{got.get('key_verse_end') or got['key_verse_start']}")
+            lines.append(f"  reason ({got['reason_note']}): {got['reason']}")
+        else:
+            lines.append(f"  выбор не делался: {got.get('reason', '')}")
+    elif kind == "final":
+        if got["reference"] is None:
+            lines.append("  ничего не найдено")
+        else:
+            mark = "  ⚠ CAUTION" if got["caution"] else ""
+            lines.append(f"  {got['reference']}  [{got['canonical_id']}]{mark}")
+            if got["caution"] and got["caution_note"]:
+                lines.append(f"  caution: {got['caution_note']}")
+            lines.append("")
+            lines.append(got["passage"])
+            hl = got.get("highlight")
+            if hl:
+                lines.append("")
+                lines.append(f"  ключевые стихи {hl['chapter']}:"
+                             f"{hl['verse_start']}-{hl['verse_end']}: "
+                             f"{hl['text']}")
+    return lines
+
+
 def render_text(result: dict) -> str:
-    lines = []
+    stages = result.get("stages") or []
     chosen = result.get("chosen")
-    choice = result.get("choice") or {}
+    lines = []
     if chosen is None:
-        return "ничего не найдено"
-    mark = "  ⚠ CAUTION" if chosen["caution"] else ""
-    lines.append(f"ВЫБРАНО: {chosen['reference']}  "
-                 f"[{chosen['canonical_id']}]{mark}")
-    if chosen["caution"] and chosen["caution_note"]:
-        lines.append(f"  caution: {chosen['caution_note']}")
-    if choice.get("ok"):
-        total = result.get("candidates_total", TOP_K)
-        outside = ("  <- вне таблицы топ-5 ниже"
-                   if result.get("chosen_rank", 1) > TABLE_K else "")
-        lines.append(f"  модель: кандидат {result['chosen_rank']} из {total}, "
-                     f"{choice['ms']} мс{outside}; "
-                     f"reason: {choice['reason']}")
+        lines.append("ИТОГ: ничего не найдено")
     else:
-        lines.append(f"  ВЫБОР НЕ ДЕЛАЛСЯ: {choice.get('reason', '')}")
-    if chosen["sense"]:
-        lines.append(f"  нашлось по смыслу ({chosen['score']}): "
-                     f"{chosen['sense']}")
-    lines.append("")
-    lines.append(result.get("passage", ""))
-    hl = result.get("highlight")
-    if hl:
+        mark = "  ⚠ CAUTION" if chosen["caution"] else ""
+        lines.append(f"ИТОГ: {chosen['reference']}  "
+                     f"[{chosen['canonical_id']}]{mark}")
+    lines.append("=" * 60)
+    for stage in stages:
         lines.append("")
-        lines.append(f"  ключевые стихи {hl['chapter']}:{hl['verse_start']}"
-                     f"-{hl['verse_end']}: {hl['text']}")
-    lines.append("")
-    lines.append(f"--- топ-{len(result['candidates'])} кандидатов ---")
-    for i, c in enumerate(result["candidates"], start=1):
-        flag = " ⚠" if c["caution"] else ""
-        lines.append(f"{i}. {c['reference']}{flag}  [{c['source']}, "
-                     f"{c['score']}]")
-        lines.append(f"     текст: {c['first_words']}")
-        lines.append(f"     смысл: {c['sense'] or '—'}")
+        lines.append(_stage_header_text(stage))
+        lines.append(f"Что делаем: {stage['what']}")
+        lines.append("Что получили:")
+        lines.extend(_stage_body_text(stage))
     lines.append("")
     lines.append(f"поиск {result.get('search_ms', 0)} мс, всего "
                  f"{result['ms']} мс")
@@ -703,6 +1029,14 @@ th { font-size: 12px; text-transform: uppercase; color: #777; }
 .warn { background: #fff6d8; border: 1px solid #e6cf7a; color: #6b5200;
         border-radius: 6px; padding: 10px 12px; font-size: 14px;
         margin: 16px 0; }
+details { border: 1px solid #ddd; border-radius: 6px; margin: 8px 0;
+          padding: 0; }
+details > summary { cursor: pointer; padding: 10px 12px; font-weight: 600;
+                     font-size: 14px; list-style: revert; }
+details[open] > summary { border-bottom: 1px solid #ddd; }
+.stage-body { padding: 10px 14px 14px; }
+.stage-what { color: #555; font-size: 13px; margin-bottom: 8px; }
+.stage-got { font-size: 14px; }
 @media (prefers-color-scheme: dark) {
   body { background: #14171a; color: #e6e6e6; }
   textarea { background: #1d2124; color: #e6e6e6; border-color: #444; }
@@ -713,6 +1047,9 @@ th { font-size: 12px; text-transform: uppercase; color: #777; }
   th, td { border-color: #333; }
   .warn { background: #2e2a15; border-color: #6b5c1f; color: #f0dda0; }
   .sense { color: #9fd0b0; }
+  details { border-color: #333; }
+  details[open] > summary { border-color: #333; }
+  .stage-what { color: #aaa; }
 }
 """
 
@@ -727,6 +1064,121 @@ EXAMPLES = [
 
 def esc(text: str) -> str:
     return html.escape(text or "", quote=True)
+
+
+def _stage_body_html(stage: dict) -> str:
+    """"Что получили" for one stage, as compact HTML (tables/lists) — the
+    shape depends on the stage's `kind`, same dispatch as render_text."""
+    kind = stage["kind"]
+    got = stage["got"]
+    if kind == "raw":
+        return (f"<p>«{esc(got['text'])}» — {got['chars']} знаков, "
+                f"язык: {esc(got['language'])}</p>")
+    if kind == "candidates":
+        if not got["rows"]:
+            return "<p class='meta'>ничего не нашлось</p>"
+        has_sense = "sense" in got["rows"][0]
+        head = ("<tr><th>ссылка</th><th>первые слова</th>"
+                + ("<th>смысл</th>" if has_sense else "")
+                + "<th>score</th></tr>")
+        rows = "".join(
+            f"<tr><td>{esc(r['reference'])}</td>"
+            f"<td>{esc(r['first_words'])}</td>"
+            + (f"<td class='sense'>{esc(r.get('sense') or '—')}</td>"
+               if has_sense else "")
+            + f"<td>{r['score']}</td></tr>"
+            for r in got["rows"])
+        tail = (f"<p class='meta'>… всего найдено {got['total']}</p>"
+                if got["total"] > len(got["rows"]) else "")
+        return f"<table>{head}{rows}</table>{tail}"
+    if kind == "merge":
+        if not got["rows"]:
+            return "<p class='meta'>пусто</p>"
+        rows = "".join(
+            f"<tr><td>{esc(r['reference'])}</td><td>{esc(r['source'])}</td>"
+            f"</tr>" for r in got["rows"])
+        tail = (f"<p class='meta'>… всего в списке {got['total']}</p>"
+                if got["total"] > len(got["rows"]) else "")
+        return (f"<table><tr><th>ссылка</th><th>откуда</th></tr>{rows}"
+                f"</table>{tail}")
+    if kind == "cut":
+        if not got["cut"]:
+            return "<p class='meta'>ничего не вырезано</p>"
+        rows = "".join(
+            f"<tr><td>{esc(c['reference'])}</td><td>{esc(c['reason'])}</td>"
+            f"</tr>" for c in got["cut"])
+        return (f"<table><tr><th>ссылка</th><th>почему убрано</th></tr>"
+                f"{rows}</table>")
+    if kind == "final_candidates":
+        if not got["rows"]:
+            return "<p class='meta'>кандидатов нет</p>"
+        rows = []
+        for r in got["rows"]:
+            badge = ("<span class='caution'>caution</span>"
+                     if r["caution"] else "")
+            note = (f"<div class='note'>{esc(r['caution_note'])}</div>"
+                    if r["caution"] and r["caution_note"] else "")
+            rows.append(
+                f"<tr><td>[{r['index']}]</td>"
+                f"<td><b>{esc(r['reference'])}</b> {badge}{note}</td>"
+                f"<td>{esc(r['text'])}</td></tr>")
+        return ("<table><tr><th>№</th><th>ссылка</th><th>текст</th></tr>"
+                + "".join(rows) + "</table>")
+    if kind == "choice":
+        if got.get("done"):
+            key = ""
+            if got.get("key_verse_start"):
+                end = got.get("key_verse_end") or got["key_verse_start"]
+                key = (f"<div class='meta'>ключевые стихи: "
+                       f"{got['key_verse_start']}-{end}</div>")
+            return (
+                f"<div class='meta'>модель: {esc(got['model'])}</div>"
+                f"<div class='meta'>выбран кандидат № {got['chosen_index']} "
+                f"из {got['candidates_total']}</div>{key}"
+                f"<div class='note'>{esc(got['reason_note'])}: "
+                f"{esc(got['reason'])}</div>")
+        return f"<p class='meta'>{esc(got.get('reason', ''))}</p>"
+    if kind == "final":
+        if got["reference"] is None:
+            return "<p>Ничего не найдено.</p>"
+        badge = ("<span class='caution'>caution</span>"
+                 if got["caution"] else "")
+        note = (f"<div class='note'>caution: {esc(got['caution_note'])}</div>"
+                if got["caution"] and got["caution_note"] else "")
+        hl = got.get("highlight")
+        body = esc(got["passage"])
+        hl_note = ""
+        if hl and hl.get("text"):
+            needle = esc(hl["text"])
+            if needle in body:
+                body = body.replace(
+                    needle, f"<span class='hl'>{needle}</span>", 1)
+            else:
+                hl_note = (f"<div class='meta'>ключевые стихи "
+                           f"{hl['chapter']}:{hl['verse_start']}-"
+                           f"{hl['verse_end']}</div>")
+        return (f"<h4>{esc(got['reference'])} {badge}</h4>"
+                f"<div class='meta'>{esc(got['canonical_id'] or '')}</div>"
+                f"{note}{hl_note}<div class='passage'>{body}</div>")
+    return ""
+
+
+def _render_stages_html(stages: list[dict]) -> str:
+    parts = []
+    for stage in stages:
+        ms = stage.get("ms")
+        timing = f" — {ms} мс" if ms is not None else ""
+        opened = " open" if stage["n"] <= 2 else ""
+        parts.append(
+            f"<details{opened}><summary>Этап {stage['n']}. "
+            f"{esc(stage['title'])}{timing}</summary>"
+            f"<div class='stage-body'>"
+            f"<div class='stage-what'><b>Что делаем:</b> "
+            f"{esc(stage['what'])}</div>"
+            f"<div class='stage-got'><b>Что получили:</b>"
+            f"{_stage_body_html(stage)}</div>"
+            f"</div></details>")
+    return "".join(parts)
 
 
 def render_html(picker: "Picker", query: str, result: dict | None) -> str:
@@ -795,21 +1247,10 @@ def render_html(picker: "Picker", query: str, result: dict | None) -> str:
                      f"{esc(choice['reason'])}</div>")
     parts.append("</div>")
 
-    parts.append(f"<h3>Топ-{len(result['candidates'])} кандидатов</h3>")
-    parts.append("<table><tr><th>#</th><th>ссылка</th><th>первые слова</th>"
-                 "<th>смысл, по которому нашлось</th><th>score</th>"
-                 "<th>caution</th></tr>")
-    for i, c in enumerate(result["candidates"], start=1):
-        parts.append(
-            f"<tr><td>{i}</td><td><b>{esc(c['reference'])}</b><br>"
-            f"<span class='meta'>{esc(c['source'])}</span></td>"
-            f"<td>{esc(c['first_words'])}</td>"
-            f"<td class='sense'>{esc(c['sense']) or '—'}</td>"
-            f"<td>{c['score']}</td>"
-            f"<td>{'<span class=caution>да</span>' if c['caution'] else '—'}"
-            f"{('<div class=note>' + esc(c['caution_note']) + '</div>') if c['caution'] and c['caution_note'] else ''}"
-            f"</td></tr>")
-    parts.append("</table>")
+    stages = result.get("stages") or []
+    if stages:
+        parts.append("<h3>Как получился этот ответ — по этапам</h3>")
+        parts.append(_render_stages_html(stages))
     parts.append(f"<p class='meta'>поиск {result.get('search_ms', 0)} мс, "
                  f"всего {result['ms']} мс</p>")
     return "".join(parts)
