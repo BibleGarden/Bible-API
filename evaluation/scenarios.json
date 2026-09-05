@@ -1,6 +1,6 @@
 {
   "name": "scripture-selection-benchmark",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "status": "approved",
   "approved_by": "Мария",
   "created": "2026-08-24",
@@ -75,6 +75,22 @@
           "verse_end": 9,
           "grade": "unacceptable",
           "reason": "Проклятие о младенцах: лексическое совпадение «младенцы» при недопустимом содержании."
+        },
+        {
+          "book_number": 19,
+          "chapter": 113,
+          "verse_start": 1,
+          "verse_end": 9,
+          "grade": "acceptable",
+          "reason": "Мария, 2026-09-05: устраивает (без разделения relevant/acceptable)"
+        },
+        {
+          "book_number": 19,
+          "chapter": 139,
+          "verse_start": 1,
+          "verse_end": 24,
+          "grade": "acceptable",
+          "reason": "Мария, 2026-09-05: устраивает (без разделения relevant/acceptable)"
         }
       ]
     },
@@ -131,6 +147,14 @@
           "verse_end": 8,
           "grade": "unacceptable",
           "reason": "«Услышите о войнах…» — о бедствиях последних времён, усиливает страх, тема не та."
+        },
+        {
+          "book_number": 19,
+          "chapter": 62,
+          "verse_start": 1,
+          "verse_end": 12,
+          "grade": "acceptable",
+          "reason": "Мария, 2026-09-05: устраивает (без разделения relevant/acceptable)"
         }
       ]
     },
@@ -211,6 +235,22 @@
           "verse_end": 11,
           "grade": "relevant",
           "reason": "«Он исцеляет сокрушённых сердцем и врачует скорби их» — прямое утешение в остром горе, тот же мотив, что и уже размеченный Пс 34:18; отрывок ободряющий от начала до конца, без обвиняющих строк (решение редактора, top-1 прогона p9)."
+        },
+        {
+          "book_number": 59,
+          "chapter": 4,
+          "verse_start": 13,
+          "verse_end": 18,
+          "grade": "acceptable",
+          "reason": "Мария, 2026-09-05: устраивает (без разделения relevant/acceptable)"
+        },
+        {
+          "book_number": 19,
+          "chapter": 27,
+          "verse_start": 1,
+          "verse_end": 14,
+          "grade": "acceptable",
+          "reason": "Мария, 2026-09-05: устраивает (без разделения relevant/acceptable)"
         }
       ]
     },
@@ -363,6 +403,30 @@
           "verse_end": 8,
           "grade": "relevant",
           "reason": "«Спокойно ложусь я и сплю, ибо Ты, Господи, един даёшь мне жить в безопасности» — прямое попадание в тему бессонницы и тревоги."
+        },
+        {
+          "book_number": 40,
+          "chapter": 11,
+          "verse_start": 27,
+          "verse_end": 30,
+          "grade": "acceptable",
+          "reason": "Мария, 2026-09-05: устраивает (без разделения relevant/acceptable)"
+        },
+        {
+          "book_number": 19,
+          "chapter": 16,
+          "verse_start": 1,
+          "verse_end": 11,
+          "grade": "acceptable",
+          "reason": "Мария, 2026-09-05: устраивает (без разделения relevant/acceptable)"
+        },
+        {
+          "book_number": 19,
+          "chapter": 116,
+          "verse_start": 1,
+          "verse_end": 9,
+          "grade": "acceptable",
+          "reason": "Мария, 2026-09-05: устраивает (без разделения relevant/acceptable)"
         }
       ]
     },
@@ -426,6 +490,14 @@
           "verse_end": 5,
           "grade": "relevant",
           "reason": "«Пошли свет Твой и истину Твою, да ведут они меня» — прямая молитва о свете и водительстве."
+        },
+        {
+          "book_number": 43,
+          "chapter": 12,
+          "verse_start": 42,
+          "verse_end": 50,
+          "grade": "acceptable",
+          "reason": "Мария, 2026-09-05: устраивает (без разделения relevant/acceptable)"
         }
       ]
     },
@@ -498,6 +570,14 @@
           "verse_end": 30,
           "grade": "relevant",
           "reason": "«Придите ко Мне, все труждающиеся и обременённые… и найдёте покой душам вашим» — прямое обещание мира душе."
+        },
+        {
+          "book_number": 19,
+          "chapter": 62,
+          "verse_start": 1,
+          "verse_end": 12,
+          "grade": "acceptable",
+          "reason": "Мария, 2026-09-05: устраивает (без разделения relevant/acceptable)"
         }
       ]
     },
@@ -551,6 +631,14 @@
           "verse_end": 26,
           "grade": "unacceptable",
           "reason": "«Я звала, и вы не послушались… посмеюсь вашей погибели» — отказ в помощи, противоположно нужде."
+        },
+        {
+          "book_number": 23,
+          "chapter": 43,
+          "verse_start": 1,
+          "verse_end": 13,
+          "grade": "acceptable",
+          "reason": "Мария, 2026-09-05: устраивает (без разделения relevant/acceptable)"
         }
       ]
     },
@@ -675,6 +763,14 @@
           "verse_end": 6,
           "grade": "unacceptable",
           "reason": "Императивный псалом «сокруши зубы их» — про врагов, разжигает вражду."
+        },
+        {
+          "book_number": 46,
+          "chapter": 3,
+          "verse_start": 8,
+          "verse_end": 12,
+          "grade": "acceptable",
+          "reason": "Мария, 2026-09-05: устраивает (без разделения relevant/acceptable)"
         }
       ]
     },
