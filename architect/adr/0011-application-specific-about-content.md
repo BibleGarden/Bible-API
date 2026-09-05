@@ -1,6 +1,11 @@
 # ADR 0011: Application-specific About content
 
-Status: Accepted
+Status: accepted (2026-09-05).
+Ticket: none — delivered as GitHub PR #3; the Lampada client change lives in
+the Lampada workspace.
+
+The website URL below is the host `BibleGarden/Site` already publishes Lampada
+at (`Site/lampada/`, `Deploy/prod-topology.md`), not a new domain.
 
 ## Context
 

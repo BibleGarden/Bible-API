@@ -57,8 +57,8 @@ system prompt is a code constant now, not an environment value.
 - **`excerpt.py`** — Core content endpoint: `excerpt_with_alignment`. No COALESCE, no voice_manual_fixes (manual fixes already applied during import). Also owns `prev_excerpt`/`next_excerpt` navigation, which walks the books of *this* translation and steps over the ones it ships no text for (see "Navigation across books without text" below)
 - **`canon.py`** — chapter structure of the 66-book canon (`CANONICAL_BOOKS`, 1189 chapters) plus the per-translation exceptions; the single source of "how many chapters a book is expected to have" for `/translations/{code}/books` and for excerpt navigation (see "Chapter coverage" below)
 - **`audio.py`** — MP3 file serving with HTTP Range request support
-- **`about.py`** — About page content
-- **`version_check.py`** — App version check
+- **`about.py`** — About page content, per application: `GET /api/about?app=` selects `bible-garden` (the default, byte-for-byte the pre-2026-09-05 response for released clients) or `lampada` (own website URL/subtitles and description, shared Telegram and GitHub). Unknown values are a 422; the response model and the API key are unchanged, and the selector is **not** an authorization boundary (PR #3, `architect/adr/0011-application-specific-about-content.md`)
+- **`version_check.py`** — App version check (Bible Garden only: `LATEST_VERSION`, the App Store URL and the messages name that app — Lampada has no selector here yet)
 - **`import_data.py`** — Import data from Dashboard-API
 - **`twinkler_ai.py`** — Server-prompted AI integration with in-memory rate limiting: `POST /api/ai/question` (Gemini or an OpenAI-compatible endpoint, per `AI_QUESTION_PROVIDER`) and `POST /api/ai/transcribe` (Gemini only) — see `architect/twinkler-ai.md`
 - **`llm_client.py`** — the OpenAI-compatible chat-completions transport (`ChatClient`, `AsyncChatClient`): payload, `<think>` stripping, answer extraction, and the shared `gemini_retry` budget/retry policy. Prompts and parsers stay in the stage modules, so both transports send the same bytes (ADR 0009)
