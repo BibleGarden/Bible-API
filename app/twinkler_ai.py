@@ -18,6 +18,7 @@ from config import (
 )
 from question_prompt import QUESTION_PROMPT
 from rate_limit import RateLimiter, RateLimitError
+from safety import SAFETY_REPLY_VERSION, check_input, check_reply, safety_reply
 
 router = APIRouter()
 MODEL_PATTERN = re.compile(r"^[a-zA-Z0-9._-]+$")
@@ -237,7 +238,8 @@ async def transcribe(audio: bytes, mime_type: str, locale: str | None) -> str:
     description=(
         "Sends the user message to the server-configured Gemini model with a "
         "server-side system prompt. The Gemini API key is never exposed to "
-        "the client."
+        "the client. A message showing despair or self-harm is answered with "
+        "a fixed supportive text in the same language and no model is called."
     ),
     responses={
         403: {"model": ErrorResponse, "description": "Invalid or missing API key"},
@@ -269,12 +271,43 @@ async def twinkler_complete(
 ) -> CompleteResponse:
     client_key = resolve_client_ip(http_request)
     await _enforce_rate_limit(client_key)
+
+    # The despair rule is code, not an instruction a provider may or may not
+    # follow (app/safety.py, ClickUp 86cbegg23). Tier 1 answers here and the
+    # model is never called; the reservation above is deliberately kept — the
+    # client got a reply, and the quota must not depend on what was in it.
+    finding = check_input(request.user)
+    if finding.matched:
+        logger.warning(
+            "Safety rule fired on the request: tier=%d pattern=%s language=%s "
+            "reply_version=%d",
+            finding.tier,
+            finding.pattern_id,
+            finding.language,
+            SAFETY_REPLY_VERSION,
+        )
+        return CompleteResponse(text=safety_reply(finding.language))
+
     try:
         text = await complete(request.user)
     except GeminiError as error:
         # Log the failure category, but never the prayer text or provider key.
         logger.warning("Twinkler AI request failed: %s", error)
         raise HTTPException(status_code=502, detail="AI service unavailable") from error
+
+    # Tier 2: the message carried a weaker despair signal and the model
+    # answered it with a question anyway. Replace the answer, keep the fact.
+    guard = check_reply(request.user, text)
+    if guard.matched:
+        logger.warning(
+            "Safety rule fired on the model reply: tier=%d pattern=%s "
+            "language=%s reply_version=%d",
+            guard.tier,
+            guard.pattern_id,
+            guard.language,
+            SAFETY_REPLY_VERSION,
+        )
+        text = safety_reply(guard.language)
     return CompleteResponse(text=text)
 
 

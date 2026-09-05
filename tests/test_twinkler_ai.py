@@ -22,12 +22,24 @@ import client_ip
 import middleware
 import question_prompt
 import rate_limit
+import safety
 from main import app
 from trusted_proxies import TrustedProxies
 
+from pathlib import Path
 
 client = TestClient(app)
 real_reserve_rate_limit = twinkler_ai._reserve_rate_limit
+EVALUATION = Path(__file__).resolve().parent.parent / "evaluation"
+
+
+def _probe_text(probe_id: str) -> str:
+    payload = json.loads(
+        (EVALUATION / "question_probe_inputs.json").read_text(encoding="utf-8")
+    )
+    return next(
+        probe["text"] for probe in payload["inputs"] if probe["id"] == probe_id
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -141,6 +153,135 @@ def test_returns_generated_text(monkeypatch):
     assert response.status_code == 200
     assert response.json() == {"text": "Ответ"}
     generated.assert_awaited_once_with("Запрос")
+
+
+# --- the despair rule lives in code (ClickUp 86cbegg23) -------------------
+#
+# The measurement of 2026-09-05 (86cbegctz) had Qwen3-30B answer the explicit
+# despair input with a guiding question in 3 samples out of 3 while Gemini
+# dropped the format as instructed. So the endpoint no longer depends on the
+# instruction: `app/safety.py` decides, and these tests pin both tiers at the
+# level the client sees. The detector itself is tested in tests/test_safety.py.
+
+
+def test_an_explicit_despair_message_never_reaches_the_model(monkeypatch):
+    generated = AsyncMock(return_value="Ты сейчас очень одинок?")
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+
+    response = client.post(
+        "/api/ai/question",
+        headers={"X-API-Key": "test-api-key"},
+        json={"user": _probe_text("probe-despair")},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"text": safety.SAFETY_REPLIES["ru"]}
+    generated.assert_not_awaited()
+    assert "?" not in response.json()["text"]
+
+
+def test_the_fixed_reply_still_costs_a_request_slot(monkeypatch, allow_ai_requests):
+    """A tier-1 answer consumes the client's quota like any other answer.
+
+    Deliberate: the short-circuit happens after the reservation, so the limit
+    counts replies, not provider calls, and one code path cannot be used to
+    probe the endpoint for free.
+    """
+    monkeypatch.setattr(twinkler_ai, "complete", AsyncMock(return_value="unused"))
+
+    response = client.post(
+        "/api/ai/question",
+        headers={"X-API-Key": "test-api-key"},
+        json={"user": _probe_text("probe-despair")},
+    )
+
+    assert response.status_code == 200
+    allow_ai_requests.assert_called_once_with("testclient")
+
+
+def test_a_weak_signal_answered_with_a_question_is_replaced(monkeypatch):
+    """Tier 2: the model was asked, and answered the wrong way."""
+    generated = AsyncMock(return_value="What would you like to tell God?")
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+    # en-005 of the approved scenarios, as the app sends a conversation.
+    user = "Feeling worthless\nI keep thinking everyone would be fine without me."
+
+    response = client.post(
+        "/api/ai/question",
+        headers={"X-API-Key": "test-api-key"},
+        json={"user": user},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"text": safety.SAFETY_REPLIES["en"]}
+    generated.assert_awaited_once_with(user)
+
+
+def test_a_weak_signal_answered_warmly_keeps_the_model_answer(monkeypatch):
+    """Tier 2 is a floor under the answer, not a replacement for a good one."""
+    warm = "You are not alone in this, and it matters that you are still here."
+    monkeypatch.setattr(twinkler_ai, "complete", AsyncMock(return_value=warm))
+
+    response = client.post(
+        "/api/ai/question",
+        headers={"X-API-Key": "test-api-key"},
+        json={"user": "I am so tired of living"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"text": warm}
+
+
+def test_an_ordinary_message_is_untouched_by_either_tier(monkeypatch):
+    generated = AsyncMock(return_value="Что тебе сейчас труднее всего?")
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+    user = _probe_text("probe-tech")
+
+    response = client.post(
+        "/api/ai/question",
+        headers={"X-API-Key": "test-api-key"},
+        json={"user": user},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"text": "Что тебе сейчас труднее всего?"}
+    generated.assert_awaited_once_with(user)
+
+
+@pytest.mark.parametrize(
+    ("user", "reply", "expected", "private_words"),
+    [
+        (
+            "Я больше не хочу жить, началась паника",
+            "Ты сейчас очень одинок?",
+            "tier=1 pattern=ru.no-wish-to-live language=ru",
+            ("больше", "жить", "паника", "одинок", "сейчас"),
+        ),
+        (
+            "Feeling worthless\nEveryone would be fine without me",
+            "What hurts the most right now?",
+            "tier=2 pattern=en.better-without-me language=en",
+            ("worthless", "Everyone", "fine", "hurts"),
+        ),
+    ],
+)
+def test_the_safety_log_records_the_rule_and_not_the_message(
+    monkeypatch, caplog, user, reply, expected, private_words
+):
+    monkeypatch.setattr(twinkler_ai, "complete", AsyncMock(return_value=reply))
+
+    with caplog.at_level("WARNING", logger="twinkler_ai"):
+        response = client.post(
+            "/api/ai/question",
+            headers={"X-API-Key": "test-api-key"},
+            json={"user": user},
+        )
+
+    assert response.status_code == 200
+    assert expected in caplog.text
+    assert f"reply_version={safety.SAFETY_REPLY_VERSION}" in caplog.text
+    for word in private_words:
+        assert word not in caplog.text
 
 
 def test_ignores_forwarded_for_from_untrusted_peer(monkeypatch, allow_ai_requests):
