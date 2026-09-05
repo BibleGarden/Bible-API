@@ -29,6 +29,7 @@ EVALUATION = Path(__file__).resolve().parents[1] / "evaluation"
 TOOL = EVALUATION / "gen_questions.py"
 PROBES = EVALUATION / "question_probe_inputs.json"
 SCENARIOS = EVALUATION / "scenarios.json"
+SERIES = EVALUATION / "question_series_inputs.json"
 
 pytestmark = pytest.mark.skipif(
     not TOOL.exists(), reason="evaluation/ is not present in this container copy"
@@ -210,3 +211,153 @@ def test_the_dry_run_shows_what_the_despair_rule_reads(capsys):
     printed = capsys.readouterr().out
     # `next` with no history: the topic is NOT substituted for a reply.
     assert "despair rule reads: nothing (no reply of theirs)" in printed
+
+
+# ---------------------------------------------------------------------------
+# Replacement series (ClickUp 86cbehyez)
+# ---------------------------------------------------------------------------
+
+def series_inputs() -> list[dict]:
+    return json.loads(SERIES.read_text(encoding="utf-8"))["inputs"]
+
+
+def series_only(*extra: str) -> list[str]:
+    return ["--scenarios", "", "--probes", "", "--series", str(SERIES), *extra]
+
+
+def test_every_series_input_is_a_request_the_endpoint_accepts():
+    """The same guarantee the probe file has: a run must not measure a body
+    `POST /api/ai/question` would answer with a 422."""
+    payload = json.loads(SERIES.read_text(encoding="utf-8"))
+
+    assert payload["version"] == "1.0.0"
+    for item in payload["inputs"]:
+        assert item["kind"] in ("single", "series"), item["id"]
+        if item["kind"] == "series":
+            assert item["replacements"] >= 2, item["id"]
+        as_request(item)  # raises if the history breaks a rule of the contract
+
+
+def test_the_journal_case_is_the_observed_one_verbatim():
+    """`series-scale-ru` is quoted from Maria's prayer journal (86cbehtkh).
+
+    Pinned word for word: the point of the input is that it is the case she
+    reported, and an "improved" wording would make the baseline describe some
+    other conversation.
+    """
+    case = next(item for item in series_inputs() if item["id"] == "series-scale-ru")
+
+    assert case["stage"] == "next"
+    assert case["replacements"] == 6
+    assert case["topic"] == "Понять масштаб целей на завтра"
+    assert [message["role"] for message in case["messages"]] == [
+        "assistant", "user", "assistant", "user"
+    ]
+    texts = [message["text"] for message in case["messages"]]
+    assert texts[0] == (
+        "Что сейчас внутри тебя, когда ты только начинаешь молитву?"
+    )
+    assert texts[1].startswith("Я рада тому, что сегодня немало сделано.")
+    assert texts[1].endswith("а то путаница.")
+    assert texts[2] == (
+        "А что, если завтра окажется, что всё, что ты сегодня считал готовым, "
+        "всё ещё не совсем то, что нужно?"
+    )
+    assert texts[3] == (
+        "Ну буду доделывать. Я все делаю для Господа, стараюсь сделать очень "
+        "качественно"
+    )
+
+
+def test_a_series_becomes_that_many_calls_and_carries_the_person_s_words():
+    inputs, skipped = tool.load_inputs(None, None, SERIES)
+
+    assert skipped == []
+    by_id = {entry["id"]: entry for entry in inputs}
+    assert by_id["series-scale-ru"]["steps"] == 6
+    assert by_id["series-scale-ru"]["is_series"] is True
+    assert by_id["gratitude-ru-first"]["steps"] == 1
+    assert by_id["gratitude-ru-first"]["is_series"] is False
+    # The gender heuristic reads these from the artifact alone.
+    assert by_id["series-exhaustion-uk"]["person_words"] == [
+        "Немає сил, прошу відпочинку",
+        "Третій місяць працюю без вихідних, бо колега звільнився. Учора "
+        "заснула просто в одязі, навіть не вимкнула світло.",
+    ]
+
+
+def _run_series(monkeypatch, tmp_path, *extra: str):
+    """Run the tool over one series with the provider call stubbed out."""
+    sent: list[str] = []
+
+    def fake_call(client, url, api_key, model, user, prompt):
+        sent.append(user)
+        return f"Ответ номер {len(sent)}?"
+
+    monkeypatch.setattr(tool, "call_qwen", fake_call)
+    monkeypatch.setattr(
+        tool, "call_gemini",
+        lambda *a, **k: pytest.fail("the gemini path must not be used here"),
+    )
+    out = tmp_path / "run.jsonl"
+    argv = series_only(
+        "--only", "series-gratitude-ru", "--samples", "1",
+        "--provider", "qwen", "--endpoint", "https://example.invalid/v1",
+        "--model", "test-model", "--out", str(out), *extra,
+    )
+    assert tool.main(argv) == 0
+    records = [
+        json.loads(line)
+        for line in out.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    meta = json.loads(
+        (tmp_path / "run.jsonl.meta.json").read_text(encoding="utf-8")
+    )
+    return sent, records, meta
+
+
+def test_every_replacement_sends_the_identical_body(monkeypatch, tmp_path):
+    """The mechanism the ticket rests on: today a replacement is the SAME
+    request, so the only thing that can differ between two of them is
+    sampling. Asserted from the calls, not from the documentation."""
+    sent, records, meta = _run_series(monkeypatch, tmp_path)
+
+    assert len(sent) == 5 == len(records)
+    assert len(set(sent)) == 1
+    assert [record["step"] for record in records] == [1, 2, 3, 4, 5]
+    assert {record["series_id"] for record in records} == {"series-gratitude-ru"}
+    assert {record["sample"] for record in records} == {1}
+    assert all(record["series_steps"] == 5 for record in records)
+    assert all(record["skipped_questions"] == [] for record in records)
+    assert meta["accumulate_skipped"] is False
+    assert meta["records_expected"] == meta["records_written"] == 5
+    assert meta["series"] == {"series-gratitude-ru": 5}
+    # The sidecar names the host and never a key, a query string or a path.
+    assert meta["endpoint"] == "https://example.invalid"
+    assert "test-model" == meta["model"]
+
+
+def test_accumulate_skipped_folds_the_previous_questions_in(monkeypatch, tmp_path):
+    """The preview of subtask 86cbehyfe — off by default, and visible when on."""
+    sent, records, meta = _run_series(monkeypatch, tmp_path, "--accumulate-skipped")
+
+    assert len(set(sent)) == 5  # every step now sends a different body
+    assert "Ответ номер 1?" not in sent[0]
+    assert "Ответ номер 1?" in sent[1]
+    assert "Ответ номер 4?" in sent[4]
+    # They land in the block the production message builder renders them in.
+    asked, _, answered = sent[4].partition("Что человек ответил")
+    assert "Уже прозвучали вопросы:" in asked
+    assert "Ответ номер 4?" in asked and "Ответ номер 4?" not in answered
+    assert records[4]["skipped_questions"] == [f"Ответ номер {n}?" for n in (1, 2, 3, 4)]
+    assert meta["accumulate_skipped"] is True
+
+
+def test_the_dry_run_says_which_bytes_a_replacement_repeats(capsys):
+    assert tool.main(["--dry-run", *series_only("--only", "series-scale-ru")]) == 0
+
+    printed = capsys.readouterr().out
+    assert "series of 6 replacements" in printed
+    assert "every replacement sends exactly these bytes again" in printed
+    assert "Уже прозвучали вопросы:" in printed

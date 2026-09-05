@@ -665,8 +665,12 @@ def opening(text: str) -> str:
 def gender_mismatch(question: str, person_words: list[str]) -> bool:
     """She wrote of herself in the feminine; the question answers in the masculine.
 
-    Requires a second-person pronoun in the question, so «сын сказал» and
-    «колега звільнився» do not fire. Still a heuristic — see the block comment.
+    A second-person pronoun must be somewhere in the question, which drops a
+    question that speaks ONLY about a third person («Что изменилось, когда сын
+    сказал это?» carries no «ты»/«тебе» and cannot fire). It does **not** tell a
+    third-person verb from an address when both are in the same sentence:
+    «Что тебе сказал сын?» matches `сказал` and `тебе` and fires wrongly.
+    Still a heuristic — see the block comment above.
     """
     hers = set()
     for text in person_words:
@@ -766,6 +770,53 @@ def render_series(runs: dict[str, list[dict]]) -> list[str]:
     return lines
 
 
+def sample_series(records: list[dict]) -> dict[str, dict]:
+    """The samples of a NON-series input, read as a series.
+
+    A replacement re-sends the identical body (ClickUp 86cbehyez), so N
+    independent samples of one input are the same experiment as an N-step
+    series — which is exactly what the `single` inputs of
+    `question_series_inputs.json` are there to show, `first` among them, a
+    stage no series covers. Grouped by input, ordered by `sample`, measured
+    with `series_metrics`; inputs with a single sample say nothing and are
+    left out.
+    """
+    grouped: dict[str, list[dict]] = {}
+    for record in records:
+        if record.get("series_id"):
+            continue
+        grouped.setdefault(record["id"], []).append(record)
+    report = {}
+    for input_id, rows in sorted(grouped.items()):
+        if len(rows) < 2:
+            continue
+        report[input_id] = series_metrics(
+            sorted(rows, key=lambda row: row["sample"])
+        )
+    return report
+
+
+def render_sample_series(runs: dict[str, list[dict]]) -> list[str]:
+    lines = [
+        "| прогон | вход | сэмплов | доля уникальных зачинов | "
+        "макс. похожесть | точных повторов | род не сходится |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    any_rows = False
+    for name, records in runs.items():
+        for input_id, item in sample_series(records).items():
+            any_rows = True
+            lines.append(
+                f"| {name} | `{input_id}` | {item['steps']} | "
+                f"{item['opening_share']:.2f} | {item['max_similarity']:.2f} | "
+                f"{item['duplicate_pairs']} | "
+                f"{item['gender_flags']}/{item['steps']} |"
+            )
+    if not any_rows:
+        return ["_в этих артефактах нет входов с несколькими сэмплами._"]
+    return lines
+
+
 def render_series_transcript(
     records: list[dict], series_id: str, sample: int
 ) -> list[str]:
@@ -786,6 +837,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--markdown", action="store_true",
         help="print the README tables instead of the console summary",
+    )
+    parser.add_argument(
+        "--samples-as-series", action="store_true",
+        help="also measure the samples of every non-series input as if they "
+             "were a series — which is what they are when the body is "
+             "identical (ClickUp 86cbehyez). This is the command behind the "
+             "«одиночные входы» table of the README.",
     )
     parser.add_argument(
         "--transcript", default="",
@@ -883,14 +941,36 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.transcript:
         wanted, _, sample = args.transcript.partition(":")
+        if sample and not sample.isdigit():
+            parser.error(f"--transcript: {sample!r} is not a sample number")
         number = int(sample) if sample else 1
+        printed = False
         for name, records in runs.items():
             lines = render_series_transcript(records, wanted, number)
             if not lines:
                 continue
+            printed = True
             print(f"{name} — `{wanted}`, сэмпл {number}\n")
             print("\n".join(lines))
             print()
+        if not printed:
+            # Silence would read as "the series is empty", and a mistyped id
+            # is the likeliest reason there is nothing to print.
+            known = sorted(
+                {
+                    record["series_id"]
+                    for records in runs.values()
+                    for record in records
+                    if record.get("series_id")
+                }
+            )
+            print(
+                f"no series `{wanted}` sample {number} in these artifacts"
+                + (f"; they hold: {', '.join(known)}" if known else
+                   "; they hold no series at all"),
+                file=sys.stderr,
+            )
+            return 1
         return 0
 
     if args.markdown:
@@ -904,6 +984,9 @@ def main(argv: list[str] | None = None) -> int:
         print("\n".join(render_sameness(runs)))
         print("\n#### Серии замен вопроса\n")
         print("\n".join(render_series(runs)))
+        if args.samples_as_series:
+            print("\n#### Одиночные входы: сэмплы одного и того же тела\n")
+            print("\n".join(render_sample_series(runs)))
         print("\n#### Кейс отчаяния: все сэмплы обоих провайдеров\n")
         print("\n".join(render_despair(runs)))
         return 0
@@ -949,6 +1032,15 @@ def main(argv: list[str] | None = None) -> int:
                 f"dup {item['duplicate_pairs']}  "
                 f"gender {item['gender_flags']}/{item['answers']}"
             )
+        if args.samples_as_series:
+            for input_id, item in sample_series(records).items():
+                print(
+                    f"  samples {input_id:<21} {item['steps']}x1 "
+                    f"openings {item['opening_share']:.2f}  "
+                    f"max sim {item['max_similarity']:.2f}  "
+                    f"dup {item['duplicate_pairs']}  "
+                    f"gender {item['gender_flags']}/{item['steps']}"
+                )
     return 0
 
 

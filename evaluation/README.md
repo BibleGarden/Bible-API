@@ -5625,6 +5625,8 @@ python3 gen_questions.py --provider qwen \
 python3 check_questions.py bench_data/questions_qwen30b_v3_series.jsonl
 python3 check_questions.py bench_data/questions_qwen30b_v3_series.jsonl --markdown
 python3 check_questions.py bench_data/questions_qwen30b_v3_series.jsonl \
+  --samples-as-series                   # + таблица одиночных входов ниже
+python3 check_questions.py bench_data/questions_qwen30b_v3_series.jsonl \
   --transcript series-scale-ru:1        # серия целиком, по шагам
 ```
 
@@ -5669,7 +5671,8 @@ python3 check_questions.py bench_data/questions_qwen30b_v3_series.jsonl \
 | `series-choice-en` | 6 x 5 | 0.43 | 0.56 / 1.00 | 1 | 0/30 |
 
 Одиночные входы того же набора (6 независимых сэмплов одного и того же тела —
-ровно то же самое, что делает замена):
+ровно то же самое, что делает замена; печатает `--samples-as-series`, там же
+покрыт `stage: first`, которого нет ни в одной серии):
 
 | вход | уникальных зачинов | макс. похожесть | род не сходится |
 |---|---|---|---|
