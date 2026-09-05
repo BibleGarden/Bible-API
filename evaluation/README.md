@@ -4707,6 +4707,18 @@ rewrite отказывает, боевая колонка теряет имен�
 отказывается работать, когда два чтения `chunks.jsonl` разошлись; tripwire
 отклоняет чужой хост и Gemini-клиент в правой колонке.
 
+### Переменные окружения запуска (2026-09-05, ADR 0009, ClickUp 86cbegg2f)
+
+`run_trace_picker.sh` пробрасывает через свой allow-list ещё четыре имени:
+`AI_QUESTION_PROVIDER`, `AI_SCRIPTURE_REWRITE_PROVIDER`,
+`AI_SCRIPTURE_RERANK_PROVIDER` и `AI_OPENAI_COMPAT_ENDPOINT`. Причина —
+`trace_picker.py` делает `import config` из `app/`, а после ADR 0009 (провайдер
+на каждый чат-этап) этот импорт падает без трёх `AI_*_PROVIDER`, названных в
+`.env`, и без `AI_OPENAI_COMPAT_ENDPOINT`, когда какой-то этап на
+`openai_compat`. `run_local_picker.sh` и `run_local_picker_qwen.sh` не
+трогались — `local_picker.py` `config` не импортирует, этого требования на
+него нет.
+
 
 ## Наводящие вопросы на Qwen (ClickUp 86cbegctz)
 
