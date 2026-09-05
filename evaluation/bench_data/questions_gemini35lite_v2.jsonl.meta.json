@@ -1,0 +1,41 @@
+{
+  "provider": "gemini",
+  "model": "gemini-3.5-flash-lite",
+  "endpoint": "https://generativelanguage.googleapis.com",
+  "date": "2026-09-05",
+  "ticket": "ClickUp 86cbegctz, 86cbegg3f",
+  "prompt": "app/question_prompt.build_question_prompt(detect_language(message))",
+  "prompt_version": 2,
+  "scenarios_file": "scenarios.json",
+  "probes_file": "question_probe_inputs.json",
+  "sampling": {
+    "temperature": 0.7,
+    "max_output_tokens": 1024,
+    "samples_per_input": 3,
+    "timeout_seconds": 180.0,
+    "sleep_between_calls_seconds": 4.2
+  },
+  "inputs_sent": 27,
+  "inputs_skipped": [
+    {
+      "id": "ru-009",
+      "reason": "empty conversation: CompleteRequest.user has min_length=1, so POST /api/ai/question answers 422 before the model is called — there is nothing to measure"
+    },
+    {
+      "id": "en-006",
+      "reason": "empty conversation: CompleteRequest.user has min_length=1, so POST /api/ai/question answers 422 before the model is called — there is nothing to measure"
+    },
+    {
+      "id": "uk-006",
+      "reason": "empty conversation: CompleteRequest.user has min_length=1, so POST /api/ai/question answers 422 before the model is called — there is nothing to measure"
+    },
+    {
+      "id": "probe-despair",
+      "reason": "app/safety.py answers this in code (tier 1, pattern ru.no-wish-to-live): POST /api/ai/question returns the fixed reply and never calls a provider, so there is no model answer to measure"
+    }
+  ],
+  "records_expected": 81,
+  "records_written": 81,
+  "records_failed": 0,
+  "partial": false
+}

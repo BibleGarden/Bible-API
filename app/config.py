@@ -862,7 +862,7 @@ AI_SCRIPTURE_PRIMARY_TRANSLATIONS = os.getenv(
 #
 # The system prompt of POST /api/ai/question used to be read here as
 # TWINKLER_SYSTEM_PROMPT. It is product behaviour, not deployment
-# configuration, and now lives in question_prompt.QUESTION_PROMPT.
+# configuration, and now lives in question_prompt.py.
 AI_CLIENT_HMAC_KEY = os.getenv("AI_CLIENT_HMAC_KEY", "").strip()
 
 # Whose X-Forwarded-For is believed (ClickUp 86cbbq6vz). Three ways to say it,

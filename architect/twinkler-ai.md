@@ -45,12 +45,99 @@ larger than 14 MiB return `413`, and unsupported audio types return `415`.
 
 ## System prompt
 
-The system prompt of `POST /api/ai/question` is the constant
-`QUESTION_PROMPT` in `app/question_prompt.py`, versioned by
-`QUESTION_PROMPT_VERSION` (currently `1`) in the same way as
-`query_rewrite.REWRITE_PROMPT_VERSION` and
+The system prompt of `POST /api/ai/question` lives in
+`app/question_prompt.py`, versioned by `QUESTION_PROMPT_VERSION` (currently
+`2`) in the same way as `query_rewrite.REWRITE_PROMPT_VERSION` and
 `passage_rerank.RERANK_PROMPT_VERSION`. Changing the wording means editing
 that file and bumping the version.
+
+Since v2 it is a **template with one placeholder** —
+`QUESTION_PROMPT_TEMPLATE` plus `build_question_prompt(language)` — rather
+than a single string; `tests/test_twinkler_ai.py` pins the template's hash and
+length, so no wording change can slip through without a version bump.
+
+### v2: the language is named, interpretation is banned (ClickUp 86cbegg3f, 2026-09-05)
+
+v1 told the model to detect the language itself. The provider measurement
+(86cbegctz) showed what that is worth on a local model: Qwen3-30B answered
+**6 of 81** in the wrong language — whole inputs at a time, the English
+`en-005` and `probe-joy` three samples each, in Ukrainian — and produced
+**5 interpretations** («Ты чувствуешь, что …?», «Ты боишься, что …?»).
+Gemini: 2 and 0.
+
+So v2 states the language instead of asking for it. `complete()` resolves it
+with **`safety.detect_language`** — the detector that already runs on every
+request for the despair rule, never a second one — and
+`build_question_prompt` substitutes the name in two places: inside the
+language rule and as the **last sentence** of the prompt ("Answer in
+Russian."). The language is resolved once per request and handed to whichever
+transport answers, so the two providers still send identical bytes (ADR 0009,
+pinned by the parity tests in `tests/test_llm_client.py`).
+
+`detect_language` returns `None` for a Cyrillic message that carries none of
+the four letters separating Russian from Ukrainian ("Помоги", "дякую"). Then
+the placeholder becomes `UNDETERMINED_LANGUAGE` — "exactly the language of the
+person's message", which is v1's behaviour — and **not** English: naming
+English over a Cyrillic message would manufacture the very violation this
+version removes. On the benchmark set the detector named the language for 22
+inputs of 27 and was never wrong.
+
+The other rules v2 adds are all about precision, never about warmth (Maria,
+2026-09-05: a prompt must not make the model faceless and monotonously
+positive — the tone sentence is v1's, unchanged, and no "be
+supportive/encouraging" was added):
+
+- do not name a feeling the person has not named, and do not offer one to
+  confirm — the constructions are listed by name in three languages;
+- anchor the question in something concrete they wrote and ask what is alive
+  for them in it — never how much they are suffering or whether they can
+  still bear it (Maria's note from the step-2 acceptance: on «я так устала от
+  работы, помоги найти покой» Qwen asked «Ты действительно чувствуешь, что
+  больше не можешь?», thickening the state into a test for despair);
+- never ask for a fact that only fills in the model's picture — a name, a
+  date, an address, a schedule — and ask an **open** question, never a yes/no
+  one, and never a rhetorical formula whose answer is already inside it
+  («Бог рядом?»). These two sentences exist because the first draft of v2 had
+  only "ask about something concrete" and both providers turned into
+  interviewers: «Как зовут дочку …?», «Де саме ви зупинятиметесь дорогою?»,
+  and Gemini slipped into the polite register in 11 answers of 60.
+
+Result on the same inputs, 3 samples each: language violations **0/81** and
+interpretations **0/81** on Qwen (clean answers 65/81 → **81/81**), and Gemini
+went 75/81 → **81/81** on the same prompt, so v2 does not cost the external
+provider anything either. Numbers, tables and every answer verbatim:
+`evaluation/README.md`, "Промпт наводящего вопроса v2".
+
+**The despair sentence is not in v2.** It moved to `app/safety.py` (below),
+and a prompt carrying a rule it no longer enforces would invite the next
+reader to trust it.
+
+### What the structured request must keep (ClickUp 86cbegmzz, next)
+
+The mobile app is moving from one `user` string to `topic` + `stage` +
+`messages`, and the server will assemble the stage instructions itself. Two
+things in v2 are built for that and must survive it:
+
+- **The language seam is a function of text, not of the request.**
+  `twinkler_ai.question_prompt_for(text)` resolves the language and builds
+  the prompt; today it is handed the whole `user` string, and the structured
+  version hands it the **last user message** instead. Nothing else changes —
+  `detect_language` and `build_question_prompt` never see the request shape.
+  Detect on the person's own words only: an assistant question already in the
+  conversation must not vote on the language of the answer.
+- **The language, no-interpretation, open-question and register rules are
+  independent of layout** and belong to the person, not to the stage. The one
+  sentence in v2 that *is* about layout — "The incoming message may contain
+  the whole conversation so far rather than a single line. Respond to the most
+  recent thing the person said, and never repeat a question you have already
+  asked." — is exactly what the stage blocks replace: the "questions already
+  asked" and "what the person answered" sections say it structurally. Replace
+  that sentence, keep the rest, and bump the version.
+- The `reflect` stage asks for a closing question that helps formulate a
+  takeaway. That is still one question, so the form rules hold; if it ever
+  stops being a question, `question`/`len160` in
+  `evaluation/check_questions.py` need a per-stage expectation the way
+  `expect_question` works today.
 
 It used to be the environment variable `TWINKLER_SYSTEM_PROMPT`. That was the
 wrong home for it: the prompt is product behaviour, not a deployment knob, so
@@ -71,7 +158,7 @@ configured" narrowed accordingly (below).
 
 ## The despair rule is code, not an instruction (ClickUp 86cbegg23)
 
-The last sentence of `QUESTION_PROMPT` is the only rule that is not about
+The last sentence of the v1 prompt was the only rule that is not about
 style: on despair, self-harm or thoughts of suicide the companion must drop
 the question format and say plainly that the person should not stay alone
 with this. The provider measurement of 2026-09-05 (ClickUp 86cbegctz) showed
@@ -85,9 +172,25 @@ model at all (the strategic goal of the AI contour).
 So the rule moved into `app/safety.py`: a dictionary plus regular expressions
 for ru / uk / en, no model, no network call, nothing to be unavailable. It
 behaves identically whatever `AI_QUESTION_MODEL` names, which is the entire
-point. The prompt keeps its sentence — a model that also obeys it produces a
-better, personal answer, and this code is the floor under that, not a
-replacement for it.
+point.
+
+The prompt kept the sentence for one version — a model that also obeys it
+produces a better, personal answer — and **prompt v2 dropped it** (ClickUp
+86cbegg3f): tier 1 never lets an explicit message reach the model, so the
+sentence could only ever apply to messages the code had already decided were
+not despair. `evaluation/gen_questions.py` follows the same logic and no
+longer sends `probe-despair` to a provider at all.
+
+Dropping it is not free, and the price is measurable on the artifacts of both
+runs (replay `safety.check_reply` over them): the messages it could still
+reach are exactly the **tier-2** ones. On `en-005` ("I keep thinking everyone
+would be fine without me") Gemini answered v1 with a warm non-question in 2
+samples of 3 — the sentence doing its job — and answers v2 with a question in
+3 of 3, so tier 2 now replaces all three with the fixed reply (Qwen was 3/3
+replaced under both versions). The floor is unchanged and no one is left
+without it; what changes is how often a person on the weak signal gets the
+fixed text rather than an answer written for them. Worth re-checking if the
+tier-2 corpus grows.
 
 ### Two tiers
 
@@ -173,7 +276,8 @@ is worldwide, so it points at someone close first and at emergency help
 generically.
 
 The texts are a code constant versioned by `SAFETY_REPLY_VERSION` (currently
-`1`), exactly as `QUESTION_PROMPT` is versioned by `QUESTION_PROMPT_VERSION`,
+`2`), exactly as the question prompt is versioned by
+`QUESTION_PROMPT_VERSION`,
 and `tests/test_safety.py` pins their hash so a wording change cannot happen
 without a version bump. There is deliberately **no** environment variable: a
 knob here would let two deployments answer a person in crisis differently
@@ -212,8 +316,9 @@ the transport differs.
 
 **On `gemini`** the service calls
 `POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent`
-with the user message as user content and `QUESTION_PROMPT` as
-`system_instruction`; clients cannot override it. `GEMINI_API_KEY` is sent
+with the user message as user content and the built prompt
+(`build_question_prompt`, see "System prompt") as `system_instruction`;
+clients cannot override it. `GEMINI_API_KEY` is sent
 only in the `x-goog-api-key` header. The request sets `maxOutputTokens` to
 `1024` and `temperature` to `0.7`, and `AI_QUESTION_TIMEOUT_SECONDS`
 (default 20 — the literal this call carried before it became a variable)
@@ -221,8 +326,8 @@ caps it, per httpx phase as it always has.
 
 **On `openai_compat`** (`app/llm_client.AsyncChatClient`) it calls
 `POST {AI_QUESTION_ENDPOINT or AI_OPENAI_COMPAT_ENDPOINT}/chat/completions`
-with `QUESTION_PROMPT` as the system message and the user message as the user
-message, `temperature` `0.7` and `max_tokens` `1024`. The key travels in an
+with the same built prompt as the system message and the user message as the
+user message, `temperature` `0.7` and `max_tokens` `1024`. The key travels in an
 `Authorization: Bearer` header, and only when there is one — an empty
 `AI_OPENAI_COMPAT_API_KEY` is the explicit "this endpoint is
 unauthenticated". No `response_format` is requested: this answer is prose for

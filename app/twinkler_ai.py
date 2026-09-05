@@ -19,9 +19,15 @@ from config import (
     QUESTION_PROVIDER,
 )
 from llm_client import AsyncChatClient, LLMError
-from question_prompt import QUESTION_PROMPT
+from question_prompt import build_question_prompt
 from rate_limit import RateLimiter, RateLimitError
-from safety import SAFETY_REPLY_VERSION, check_input, check_reply, safety_reply
+from safety import (
+    SAFETY_REPLY_VERSION,
+    check_input,
+    check_reply,
+    detect_language,
+    safety_reply,
+)
 
 router = APIRouter()
 MODEL_PATTERN = re.compile(r"^[a-zA-Z0-9._-]+$")
@@ -72,6 +78,21 @@ class AIError(RuntimeError):
 GeminiError = AIError
 
 
+def question_prompt_for(text: str) -> str:
+    """The system prompt to answer `text` with (prompt v2, ClickUp 86cbegg3f).
+
+    One seam, on purpose: the prompt needs a *language*, and the language
+    comes from whatever text the caller considers the person's own words.
+    Today `POST /api/ai/question` takes a single `user` field carrying the
+    whole conversation, so that whole string is what is passed. When the
+    request becomes structured (topic + stage + messages, ClickUp 86cbegmzz)
+    the caller passes the last user message here instead and nothing else
+    changes — the detector is a pure function of the text it is given, and
+    `build_question_prompt` never sees the request shape at all.
+    """
+    return build_question_prompt(detect_language(text))
+
+
 def _reserve_rate_limit(client_key: str) -> None:
     """Book one Twinkler AI slot; limits are read at call time."""
     _limiter.reserve(
@@ -112,10 +133,11 @@ def _extract_text(data: Any) -> str:
     ).strip()
 
 
-async def _complete_openai_compat(user: str) -> str:
+async def _complete_openai_compat(user: str, prompt: str) -> str:
     """The question stage on an OpenAI-compatible endpoint (ADR 0009).
 
-    Same prompt (`QUESTION_PROMPT`), same generation settings (temperature
+    Same prompt (built once by the caller, so both transports send the same
+    bytes), same generation settings (temperature
     0.7, 1024 output tokens) and the same public failure — `AIError`, which
     the handler turns into `502 AI service unavailable` without provider
     detail. `json_object` is deliberately off: this answer is prose for a
@@ -134,7 +156,7 @@ async def _complete_openai_compat(user: str) -> str:
     )
     try:
         text = await client.complete(
-            QUESTION_PROMPT, user, json_object=False, temperature=0.7
+            prompt, user, json_object=False, temperature=0.7
         )
     except LLMError as error:
         raise AIError(f"question failed: {error}") from None
@@ -154,16 +176,24 @@ async def complete(user: str) -> str:
     `AI_QUESTION_MODEL` is also a 502, but is unreachable in practice: with
     a key set, an unnamed model aborts startup (ADR 0008).
 
-    Since 2026-08-30 the system prompt is the code constant
-    `question_prompt.QUESTION_PROMPT`, so the two guards this function used
+    Since 2026-08-30 the system prompt is code
+    (`app/question_prompt.py`), so the two guards this function used
     to carry — "prompt is not configured" and "prompt is too long" — are
     gone: neither can be true of a reviewed literal, and keeping them would
     have pretended a code change could arrive at runtime. What remains
     configurable is exactly what the deployment supplies: the provider (ADR
     0009), the key and the model name.
+
+    Since prompt v2 (2026-09-05, ClickUp 86cbegg3f) the prompt names the
+    language to answer in, resolved by `safety.detect_language` — the same
+    detector the despair rule runs on the same message, never a second one.
+    It is resolved ONCE, through `question_prompt_for`, and handed to
+    whichever transport answers, so the two providers keep sending identical
+    bytes.
     """
+    prompt = question_prompt_for(user)
     if QUESTION_PROVIDER.is_openai_compat:
-        return await _complete_openai_compat(user)
+        return await _complete_openai_compat(user, prompt)
     if not GEMINI_API_KEY:
         raise GeminiError("GEMINI_API_KEY is not configured")
     if not MODEL_PATTERN.fullmatch(AI_QUESTION_MODEL):
@@ -174,7 +204,7 @@ async def complete(user: str) -> str:
         f"{AI_QUESTION_MODEL}:generateContent"
     )
     payload = {
-        "system_instruction": {"parts": [{"text": QUESTION_PROMPT}]},
+        "system_instruction": {"parts": [{"text": prompt}]},
         "contents": [{"role": "user", "parts": [{"text": user}]}],
         "generationConfig": {
             "maxOutputTokens": 1024,

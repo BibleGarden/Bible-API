@@ -4,10 +4,11 @@ Generate answers of the "leading question" feature (`POST /api/ai/question`)
 for the evaluation inputs, on either provider (ClickUp 86cbegctz).
 
 The endpoint is a single provider call: `system_instruction` =
-`app/question_prompt.QUESTION_PROMPT` (v1), `contents` = the one user message
-the app sends (it packs the WHOLE conversation into that one string),
-temperature 0.7, maxOutputTokens 1024. This tool reproduces exactly that call
-against two providers so the answers are comparable:
+`app/question_prompt.build_question_prompt(safety.detect_language(message))`,
+`contents` = the one user message the app sends (it packs the WHOLE
+conversation into that one string), temperature 0.7, maxOutputTokens 1024.
+This tool reproduces exactly that call against two providers so the answers
+are comparable:
 
 * `--provider gemini` — the production path, byte for byte: the same REST URL
   shape, the same payload, the same `x-goog-api-key` header as
@@ -66,8 +67,14 @@ sys.path.insert(0, str(HERE.parent / "app"))
 # `question_prompt` imports nothing — not even `config` — which is exactly why
 # it was split out of `twinkler_ai.py` (see its module docstring). So the
 # production prompt can be imported here without the fail-fast environment
-# dance the other generators need.
-from question_prompt import QUESTION_PROMPT, QUESTION_PROMPT_VERSION  # noqa: E402
+# dance the other generators need. `safety` imports only `prompt_safety`, both
+# of them from `app/`, for the same reason: the language the prompt names is
+# resolved by THE production detector, never by a copy of it living here.
+from question_prompt import (  # noqa: E402
+    QUESTION_PROMPT_VERSION,
+    build_question_prompt,
+)
+from safety import check_input, detect_language  # noqa: E402
 
 SCENARIOS_FILE = HERE / "scenarios.json"
 PROBE_FILE = HERE / "question_probe_inputs.json"
@@ -211,15 +218,40 @@ def conversation_text(context: dict) -> str:
 def load_inputs(scenarios_path: Path, probes_path: Path) -> tuple[list[dict], list[dict]]:
     """(inputs to send, inputs skipped with a reason).
 
-    `empty` scenarios are the skipped ones: the request model declares
-    `user: str = Field(min_length=1, ...)`, so an empty conversation is
-    rejected with 422 by FastAPI and the model is never called. Sending a
-    space instead would measure a request the app cannot make.
+    Two kinds of input are skipped, both because the endpoint itself never
+    sends them to a provider — measuring them would measure a request the app
+    cannot make:
+
+    * `empty` scenarios: the request model declares
+      `user: str = Field(min_length=1, ...)`, so an empty conversation is
+      rejected with 422 by FastAPI before the handler runs. Sending a space
+      instead would not be the same request.
+    * anything `safety.check_input` catches (tier 1): since ClickUp 86cbegg23
+      the despair rule is code, so `probe-despair` is answered by
+      `app/safety.py` with the fixed reply and the model is never called. It
+      stayed in the v1 measurement because the rule was still an instruction
+      in the prompt then; from v2 it is not, and a model answer to it would
+      grade a code path the model no longer has.
     """
     dataset = json.loads(scenarios_path.read_text(encoding="utf-8"))
     probes = json.loads(probes_path.read_text(encoding="utf-8"))
     inputs: list[dict] = []
     skipped: list[dict] = []
+
+    def answered_in_code(entry: dict) -> bool:
+        finding = check_input(entry["text"])
+        if not finding.matched:
+            return False
+        skipped.append({
+            "id": entry["id"],
+            "reason": (
+                f"app/safety.py answers this in code (tier {finding.tier}, "
+                f"pattern {finding.pattern_id}): POST /api/ai/question returns "
+                "the fixed reply and never calls a provider, so there is no "
+                "model answer to measure"
+            ),
+        })
+        return True
 
     for scenario in dataset["scenarios"]:
         text = conversation_text(scenario["prayer_context"])
@@ -241,6 +273,8 @@ def load_inputs(scenarios_path: Path, probes_path: Path) -> tuple[list[dict], li
                 ),
             })
             continue
+        if answered_in_code(entry):
+            continue
         inputs.append(entry)
 
     for probe in probes["inputs"]:
@@ -254,13 +288,15 @@ def load_inputs(scenarios_path: Path, probes_path: Path) -> tuple[list[dict], li
         }
         if probe.get("avoid_question"):
             entry["avoid_question"] = probe["avoid_question"]
+        if answered_in_code(entry):
+            continue
         inputs.append(entry)
 
     return inputs, skipped
 
 
 def call_qwen(
-    client: httpx.Client, url: str, api_key: str, model: str, user: str
+    client: httpx.Client, url: str, api_key: str, model: str, user: str, prompt: str
 ) -> str:
     """One OpenAI-compatible chat completion with the production pair."""
     headers = {"Content-Type": "application/json"}
@@ -269,7 +305,7 @@ def call_qwen(
     payload = {
         "model": model,
         "messages": [
-            {"role": "system", "content": QUESTION_PROMPT},
+            {"role": "system", "content": prompt},
             {"role": "user", "content": user},
         ],
         "temperature": TEMPERATURE,
@@ -289,11 +325,11 @@ def call_qwen(
 
 
 def call_gemini(
-    client: httpx.Client, url: str, api_key: str, user: str
+    client: httpx.Client, url: str, api_key: str, user: str, prompt: str
 ) -> str:
     """One `:generateContent` call — the payload of `twinkler_ai.complete`."""
     payload = {
-        "system_instruction": {"parts": [{"text": QUESTION_PROMPT}]},
+        "system_instruction": {"parts": [{"text": prompt}]},
         "contents": [{"role": "user", "parts": [{"text": user}]}],
         "generationConfig": {
             "maxOutputTokens": MAX_OUTPUT_TOKENS,
@@ -330,19 +366,27 @@ def generate_one(
     entry: dict,
     sample: int,
 ) -> dict:
-    """One sample for one input, with the transport ladder and wall time."""
+    """One sample for one input, with the transport ladder and wall time.
+
+    The prompt is built per input, exactly as `twinkler_ai.complete` builds
+    it: since v2 it names the language the detector resolved for THIS message
+    (`None` — the detector has no evidence — is a case the prompt itself
+    handles, see `question_prompt.UNDETERMINED_LANGUAGE`).
+    """
     started = time.monotonic()
     attempts = 0
     last_error = ""
     text = ""
+    prompt_language = detect_language(entry["text"])
+    prompt = build_question_prompt(prompt_language)
 
     while attempts < TRANSPORT_ATTEMPTS:
         attempts += 1
         try:
             if args.provider == "gemini":
-                text = call_gemini(client, url, api_key, entry["text"])
+                text = call_gemini(client, url, api_key, entry["text"], prompt)
             else:
-                text = call_qwen(client, url, api_key, model, entry["text"])
+                text = call_qwen(client, url, api_key, model, entry["text"], prompt)
             break
         except (httpx.HTTPError, ValueError) as exc:
             last_error = transport_error(exc) if isinstance(exc, httpx.HTTPError) \
@@ -362,6 +406,11 @@ def generate_one(
         "expect_question": entry["expect_question"],
         "provider": args.provider,
         "model": model,
+        # What the prompt was told to answer in, `null` when the detector had
+        # no evidence — the one number that says whether a language violation
+        # is the model's or the detector's.
+        "prompt_language": prompt_language,
+        "prompt_version": QUESTION_PROMPT_VERSION,
         "text": text,
         "latency_ms": int((time.monotonic() - started) * 1000),
         "attempts": attempts,
@@ -386,8 +435,8 @@ def build_meta(
         "model": model,
         "endpoint": url_host,
         "date": date.today().isoformat(),
-        "ticket": "ClickUp 86cbegctz",
-        "prompt": "app/question_prompt.QUESTION_PROMPT",
+        "ticket": "ClickUp 86cbegctz, 86cbegg3f",
+        "prompt": "app/question_prompt.build_question_prompt(detect_language(message))",
         "prompt_version": QUESTION_PROMPT_VERSION,
         "scenarios_file": args.scenarios,
         "probes_file": args.probes,

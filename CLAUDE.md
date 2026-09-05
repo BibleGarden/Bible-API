@@ -62,7 +62,7 @@ system prompt is a code constant now, not an environment value.
 - **`import_data.py`** — Import data from Dashboard-API
 - **`twinkler_ai.py`** — Server-prompted AI integration with in-memory rate limiting: `POST /api/ai/question` (Gemini or an OpenAI-compatible endpoint, per `AI_QUESTION_PROVIDER`) and `POST /api/ai/transcribe` (Gemini only) — see `architect/twinkler-ai.md`
 - **`llm_client.py`** — the OpenAI-compatible chat-completions transport (`ChatClient`, `AsyncChatClient`): payload, `<think>` stripping, answer extraction, and the shared `gemini_retry` budget/retry policy. Prompts and parsers stay in the stage modules, so both transports send the same bytes (ADR 0009)
-- **`question_prompt.py`** — the system prompt of `POST /api/ai/question` as a versioned constant (`QUESTION_PROMPT`, `QUESTION_PROMPT_VERSION`), the way `query_rewrite`/`passage_rerank` version theirs; moved out of `TWINKLER_SYSTEM_PROMPT` on 2026-08-30
+- **`question_prompt.py`** — the system prompt of `POST /api/ai/question` as a versioned template (`QUESTION_PROMPT_TEMPLATE`, `build_question_prompt`, `QUESTION_PROMPT_VERSION` — **2** since 2026-09-05, ClickUp 86cbegg3f), the way `query_rewrite`/`passage_rerank` version theirs; moved out of `TWINKLER_SYSTEM_PROMPT` on 2026-08-30. v2 names the answer language in the prompt (resolved by `safety.detect_language`, one placeholder), bans interpreting the person's feelings back at them, and no longer carries the despair sentence — that rule is `safety.py`
 - **`safety.py`** — the despair / self-harm rule of `POST /api/ai/question` in code rather than in the prompt (ru/uk/en dictionary + regex, no model, no network): tier 1 answers the versioned fixed reply (`SAFETY_REPLIES`, `SAFETY_REPLY_VERSION`) without calling the provider, tier 2 replaces a model reply that came back as a question for a weaker despair signal. Reason: Qwen3-30B answered the explicit despair input with a question 3/3 while Gemini obeyed the prompt (ClickUp 86cbegctz/86cbegg23) — see `architect/twinkler-ai.md`, "The despair rule is code"
 - **`scripture_select.py`** — Public scripture-selection endpoint `POST /api/ai/scripture` over `retrieval.select_final`; owns the process-local corpus cache: vector + BM25 indexes, Psalm maps, catalogue, coverage sets (see `architect/scripture-select.md`, `architect/adr/0006-scripture-select-api.md`, `architect/adr/0007-reference-translation-rendering.md`)
 - **`passage_render.py`** — renders a canonical passage window in a translation that has no chunk corpus (coordinates through `psalm_verse_mappings`, text from `translation_verses` with `chunking.build_text` semantics) and builds the per-translation coverage sets used to filter candidates before the rerank (ADR 0007)
@@ -735,15 +735,26 @@ doing its job. Production `.env` is rebuilt with the new names at deploy time
 (checklist 86cb8wdp4), not by this change.
 
 **`TWINKLER_SYSTEM_PROMPT` is gone.** The system prompt of
-`/api/ai/question` is the versioned constant `QUESTION_PROMPT` in
-`app/question_prompt.py` (`QUESTION_PROMPT_VERSION = 1`), carried over from
-the local `.env` byte for byte. A prompt is product behaviour, not a
+`/api/ai/question` is versioned code in `app/question_prompt.py`
+(`QUESTION_PROMPT_VERSION`), carried over from the local `.env` byte for byte
+as v1. A prompt is product behaviour, not a
 deployment knob: as a variable it could silently differ between local and
 production and every test run had to inject a stand-in. It is public from
 this date (public repository, owner-approved: never a secret, no key
 material). The old runtime guards "prompt is not configured" / "too long"
 were removed from `complete()` — a reviewed literal cannot violate them —
 and their invariants are asserted in `tests/test_twinkler_ai.py` instead.
+
+**`QUESTION_PROMPT_VERSION = 2` since 2026-09-05** (ClickUp 86cbegg3f): the
+constant became `QUESTION_PROMPT_TEMPLATE` + `build_question_prompt(language)`
+with one placeholder — the language to answer in, resolved per request by
+`safety.detect_language` (the detector the despair rule already runs) and
+named twice, including as the last sentence. v2 also bans naming a feeling
+the person did not name and asking for facts instead of an open question, and
+drops the despair sentence (that rule is `app/safety.py`). Measured: Qwen's
+language violations 6/81 → 0/81, interpretations 5/81 → 0/81, clean answers
+65/81 → 81/81, and Gemini 75/81 → 81/81 on the same prompt
+(`evaluation/README.md`, "Промпт наводящего вопроса v2").
 
 The request statistics store the path verbatim, so `api_requests` and
 `api_request_daily_stats` carry the old names before the rename and the new

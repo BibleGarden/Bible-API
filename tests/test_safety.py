@@ -514,7 +514,7 @@ def test_the_fixed_replies_are_versioned():
 
     assert isinstance(version, int) and version >= 1
     # Pins the wording itself, the way test_twinkler_ai.py pins
-    # QUESTION_PROMPT. If this fails, a crisis reply changed: update the hash
+    # the question prompt. If this fails, a crisis reply changed: update the hash
     # together with a bump of SAFETY_REPLY_VERSION.
     joined = "\n".join(safety.SAFETY_REPLIES[lang] for lang in ("ru", "uk", "en"))
     assert (

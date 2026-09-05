@@ -28,7 +28,8 @@ Ticket: none — owner-directed policy change following the incident below.
 > was the very thing this ADR objects to — an unset value silently produced a
 > different answer (a 502 instead of a reply), and two deployments could run
 > different prompts with identical, valid-looking configuration. It is now the
-> reviewed, versioned code constant `question_prompt.QUESTION_PROMPT`. Moving
+> reviewed, versioned code of `app/question_prompt.py` (a single constant
+> until prompt v2 made it a template, 2026-09-05). Moving
 > it out of the environment removes a whole class of misconfiguration instead
 > of validating it: see `architect/twinkler-ai.md`.
 

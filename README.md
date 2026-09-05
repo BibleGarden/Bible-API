@@ -124,11 +124,13 @@ a startup error on `gemini`. Rolling back to Gemini therefore means removing
 See
 `architect/adr/0010-local-embeddings-bge-m3.md`.
 
-The system prompt is **not** configurable: it is the versioned constant
-`QUESTION_PROMPT` in `app/question_prompt.py`. It is product behaviour, is
+The system prompt is **not** configurable: it is the versioned
+`QUESTION_PROMPT_TEMPLATE` in `app/question_prompt.py`, filled per request by
+`build_question_prompt` with the one thing that varies — the language to
+answer in, detected from the message itself. It is product behaviour, is
 reviewed and diffed like the rest of the code, and cannot drift between
 environments. Changing it means editing that file and bumping
-`QUESTION_PROMPT_VERSION`.
+`QUESTION_PROMPT_VERSION` (currently `2`).
 
 There are no defaults for the model names in the code. Once `GEMINI_API_KEY`
 is set, `AI_QUESTION_MODEL`, `AI_TRANSCRIBE_MODEL`,

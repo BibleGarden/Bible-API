@@ -22,12 +22,15 @@ The rules, one per column of the summary:
 | `no_punishment` | "never suggest that someone's pain is a punishment"          |
 | `no_repeat`     | "never repeat a question you have already asked"             |
 
-The despair input is the exception the prompt itself names: there the format
+The despair input is the exception the prompt itself named: there the format
 must be dropped, so `question` inverts (any question mark is a violation) and
 `len160` does not apply — "one or two warm sentences" is longer than a line
 by design. `support` is reported beside it (does the answer actually say not
 to stay alone with this / point somewhere) but is a soft signal, not a rule:
-the wording varies too much to grade by substring.
+the wording varies too much to grade by substring. **These columns only ever
+have data in a v1 artifact.** Since ClickUp 86cbegg23 the rule is
+`app/safety.py`, so `gen_questions.py` no longer sends the despair input to a
+provider at all and prompt v2 no longer carries the sentence.
 
 Usage:
 
@@ -420,6 +423,128 @@ def render_despair(runs: dict[str, list[dict]]) -> list[str]:
     return lines
 
 
+# ---------------------------------------------------------------------------
+# Sameness: are the questions interchangeable between prayers?
+# ---------------------------------------------------------------------------
+# Maria's question of 2026-09-05 (ClickUp 86cbegg3f), and the one thing the
+# per-rule table cannot show: an answer can pass every rule and still be the
+# same answer everyone gets. A question that fits a bereavement and a job offer
+# equally well is not a question about this person's prayer.
+#
+# Two numbers, both computed from the artifacts alone:
+#
+# 1. **distinct** — how many different texts the run produced at all
+#    (whitespace flattened, case folded; nothing else, so a real rewording
+#    counts as different).
+# 2. **shared** — clusters of (near-)identical answers that span TWO OR MORE
+#    different inputs. Near-identical is the `repeats()` measure the
+#    `no_repeat` rule already uses (Jaccard ≥ 0.7 over word sets), so the
+#    threshold is not a second invention. Answers repeated across the samples
+#    of ONE input are a different phenomenon (temperature, not
+#    interchangeability) and are counted separately.
+
+SAMENESS_THRESHOLD = 0.7
+
+
+def _flatten(text: str) -> str:
+    return " ".join(text.split())
+
+
+def sameness(records: list[dict]) -> dict:
+    """Distinct texts, cross-input clusters, and per-input identical samples."""
+    answered = [r for r in records if r.get("text")]
+    texts = [(r["id"], _flatten(r["text"])) for r in answered]
+    distinct = {text.casefold() for _, text in texts}
+
+    # Union-find over the pairs that are near-copies of each other.
+    parent = list(range(len(texts)))
+
+    def find(index: int) -> int:
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    def union(left: int, right: int) -> None:
+        left, right = find(left), find(right)
+        if left != right:
+            parent[right] = left
+
+    for i in range(len(texts)):
+        for j in range(i + 1, len(texts)):
+            if texts[i][1].casefold() == texts[j][1].casefold() or repeats(
+                texts[i][1], texts[j][1]
+            ):
+                union(i, j)
+
+    clusters: dict[int, list[int]] = {}
+    for index in range(len(texts)):
+        clusters.setdefault(find(index), []).append(index)
+
+    shared = []
+    for members in clusters.values():
+        ids = sorted({texts[index][0] for index in members})
+        if len(ids) < 2:
+            continue
+        variants = sorted({texts[index][1] for index in members})
+        shared.append({
+            "inputs": ids,
+            "answers": variants,
+            "verbatim": len(variants) == 1,
+        })
+    shared.sort(key=lambda item: (-len(item["inputs"]), item["inputs"]))
+
+    identical_samples = sorted(
+        input_id
+        for input_id in {record["id"] for record in answered}
+        if len({
+            _flatten(r["text"]) for r in answered if r["id"] == input_id
+        }) == 1
+        and sum(1 for r in answered if r["id"] == input_id) > 1
+    )
+    return {
+        "answers": len(answered),
+        "distinct": len(distinct),
+        "shared": shared,
+        "identical_samples": identical_samples,
+    }
+
+
+def render_sameness(runs: dict[str, list[dict]]) -> list[str]:
+    lines = [
+        "| прогон | ответов | различных текстов | кластеров на 2+ входа | "
+        "входов с тремя одинаковыми сэмплами |",
+        "|---|---|---|---|---|",
+    ]
+    reports = {name: sameness(records) for name, records in runs.items()}
+    for name, report in reports.items():
+        lines.append(
+            f"| {name} | {report['answers']} | {report['distinct']} | "
+            f"{len(report['shared'])} | {len(report['identical_samples'])} |"
+        )
+    for name, report in reports.items():
+        if not report["shared"] and not report["identical_samples"]:
+            continue
+        lines.append("")
+        lines.append(f"**{name}**")
+        lines.append("")
+        if report["shared"]:
+            for item in report["shared"]:
+                kind = "дословно" if item["verbatim"] else "почти дословно"
+                lines.append(
+                    f"* {kind} на входах {', '.join('`' + i + '`' for i in item['inputs'])}: "
+                    + " / ".join(f"«{shorten(text, 90)}»" for text in item["answers"])
+                )
+        else:
+            lines.append("* взаимозаменяемых ответов между входами нет")
+        if report["identical_samples"]:
+            lines.append(
+                "* все сэмплы совпали внутри входа: "
+                + ", ".join(f"`{i}`" for i in report["identical_samples"])
+            )
+    return lines
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Automatic prompt-compliance checks over gen_questions.py artifacts."
@@ -451,7 +576,23 @@ def main(argv: list[str] | None = None) -> int:
                 # the source files; the id is the stable key anyway.
                 "text": record.get("input_text", record["id"]),
             })
+        # The column label. Two runs of the SAME model differ only by the
+        # prompt version (v1 vs v2 of 86cbegg3f), so the version is part of
+        # the name — without it the second file silently replaced the first
+        # under an identical key. The version comes from the record, then
+        # from the sidecar, and the file name is the last resort.
         name = f"{records[0]['provider']} ({records[0]['model']})"
+        version = records[0].get("prompt_version")
+        if version is None:
+            sidecar = path.with_name(path.name + ".meta.json")
+            if sidecar.exists():
+                version = json.loads(
+                    sidecar.read_text(encoding="utf-8")
+                ).get("prompt_version")
+        if version is not None:
+            name += f", промпт v{version}"
+        if name in runs:
+            name = f"{name} [{path.stem}]"
         runs[name] = records
 
     # Enrich the labels from the source sets when they are where we expect.
@@ -477,6 +618,8 @@ def main(argv: list[str] | None = None) -> int:
         print("\n".join(render_latency(runs)))
         print("\n#### По входам (лучший из 3 сэмплов по автопроверкам)\n")
         print("\n".join(render_per_input(runs, inputs)))
+        print("\n#### Взаимозаменяемость вопросов\n")
+        print("\n".join(render_sameness(runs)))
         print("\n#### Кейс отчаяния: все сэмплы обоих провайдеров\n")
         print("\n".join(render_despair(runs)))
         return 0
@@ -504,6 +647,15 @@ def main(argv: list[str] | None = None) -> int:
         ]
         if undecided:
             print(f"  language undecided on {len(undecided)} answers")
+        report = sameness(records)
+        print(
+            f"  distinct texts {report['distinct']}/{report['answers']}, "
+            f"{len(report['shared'])} cluster(s) shared by 2+ inputs, "
+            f"{len(report['identical_samples'])} input(s) with identical samples"
+        )
+        for item in report["shared"]:
+            print(f"    {'=' if item['verbatim'] else '~'} {', '.join(item['inputs'])}"
+                  f" — {shorten(item['answers'][0], 70)}")
     return 0
 
 

@@ -59,7 +59,8 @@ from query_rewrite import (
     build_rewrite_instruction,
     build_rewrite_user_content,
 )
-from question_prompt import QUESTION_PROMPT
+from question_prompt import build_question_prompt
+from safety import detect_language
 
 ENDPOINT = "https://llm.example:8443/v1"
 GEMINI_HOST = "generativelanguage.googleapis.com"
@@ -583,8 +584,45 @@ def test_question_parity_between_providers(monkeypatch):
 
     assert on_local == on_gemini == QUESTION_ANSWER
     assert captured["gemini"] == captured["openai_compat"]
-    assert captured["openai_compat"]["system"] == QUESTION_PROMPT
+    assert captured["openai_compat"]["system"] == build_question_prompt(
+        detect_language("Мне тяжело")
+    )
     assert captured["openai_compat"]["user"] == "Мне тяжело"
+
+
+@pytest.mark.parametrize(
+    ("message", "ending"),
+    [
+        ("Мне очень тяжело сейчас, я не сплю", "Answer in Russian."),
+        ("Син не дзвонить уже місяць", "Answer in Ukrainian."),
+        ("I got the job! Three years of trying", "Answer in English."),
+        # No evidence of ru vs uk: the prompt keeps v1's "detect it yourself"
+        # rather than inventing a language (86cbegg3f).
+        ("Помоги", "Answer in exactly the language of the person's message."),
+    ],
+)
+def test_the_language_named_in_the_prompt_is_the_same_on_both_providers(
+    monkeypatch, message, ending
+):
+    """Prompt v2 names the language — and both transports must name the same
+    one, or ADR 0009's "same bytes" claim would hold for v1 only."""
+    gemini, openai_compat, captured = both_transports(QUESTION_ANSWER)
+
+    monkeypatch.setattr(twinkler_ai, "GEMINI_API_KEY", "g")
+    monkeypatch.setattr(twinkler_ai, "AI_QUESTION_MODEL", "gemini-test")
+    monkeypatch.setattr(
+        twinkler_ai, "QUESTION_PROVIDER",
+        stage("question", "gemini-test", provider=config.PROVIDER_GEMINI, endpoint=""),
+    )
+    with mock_async(gemini):
+        asyncio.run(twinkler_ai.complete(message))
+
+    monkeypatch.setattr(twinkler_ai, "QUESTION_PROVIDER", stage("question"))
+    with mock_async(openai_compat):
+        asyncio.run(twinkler_ai.complete(message))
+
+    assert captured["gemini"] == captured["openai_compat"]
+    assert captured["gemini"]["system"].endswith(ending)
 
 
 def test_the_question_stage_asks_for_prose_not_json(monkeypatch):

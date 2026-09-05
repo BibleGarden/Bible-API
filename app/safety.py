@@ -1,10 +1,12 @@
 """
 Despair and self-harm detection for `POST /api/ai/question` (ClickUp 86cbegg23).
 
-`question_prompt.QUESTION_PROMPT` ends with the one rule that is not about
-style: when the person shows despair, self-harm or thoughts of suicide, the
-companion must drop the one-question format and say plainly that they should
-not stay alone with this. Gemini obeys it; the 2026-09-05 provider
+Prompt v1 ended with the one rule that is not about style: when the person
+shows despair, self-harm or thoughts of suicide, the companion must drop the
+one-question format and say plainly that they should not stay alone with
+this (v2 dropped that sentence — the rule is this module now, and a prompt
+carrying a rule it does not enforce misleads its next reader). Gemini obeyed
+the instruction; the 2026-09-05 provider
 measurement (ClickUp 86cbegctz) showed Qwen3-30B answering the explicit
 despair input with a guiding question in **3 samples out of 3**. A rule that
 matters this much cannot be an instruction one provider happens to follow —
@@ -50,8 +52,8 @@ request path, and it must stay that way: it is what still works when the
 provider does not.
 
 **Nothing here is configurable.** The reply texts are a reviewed code
-constant versioned by `SAFETY_REPLY_VERSION`, the way
-`question_prompt.QUESTION_PROMPT` is versioned by `QUESTION_PROMPT_VERSION`.
+constant versioned by `SAFETY_REPLY_VERSION`, the way the question prompt is
+versioned by `question_prompt.QUESTION_PROMPT_VERSION`.
 An environment variable would let two deployments answer a person in crisis
 differently with identical, valid-looking configuration — the class of
 failure ADR 0008 exists to remove.

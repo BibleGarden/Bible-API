@@ -59,24 +59,156 @@ def test_question_prompt_is_a_usable_constant():
     no longer exists, and the properties they protected are now asserted
     here, once, against the literal.
     """
-    prompt = question_prompt.QUESTION_PROMPT
-    assert isinstance(prompt, str)
-    assert prompt.strip() == prompt != ""
-    # The provider request budget the removed guard used to enforce.
-    assert len(prompt) <= 8000
+    template = question_prompt.QUESTION_PROMPT_TEMPLATE
+    assert isinstance(template, str)
+    assert template.strip() == template != ""
+    # The provider request budget the removed guard used to enforce — checked
+    # on what is actually sent, which is the filled template.
+    for language in ("ru", "uk", "en", None):
+        prompt = question_prompt.build_question_prompt(language)
+        assert prompt.strip() == prompt != ""
+        assert len(prompt) <= 8000
+        assert "{" not in prompt and "}" not in prompt
     # Pins the wording itself, not just its shape: if this fails, the
     # prompt text changed. Update the hash/len together with a bump of
     # QUESTION_PROMPT_VERSION (app/question_prompt.py says why).
-    assert len(prompt) == 1855
+    assert len(template) == 2335
     assert (
-        hashlib.sha256(prompt.encode("utf-8")).hexdigest()
-        == "b71e9f190e5f1dc7f6b05d01b737ea5439f12d1f192c2c2cfb5676fff4bb7559"
+        hashlib.sha256(template.encode("utf-8")).hexdigest()
+        == "3858a569ff894e7dfe89290115c0a8a1496e8b11179c5aff543de8cf9dd2010f"
     )
 
 
 def test_question_prompt_is_versioned():
     version = question_prompt.QUESTION_PROMPT_VERSION
     assert isinstance(version, int) and version >= 1
+    # v2 = the language/interpretation revision of 2026-09-05 (86cbegg3f);
+    # bumped together with the hash above.
+    assert version == 2
+
+
+# --- the prompt names the language of the message (ClickUp 86cbegg3f) -----
+#
+# v1 asked the model to detect the language itself and Qwen3-30B answered two
+# whole English inputs in Ukrainian (6 of 81 answers, measurement 86cbegctz).
+# v2 states the language instead, taken from the detector the despair rule
+# already runs on the same message.
+
+
+@pytest.mark.parametrize(
+    ("language", "name"),
+    [("ru", "Russian"), ("uk", "Ukrainian"), ("en", "English")],
+)
+def test_the_prompt_names_the_language_twice(language, name):
+    prompt = question_prompt.build_question_prompt(language)
+
+    assert f"ask your question in {name}, and in no other language" in prompt
+    # Repeated as the last sentence: the position a model loses last.
+    assert prompt.endswith(f"Answer in {name}.")
+    for other in ("Russian", "Ukrainian", "English"):
+        if other != name:
+            # The other names appear only inside the register rule
+            # ("Russian ty, Ukrainian ty") and the grammar rule, never as an
+            # instruction to answer in them.
+            assert f"Answer in {other}." not in prompt
+
+
+def test_an_undecidable_language_keeps_the_v1_instruction():
+    """`None` must not become English.
+
+    `detect_language` answers `None` for a Cyrillic message carrying none of
+    the four letters that separate Russian from Ukrainian ("Помоги"). Naming
+    English there would manufacture the very violation this version removes,
+    so the prompt falls back to v1's behaviour — the model decides — for
+    exactly those inputs.
+    """
+    prompt = question_prompt.build_question_prompt(None)
+
+    assert question_prompt.UNDETERMINED_LANGUAGE in prompt
+    assert "Answer in English." not in prompt
+    assert safety.detect_language("Помоги") is None
+
+
+def test_the_despair_sentence_left_the_prompt_for_safety_py():
+    """The rule is code now (86cbegg23); the prompt must not claim it too."""
+    template = question_prompt.QUESTION_PROMPT_TEMPLATE.lower()
+
+    for word in ("despair", "self-harm", "suicide", "emergency"):
+        assert word not in template
+
+
+def test_the_prompt_bans_interpreting_and_rhetorical_questions():
+    """Maria's two findings on the v1 measurement, in the wording itself."""
+    template = question_prompt.QUESTION_PROMPT_TEMPLATE
+
+    assert "Do not name a feeling they have not named themselves" in template
+    assert "'it sounds like you ...'" in template
+    assert "how much they are suffering" in template
+    assert "'Is God near?'" in template
+    # And the two rules that came out of the v2 measurement itself: without
+    # them both providers turned interrogative ("Как зовут дочку?", "У якому
+    # районі зараз твоє нове житло?") — concrete, and useless to pray with.
+    assert "never ask for a fact that only fills in your own picture" in template
+    assert "never one that can be answered with yes or no" in template
+    # And nothing was added to make the companion nicer (Maria, 2026-09-05:
+    # a prompt must not turn the model faceless and monotonously positive).
+    # The one tone sentence is v1's, unchanged.
+    assert template.count("Tone: warm and quiet.") == 1
+    for softener in ("supportive", "encourag", "positive", "comforting"):
+        assert softener not in template.lower()
+
+
+def test_the_prompt_is_built_from_whatever_text_it_is_given():
+    """The seam the structured request will move (ClickUp 86cbegmzz).
+
+    `question_prompt_for` is a pure function of the text handed to it, so the
+    follow-up that replaces the single `user` string with topic + stage +
+    messages passes the LAST user message here and nothing else changes.
+    """
+    conversation = (
+        "I have been praying about my father.\n"
+        "Що для тебе найважче в цьому мовчанні?\n"
+        "Мне страшно, что он снова скажет что-нибудь злое."
+    )
+    last_message = conversation.splitlines()[-1]
+
+    assert twinkler_ai.question_prompt_for(last_message).endswith(
+        "Answer in Russian."
+    )
+    assert twinkler_ai.question_prompt_for(
+        "I got the job! Three years of trying"
+    ).endswith("Answer in English.")
+
+
+def test_complete_names_the_language_of_the_message(monkeypatch):
+    """The system instruction follows the message, not a configured default."""
+    sent = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.append(json.loads(request.read()))
+        return httpx.Response(
+            200,
+            json={"candidates": [{"content": {"parts": [{"text": "Ответ"}]}}]},
+        )
+
+    transport = httpx.MockTransport(handler)
+    real_async_client = httpx.AsyncClient
+
+    monkeypatch.setattr(twinkler_ai, "GEMINI_API_KEY", "secret-test-key")
+    monkeypatch.setattr(
+        twinkler_ai.httpx,
+        "AsyncClient",
+        lambda *args, **kwargs: real_async_client(*args, transport=transport, **kwargs),
+    )
+
+    asyncio.run(twinkler_ai.complete("I got the job! Three years of trying"))
+    asyncio.run(twinkler_ai.complete("Син не дзвонить уже місяць"))
+
+    instructions = [
+        payload["system_instruction"]["parts"][0]["text"] for payload in sent
+    ]
+    assert instructions[0].endswith("Answer in English.")
+    assert instructions[1].endswith("Answer in Ukrainian.")
 
 
 def test_question_prompt_module_reads_no_environment_variable():
@@ -94,11 +226,11 @@ def test_question_prompt_module_reads_no_environment_variable():
     source = inspect.getsource(question_prompt)
     assert "environ" not in source
     assert "getenv" not in source
-    assert twinkler_ai.QUESTION_PROMPT == question_prompt.QUESTION_PROMPT
+    assert twinkler_ai.build_question_prompt is question_prompt.build_question_prompt
 
 
 def test_complete_sends_the_prompt_constant(monkeypatch):
-    """`complete()` sends QUESTION_PROMPT verbatim as the system instruction."""
+    """`complete()` sends the built prompt verbatim as the system instruction."""
     sent = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -119,7 +251,9 @@ def test_complete_sends_the_prompt_constant(monkeypatch):
 
     asyncio.run(twinkler_ai.complete("Запрос"))
     assert sent["system_instruction"]["parts"] == [
-        {"text": question_prompt.QUESTION_PROMPT}
+        {"text": question_prompt.build_question_prompt(
+            safety.detect_language("Запрос")
+        )}
     ]
 
 
@@ -488,7 +622,9 @@ def test_sends_expected_gemini_request(monkeypatch):
         assert request.headers["content-type"] == "application/json"
         assert json.loads(request.read()) == {
             "system_instruction": {
-                "parts": [{"text": question_prompt.QUESTION_PROMPT}]
+                "parts": [{"text": question_prompt.build_question_prompt(
+                    safety.detect_language("Запрос")
+                )}]
             },
             "contents": [{"role": "user", "parts": [{"text": "Запрос"}]}],
             "generationConfig": {"maxOutputTokens": 1024, "temperature": 0.7},
