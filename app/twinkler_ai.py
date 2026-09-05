@@ -6,7 +6,13 @@ from typing import Any, Literal
 import httpx
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 from auth import RequireAPIKey
 from client_ip import resolve_client_ip
@@ -69,6 +75,15 @@ _client_request_times = _limiter.client_request_times
 MAX_TOPIC_LENGTH = 2000
 MAX_MESSAGES = 40
 MAX_TOTAL_LENGTH = 16000
+# Questions the person was shown and asked to replace (ClickUp 86cbehyfe).
+# 10 and 300 are ceilings on a list of *our own* generated questions, each of
+# which the prompt keeps to one line of ~160 characters: a prayer that
+# replaced ten of them has told us everything a further one could, and an
+# entry twice the length of any question we produce is a client bug, not a
+# question. Both bound the block the model reads, on top of the shared
+# 16 000-character total.
+MAX_SKIPPED_QUESTIONS = 10
+MAX_SKIPPED_QUESTION_LENGTH = 300
 _LEGACY_FIELDS = ("user", "last_user_message")
 
 
@@ -104,6 +119,12 @@ class CompleteRequest(BaseModel):
     transitional support for the old field; both ends changed at once, the app
     is unpublished, and a request carrying `user` is answered with a 422 that
     says so.
+
+    `skipped_questions` joined it on the same day (ClickUp 86cbehyfe): the
+    "replace this question" button used to resend an identical body, so the
+    model could not know its question had been declined and offered the same
+    thought again. It is optional and defaults to empty — a request without it
+    is byte for byte the request the endpoint answered before.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -129,6 +150,40 @@ class CompleteRequest(BaseModel):
             "when the person answered nothing or forbade sending the answers"
         ),
     )
+    skipped_questions: list[str] = Field(
+        default_factory=list,
+        max_length=MAX_SKIPPED_QUESTIONS,
+        description=(
+            "Questions already shown to the person and left unanswered — "
+            "replaced or skipped — chronologically, every one of the current "
+            "prayer and none that is already in `messages`. Optional, empty "
+            "by default; at most 10 entries of at most 300 characters each, "
+            "counted with `topic` and `messages` against the same 16 000 "
+            "total. Empty for `first` (nothing has been shown yet)"
+        ),
+    )
+
+    @field_validator("skipped_questions")
+    @classmethod
+    def _drop_the_blanks_and_bound_each_entry(cls, value: list[str]) -> list[str]:
+        """Strip, drop the blanks, then bound what is left.
+
+        A blank entry is dropped rather than refused, unlike a blank
+        `messages` turn: these strings are **our own** questions being handed
+        back to us, so a stray empty one says nothing about the person and
+        refusing the request over it would cost them their next question. It
+        is also indistinguishable from the field being absent, which is a
+        request the endpoint must answer anyway. The bound is checked after
+        the strip, so trailing whitespace never decides a 422.
+        """
+        cleaned = [text.strip() for text in value if text.strip()]
+        for text in cleaned:
+            if len(text) > MAX_SKIPPED_QUESTION_LENGTH:
+                raise ValueError(
+                    f"each skipped_questions entry must not exceed "
+                    f"{MAX_SKIPPED_QUESTION_LENGTH} characters (got {len(text)})"
+                )
+        return cleaned
 
     @model_validator(mode="before")
     @classmethod
@@ -152,16 +207,31 @@ class CompleteRequest(BaseModel):
                 "stage 'first' is the opening question and takes no history: "
                 "send messages: [] (use stage 'next' to continue a conversation)"
             )
+        if self.stage == "first" and self.skipped_questions:
+            raise ValueError(
+                "stage 'first' is the opening question and takes no "
+                "skipped_questions: nothing has been shown to the person yet "
+                "(use stage 'next' after a question was replaced)"
+            )
         if self.messages and self.messages[-1].role != "user":
             raise ValueError(
                 "a non-empty history must end with a 'user' turn: the question "
                 "is asked about what the person said last"
             )
-        total = len(self.topic) + sum(len(message.text) for message in self.messages)
+        # The skipped questions are counted here as they are *stored* — the
+        # field validator above has already stripped them and dropped the
+        # blanks — while `topic` and the turns are counted raw, exactly as
+        # before. Whichever way it is counted, the ceiling is the client's own
+        # and the client is the side that decides what is ever sent.
+        total = (
+            len(self.topic)
+            + sum(len(message.text) for message in self.messages)
+            + sum(len(question) for question in self.skipped_questions)
+        )
         if total > MAX_TOTAL_LENGTH:
             raise ValueError(
-                f"topic and messages together must not exceed "
-                f"{MAX_TOTAL_LENGTH} characters (got {total})"
+                f"topic, messages and skipped_questions together must not "
+                f"exceed {MAX_TOTAL_LENGTH} characters (got {total})"
             )
         return self
 
@@ -227,8 +297,11 @@ def person_language_candidates(request: CompleteRequest) -> list[str]:
     first. Only their own words: an assistant question already in the
     conversation is *our* text and must never vote (an English answer to a
     Russian question is a language switch the person made, and the prompt
-    honours it). Blank texts are dropped, so the list is empty exactly when
-    the person contributed nothing.
+    honours it). `skipped_questions` is excluded for exactly that reason and
+    more strongly: those are our questions too, and the block around them is
+    Russian whatever language the prayer is in (ClickUp 86cbehyfe). Blank
+    texts are dropped, so the list is empty exactly when the person
+    contributed nothing.
     """
     replies = [
         message.text for message in request.messages if message.role == "user"
@@ -296,6 +369,11 @@ def safety_input_text(request: CompleteRequest) -> str | None:
     the person said nothing new, so nothing new can be found in it, and using
     the topic there would fire the fixed reply on every question of a prayer
     whose topic once carried the phrase.
+
+    `skipped_questions` is never read here either (ClickUp 86cbehyfe): those
+    are questions *we* generated, so a despair phrase can only be in one
+    because the model wrote it — and tier 2 already answers that case on the
+    reply itself, against the person's own last words.
 
     Tier 2's fixed reply still needs a *language*, and that is resolved
     separately by the caller through `language_source` — not by matching this
@@ -632,8 +710,10 @@ async def _transcribe_gemini(
         "key is never exposed to the client. The person's last reply is what "
         "the question is asked about: a reply showing despair or self-harm is "
         "answered with a fixed supportive text in the same language and no "
-        "model is called. `422` also covers the two shape rules: `first` "
-        "takes no history, and a non-empty history must end with a `user` "
+        "model is called. Questions the person asked to replace are sent in "
+        "`skipped_questions` so the next one takes another direction. `422` "
+        "also covers the shape rules: `first` takes neither history nor "
+        "skipped questions, and a non-empty history must end with a `user` "
         "turn."
     ),
     responses={
@@ -688,8 +768,12 @@ async def twinkler_complete(
         )
         return CompleteResponse(text=safety_reply(finding.language))
 
+    # `skipped_questions` reaches the model and nothing else: it is our own
+    # generated Russian text, so it votes on neither the answer's language
+    # (`language_source`, above) nor the despair rule (`safety_input_text`,
+    # above) — see architect/adr/0015-skipped-questions-in-question-request.md.
     user_message = build_user_message(
-        request.topic, request.stage, request.turns()
+        request.topic, request.stage, request.turns(), request.skipped_questions
     )
     try:
         text = await complete(user_message, language_source(request))

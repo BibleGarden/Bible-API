@@ -75,7 +75,7 @@ system prompt is a code constant now, not an environment value.
 - **`twinkler_ai.py`** — Server-prompted AI integration with in-memory rate limiting: `POST /api/ai/question` (Gemini or an OpenAI-compatible endpoint, per `AI_QUESTION_PROVIDER`) and `POST /api/ai/transcribe` (Whisper on a remote audio server, Whisper in this process, or Gemini — per `AI_TRANSCRIBE_PROVIDER`; the seam is `transcribe()`, everything around it is unchanged) — see `architect/twinkler-ai.md`
 - **`transcription.py`** — the two Whisper transports of `POST /api/ai/transcribe`: `RemoteTranscriber` (multipart `POST {endpoint}/audio/transcriptions`, the OpenAI **audio** API — the production provider) and `LocalTranscriber` (faster-whisper/CTranslate2 on this CPU, weights from a read-only volume, loaded once at start-up, run on a worker thread). Same contract as the Gemini path — verbatim, no translation, the locale a weak `language=` hint — and the same `502` on failure (`architect/adr/0012-speech-transcription-providers.md`)
 - **`llm_client.py`** — the OpenAI-compatible chat-completions transport (`ChatClient`, `AsyncChatClient`): payload, `<think>` stripping, answer extraction, and the shared `gemini_retry` budget/retry policy. Prompts and parsers stay in the stage modules, so both transports send the same bytes (ADR 0009)
-- **`question_prompt.py`** — the system prompt of `POST /api/ai/question` as a versioned template (`QUESTION_PROMPT_TEMPLATE`, `build_question_prompt`, `QUESTION_PROMPT_VERSION` — **3** since 2026-09-05, ClickUp 86cbegmzz) plus `build_user_message(topic, stage, messages)`, which assembles the per-stage instructions the mobile app used to build itself (verbatim, Russian in every language, as the client always sent them). Versioned the way `query_rewrite`/`passage_rerank` version theirs; moved out of `TWINKLER_SYSTEM_PROMPT` on 2026-08-30. v2 named the answer language in the prompt (resolved by `safety.detect_language`, one placeholder) and banned interpreting the person's feelings back at them; v3 removed the one sentence about the incoming layout ("the whole conversation so far … never repeat a question you have already asked") — the stage blocks say it structurally — and nothing else
+- **`question_prompt.py`** — the system prompt of `POST /api/ai/question` as a versioned template (`QUESTION_PROMPT_TEMPLATE`, `build_question_prompt`, `QUESTION_PROMPT_VERSION` — **3** since 2026-09-05, ClickUp 86cbegmzz) plus `build_user_message(topic, stage, messages, skipped_questions=())`, which assembles the per-stage instructions the mobile app used to build itself (verbatim, Russian in every language, as the client always sent them). Versioned the way `query_rewrite`/`passage_rerank` version theirs; moved out of `TWINKLER_SYSTEM_PROMPT` on 2026-08-30. v2 named the answer language in the prompt (resolved by `safety.detect_language`, one placeholder) and banned interpreting the person's feelings back at them; v3 removed the one sentence about the incoming layout ("the whole conversation so far … never repeat a question you have already asked") — the stage blocks say it structurally — and nothing else. The skipped-questions block of 86cbehyfe is **additive at v3**: rendered only when the new `skipped_questions` field is non-empty, so an old request keeps its bytes and the version does not move
 - **`safety.py`** — the despair / self-harm rule of `POST /api/ai/question` in code rather than in the prompt (ru/uk/en dictionary + regex, no model, no network): tier 1 answers the versioned fixed reply (`SAFETY_REPLIES`, `SAFETY_REPLY_VERSION`) without calling the provider, tier 2 replaces a model reply that came back as a question for a weaker despair signal. Reason: Qwen3-30B answered the explicit despair input with a question 3/3 while Gemini obeyed the prompt (ClickUp 86cbegctz/86cbegg23) — see `architect/twinkler-ai.md`, "The despair rule is code". Since 86cbegmzz, and since Maria's 2026-09-05 decision, **both tiers** read the person's **last reply** (the topic at `stage: first`, nothing at `next`/`reflect` with no history): a phrase that already got the fixed reply must not answer every later question of that prayer with it. Tier 2's fixed reply takes its **language** from the same source the prompt uses (`language_source`), not from the matched text, so it speaks the prayer's language rather than the tier-2 pattern's
 - **`scripture_select.py`** — Public scripture-selection endpoint `POST /api/ai/scripture` over `retrieval.select_final`; owns the process-local corpus cache: vector + BM25 indexes, Psalm maps, catalogue, coverage sets (see `architect/scripture-select.md`, `architect/adr/0006-scripture-select-api.md`, `architect/adr/0007-reference-translation-rendering.md`)
 - **`passage_render.py`** — renders a canonical passage window in a translation that has no chunk corpus (coordinates through `psalm_verse_mappings`, text from `translation_verses` with `chunking.build_text` semantics) and builds the per-translation coverage sets used to filter candidates before the rerank (ADR 0007)
@@ -1081,6 +1081,30 @@ language is — that is what the client always sent — which is exactly why the
 language is resolved separately: our own wrapper must not outvote an English
 prayer. Verbatim blocks, the 422 wordings and the reasoning:
 `architect/twinkler-ai.md`.
+
+**`skipped_questions` — the "replace question" button (ClickUp 86cbehyfe,
+2026-09-05).** Optional fourth field, `[string]`, default `[]`: the questions
+already shown to the person and left unanswered, chronological, all of the
+current prayer and **never one that is already in `messages`** (an answered
+question is an `assistant` turn, a replaced one is a skipped question — the two
+lists never overlap). Before it, "replace" resent an identical body, so the
+model could not know its question had been declined and looped on the same
+thought. Limits: ≤ 10 entries, ≤ 300 characters each after stripping, counted
+with `topic` and the turns against the same 16 000 total; blank entries are
+**dropped, not refused** (our own text coming back to us — unlike a `messages`
+turn, which is the person's words and must be non-empty); a non-empty list with
+`first` is a `422`. Rendered at `next` only — one block, «Человек попросил
+другой вопрос вместо этих:», plus one sentence of the instruction asking for
+another *direction* — and accepted-but-not-rendered at `reflect`, which by the
+86cbegmzz contract never shows our questions at all. It states what the person
+**did**, never that they disagreed with the thought: pressing "replace" is not
+an argument. `QUESTION_PROMPT_VERSION` stays **3** — a request without the
+field renders byte-identical bytes — and the wording is minimal on purpose: the
+prompt work is 86cbehyf8 (v4), the repetition filter is 86cbehyg0. The field
+reaches the **model and nothing else**: it votes on neither the answer's
+language nor either tier of the despair rule, because it is our own generated
+text in a Russian block whatever language the prayer is in
+(`architect/adr/0015-skipped-questions-in-question-request.md`).
 
 The request statistics store the path verbatim, so `api_requests` and
 `api_request_daily_stats` carry the old names before the rename and the new

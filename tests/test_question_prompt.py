@@ -251,6 +251,111 @@ def test_a_whitespace_only_turn_never_becomes_an_empty_bullet(question_stage):
     assert "\n\n" not in message
 
 
+# ---------------------------------------------------------------------------
+# skipped questions (ClickUp 86cbehyfe)
+# ---------------------------------------------------------------------------
+# Additive: the block and the extra sentence appear only when the list is
+# non-empty, so every golden string above is also the proof that a request
+# without the field still renders the v3 bytes — which is why
+# QUESTION_PROMPT_VERSION did not move.
+
+SKIPPED_HEADER = "Человек попросил другой вопрос вместо этих:\n"
+NEXT_SKIPPED_TAIL = (
+    "Задай один новый вопрос, который смотрит на ситуацию с другой стороны и "
+    "не повторяет прозвучавшие. Выбери другое направление, а не "
+    "переформулировку тех вопросов, и оттолкнись от того, что человек написал "
+    "сам. Ответь только текстом вопроса, без кавычек и пояснений."
+)
+
+
+@pytest.mark.parametrize("question_stage", STAGES)
+def test_no_skipped_questions_renders_exactly_what_v3_always_rendered(
+    question_stage,
+):
+    messages = [] if question_stage == "first" else [("user", "Ответ.")]
+
+    assert build_user_message(
+        "Тема", question_stage, messages, []
+    ) == build_user_message("Тема", question_stage, messages)
+    assert build_user_message(
+        "Тема", question_stage, messages, ["  ", "\n"]
+    ) == build_user_message("Тема", question_stage, messages)
+
+
+def test_next_lists_the_skipped_questions_and_asks_for_another_direction():
+    """The journal case of the ticket, verbatim."""
+    assert build_user_message(
+        "Понять масштаб целей на завтра",
+        "next",
+        [
+            ("assistant", "Что сейчас внутри тебя, когда ты только начинаешь молитву?"),
+            ("user", "Я рада тому, что сегодня немало сделано."),
+        ],
+        [
+            "А что, если завтра окажется, что всё, что ты сегодня считал "
+            "готовым, всё ещё не совсем то, что нужно?"
+        ],
+    ) == (
+        "Цель молитвы: «Понять масштаб целей на завтра».\n"
+        "Уже прозвучали вопросы:\n"
+        "— Что сейчас внутри тебя, когда ты только начинаешь молитву?\n"
+        "Человек попросил другой вопрос вместо этих:\n"
+        "— А что, если завтра окажется, что всё, что ты сегодня считал готовым, "
+        "всё ещё не совсем то, что нужно?\n"
+        "Что человек ответил (опирайся на это, но не цитируй дословно):\n"
+        "— Я рада тому, что сегодня немало сделано.\n" + NEXT_SKIPPED_TAIL
+    )
+
+
+def test_the_skipped_block_stands_on_its_own_without_any_history():
+    """Every question of the prayer was replaced, nothing was answered."""
+    assert build_user_message(
+        "", "next", [], ["Первый вопрос?", "Второй вопрос?"]
+    ) == (
+        "Молитва без конкретной темы.\n"
+        + SKIPPED_HEADER
+        + "— Первый вопрос?\n"
+        "— Второй вопрос?\n" + NEXT_SKIPPED_TAIL
+    )
+
+
+def test_the_skipped_block_reports_the_action_and_no_opinion():
+    """Pressing "replace" is not an argument with the thought.
+
+    The header says what the person did and stops there; nothing in the block
+    may attribute a position to them (86cbehyfe, and the same must hold after
+    the v4 rewording in 86cbehyf8).
+    """
+    message = build_user_message("Тема", "next", [], ["Вопрос?"])
+
+    assert SKIPPED_HEADER in message
+    for opinion in ("не согласен", "не понрав", "отверг", "неправ", "ошиб"):
+        assert opinion not in message
+
+
+@pytest.mark.parametrize("question_stage", ["first", "reflect"])
+def test_the_other_stages_ignore_the_skipped_questions(question_stage):
+    """`first` cannot have any (the endpoint answers 422), and `reflect`
+    deliberately never shows our questions — see the module docstring."""
+    messages = [] if question_stage == "first" else [("user", "Ответ.")]
+    message = build_user_message("Тема", question_stage, messages, ["Вопрос?"])
+
+    assert message == build_user_message("Тема", question_stage, messages)
+    assert "Вопрос?" not in message
+
+
+def test_a_blank_skipped_question_never_becomes_an_empty_bullet():
+    message = build_user_message(
+        "Тема", "next", [], ["  ", " Вопрос? ", "\n"]
+    )
+
+    assert message == (
+        "Цель молитвы: «Тема».\n" + SKIPPED_HEADER + "— Вопрос?\n" + NEXT_SKIPPED_TAIL
+    )
+    assert "— \n" not in message
+    assert "\n\n" not in message
+
+
 def test_an_unknown_stage_is_a_programming_error():
     """Not a silent default: the request model already restricts the values,
     so reaching this means a caller invented one."""

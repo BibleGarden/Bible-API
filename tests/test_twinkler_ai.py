@@ -56,18 +56,27 @@ def _probe_topic(probe_id: str) -> str:
 
 
 def question_body(
-    topic: str = "", stage: str = "first", messages: tuple = ()
+    topic: str = "",
+    stage: str = "first",
+    messages: tuple = (),
+    skipped: tuple | None = None,
 ) -> dict:
     """One request body of the structured contract (ClickUp 86cbegmzz).
 
     `messages` is given as `(role, text)` pairs for readability; the wire
-    format is the list of objects this builds.
+    format is the list of objects this builds. `skipped` is the optional
+    `skipped_questions` list (ClickUp 86cbehyfe) and the key is **omitted
+    entirely** when it is `None`, so every caller written before that ticket
+    keeps sending the body it always sent.
     """
-    return {
+    body = {
         "topic": topic,
         "stage": stage,
         "messages": [{"role": role, "text": text} for role, text in messages],
     }
+    if skipped is not None:
+        body["skipped_questions"] = list(skipped)
+    return body
 
 
 @pytest.fixture(autouse=True)
@@ -539,6 +548,265 @@ def test_when_nothing_the_person_wrote_decides_the_prompt_says_so():
     assert prompt.endswith(
         f"Answer in {question_prompt.UNDETERMINED_LANGUAGE}."
     )
+
+
+# --- the questions the person asked to replace (ClickUp 86cbehyfe) --------
+#
+# "Replace this question" used to resend an identical body, so the model was
+# told nothing and offered the same thought again. The rendering of the block
+# is pinned in tests/test_question_prompt.py; what is pinned here is the
+# contract — the limits, the stage rule, and the two things the field must NOT
+# reach: the language of the answer and the despair rule. It is our own
+# generated Russian text, and neither may be decided by it.
+
+SKIPPED_ONE = "Что сейчас внутри тебя, когда ты только начинаешь молитву?"
+SKIPPED_TWO = "А что, если завтра всё окажется не таким готовым, как кажется?"
+
+
+def _model_message(monkeypatch, body) -> str:
+    """Post `body` and return the message the model was handed."""
+    generated = AsyncMock(return_value="Ответ")
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+
+    response = client.post(
+        "/api/ai/question",
+        headers={"X-API-Key": "test-api-key"},
+        json=body,
+    )
+
+    assert response.status_code == 200, response.text
+    return generated.await_args.args[0]
+
+
+def test_a_request_without_the_field_is_answered_exactly_as_before(monkeypatch):
+    """The whole point of the default: old bytes for an old request."""
+    messages = (
+        ("assistant", "Что сейчас тревожит тебя?"),
+        ("user", "Мне одиноко."),
+    )
+    without = _model_message(
+        monkeypatch, question_body(topic="Тема", stage="next", messages=messages)
+    )
+    empty = _model_message(
+        monkeypatch,
+        question_body(topic="Тема", stage="next", messages=messages, skipped=()),
+    )
+
+    assert without == empty
+    assert without == question_prompt.build_user_message(
+        "Тема", "next", list(messages)
+    )
+    assert "попросил другой вопрос" not in without
+
+
+def test_the_skipped_questions_reach_the_model_at_next(monkeypatch):
+    message = _model_message(
+        monkeypatch,
+        question_body(
+            topic="Понять масштаб целей на завтра",
+            stage="next",
+            messages=(("user", "Я рада тому, что сегодня немало сделано."),),
+            skipped=(SKIPPED_ONE, SKIPPED_TWO),
+        ),
+    )
+
+    assert message == question_prompt.build_user_message(
+        "Понять масштаб целей на завтра",
+        "next",
+        [("user", "Я рада тому, что сегодня немало сделано.")],
+        [SKIPPED_ONE, SKIPPED_TWO],
+    )
+    assert f"— {SKIPPED_ONE}\n" in message
+    assert f"— {SKIPPED_TWO}\n" in message
+
+
+def test_reflect_accepts_the_field_and_does_not_render_it(monkeypatch):
+    """Accepted so the client sends one shape; not rendered, and that is
+    documented rather than accidental — `reflect` never shows our questions
+    (ClickUp 86cbegmzz), and changing that is prompt work (86cbehyf8)."""
+    messages = (("user", "Стало спокойнее."),)
+    with_skipped = _model_message(
+        monkeypatch,
+        question_body(
+            topic="Тема", stage="reflect", messages=messages, skipped=(SKIPPED_ONE,)
+        ),
+    )
+
+    assert with_skipped == question_prompt.build_user_message(
+        "Тема", "reflect", list(messages)
+    )
+    assert SKIPPED_ONE not in with_skipped
+
+
+def test_first_takes_no_skipped_questions():
+    """Same reasoning as `messages` with `first`: nothing was shown yet."""
+    response = client.post(
+        "/api/ai/question",
+        headers={"X-API-Key": "test-api-key"},
+        json=question_body(topic="Тема", stage="first", skipped=(SKIPPED_ONE,)),
+    )
+
+    assert response.status_code == 422
+    assert (
+        "stage 'first' is the opening question and takes no skipped_questions"
+        in response.text
+    )
+
+
+@pytest.mark.parametrize(
+    ("skipped", "why"),
+    [
+        (tuple(f"Вопрос {index}?" for index in range(11)), "more than 10 entries"),
+        (("в" * 301,), "an entry over 300 characters"),
+    ],
+)
+def test_the_skipped_questions_have_their_own_limits(skipped, why):
+    response = client.post(
+        "/api/ai/question",
+        headers={"X-API-Key": "test-api-key"},
+        json=question_body(topic="Тема", stage="next", skipped=skipped),
+    )
+
+    assert response.status_code == 422, why
+    assert "skipped_questions" in response.text
+
+
+def test_the_skipped_questions_count_towards_the_total(monkeypatch):
+    """16 000 characters is the ceiling for the whole request, not per field."""
+    monkeypatch.setattr(twinkler_ai, "complete", AsyncMock(return_value="Ответ"))
+    body = question_body(
+        topic="т" * 2000,
+        stage="next",
+        messages=(("user", "о" * 13700),),
+        skipped=("в" * 300,),
+    )
+    assert (
+        len(body["topic"])
+        + sum(len(message["text"]) for message in body["messages"])
+        + sum(len(question) for question in body["skipped_questions"])
+        == 16000
+    )
+
+    assert (
+        client.post(
+            "/api/ai/question",
+            headers={"X-API-Key": "test-api-key"},
+            json=body,
+        ).status_code
+        == 200
+    )
+
+    body["skipped_questions"].append("ещё")
+    response = client.post(
+        "/api/ai/question",
+        headers={"X-API-Key": "test-api-key"},
+        json=body,
+    )
+    assert response.status_code == 422
+    assert "skipped_questions" in response.text
+
+
+def test_a_blank_entry_is_dropped_rather_than_refused(monkeypatch):
+    """Our own string, empty by a client bug: it must not cost a question."""
+    message = _model_message(
+        monkeypatch,
+        question_body(
+            topic="Тема",
+            stage="next",
+            messages=(("user", "Ответ."),),
+            skipped=("   ", f"  {SKIPPED_ONE}  ", "\n"),
+        ),
+    )
+
+    assert f"— {SKIPPED_ONE}\n" in message
+    assert "— \n" not in message
+    assert message.count("—") == 2  # the surviving question and the answer
+
+    # An all-blank list is the same request as no list at all — including at
+    # `first`, where a non-empty one is a 422.
+    assert (
+        client.post(
+            "/api/ai/question",
+            headers={"X-API-Key": "test-api-key"},
+            json=question_body(topic="Тема", stage="first", skipped=("  ",)),
+        ).status_code
+        == 200
+    )
+
+
+def test_an_entry_of_exactly_the_limit_after_stripping_is_accepted(monkeypatch):
+    message = _model_message(
+        monkeypatch,
+        question_body(
+            topic="Тема", stage="next", skipped=("  " + "в" * 300 + "  ",)
+        ),
+    )
+
+    assert "в" * 300 in message
+
+
+def test_the_skipped_questions_never_decide_the_language(monkeypatch):
+    """An English prayer with our Russian questions is answered in English."""
+    sent = {}
+
+    async def fake_complete(user, language_source_text=None):
+        sent["prompt"] = twinkler_ai.question_prompt_for(language_source_text)
+        return "Answer"
+
+    monkeypatch.setattr(twinkler_ai, "complete", fake_complete)
+
+    response = client.post(
+        "/api/ai/question",
+        headers={"X-API-Key": "test-api-key"},
+        json=question_body(
+            topic="Praying for my father",
+            stage="next",
+            messages=(("user", "He is in hospital and I am afraid."),),
+            skipped=(SKIPPED_ONE, SKIPPED_TWO),
+        ),
+    )
+
+    assert response.status_code == 200
+    assert sent["prompt"].endswith("Answer in English.")
+    assert twinkler_ai.person_language_candidates(
+        twinkler_ai.CompleteRequest(**question_body(
+            topic="Praying for my father",
+            stage="next",
+            messages=(("user", "He is in hospital and I am afraid."),),
+            skipped=(SKIPPED_ONE,),
+        ))
+    ) == ["He is in hospital and I am afraid.", "Praying for my father"]
+
+
+def test_a_despair_phrase_in_a_skipped_question_never_fires_the_rule(monkeypatch):
+    """The person did not write it — we did, and the model was already
+    answered for by tier 2 on its own reply."""
+    generated = AsyncMock(return_value="Что помогло тебе сегодня?")
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+    despair = _probe_topic("probe-despair")
+
+    response = client.post(
+        "/api/ai/question",
+        headers={"X-API-Key": "test-api-key"},
+        json=question_body(
+            topic="Развод",
+            stage="next",
+            messages=(("user", "Позвонила сестре, стало чуть легче."),),
+            skipped=(despair,),
+        ),
+    )
+
+    assert response.status_code == 200
+    generated.assert_awaited_once()
+    assert response.json() == {"text": "Что помогло тебе сегодня?"}
+    assert twinkler_ai.safety_input_text(
+        twinkler_ai.CompleteRequest(**question_body(
+            topic="Развод",
+            stage="next",
+            messages=(("user", "Позвонила сестре, стало чуть легче."),),
+            skipped=(despair,),
+        ))
+    ) == "Позвонила сестре, стало чуть легче."
 
 
 # --- the despair rule lives in code (ClickUp 86cbegg23) -------------------

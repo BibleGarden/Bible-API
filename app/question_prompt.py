@@ -92,6 +92,23 @@ contract confirmed on 2026-09-05 (ClickUp 86cbegmzz, ADR-0019 on the app
 side), down to the em-dash bullets and the word «тёплый» in `reflect`. It is
 *previous behaviour being moved*, not a new prompt: keeping it identical is
 what makes the v2 → v3 comparison meaningful.
+
+**Still v3: the skipped-questions block is additive** (2026-09-05, ClickUp
+86cbehyfe). "Replace this question" used to resend an identical body, so the
+model was told nothing and looped on the same thought. The request now carries
+`skipped_questions`, and `build_user_message` renders one extra block plus one
+extra sentence of the `next` instruction **only when that list is non-empty**.
+A request without the field produces the very bytes v3 always produced — pinned
+by `tests/test_question_prompt.py` — so `QUESTION_PROMPT_VERSION` does not
+move: a version separates two texts that can answer the *same* request
+differently, and these cannot. The wording is deliberately minimal; revising it
+is prompt work and belongs to ClickUp 86cbehyf8 (v4), which is where the
+version will move. Two properties of the block are not stylistic and must
+survive that revision: it states only what the person *did* (asked for another
+question), never that they disagreed with the thought — pressing "replace" is
+not an argument — and it is our own generated Russian text, so it is excluded
+from language detection and from the despair rule (see
+`architect/adr/0015-skipped-questions-in-question-request.md`).
 """
 
 from collections.abc import Sequence
@@ -194,10 +211,33 @@ ASKED_HEADER = "Уже прозвучали вопросы:\n"
 ANSWERED_HEADER = (
     "Что человек ответил (опирайся на это, но не цитируй дословно):\n"
 )
-NEXT_INSTRUCTION = (
+# The `next` instruction in two halves, so the added sentence lands *before*
+# the output-format one instead of after it: "answer with the question text
+# only" is the last thing the model should read. `NEXT_INSTRUCTION` is still
+# assembled here byte for byte — it is what a request without
+# `skipped_questions` gets, and what `tests/test_question_prompt.py` quotes.
+NEXT_INSTRUCTION_OPENING = (
     "Задай один новый вопрос, который смотрит на ситуацию с другой стороны и "
-    "не повторяет прозвучавшие. Ответь только текстом вопроса, без кавычек и "
-    "пояснений."
+    "не повторяет прозвучавшие."
+)
+NEXT_INSTRUCTION_CLOSING = " Ответь только текстом вопроса, без кавычек и пояснений."
+NEXT_INSTRUCTION = NEXT_INSTRUCTION_OPENING + NEXT_INSTRUCTION_CLOSING
+
+# --- the questions the person asked to replace (ClickUp 86cbehyfe) ---------
+# Rendered at `next` only, and only when the list is non-empty. The header
+# states the action and nothing more: the person pressed "replace", which says
+# they want a different question — never that they rejected the thought behind
+# it, and attributing that position to them would be us inventing their
+# opinion. The sentence added to the instruction asks for a different
+# direction anchored in the person's own words, which is the whole point of
+# telling the model about them.
+SKIPPED_HEADER = "Человек попросил другой вопрос вместо этих:\n"
+NEXT_SKIPPED_SENTENCE = (
+    " Выбери другое направление, а не переформулировку тех вопросов, и "
+    "оттолкнись от того, что человек написал сам."
+)
+NEXT_SKIPPED_INSTRUCTION = (
+    NEXT_INSTRUCTION_OPENING + NEXT_SKIPPED_SENTENCE + NEXT_INSTRUCTION_CLOSING
 )
 
 REFLECT_OPENING = "Молитва закончилась, человек готов записать один вывод.\n"
@@ -226,19 +266,33 @@ def _bullets(texts: Sequence[str]) -> str:
 
 
 def build_user_message(
-    topic: str, stage: str, messages: Sequence[tuple[str, str]]
+    topic: str,
+    stage: str,
+    messages: Sequence[tuple[str, str]],
+    skipped_questions: Sequence[str] = (),
 ) -> str:
     """The user content of one `POST /api/ai/question` call.
 
     A pure function of the request: `topic` (may be empty), `stage` (one of
-    `STAGES`) and `messages` as `(role, text)` pairs in chronological order.
-    Pairs rather than the request model on purpose — this module imports
-    nothing from the application (see the docstring), which is what lets the
-    evaluation tools build the very same bytes without a FastAPI import.
+    `STAGES`), `messages` as `(role, text)` pairs in chronological order and
+    `skipped_questions` — questions already shown to the person and left
+    unanswered, chronological (ClickUp 86cbehyfe). Pairs rather than the
+    request model on purpose — this module imports nothing from the
+    application (see the docstring), which is what lets the evaluation tools
+    build the very same bytes without a FastAPI import.
 
     Whitespace-only turns are dropped and every turn is stripped: the client
     never sends one, and a stray blank would otherwise become an empty bullet
-    in the middle of a list. The topic is stripped for the same reason.
+    in the middle of a list. The topic and the skipped questions are stripped
+    for the same reason.
+
+    `skipped_questions` is **additive and `next`-only**: empty (the default, and
+    what every caller written before 86cbehyfe passes) renders the v3 bytes
+    unchanged, and at `first` there is nothing to have skipped. At `reflect` it
+    is accepted by the endpoint but deliberately not rendered — that stage
+    looks back at what the *person* said and never shows our questions at all
+    (the 86cbegmzz contract), so putting them there is a prompt-design change
+    and belongs to ClickUp 86cbehyf8 rather than to the field that carries them.
     """
     if stage not in STAGES:
         raise ValueError(f"unknown stage: {stage!r}")
@@ -252,6 +306,7 @@ def build_user_message(
     user_texts = [
         text.strip() for role, text in messages if role == ROLE_USER and text.strip()
     ]
+    skipped_texts = [text.strip() for text in skipped_questions if text.strip()]
 
     if stage == "first":
         opening = (
@@ -265,9 +320,16 @@ def build_user_message(
         ]
         if assistant_texts:
             parts.append(ASKED_HEADER + _bullets(assistant_texts))
+        # Next to the questions that were asked, before the answers: these are
+        # questions too, and the answers are what the new one must be anchored
+        # in, so they stay last before the instruction.
+        if skipped_texts:
+            parts.append(SKIPPED_HEADER + _bullets(skipped_texts))
         if user_texts:
             parts.append(ANSWERED_HEADER + _bullets(user_texts))
-        parts.append(NEXT_INSTRUCTION)
+        parts.append(
+            NEXT_SKIPPED_INSTRUCTION if skipped_texts else NEXT_INSTRUCTION
+        )
         return "".join(parts)
 
     parts = [REFLECT_OPENING]
