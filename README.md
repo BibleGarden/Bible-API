@@ -20,7 +20,14 @@ The API will be available at `http://localhost:9084/api`.
 - `GET /api/languages` — available languages
 - `GET /api/translations` — available translations
 - `GET /api/translations/{code}/books` — books in a translation
-- `GET /api/excerpt_with_alignment` — text with word-level audio timing
+- `GET /api/excerpt_with_alignment` — text with word-level audio timing.
+  `?excerpt=` is `<book alias> <chapter>[:<verse>[-<verse>]]` (`gen 1`,
+  `gen 1:1`, `gen 1:1-3`), several references may be listed in one value. The
+  book is named by its **alias as returned by
+  `GET /api/translations/{code}/books`** — Latin letters, **case-insensitive**
+  (`gen`, `Gen`, `GEN` are one book). A value that does not parse returns 422
+  naming the format; an alias that belongs to no book of this translation
+  returns 404.
 - `GET /api/audio/{translation}/{voice}/{book}/{chapter}.mp3` — audio files
 - `GET /api/about` — Bible Garden About page (unchanged default); use
   `GET /api/about?app=lampada` for Lampada contacts and description.

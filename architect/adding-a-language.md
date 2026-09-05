@@ -73,8 +73,9 @@ Write a new file under `Dashboard-API/migrations/` (naming per
 `Dashboard-API/migrations/README.md`).
 *Consumers to update in the same change:* `bible-parser/const.php:952-959`
 (`get_all_bible_books()`, declared `:929`, reads the three pairs by name),
-`evaluation/retrieval_benchmark.py:1576-1585`, `evaluation/trace_picker.py:659`,
-`app/excerpt.py:416` and `Dashboard-API/app/excerpt.py:563` (see 3.5).
+`evaluation/retrieval_benchmark.py:1576-1585`, `evaluation/trace_picker.py:659`.
+The excerpt lookups are **no longer consumers**: `short_name_*` left both
+`WHERE` clauses on 2026-09-05 (see 3.5).
 *Verify:* `Dashboard-API/tests/seed_test_data.sql:9` inserts `bible_books`
 column by column and will fail on a missing NOT NULL column — run the
 Dashboard-API test suite.
@@ -174,27 +175,35 @@ string per language. (The endpoint currently returns the whole dict and lets
 the client pick — `:62-71`; the Lampada branch rewrites the product name in
 every language at `:63-64`.)
 
-**3.5 — The book-alias lookup is ASCII-only, in two layers.** Two separate
-things stop a non-English book name resolving, and only fixing both changes
-anything:
+**3.5 — The book alias is Latin, and that is the contract** (settled by Maria
+on 2026-09-05, ClickUp 86cbehfqx — option (a) of the former open decision 5).
+**Nothing to do for a new language.**
 
-* the **excerpt grammar** — `app/excerpt.py:280`,
-  `(?P<book>[0-9a-z]+) (?P<chapter>\d+)…` — accepts lowercase Latin and digits
-  only. Anything else is a `422 "Invalid excerpt format"` before a query is
-  built. Verified live on 2026-09-05 against the local API: `excerpt=Бут 1:1`
-  (Ukrainian Genesis, translation 20) and `excerpt=Быт 1:1` both answer
-  `Invalid excerpt format`, while `excerpt=Gen 1:1` matches the substring `en`
-  and answers `Book with alias 'en' not found`. `Dashboard-API/app/excerpt.py:456`
-  carries the same pattern.
-* the **lookup itself** — `app/excerpt.py:416` matches `bb.code1..code5` plus
-  `bb.short_name_en` and `bb.short_name_ru`; **`short_name_uk` is missing**
-  (same clause, `Dashboard-API/app/excerpt.py:563`).
+The app never lets a human type a book name: it copies the alias out of
+`GET /api/translations/{code}/books`, which publishes `bible_books.code1`. So
+the excerpt grammar stays Latin, and the `short_name_*` columns are not
+addresses at all — they are display names.
 
-Because the grammar runs first, both `short_name_*` terms are currently
-unreachable through this endpoint for any Cyrillic name — adding
-`short_name_uk` to the `WHERE` clause alone would fix nothing. A language whose
-book names are not lowercase Latin therefore needs a **decision about the
-grammar** (see open decisions), not one more column in an `OR` chain.
+What the ticket changed, in both APIs:
+
+* the **excerpt grammar** — `app/excerpt.py`, `EXCERPT_PATTERN` — now accepts
+  `[A-Za-z0-9]+` as a **whole token** and folds its case before the lookup, so
+  `gen 1:1`, `Gen 1:1` and `GEN 1:1` are one book. It used to be
+  `(?P<book>[0-9a-z]+)` with no boundary, which is why `Gen 1:1` matched the
+  substring `en` and answered `Book with alias 'en' not found` (verified live
+  on 2026-09-05, both APIs). A book name in another script still matches
+  nothing and is a `422` — one that now names the expected format;
+* the **lookup itself** — `app/excerpt.py`, `get_books_info` — matches
+  `bb.code1..code5` and nothing else. `bb.short_name_en` / `bb.short_name_ru`
+  were **removed on 2026-09-05**: the Russian one was unreachable behind the
+  Latin-only grammar, and the English one made 14 books answer to a second,
+  undocumented name (`mt`, `jn`, `ex`, `1kings`, …). Verified on the live
+  `cep_public` and `cep_admin` before removing them: no value of
+  `code1..code5` belongs to two different books, case-insensitively.
+
+`short_name_uk` was therefore never the missing half of anything: a language
+whose book names are not Latin needs **no** column in this `OR` chain, because
+its readers address books by the same catalogue aliases everyone else does.
 
 **3.6 — `POST /api/ai/scripture`: grow the `language` enum.**
 `app/scripture_select.py:155-158`:
@@ -753,7 +762,7 @@ the list is complete. Every "✅" was verified in the file named.
 | 3.1-3.2 | `/api/languages`, `/api/translations` | ✅ data-driven |
 | 3.3 | `/api/about` labels + subtitles + `about_text` | ✅ uk keys at `app/about.py:19,24,35,40,51,56,63,84,88` |
 | 3.4 | `/api/version-check` messages | ✅ uk at `app/version_check.py:22,27` |
-| 3.5 | Book-alias lookup | ❌ **Ukrainian book short names do not resolve.** The excerpt grammar `app/excerpt.py:280` accepts `[0-9a-z]+` only, and `short_name_uk` is absent from the `WHERE` clause at `:416`. Verified live: `excerpt=Бут 1:1` on translation 20 answers `422 Invalid excerpt format`. Same in `Dashboard-API/app/excerpt.py:456`, `:563` |
+| 3.5 | Book-alias lookup | ✅ **out of scope by decision** (Maria, 2026-09-05, ClickUp 86cbehfqx): books are addressed by the catalogue's Latin alias in any case, in every language. `excerpt=Бут 1:1` answers `422` naming the format — the contract, not a gap |
 | 3.6 | `Language` enum member | ✅ `app/scripture_select.py:158` |
 | 3.7 | `retrieval_cli --language` | ✅ `:156` |
 | 4.1 | Chunking | ✅ language-independent |
@@ -797,12 +806,15 @@ the list is complete. Every "✅" was verified in the file named.
 each is now an item above:
 
 * Ukrainian book short names have **never** resolved, and for two reasons, not
-  one: the excerpt grammar `app/excerpt.py:280` accepts `[0-9a-z]+` only, and
-  the lookup at `:416` omits `short_name_uk` (item 3.5). Confirmed live and in
+  one: the excerpt grammar `app/excerpt.py:280` accepted `[0-9a-z]+` only, and
+  the lookup at `:416` omitted `short_name_uk` (item 3.5). Confirmed live and in
   the data: 66 of 66 `bible_books` rows carry a `short_name_uk`, 35 of them
   differ from every `code1..code5` and from `short_name_en`/`short_name_ru`, so
-  they are reachable by nothing. This is a live gap for `uk`, not a
-  hypothetical for a new language.
+  they are reachable by nothing. **Closed on 2026-09-05** (ClickUp 86cbehfqx):
+  Maria decided the contract is the catalogue's Latin alias, so the short names
+  are display names by design and the two `short_name_*` terms left the `WHERE`
+  clause as dead code. What the same investigation *did* find and fix is a
+  defect: `Gen 1:1` used to answer `Book with alias 'en' not found`.
 * The `about_text` of Bible Garden **argues in prose for exactly these three
   languages** (`app/about.py:61-63`, "почему именно эти языки"). Adding a fourth
   invalidates three existing texts, not just adds one (item 3.3).
@@ -857,8 +869,8 @@ table to work through; the checklist above is its narrative.
 | `app/about.py:84` | `for language in ("en", "ru", "uk")` (Lampada subtitle) | **add** |
 | `app/about.py:85-89` | `about_text` (Lampada) | **add** |
 | `app/version_check.py:18-29` | `MESSAGES["soft"]` / `MESSAGES["hard"]` per language | **add** |
-| `app/excerpt.py:280` | excerpt grammar `(?P<book>[0-9a-z]+)` — **ASCII-only book token, runs before the lookup** | **decision (see 3.5)** |
-| `app/excerpt.py:416` | book-alias `WHERE` matches `short_name_en`, `short_name_ru` — **no `uk`** | **fix + add** |
+| `app/excerpt.py` `EXCERPT_PATTERN` | excerpt grammar `(?P<book>[A-Za-z0-9]+)` — Latin book token, case folded before the lookup | nothing (contract, see 3.5) |
+| `app/excerpt.py` `get_books_info` | book-alias `WHERE` matches `code1..code5` only — `short_name_en` / `short_name_ru` **removed 2026-09-05** | nothing |
 | `app/retrieval_cli.py:156` | `--language choices=("ru","en","uk")` | **add** |
 | `app/versification.py:68-76` | `TRANSLATION_SCHEMES` — per **translation alias** | **add per translation** |
 | `app/canon.py:142-144` | `TRANSLATION_CHAPTER_COUNTS` — `("ubh", 39): 3` | per translation, if needed |
@@ -912,8 +924,8 @@ table to work through; the checklist above is its narrative.
 | `migrations/2026_02_08_104500_align_languages_translations_charset_with_dump.sql` | re-adds the FK, widens `language` to `VARCHAR(10)` | nothing |
 | `tests/seed_test_data.sql:9` | `INSERT INTO bible_books (… short_name_en, short_name_ru, short_name_uk, full_name_*)` | **add columns** |
 | `tests/seed_test_data.sql:80-81` | `INSERT INTO languages (alias, name_en, name_national) VALUES ('ru', …)` — the fixture's own language set | **add a row if the tests need it** |
-| `app/excerpt.py:456` | excerpt grammar `(?P<book>[0-9a-z]+)` — same ASCII-only token as Bible-API | **decision (see 3.5)** |
-| `app/excerpt.py:563` | book-alias `WHERE` matches `short_name_en`, `short_name_ru` — no `uk` (mirrors Bible-API) | **fix + add** |
+| `app/excerpt.py` `EXCERPT_PATTERN` | excerpt grammar `(?P<book>[A-Za-z0-9]+)` — same Latin token as Bible-API | nothing (contract, see 3.5) |
+| `app/excerpt.py` `get_books_info` | book-alias `WHERE` matches `code1..code5` only — `short_name_*` **removed 2026-09-05** (mirrors Bible-API) | nothing |
 | `app/models.py:9-12`, `:29`, `:47` | `LanguageModel`, `TranslationModel.language: str` | nothing (no enum) |
 | `app/data.py:402`, `:647` | `SELECT * FROM languages` in manifest and export | nothing |
 
@@ -990,19 +1002,16 @@ table to work through; the checklist above is its narrative.
    (`evaluation/README.md:40`, `:3107`). A language without a named native
    reviewer cannot pass the despair validation *or* leave
    `review_status: draft`.
-5. **What alphabet may a book alias be written in?** Ukrainian book short names
-   do not resolve today, and the column is only half the reason: the excerpt
-   grammar (`app/excerpt.py:280`, `Dashboard-API/app/excerpt.py:456`) accepts
-   `[0-9a-z]+` only, so no Cyrillic token reaches the `WHERE` clause at all —
-   and the clause (`app/excerpt.py:416`, `Dashboard-API/app/excerpt.py:563`)
-   also omits `short_name_uk`. Options: (a) leave the contract Latin-only and
-   drop the `short_name_*` terms as dead code, documenting that clients address
-   books by `code1..code5`; (b) widen the grammar to `\w+` (Unicode) and add
-   `short_name_uk` — then `Бут 1:1` resolves, and every future language's names
-   do too, at the cost of a wider public grammar to re-test; (c) widen the
-   grammar but keep the lookup Latin, which fixes nothing. This is a
-   **public-contract** decision, and it exists for `uk` today — worth its own
-   ticket rather than riding on a new language.
+5. ~~**What alphabet may a book alias be written in?**~~ **Resolved — Maria,
+   2026-09-05 (ClickUp 86cbehfqx): option (a), the contract is the Latin alias
+   from the books catalogue, in any letter case.** The app takes the book name
+   from `GET /api/translations/{code}/books` and a human never types it, so
+   Cyrillic book names are not a scenario; widening the grammar to `\w+` and
+   adding `short_name_uk` was considered and rejected. Both APIs now accept
+   `[A-Za-z0-9]+` as a whole token and casefold it, `Бут 1:1` is a `422` that
+   names the expected format, an unknown Latin alias is a `404`, and the dead
+   `short_name_en` / `short_name_ru` terms are out of the `WHERE` clause
+   (item 3.5). Nothing here is per language any more.
 6. **`about_text` argues for exactly three languages.** `app/about.py:61-63`
    explains *why these languages* in prose, in all three. A fourth language
    means rewriting that paragraph everywhere, and it is Maria's text — a

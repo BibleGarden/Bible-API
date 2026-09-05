@@ -1,7 +1,9 @@
 """
 Chapter structure of a translation: `GET /api/translations/{code}/books`,
 `app/canon.py` and the navigation counts of `app/excerpt.py`
-(ClickUp 86cbb2xxp).
+(ClickUp 86cbb2xxp) — plus the book-alias contract of
+`GET /api/excerpt_with_alignment` (ClickUp 86cbehfqx), which resolves against
+the same books and the same stand-in database.
 
 The tests run against a SQLite stand-in for `cep_public` rather than the live
 database: the fixture holds several translations in one `translation_verses`
@@ -279,6 +281,16 @@ class _Connection:
         """The fixture database outlives the request, so this is a no-op."""
 
 
+# `bible_books.short_name_*` are display names, not aliases: the live table
+# spells Matthew's English short name `Mt` and its Russian one `Мф`, and 14 of
+# the 66 English short names match no `codeN` at all. The fixture reproduces
+# that for the books the alias tests use, so a lookup that went back to
+# matching `short_name_*` (removed 2026-09-05, ClickUp 86cbehfqx) would be
+# visible here. Every other book keeps its code, as before.
+SHORT_NAME_EN = {2: "Ex", 40: "Mt", 43: "Jn"}
+SHORT_NAME_RU = {1: "Быт", 40: "Мф"}
+
+
 def _canonical_chapters(book_number: int) -> list[int]:
     return list(range(1, CANONICAL_CHAPTER_COUNTS[book_number] + 1))
 
@@ -332,7 +344,15 @@ def _build_database() -> sqlite3.Connection:
     )
     connection.executemany(
         "INSERT INTO bible_books VALUES (?, ?, '', '', '', '', '', '', '', '', ?, ?)",
-        [(number, code, code, code) for number, code, _chapters in CANONICAL_BOOKS],
+        [
+            (
+                number,
+                code,
+                SHORT_NAME_EN.get(number, code),
+                SHORT_NAME_RU.get(number, code),
+            )
+            for number, code, _chapters in CANONICAL_BOOKS
+        ],
     )
 
     book_rows, verse_rows = [], []
@@ -691,3 +711,106 @@ def test_next_excerpt_resolves_end_to_end_over_http(fake_database):
         headers=HEADERS,
     )
     assert follow_up.status_code == 200, follow_up.text
+
+
+# --------------------------------------------------------------------------
+# The book alias of an excerpt (ClickUp 86cbehfqx)
+#
+# Maria's decision of 2026-09-05: the client copies the alias from
+# `GET /api/translations/{code}/books`, so the contract is the catalogue's
+# Latin alias in any letter case — and nothing else.
+# --------------------------------------------------------------------------
+
+
+def _excerpt(reference: str, translation: int = 1):
+    return client.get(
+        "/api/excerpt_with_alignment",
+        params={"translation": translation, "excerpt": reference},
+        headers=HEADERS,
+    )
+
+
+@pytest.mark.parametrize("reference, book", [
+    ("gen 1", "gen"),
+    ("Gen 1:1", "Gen"),
+    ("GEN 1:1-3", "GEN"),
+    ("1jn 2:3", "1jn"),
+    ("psa 150", "psa"),
+])
+def test_the_grammar_takes_the_whole_book_token(reference, book):
+    """`[0-9a-z]+` without a boundary matched `en` inside `Gen`."""
+    match = excerpt.EXCERPT_PATTERN.search(reference)
+
+    assert match is not None
+    assert match.group("book") == book
+
+
+@pytest.mark.parametrize("reference", ["Бут 1:1", "Быт 1:1", "Мф 1:1", "gen", "1:1", ""])
+def test_the_grammar_rejects_what_is_not_a_latin_reference(reference):
+    assert excerpt.EXCERPT_PATTERN.search(reference) is None
+
+
+@pytest.mark.parametrize("reference", ["gen 1:1", "Gen 1:1", "GEN 1:1", "gEn 1:1"])
+def test_the_alias_is_case_insensitive(fake_database, reference):
+    """`Gen 1:1` used to answer "Book with alias 'en' not found"."""
+    response = _excerpt(reference)
+
+    assert response.status_code == 200, response.text
+    part = response.json()["parts"][0]
+    assert part["book"]["alias"] == "gen"
+    assert part["chapter_number"] == 1
+
+
+def test_every_case_of_one_alias_returns_the_same_book(fake_database):
+    lower, upper, title = (_excerpt(r).json() for r in ("gen 1:1", "GEN 1:1", "Gen 1:1"))
+
+    assert lower == upper == title
+
+
+def test_an_unknown_latin_alias_is_a_404_that_names_it(fake_database):
+    """`Genesis` is not a catalogue alias — and the answer must say `genesis`,
+    not the `en` the old grammar found inside it."""
+    response = _excerpt("Genesis 1:1")
+
+    assert response.status_code == 404, response.text
+    detail = response.json()["detail"]
+    assert "genesis" in detail
+    assert "'en'" not in detail
+
+
+def test_a_book_name_in_another_script_is_a_422_that_names_the_format(fake_database):
+    response = _excerpt("Бут 1:1", translation=20)
+
+    assert response.status_code == 422, response.text
+    detail = response.json()["detail"]
+    assert "Invalid excerpt format" in detail
+    assert "GET /api/translations/{code}/books" in detail
+    assert "case does not matter" in detail
+
+
+@pytest.mark.parametrize("reference", ["Mt 1:1", "mt 1:1", "jn 1:1", "ex 1:1"])
+def test_a_short_name_is_not_an_alias(fake_database, reference):
+    """`short_name_en` / `short_name_ru` left the `WHERE` clause on 2026-09-05:
+    they are display names the books catalogue never publishes."""
+    assert _excerpt(reference).status_code == 404, reference
+
+
+def test_books_info_matches_the_catalogue_codes_only(fake_database):
+    assert _books_info(fake_database, 1, "gen")[0]["alias"] == "gen"
+    assert _books_info(fake_database, 1, "Mt") == []  # short_name_en of Matthew
+    assert _books_info(fake_database, 1, "Быт") == []  # short_name_ru of Genesis
+
+
+def test_several_references_in_one_value_still_parse(fake_database):
+    response = _excerpt("gen 1:1 exo 2:1")
+
+    assert response.status_code == 200, response.text
+    assert [part["book"]["alias"] for part in response.json()["parts"]] == ["gen", "exo"]
+
+
+def test_the_openapi_description_states_the_alias_contract():
+    operation = app.openapi()["paths"]["/api/excerpt_with_alignment"]["get"]
+
+    assert "/api/translations/{code}/books" in operation["description"]
+    assert "case-insensitive" in operation["description"]
+    assert "404" in operation["responses"]
