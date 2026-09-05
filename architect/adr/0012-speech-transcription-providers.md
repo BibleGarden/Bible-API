@@ -179,10 +179,11 @@ category only, because an httpx message quotes the request URL.
   provider: the company machine can run `large-v3` without either constraint.
 - **The remote provider is measured, not assumed** (review of this ticket,
   2026-09-05, against the live endpoint the admins raised: **speaches** on the
-  company CPU at `https://llm.ai2.ru/whisper/v1` — from this machine through
-  the tunnel at `https://llm.ai2.ru:8443/whisper/v1` — model
+  company CPU at `https://llm.ai2.ru/whisper/v1` — model
   `deepdml/faster-whisper-large-v3-turbo-ct2`, `Authorization: Bearer`, a
-  14 MB limit at their nginx). The same 15 excerpts, driven through
+  14 MB limit at their nginx). Measured through the SSH tunnel (port 8443),
+  the path this machine used before the same-day IP allow-list; direct HTTPS
+  to the same host and path since, tunnel retired. The same 15 excerpts, driven through
   `RemoteTranscriber` itself (`transcribe_bench.py remote`), 15/15 answered:
 
   | | WER ru | WER uk | WER en | WER all | CER ru | time / audio (mean, max) |
@@ -242,10 +243,13 @@ category only, because an httpx message quotes the request URL.
    with `transcribe_bench.py remote` whenever the admins change the model
    behind that URL.
 2. Whether the audio server should be reachable only over the company network
-   (it should) and how — VPN, ssh tunnel like `qwen-tunnel.service`, or an
-   allow-list — is a deployment decision, not a code one. Until it is
-   answered, a recording travels to it with a bearer key over TLS. (This
-   machine already reaches it through the tunnel, port 8443.)
+   (it should) and how — VPN, ssh tunnel, or an allow-list — is a deployment
+   decision, not a code one. Until it is answered, a recording travels to it
+   with a bearer key over TLS. **Answered for this machine, 2026-09-05**: an
+   IP allow-list at the admins' nginx; direct HTTPS to `https://llm.ai2.ru`,
+   no tunnel. The former SSH tunnel (`qwen-tunnel.service`, port 8443) was
+   the pre-allow-list path and is now retired. The production VM still needs
+   its own IP added to the allow-list (ClickUp 86cbeh9q6).
 3. `AI_TRANSCRIBE_TIMEOUT_SECONDS` = 60 was Gemini's ceiling. The measured
    sequential calls take 3.9-13.9 s for 17-53 s of audio, so 60 s is ample on
    an idle server; whether it is right for a **queued** one under concurrent

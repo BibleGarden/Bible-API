@@ -296,8 +296,9 @@ in `architect/adr/0012-speech-transcription-providers.md`, the contract in
   `POST {endpoint}/audio/transcriptions`, the shape vLLM, speaches and
   faster-whisper-server all expose. The recording leaves this VM but stays
   inside the company, and the model there can be as large as quality wants.
-  **Live since 2026-09-05**: `https://llm.ai2.ru/whisper/v1` (from this
-  machine through the tunnel: `https://llm.ai2.ru:8443/whisper/v1`), server
+  **Live since 2026-09-05**: `https://llm.ai2.ru/whisper/v1` — direct HTTPS
+  from this machine since the same-day IP allow-list (before that, through
+  the SSH tunnel `qwen-tunnel.service`, port 8443, now retired), server
   **speaches** on CPU, model `deepdml/faster-whisper-large-v3-turbo-ct2`,
   `Authorization: Bearer`, 14 MB limit at their nginx. Still open for the
   deploy: the production key (`bible-api-prod`, Passbolt) and the production
@@ -348,10 +349,11 @@ in `architect/adr/0012-speech-transcription-providers.md`, the contract in
   (review, throwaway instance on 127.0.0.1:9097, `GEMINI_API_KEY` empty):
   the same four excerpts answered `200` in 3.9-8.4 s with `large-v3-turbo`.
   It also pins the production wiring: the shared `AI_OPENAI_COMPAT_ENDPOINT`
-  pointed at the **chat** URL (`…:8443/v1`, which has no
+  pointed at the **chat** URL (`https://llm.ai2.ru/v1`, which has no
   `/audio/transcriptions`) while `AI_TRANSCRIBE_ENDPOINT` pointed at
-  `…:8443/whisper/v1` — a `200` is only possible if the per-stage override is
-  the one used.
+  `https://llm.ai2.ru/whisper/v1` — a `200` is only possible if the
+  per-stage override is the one used. (Measured through the SSH tunnel,
+  port 8443, the pre-allow-list path; same host, direct today.)
 - Tests: `tests/test_transcription.py` (44 + 1 gated on
   `AI_TRANSCRIBE_MODEL_PATH_UNDER_TEST=/models/whisper/small`, which is the
   only one that touches real weights) and the provider-seam and no-Google

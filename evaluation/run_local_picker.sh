@@ -27,7 +27,7 @@ if [[ -f "$ENV_FILE" ]]; then
   # shellcheck disable=SC2046
   set -a
   # Only the variables the picker needs; nothing is written back.
-  eval "$(grep -E '^(DB_USER|DB_PASSWORD|DB_NAME|API_KEY|EMBEDDING_MODEL|EMBEDDING_DIMENSIONS)=' "$ENV_FILE")"
+  eval "$(grep -E '^(DB_USER|DB_PASSWORD|DB_NAME|API_KEY|EMBEDDING_MODEL|EMBEDDING_DIMENSIONS|EMBEDDING_PROVIDER)=' "$ENV_FILE")"
   set +a
 fi
 
@@ -35,6 +35,9 @@ fi
 # from the host, so the value from .env would fail here.
 export DB_HOST=127.0.0.1
 export DB_PORT=3306
+# .env's EMBEDDING_MODEL_PATH is the IN-CONTAINER mount (/models/bge-m3); this
+# stand runs on the host, so it needs the real host path directly.
+export EMBEDDING_MODEL_PATH=/root/models/bge-m3
 unset GEMINI_API_KEY AI_SCRIPTURE_REWRITE_API_KEY || true
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1

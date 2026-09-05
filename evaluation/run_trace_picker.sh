@@ -13,10 +13,13 @@
 #
 # THE RIGHT COLUMN COSTS NOTHING. By default (`?r=prod-local`) it is the SAME
 # production pipeline with local models: rewrite and rerank on Maria's
-# qwen3-30b through the persistent SSH tunnel (systemd unit qwen-tunnel:
-# 127.0.0.1:8443 -> llm.ai2 nginx :443, so llm.ai2.ru must resolve to
-# 127.0.0.1 in /etc/hosts), embeddings on bge-m3 loaded into this process.
-# The bearer key is read over SSH at start-up and lives only in this
+# qwen3-30b over direct HTTPS at https://llm.ai2.ru (the admins added this
+# machine's IP to the allow-list on 2026-09-05; llm.ai2.ru resolves through
+# public DNS), embeddings on bge-m3 loaded into this process. Before
+# 2026-09-05 this went through a persistent SSH tunnel (systemd unit
+# qwen-tunnel.service, 127.0.0.1:8443 -> llm.ai2 nginx :443, with
+# llm.ai2.ru forced to 127.0.0.1 in /etc/hosts) — now retired. The bearer
+# key is read over SSH at start-up and lives only in this
 # process's environment: never in a file, never in a log, never in git.
 # `?r=senses` keeps the previous right column — the local stand on 9089
 # (evaluation/run_local_picker_qwen.sh), fetched over HTTP. Override its
@@ -41,38 +44,40 @@ fi
 
 set -a
 # Only the variables the pipeline needs; nothing is written back.
-# AI_QUESTION_PROVIDER/AI_SCRIPTURE_REWRITE_PROVIDER/AI_SCRIPTURE_RERANK_PROVIDER
-# and AI_OPENAI_COMPAT_ENDPOINT are in the allow-list because `import config`
-# (below, via trace_picker.py) now aborts without them — ADR 0009 made the
-# three provider variables required whenever the AI surface is configured.
-eval "$(grep -E '^(DB_USER|DB_PASSWORD|DB_NAME|API_KEY|GEMINI_API_KEY|AI_SCRIPTURE_REWRITE_API_KEY|AI_SCRIPTURE_REWRITE_MODEL|AI_SCRIPTURE_RERANK_MODEL|AI_QUESTION_MODEL|AI_TRANSCRIBE_MODEL|EMBEDDING_MODEL|EMBEDDING_DIMENSIONS|AI_QUESTION_PROVIDER|AI_SCRIPTURE_REWRITE_PROVIDER|AI_SCRIPTURE_RERANK_PROVIDER|AI_OPENAI_COMPAT_ENDPOINT)=' "$ENV_FILE")"
+# AI_QUESTION_PROVIDER/AI_SCRIPTURE_REWRITE_PROVIDER/AI_SCRIPTURE_RERANK_PROVIDER/
+# AI_TRANSCRIBE_PROVIDER, EMBEDDING_PROVIDER and AI_OPENAI_COMPAT_ENDPOINT are
+# in the allow-list because `import config` (below, via trace_picker.py) now
+# aborts without them — ADR 0009 made the four provider variables required
+# whenever the AI surface is configured, and EMBEDDING_PROVIDER is required
+# in every deployment (ADR 0010).
+eval "$(grep -E '^(DB_USER|DB_PASSWORD|DB_NAME|API_KEY|GEMINI_API_KEY|AI_SCRIPTURE_REWRITE_API_KEY|AI_SCRIPTURE_REWRITE_MODEL|AI_SCRIPTURE_RERANK_MODEL|AI_QUESTION_MODEL|AI_TRANSCRIBE_MODEL|EMBEDDING_MODEL|EMBEDDING_DIMENSIONS|EMBEDDING_PROVIDER|AI_QUESTION_PROVIDER|AI_SCRIPTURE_REWRITE_PROVIDER|AI_SCRIPTURE_RERANK_PROVIDER|AI_TRANSCRIBE_PROVIDER|AI_OPENAI_COMPAT_ENDPOINT)=' "$ENV_FILE")"
 set +a
 
 # cep-mysql publishes 127.0.0.1:3306; the container hostname does not resolve
 # from the host, so the value from .env would fail here.
 export DB_HOST=127.0.0.1
 export DB_PORT=3306
+# .env's EMBEDDING_MODEL_PATH is the IN-CONTAINER mount (/models/bge-m3); this
+# stand runs on the host, so it needs the real host path directly.
+export EMBEDDING_MODEL_PATH=/root/models/bge-m3
 
 # --- the local column's providers (86cbegcmm) ------------------------------
-# Same mechanics as run_local_picker_qwen.sh: the tunnel must be up and the
-# key is fetched over SSH into the environment only. Missing -> the local
-# column reports which variable is unset; the stand still starts.
-if systemctl is-active --quiet qwen-tunnel.service; then
-  QWEN_KEY="$(ssh -o BatchMode=yes root@193.39.168.166 \
-    'sed -n "s/^VLLM_SECONDARY_API_KEY=//p" /etc/vllm/api-secondary.env' || true)"
-  if [[ -n "${QWEN_KEY:-}" ]]; then
-    export TRACE_LOCAL_REWRITE_ENDPOINT="https://llm.ai2.ru:8443/v1"
-    export TRACE_LOCAL_REWRITE_MODEL="qwen3-30b-a3b-instruct-2507"
-    export TRACE_LOCAL_REWRITE_API_KEY="$QWEN_KEY"
-    export TRACE_LOCAL_RERANK_ENDPOINT="$TRACE_LOCAL_REWRITE_ENDPOINT"
-    export TRACE_LOCAL_RERANK_MODEL="$TRACE_LOCAL_REWRITE_MODEL"
-    export TRACE_LOCAL_RERANK_API_KEY="$QWEN_KEY"
-    unset QWEN_KEY
-  else
-    echo "warn: empty VLLM key — the prod-local column will report it" >&2
-  fi
+# Same mechanics as run_local_picker_qwen.sh: direct HTTPS since the
+# 2026-09-05 IP allow-list (no tunnel to check any more) and the key is
+# fetched over SSH into the environment only. Missing -> the local column
+# reports which variable is unset; the stand still starts.
+QWEN_KEY="$(ssh -o BatchMode=yes root@193.39.168.166 \
+  'sed -n "s/^VLLM_SECONDARY_API_KEY=//p" /etc/vllm/api-secondary.env' || true)"
+if [[ -n "${QWEN_KEY:-}" ]]; then
+  export TRACE_LOCAL_REWRITE_ENDPOINT="https://llm.ai2.ru/v1"
+  export TRACE_LOCAL_REWRITE_MODEL="qwen3-30b-a3b-instruct-2507"
+  export TRACE_LOCAL_REWRITE_API_KEY="$QWEN_KEY"
+  export TRACE_LOCAL_RERANK_ENDPOINT="$TRACE_LOCAL_REWRITE_ENDPOINT"
+  export TRACE_LOCAL_RERANK_MODEL="$TRACE_LOCAL_REWRITE_MODEL"
+  export TRACE_LOCAL_RERANK_API_KEY="$QWEN_KEY"
+  unset QWEN_KEY
 else
-  echo "warn: qwen-tunnel.service is not active — the prod-local column will report it" >&2
+  echo "warn: empty VLLM key — the prod-local column will report it" >&2
 fi
 
 # bge-m3 comes from the local HF cache; the stand must never fetch weights.
