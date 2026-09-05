@@ -24,3 +24,9 @@ evaluation/bench_data/*
 # The probe id list is a few hundred bytes and is what makes the
 # description probe set (86cbeef7h) reproducible on another machine.
 !evaluation/bench_data/description_probe_ids.txt
+# Leading-question answers (86cbegctz): a few dozen kilobytes, and the same
+# reason as the rewrite/rerank artifacts — the Qwen answers come from Maria's
+# private server and the Gemini ones from free-tier quota on a model that may
+# be retired, so neither run can be reproduced identically later.
+!evaluation/bench_data/questions_*.jsonl
+!evaluation/bench_data/questions_*.jsonl.meta.json
