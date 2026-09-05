@@ -832,7 +832,18 @@ def test_the_question_timeout_variable_reaches_the_gemini_client(monkeypatch):
     monkeypatch.setattr(twinkler_ai, "AI_QUESTION_TIMEOUT_SECONDS", 3.5)
 
     assert asyncio.run(twinkler_ai.complete("Мне тяжело")) == "Ответ"
-    assert seen["timeout"] == 3.5
+    # Carved across httpx's four phases since ClickUp 86cbehyg0, where this
+    # call handed over the bare number: httpx applies a bare `timeout` to
+    # EACH phase, so 3.5 would authorise 14 s for one call — and twice that
+    # for a request that generates twice. What the variable bounds is the
+    # whole call, so the phases sum to it.
+    timeout = seen["timeout"]
+    assert isinstance(timeout, httpx.Timeout)
+    assert (
+        timeout.connect + timeout.write + timeout.pool + timeout.read
+        == pytest.approx(3.5)
+    )
+    assert timeout.read == pytest.approx(3.5 - 3 * (3.5 / 12.0))
 
 
 def test_an_out_of_range_local_answer_is_refused_like_a_gemini_one():

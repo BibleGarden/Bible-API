@@ -74,8 +74,10 @@ The endpoint requires the common `X-API-Key` header. Unknown JSON fields are
 rejected, and the two removed ones (`user`, `last_user_message`) are rejected
 with a `422` that names them and says what to send instead — "extra inputs are
 not permitted" would send whoever reads the log to the wrong place. The
-response is `{ "text": "..." }` on success. Documented errors are `403`, `429`
-with `Retry-After`, `502`, and `503`; validation errors use `422`.
+response is `{ "text": "...", "novel": true }` on success — `novel` is
+additive (ClickUp 86cbehyg0, "The question must be new" below) and a client
+that reads only `text` behaves exactly as before. Documented errors are `403`,
+`429` with `Retry-After`, `502`, and `503`; validation errors use `422`.
 
 A **reply** showing despair or self-harm is answered with a fixed warm text
 instead of a model answer, and no provider is called — the response shape and
@@ -277,6 +279,72 @@ same source the prompt and tier 1 use — because the phrase that trips the
 tier-2 pattern is not necessarily the language the rest of the prayer is in.
 An English prayer must not be answered in Russian because our own wrapper
 outvoted it.
+
+### The question must be new: the novelty check (ClickUp 86cbehyg0)
+
+`skipped_questions` tells the model which questions were declined; it does not
+stop it from offering them again. The measured replacement series show it
+plainly: pressing "replace" six times on one prayer produced six variants of a
+single sentence, the last five differing from the first only in the tail
+(`evaluation/bench_data/questions_qwen30b_v3_series.jsonl`, `series-scale-ru`).
+So the server now checks the answer before returning it.
+
+**What is compared.** The generated text against everything the person has
+already been *shown* in this prayer: the `assistant` turns of `messages` plus
+`skipped_questions`. Their own replies are not in that list — a question is
+never a repeat of an answer.
+
+**The metric** is `app/question_novelty.py`: normalize (casefold, ё→е, drop
+punctuation and quotes, collapse whitespace) and then Jaccard over character
+3-grams, flagged at **0.60**, plus a second rule for a repeated sentence with a
+new tail — a shared opening of ≥ 4 normalized words covering ≥ 0.7 of the
+shorter question. Both constants are code, not environment (ADR 0008), and the
+module docstring carries the table they were chosen on. It is the very
+definition `evaluation/check_questions.py` reports for those series, so the
+benchmark number and the production filter are one measurement.
+
+**Lexical only.** Two questions with no shared wording can still be one
+thought; that is not what this catches, and pretending otherwise would be
+worse than the gap. Whether bge-m3 can measure the thought is ClickUp
+86cbehyg8.
+
+**One more generation, never two.** On a repeat the server builds the message
+again with the rejected question appended to `skipped_questions` **for that
+call only** (trimmed to the same ten-entry ceiling, newest kept; it is never
+stored and the person never saw it) and generates once. A third attempt is
+refused by construction: the person is waiting with nothing on screen.
+
+**One budget for the request.** `AI_QUESTION_TIMEOUT_SECONDS` (20) is now a
+single `Deadline` created at the top of the handler and threaded through both
+generations, on both providers — the Gemini path had a bare per-phase httpx
+timeout until this ticket. The second generation starts only if at least
+`MIN_SECOND_ATTEMPT_SECONDS` (3.0, a code constant) is left: below that the
+call would time out and the person would have waited longer for the text
+already in hand.
+
+**Both tiers of the despair rule are unchanged and undiminished.** Tier 1
+still runs before any call. Tier 2 runs on **every** model reply, the second
+included, and when it fires the fixed text is returned immediately — no
+further generation, and `novel: true`, because the fixed reply repeats nothing
+the person was shown.
+
+`novel` says what came of it:
+
+| `novel` | meaning |
+| --- | --- |
+| `true` | the text returned repeats nothing shown — including when there was nothing to compare it with, and when a safety tier replaced it |
+| `false` | it repeats something shown, and either the second generation repeated too, the budget did not allow one, or it failed at the provider |
+
+A repeat is never returned as `true`. A `false` answer still carries the best
+text obtained (the less similar of the two, else the first): the answer is
+never withheld, and a failing **second** generation is never a `502` — only a
+failing first one is, exactly as before.
+
+**Proposed client action, for Maria's decision** (not implemented on either
+side): on `novel: false` the app keeps the question already on screen, or
+falls back to a locally stored question, instead of showing the repeat. The
+server deliberately does not decide this — it reports a fact and returns its
+best text, so the client can also simply ignore the field.
 
 `POST /api/ai/transcribe` accepts `multipart/form-data` with a required
 M4A `file` and an optional BCP 47 `locale`. The response is the same
@@ -579,6 +647,23 @@ A pattern id names the rule, never the words that matched it, so the whole
 finding is safe to log. Prayer text is not logged here any more than anywhere
 else in this service.
 
+The full order of one answered request is: authentication → rate-limit
+reservation → tier 1 → first generation → tier 2 → novelty check → (second
+generation → tier 2 → novelty check) → answer. Every answered request that
+reached a model also logs one `INFO` line — the fact, no text at all:
+
+```
+question novelty: attempts=2 repeat=near score=0.78 novel=false stage=next
+```
+
+`repeat` is `none`, `exact` or `near` and `score` the similarity to the
+closest question the person had already been shown; the matched question
+itself is deliberately not logged. `INFO` rather than `WARNING` because this
+is ordinary operation rather than a rule firing — it is visible in
+`docker logs` because `app/trusted_proxies.py` installs a handler when nothing
+else has configured logging (see "Trusted proxies" in the repository
+`CLAUDE.md`).
+
 ## Provider contract
 
 Which transport answers `/api/ai/question` is configured per stage since
@@ -598,7 +683,11 @@ clients cannot override it. `GEMINI_API_KEY` is sent
 only in the `x-goog-api-key` header. The request sets `maxOutputTokens` to
 `1024` and `temperature` to `0.7`, and `AI_QUESTION_TIMEOUT_SECONDS`
 (default 20 — the literal this call carried before it became a variable)
-caps it, per httpx phase as it always has.
+caps it. Since ClickUp 86cbehyg0 that cap is **carved across httpx's four
+phases** out of what the request budget has left, exactly as the
+`openai_compat` path does it: a bare number is applied to each phase
+separately, so `timeout=20` authorises up to 80 s for one call — and twice
+that for a request that generates twice.
 
 **On `openai_compat`** (`app/llm_client.AsyncChatClient`) it calls
 `POST {AI_QUESTION_ENDPOINT or AI_OPENAI_COMPAT_ENDPOINT}/chat/completions`
@@ -608,8 +697,11 @@ message as the user message, `temperature` `0.7` and `max_tokens` `1024`. The ke
 `AI_OPENAI_COMPAT_API_KEY` is the explicit "this endpoint is
 unauthenticated". No `response_format` is requested: this answer is prose for
 a person, not a parsed contract. `<think>…</think>` blocks are stripped from
-the answer before it is returned. One attempt, like the Gemini path: a retry
-would double the time a person waits with nothing on screen.
+the answer before it is returned. One attempt per call, like the Gemini path:
+a retry ladder would double the time a person waits with nothing on screen.
+(The handler may ask for a second *generation* when the first repeats a
+question already shown — "The question must be new", above — which is a
+different decision, taken with an answer already in hand.)
 `AI_QUESTION_TIMEOUT_SECONDS` (default 20, the value this endpoint always ran
 with) is the ceiling of the whole call, carried by a per-request `Deadline`
 and carved across httpx's four phases.
