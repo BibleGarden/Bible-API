@@ -164,3 +164,46 @@ still earns the retry it costs. The constants stay: every candidate that buys
 more repeats (0.55, 0.50) starts paying false positives immediately, and the
 class of miss it leaves — the same thought in a new dress — is exactly what
 this ADR said a lexical metric cannot see (ClickUp 86cbehyg8).
+
+## Candidates: measured, decision pending (ClickUp 86cbehyg4, 2026-09-06)
+
+The alternative to "one more generation" is "N answers from one generation":
+`n` of the OpenAI-compatible chat API, which vLLM serves from a single prefill,
+with the pick made server-side. It was measured against this ADR's mechanism —
+`evaluation/gen_questions.py --candidates N` and `--retry-on-repeat`, prompt v4,
+Qwen3-30B, the four replacement series x 6 samples, both client modes, six
+artifacts `bench_data/questions_qwen30b_v4_cand_*.jsonl`. Nothing in
+`app/` changed: the endpoint still does exactly what the Decision section says.
+
+**The measurement.** Steps still ending `novel: false` out of 126: this ADR's
+retry **4 (3%)** with the identical body and **9 (7%)** with the accumulating
+client, against 26/16 for `n=2` and 22/10 for `n=3`. Counted only over the
+steps where the first answer *was* flagged, the retry escapes the repeat in
+90% (identical) and 53% (accumulating) of them, `n=2` in 37%/48% and `n=3` in
+61%/58%.
+
+**Why, and it is not a tuning matter.** The second generation is sent
+*different bytes* — the rejected question is in `skipped_questions` — while N
+candidates come from one input and one prefill, so a model that has settled
+into a loop returns the loop N times. The `n=3` transcript of the journal
+series has steps 2-6 differing by a single word.
+
+Latency decides nothing: the worst step of all six runs is **1.17 s** against
+the 20 s budget. Tokens favour candidates on the total (a repeat costs the
+retry a second 872-token prefill; `n` pays one) and disfavour them on decoding,
+which is the half that is spent on every step rather than on the ~1 in 4 that
+repeat.
+
+**Selection rule, if it is ever adopted**: drop what despair tier 2 would
+replace, drop what `is_repeat` flags, take the **first survivor in the model's
+order**, and fall back to the least similar with `novel: false`. "Most distant"
+was rejected as a rule and measured as a counterfactual: the two would have
+disagreed on 223 of 648 steps, with a median similarity gap of **0.038** — a
+coin toss dressed as a criterion — and the formal checks cannot tell them apart
+(31 differences, 29 of them the documented `informal` «вы»-to-the-couple class).
+
+**Recommendation recorded, not enacted: do not adopt.** Worth revisiting only
+as a *reinforcement* of the retry (the second call asking for `n=2`), or once a
+semantic filter (ClickUp 86cbehyg8) gives the selection something real to
+choose on. The numbers and the transcripts are in `evaluation/README.md`,
+«Несколько кандидатов за вызов против повторной генерации».
