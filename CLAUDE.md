@@ -109,12 +109,19 @@ system prompt is a code constant now, not an environment value.
 Content tables: `languages`, `bible_books`, `translations`, `translation_books`,
 `translation_verses`, `translation_titles`, `translation_notes`, `voices`, and
 `voice_alignments`. Operational tables include request statistics,
-`translation_chunks` (RAG chunks, produced by `app/chunk_cli.py`, not part of
-the admin-api import), `chunk_embeddings` (chunk vectors, produced by
-`app/index_cli.py rebuild`; versioned by chunking version + embedding model)
-and `psalm_verse_mappings` (Psalm versification: translation verse →
-canonical english-masoretic coordinates, produced by
-`app/versification_cli.py build`).
+`translation_chunks` (RAG chunks, produced by `app/chunk_cli.py`),
+`chunk_embeddings` (chunk vectors, produced by `app/index_cli.py rebuild`;
+versioned by chunking version + embedding model) and `psalm_verse_mappings`
+(Psalm versification: translation verse → canonical english-masoretic
+coordinates, produced by `app/versification_cli.py build`).
+
+The three index tables are **built on the local machine and shipped by the
+import** since 2026-09-05 (ClickUp 86cbegwr9): `GET /api/import` writes each
+translation's index rows in the same transaction as its text and creates the
+tables if they are missing. So this deployment's `cep_public` is the source of
+truth for the index while `cep_admin` is the source of truth for the text under
+it — the CLIs above are run against the local `cep_public` *after* a local
+import, never on production. See "§ Import" below and `Deploy/data-flow.md`.
 
 ### Environment
 
@@ -479,8 +486,9 @@ else — never to add the flag reflexively.
 Response contract of `/api/import` — additive, `status`/`translation`/`tables`
 unchanged: `translations_imported`, `translations_removed`,
 `removals_rejected`, `orphans_removed`, `verification`
-(`{table: {expected, actual, ok}}`), `translation_mismatches`, `detail` and
-`duration_seconds`. `status` is `"ok"` only when every count matches, per
+(`{table: {expected, actual, ok}}`), `translation_mismatches`, `detail`,
+`duration_seconds` and — since 2026-09-05 — `index` (the next section).
+`status` is `"ok"` only when every count matches, per
 table and per translation; `"removals_rejected"` when the gate above stopped a
 removal; otherwise `"mismatch"`, with the data written and `verification` /
 `translation_mismatches` saying what disagrees. Callers that tested
@@ -493,6 +501,124 @@ tables it writes (it checked three until the review of this ticket, leaving
 `voice_alignments` — the largest table, and the one the manual fixes are
 delivered in — unverified). `allow_removals` is meaningless for a point import
 and ignored there.
+
+### The import carries the RAG index (ClickUp 86cbegwr9, 2026-09-05)
+
+`translation_chunks`, `psalm_verse_mappings` and `chunk_embeddings` used to
+reach production as a hand-made MySQL dump over an SSH tunnel, on a different
+schedule from the text. That let production hold **new text under an index
+built for the old text**, and nothing detected it. They now travel with
+`GET /api/import` — both paths, `?translation=` included — and the guarantee
+is stronger than "in the same request": a translation's index rows are written
+**in the same transaction as its text**, so an interrupted import leaves that
+translation whole, old text with old index.
+
+- **Everything is fetched before the transaction opens.** The index of one
+  translation is several pages of `GET /api/data/index` (Dashboard-API,
+  86cbegwqg: the corpus in full on the first page, ~600 embeddings there and
+  2000 afterwards, `vector` as base64 of the stored BLOB). Every page passes
+  the `IMPORT_MAX_PAYLOAD_MB` valve, so an oversized page is a `507` **before**
+  that translation is touched. The walk follows the source's `next_offset`,
+  and an export that delivers fewer rows than it declared is a `502`.
+- **The version is checked before the first write.** `want =
+  c{CHUNKING_VERSION}:{EMBEDDING_MODEL}@{EMBEDDING_DIMENSIONS}`, from *this*
+  deployment's `.env`. Not in the manifest's `index.available_versions` → `502`
+  naming the version asked for, the versions that exist, and both variables.
+  A source whose `chunking_version` differs from ours, or that reports several
+  at once (`null` in the manifest, a half-finished rechunk), is also a `502`:
+  `canonical_id` carries the chunking version, so that is another corpus, not
+  an older copy of this one. A manifest with no `index` block at all (an older
+  Dashboard-API) or with `index.error` set is named as such. **Never a silently
+  empty index** — that reads exactly like a translation nobody has indexed.
+- **`?drop_other_index_versions=1`** (default off, the shape of
+  `?allow_removals=1` and `index_cli rebuild --drop-other-versions`): without
+  it the `chunk_embeddings` rows of *other* versions survive every import, so
+  a model migration keeps its rollback (an `.env` edit plus a restart). With
+  it, they are deleted and counted per translation in
+  `index.other_versions_removed`. The one place a routine import drops another
+  version anyway is a translation being **removed** with `?allow_removals=1`:
+  its index leaves with its text, every version of it. There is nothing to
+  roll back to once the text is gone, and rows left there would be owned by
+  nobody — no later import writes them (the translation is out of the
+  manifest), `index_cli` rebuilds only what `translations` lists, and the
+  orphan sweep does not reach the index tables.
+- **Verified against the source, per translation:** the three row counts and
+  the chunk-set digest from the manifest (`chunks_digest`, an
+  order-independent `BIT_XOR` of per-chunk MD5s — **unsigned 64-bit**, syn =
+  18030424974330788968, never to be read into a signed type; the importer runs
+  admin-api's statement verbatim over its own `cep_public`), plus the number of
+  embeddings whose chunk is missing, which must be zero. That last check is
+  scoped to the embedding version this deployment reads, deliberately: the
+  rows of an older version are kept precisely so that they can be rolled back
+  to, and after a rechunk at the source they may well point at chunks that no
+  longer exist — reporting them as orphans would fail every import until the
+  old version is dropped, which is what `?drop_other_index_versions=1` is for.
+  Disagreements join the text ones in `translation_mismatches` (`chunks_digest`
+  and `chunk_embeddings_orphans` are reported there as `{expected, actual, ok}`
+  like a count; `chunks_digest` is the one line whose `expected`/`actual` may
+  be `null` — "no chunks at all", which `0` could not say, since a total XOR
+  cancellation can genuinely produce zero), and `status="ok"` still means
+  everything matched. A translation with chunks but **zero** embeddings of our
+  version is a named mismatch even when the source declares the same zero; a
+  translation with no chunks at all (`bti`, `npu`, `webbe`, `webus`) is normal.
+- **A foreign `mapping_version` is a warning, not a refusal** — the one
+  version disagreement that does not abort the import. `psalm_verse_mappings`
+  carries its version in a column and `passage_highlight` selects by
+  `VERSIFICATION_VERSION`, so a map of another version is imported as stored
+  and simply not read; refusing the text over it would be a worse trade than
+  the two versions coexisting. It is logged at `WARNING`, and the version that
+  arrived is in the report as `index.mapping_version` (`null` when the source
+  holds more than one). `chunking_version` is the opposite case and *is* a
+  502: `canonical_id` carries it, so a foreign chunking version is a different
+  corpus in the same table, not an unread column.
+- **DDL is outside every transaction.** `CREATE TABLE IF NOT EXISTS` for the
+  three tables, imported verbatim from `chunk_cli` / `versification_cli` /
+  `vector_index`, so the first production import creates them; DDL commits
+  implicitly and inside a transaction would split a translation's write.
+- **The in-process index cache is dropped afterwards** — the same
+  `scripture_select.clear_cached_resources()` that `POST /api/cache/clear`
+  calls, in the same single worker — on `mismatch` as well as on `ok`, because
+  the rows on disk changed either way. Reported as `index.index_cache_cleared`;
+  `false` means a restart is needed before the new index is served.
+- **Report:** the additive `index` block (`embedding_version`,
+  `chunking_version`, `mapping_version`, `translations_indexed`, `tables`,
+  `other_versions_removed`, `drop_other_index_versions`,
+  `index_cache_cleared`). Everything else in the response is unchanged.
+- **Order of operations, and it is not a preference** (`Deploy/runbook.md`):
+  local `/api/import` → `chunk_cli` → `versification_cli` → `index_cli` →
+  production `/api/import`. The index is built from the local `cep_public`, so
+  one built *before* the local import describes text that no longer exists
+  there — and that is what production would receive.
+
+Measured on the local machine, 2026-09-05, against the local Dashboard-API
+(gemini@768 index, 11 960 chunks / 17 490 Psalm mappings / 11 960 embeddings
+on top of the 197 614 verses and 256 492 alignments): full resync **peak RSS
+210 MiB** (215 232 kB from `/proc`, 212 MiB by `docker stats`), wall time
+**159 s** — against 215 MB / 149 s for the text alone, i.e. the index costs
+seconds and no measurable memory. The reason it is not more: one translation's
+index is fetched, decoded and released like its text, and the vectors are
+inserted 500 rows at a time (`INDEX_BATCH_SIZE` — 4 KB of BLOB per row would
+make a 5000-row `executemany` a ~20 MB packet). A point import of `syn` (3963
+chunks, 3963 embeddings, 2532 Psalm mappings) takes 53 s.
+
+Tests: `tests/test_import_data.py` — atomicity (a failed embedding insert
+rolls the text of that translation back), the `502` before any write for a
+missing version / a foreign or mixed chunking version / no `index` block, the
+`507` on an index page before the transaction, other-version rows kept without
+the flag and deleted with it, the count / digest / orphan verification, the
+cache drop, and the point-import path.
+
+Proved live on 2026-09-05 as well: a `docker kill -9` fired while
+`information_schema.innodb_trx` showed 34 762 rows modified in the open
+transaction (mid-`syn`) left `syn`'s verses, chunks, Psalm map and embeddings
+identical **down to their AUTO_INCREMENT codes** — the transaction rolled
+back, it did not half-commit — every other translation intact, and the repeat
+import answered `status="ok"`. The same run confirmed that a `@768` import
+leaves the `@1024` rows at 11 960 and vice versa, that
+`EMBEDDING_MODEL=nonexistent` answers `502` naming both variables and both
+real versions with the three tables' counts unchanged, and that
+`POST /api/ai/scripture` answers `source: rerank` right after an import in the
+same process — no restart.
 
 ### The time budget is a ceiling now (ClickUp 86cbbnaxn, 2026-08-31)
 

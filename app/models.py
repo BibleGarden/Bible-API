@@ -179,10 +179,74 @@ class VersionCheckModel(BaseModel):
 # Import
 
 class ImportCountCheckModel(BaseModel):
-    """One line of the post-import count check (ClickUp 86cbbq5zp)."""
-    expected: int
-    actual: int
+    """One line of the post-import count check (ClickUp 86cbbq5zp).
+
+    `expected` / `actual` are `null` on one line only — `chunks_digest`
+    (ClickUp 86cbegwr9), where "this side has no chunks at all" has no
+    number. Reporting that as 0 would be indistinguishable from a digest
+    that really is 0 (a total XOR cancellation), which is why the comparison
+    is made on the raw values and the raw values are what is reported. Every
+    row-count line carries integers.
+    """
+    expected: Optional[int]
+    actual: Optional[int]
     ok: bool
+
+
+class ImportIndexReportModel(BaseModel):
+    """The RAG index half of an import (ClickUp 86cbegwr9).
+
+    Additive: an importer that ships no index (or a caller that ignores this
+    block) sees exactly the report it saw before. The counts are rows
+    *written*; whether they are the rows admin-api declared is answered by
+    `translation_mismatches`, which now carries the index tables,
+    `chunks_digest` and `chunk_embeddings_orphans` beside the text ones.
+    """
+    embedding_version: Optional[str] = Field(
+        default=None,
+        description=(
+            "The index version this deployment reads and therefore imported: "
+            "c{CHUNKING_VERSION}:{EMBEDDING_MODEL}@{EMBEDDING_DIMENSIONS}."
+        ),
+    )
+    chunking_version: Optional[int] = None
+    mapping_version: Optional[int] = Field(
+        default=None,
+        description=(
+            "The Psalm-map version admin-api shipped; null when it holds more "
+            "than one. A version other than this service's VERSIFICATION_VERSION "
+            "is imported as stored and logged, not refused — the map is simply "
+            "not read until the versions agree."
+        ),
+    )
+    translations_indexed: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Translations whose index was replaced. A translation with no "
+            "chunks at all is listed too: its Psalm map still travels, and "
+            "having no chunks is normal data (bti, npu, webbe, webus)."
+        ),
+    )
+    tables: dict[str, int] = Field(
+        default_factory=dict,
+        description="Index rows written, per table, across every translation.",
+    )
+    other_versions_removed: dict[str, int] = Field(
+        default_factory=dict,
+        description=(
+            "chunk_embeddings rows of OTHER embedding versions deleted per "
+            "translation. Always empty without ?drop_other_index_versions=1."
+        ),
+    )
+    drop_other_index_versions: bool = False
+    index_cache_cleared: bool = Field(
+        default=False,
+        description=(
+            "The in-process corpus cache was dropped, so POST /api/ai/scripture "
+            "serves the new index without a restart. False means the drop "
+            "failed and a restart (or POST /api/cache/clear) is needed."
+        ),
+    )
 
 
 class ImportReportModel(BaseModel):
@@ -227,7 +291,21 @@ class ImportReportModel(BaseModel):
             "Per-translation count disagreements of a full resync, "
             "{alias: {table: check}} — only the tables that disagree, so an "
             "empty object means every translation matched the manifest. "
-            "Totals alone would pass on compensating errors."
+            "Totals alone would pass on compensating errors. Since 2026-09-05 "
+            "the index tables appear here too, plus `chunks_digest` (the "
+            "source's order-independent digest of the chunk set against ours; "
+            "the one line whose expected/actual may be null — no chunks at "
+            "all) and `chunk_embeddings_orphans` (embeddings whose chunk is "
+            "gone, counted for the imported embedding version only: the rows "
+            "of an older version are kept as a rollback and are not this "
+            "import's to verify)."
+        ),
+    )
+    index: Optional[ImportIndexReportModel] = Field(
+        default=None,
+        description=(
+            "What the import did to the RAG index (ClickUp 86cbegwr9). Written "
+            "in the same transaction as each translation's text."
         ),
     )
     duration_seconds: Optional[float] = None
