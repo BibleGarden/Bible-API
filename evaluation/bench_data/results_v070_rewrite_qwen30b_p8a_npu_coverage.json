@@ -1,5 +1,41 @@
 {
  "config": "pipeline rewrite=file:qwen3-30b-a3b-instruct-2507 variants=6 raw=no fusion=interleave blacklist=on pool=on lexical=k20 fetch_k=50 max_per_book=4 coverage=21",
+ "embedding_stage": {
+  "embedder": "gemini",
+  "model_id": "gemini-embedding-001",
+  "dims": 3072,
+  "peak_rss_mb": 451.2,
+  "query_embed_count": 126,
+  "query_embed_ms": {
+   "median": 0.0,
+   "mean": 0.0,
+   "max": 0.2
+  }
+ },
+ "doc_stage": {
+  "doc_text": "title_text",
+  "matrix_variant": "title_text",
+  "rows": 11960,
+  "fragments": 11960,
+  "senses": 0,
+  "missing_descriptions": 0,
+  "missing_by_language": {},
+  "coverage_by_language": {
+   "ru": 1.0,
+   "en": 1.0,
+   "uk": 1.0
+  },
+  "coverage_min": 1.0,
+  "allow_partial_coverage": false,
+  "languages": [
+   "ru",
+   "en",
+   "uk"
+  ],
+  "descriptions_file": "",
+  "descriptions_sha1": "",
+  "descriptions_meta": {}
+ },
  "aggregate": {
   "label": "ALL",
   "n": 24,
@@ -1667,11 +1703,20 @@
    {
     "scenario_id": "ru-002",
     "category": "regular",
-    "grade": "ungraded",
-    "chosen": "v3:23.048.017-019 (canonical 23 48:17-19)",
-    "method": "fallback_rank1",
-    "reason": "",
-    "highlight": null
+    "grade": "relevant",
+    "chosen": "v3:40.006.025-034 (canonical 40 6:25-34)",
+    "method": "rerank",
+    "reason": "This passage directly addresses anxiety about food, provision, and daily needs, assuring the reader of God's care.",
+    "highlight": {
+     "book": 40,
+     "chapter": 6,
+     "verse_start": 32,
+     "verse_end": 34,
+     "canonical_chapter": 6,
+     "canonical_verse_start": 32,
+     "canonical_verse_end": 34,
+     "text": "потому что всего этого ищут язычники, и потому что Отец ваш Небесный знает, что вы имеете нужду во всем этом. Ищите же прежде Царства Божия и правды Его, и это все приложится вам. Итак не заботьтесь о завтрашнем дне, ибо завтрашний сам будет заботиться о своем: довольно для каждого дня своей заботы."
+    }
    },
    {
     "scenario_id": "ru-003",
@@ -1812,10 +1857,19 @@
     "scenario_id": "en-001",
     "category": "regular",
     "grade": "ungraded",
-    "chosen": "v3:23.048.017-019 (canonical 23 48:17-19)",
-    "method": "fallback_rank1",
-    "reason": "",
-    "highlight": null
+    "chosen": "v3:24.029.001-015 (canonical 24 29:1-15)",
+    "method": "rerank",
+    "reason": "The passage speaks of God's good plans for a future and hope, fitting the start of a new job.",
+    "highlight": {
+     "book": 24,
+     "chapter": 29,
+     "verse_start": 11,
+     "verse_end": 11,
+     "canonical_chapter": 29,
+     "canonical_verse_start": 11,
+     "canonical_verse_end": 11,
+     "text": "For I know the plans I have for you, declares the Lord, plans to prosper you and not to harm you, to give you a future and a hope."
+    }
    },
    {
     "scenario_id": "en-002",
@@ -1838,29 +1892,56 @@
    {
     "scenario_id": "en-003",
     "category": "short",
-    "grade": "relevant",
-    "chosen": "v3:43.014.015-031 (canonical 43 14:15-31)",
-    "method": "fallback_rank1",
-    "reason": "",
-    "highlight": null
+    "grade": "acceptable",
+    "chosen": "v3:19.029.001-011 (canonical 19 29:1-11)",
+    "method": "rerank",
+    "reason": "The passage concludes with a promise of strength and peace for God's people.",
+    "highlight": {
+     "book": 19,
+     "chapter": 29,
+     "verse_start": 11,
+     "verse_end": 11,
+     "canonical_chapter": 29,
+     "canonical_verse_start": 11,
+     "canonical_verse_end": 11,
+     "text": "The Lord gives His people strength; the Lord blesses His people with peace."
+    }
    },
    {
     "scenario_id": "en-004",
     "category": "ambiguous",
-    "grade": "ungraded",
-    "chosen": "v3:23.041.008-020 (canonical 23 41:8-20)",
-    "method": "fallback_rank1",
-    "reason": "",
-    "highlight": null
+    "grade": "relevant",
+    "chosen": "v3:19.103.001-022 (canonical 19 103:1-22)",
+    "method": "rerank",
+    "reason": "The passage speaks of paternal compassion and relationship, fitting for prayer regarding an estranged father.",
+    "highlight": {
+     "book": 19,
+     "chapter": 103,
+     "verse_start": 13,
+     "verse_end": 13,
+     "canonical_chapter": 103,
+     "canonical_verse_start": 13,
+     "canonical_verse_end": 13,
+     "text": "As a father has compassion on his children, so the Lord has compassion on those who fear Him."
+    }
    },
    {
     "scenario_id": "en-005",
     "category": "sensitive",
     "grade": "relevant",
-    "chosen": "v3:19.139.001-024 (canonical 19 139:1-24)",
-    "method": "fallback_rank1",
-    "reason": "",
-    "highlight": null
+    "chosen": "v3:23.043.001-013 (canonical 23 43:1-13)",
+    "method": "rerank",
+    "reason": "This passage directly affirms the person's immense worth in God's eyes and His deep personal love.",
+    "highlight": {
+     "book": 23,
+     "chapter": 43,
+     "verse_start": 4,
+     "verse_end": 4,
+     "canonical_chapter": 43,
+     "canonical_verse_start": 4,
+     "canonical_verse_end": 4,
+     "text": "Because you are precious and honored in My sight, and because I love you, I will give men in exchange for you and nations in place of your life."
+    }
    },
    {
     "scenario_id": "en-006",
@@ -1874,56 +1955,110 @@
    {
     "scenario_id": "en-007",
     "category": "regular",
-    "grade": "ungraded",
-    "chosen": "v3:23.055.006-013 (canonical 23 55:6-13)",
-    "method": "fallback_rank1",
-    "reason": "",
-    "highlight": null
+    "grade": "relevant",
+    "chosen": "v3:61.002.001-008 (canonical 61 2:1-8)",
+    "method": "rerank",
+    "reason": "This passage speaks of God's desire for everyone to be saved and encourages intercessory prayer for others.",
+    "highlight": {
+     "book": 61,
+     "chapter": 2,
+     "verse_start": 3,
+     "verse_end": 4,
+     "canonical_chapter": 2,
+     "canonical_verse_start": 3,
+     "canonical_verse_end": 4,
+     "text": "This is good and pleasing in the sight of God our Savior, who wants everyone to be saved and to come to the knowledge of the truth."
+    }
    },
    {
     "scenario_id": "uk-001",
     "category": "regular",
-    "grade": "relevant",
-    "chosen": "v3:19.103.001-022 (canonical 19 103:1-22)",
-    "method": "fallback_rank1",
-    "reason": "",
-    "highlight": null
+    "grade": "ungraded",
+    "chosen": "v3:57.004.010-020 (canonical 57 4:10-20)",
+    "method": "rerank",
+    "reason": "The passage expresses thankfulness for provision and care, matching the user's gratitude for God's faithfulness through a hard year.",
+    "highlight": {
+     "book": 57,
+     "chapter": 4,
+     "verse_start": 19,
+     "verse_end": 19,
+     "canonical_chapter": 4,
+     "canonical_verse_start": 19,
+     "canonical_verse_end": 19,
+     "text": "За те мій Бог виповнить усі ваші потреби, за багатством своїм, у славі, у Христі Ісусі."
+    }
    },
    {
     "scenario_id": "uk-002",
     "category": "sensitive",
     "grade": "ungraded",
-    "chosen": "v3:40.010.028-031 (canonical 40 10:28-31)",
-    "method": "fallback_rank1",
-    "reason": "",
-    "highlight": null
+    "chosen": "v3:57.004.001-009 (canonical 57 4:1-9)",
+    "method": "rerank",
+    "reason": "Offering comfort, peace, and reassurance of God's closeness for someone experiencing anxiety and fear for loved ones.",
+    "highlight": {
+     "book": 57,
+     "chapter": 4,
+     "verse_start": 6,
+     "verse_end": 7,
+     "canonical_chapter": 4,
+     "canonical_verse_start": 6,
+     "canonical_verse_end": 7,
+     "text": "Ні про що не журіться, але в усьому появляйте Богові ваші прохання молитвою і благанням з подякою. І мир Божий, що вищий від усякого уявлення, берегтиме серця й думки ваші у Христі Ісусі."
+    }
    },
    {
     "scenario_id": "uk-003",
     "category": "short",
     "grade": "relevant",
     "chosen": "v3:19.100.001-005 (canonical 19 100:1-5)",
-    "method": "fallback_rank1",
-    "reason": "",
-    "highlight": null
+    "method": "rerank",
+    "reason": "This passage directly matches the theme of thanksgiving and praising God with joy.",
+    "highlight": {
+     "book": 19,
+     "chapter": 100,
+     "verse_start": 4,
+     "verse_end": 5,
+     "canonical_chapter": 100,
+     "canonical_verse_start": 4,
+     "canonical_verse_end": 5,
+     "text": "Увійдіть із подякою в його ворота, в його двори з хвалою; дякуйте йому, благословіте його ім'я! Бо добрий Господь, повіки його милість і по всі роди його вірність."
+    }
    },
    {
     "scenario_id": "uk-004",
     "category": "ambiguous",
     "grade": "ungraded",
-    "chosen": "v3:49.001.001-003 (canonical 49 1:1-3)",
-    "method": "fallback_rank1",
-    "reason": "",
-    "highlight": null
+    "chosen": "v3:19.037.001-017 (canonical 19 37:1-17)",
+    "method": "rerank",
+    "reason": "The candidate speaks about trusting the Lord regarding one's way and journey.",
+    "highlight": {
+     "book": 19,
+     "chapter": 37,
+     "verse_start": 3,
+     "verse_end": 5,
+     "canonical_chapter": 37,
+     "canonical_verse_start": 3,
+     "canonical_verse_end": 5,
+     "text": "Вповай на Господа й чини добро щоб жити на землі й безпечним бути. Втішайся в Господі, і він сповнить тобі бажання твого серця. На Господа здай твою дорогу; вповай на нього, і він учинить;"
+    }
    },
    {
     "scenario_id": "uk-005",
     "category": "sensitive",
-    "grade": "ungraded",
-    "chosen": "v3:19.023.001-006 (canonical 19 23:1-6)",
-    "method": "fallback_rank1",
-    "reason": "",
-    "highlight": null
+    "grade": "acceptable",
+    "chosen": "v3:40.028.016-020 (canonical 40 28:16-20)",
+    "method": "rerank",
+    "reason": "Offers reassurance of Christ's constant presence against loneliness.",
+    "highlight": {
+     "book": 40,
+     "chapter": 28,
+     "verse_start": 20,
+     "verse_end": 20,
+     "canonical_chapter": 28,
+     "canonical_verse_start": 20,
+     "canonical_verse_end": 20,
+     "text": "навчаючи їх берегти все, що я вам заповідав. Отож я з вами по всі дні аж до кінця віку.”"
+    }
    },
    {
     "scenario_id": "uk-006",
@@ -1937,11 +2072,20 @@
    {
     "scenario_id": "uk-007",
     "category": "regular",
-    "grade": "acceptable",
-    "chosen": "v3:19.121.001-008 (canonical 19 121:1-8)",
-    "method": "fallback_rank1",
-    "reason": "",
-    "highlight": null
+    "grade": "ungraded",
+    "chosen": "v3:57.001.003-011 (canonical 57 1:3-11)",
+    "method": "rerank",
+    "reason": "This passage expresses confidence that God who began a good work will bring it to completion, fitting prayers for children starting new life stages.",
+    "highlight": {
+     "book": 57,
+     "chapter": 1,
+     "verse_start": 6,
+     "verse_end": 6,
+     "canonical_chapter": 1,
+     "canonical_verse_start": 6,
+     "canonical_verse_end": 6,
+     "text": "я певний того, що хто розпочав у вас добре діло, він його й закінчить аж до дня Христа Ісуса."
+    }
    }
   ],
   "fallback_rank1": [

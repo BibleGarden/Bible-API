@@ -1,5 +1,41 @@
 {
  "config": "pipeline rewrite=file:qwen3-30b-a3b-instruct-2507 variants=6 raw=no fusion=interleave blacklist=on pool=on lexical=k20 fetch_k=50 max_per_book=4",
+ "embedding_stage": {
+  "embedder": "gemini",
+  "model_id": "gemini-embedding-001",
+  "dims": 3072,
+  "peak_rss_mb": 451.0,
+  "query_embed_count": 125,
+  "query_embed_ms": {
+   "median": 0.1,
+   "mean": 0.1,
+   "max": 3.3
+  }
+ },
+ "doc_stage": {
+  "doc_text": "title_text",
+  "matrix_variant": "title_text",
+  "rows": 11960,
+  "fragments": 11960,
+  "senses": 0,
+  "missing_descriptions": 0,
+  "missing_by_language": {},
+  "coverage_by_language": {
+   "ru": 1.0,
+   "en": 1.0,
+   "uk": 1.0
+  },
+  "coverage_min": 1.0,
+  "allow_partial_coverage": false,
+  "languages": [
+   "ru",
+   "en",
+   "uk"
+  ],
+  "descriptions_file": "",
+  "descriptions_sha1": "",
+  "descriptions_meta": {}
+ },
  "aggregate": {
   "label": "ALL",
   "n": 24,
@@ -1650,73 +1686,145 @@
     "scenario_id": "ru-001",
     "category": "regular",
     "grade": "ungraded",
-    "chosen": "v3:19.118.001-029 (canonical 19 118:1-29)",
-    "method": "fallback_rank1",
-    "reason": "",
-    "highlight": null
+    "chosen": "v3:19.113.001-009 (canonical 19 113:1-9)",
+    "method": "rerank",
+    "reason": "The candidate speaks of God granting children to a mother and bringing joy, fitting the birth of a daughter.",
+    "highlight": {
+     "book": 19,
+     "chapter": 112,
+     "verse_start": 9,
+     "verse_end": 9,
+     "canonical_chapter": 113,
+     "canonical_verse_start": 9,
+     "canonical_verse_end": 9,
+     "text": "неплодную вселяет в дом матерью, радующеюся о детях? Аллилуия!"
+    }
    },
    {
     "scenario_id": "ru-002",
     "category": "regular",
     "grade": "ungraded",
-    "chosen": "v3:23.035.003-004 (canonical 23 35:3-4)",
-    "method": "fallback_rank1",
-    "reason": "",
-    "highlight": null
+    "chosen": "v3:19.062.000-012 (canonical 19 62:0-12)",
+    "method": "rerank",
+    "reason": "The passage provides calm reassurance and refuge in God during anxiety about circumstances.",
+    "highlight": {
+     "book": 19,
+     "chapter": 61,
+     "verse_start": 2,
+     "verse_end": 3,
+     "canonical_chapter": 62,
+     "canonical_verse_start": 1,
+     "canonical_verse_end": 2,
+     "text": "Только в Боге успокаивается душа моя: от Него спасение мое. Только Он — твердыня моя, спасение мое, убежище мое: не поколеблюсь более."
+    }
    },
    {
     "scenario_id": "ru-003",
     "category": "sensitive",
     "grade": "ungraded",
-    "chosen": "v3:19.062.000-012 (canonical 19 62:0-12)",
-    "method": "fallback_rank1",
-    "reason": "",
-    "highlight": null
+    "chosen": "v3:19.027.001-014 (canonical 19 27:1-14)",
+    "method": "rerank",
+    "reason": "This passage directly addresses the pain of losing parents with the comforting promise that the Lord will receive and care for the person.",
+    "highlight": {
+     "book": 19,
+     "chapter": 26,
+     "verse_start": 10,
+     "verse_end": 10,
+     "canonical_chapter": 27,
+     "canonical_verse_start": 10,
+     "canonical_verse_end": 10,
+     "text": "ибо отец мой и мать моя оставили меня, но Господь примет меня."
+    }
    },
    {
     "scenario_id": "ru-004",
     "category": "sensitive",
     "grade": "relevant",
     "chosen": "v3:19.023.001-006 (canonical 19 23:1-6)",
-    "method": "fallback_rank1",
-    "reason": "",
-    "highlight": null
+    "method": "rerank",
+    "reason": "Offering comfort and God's presence in the valley of shadow before surgery.",
+    "highlight": {
+     "book": 19,
+     "chapter": 22,
+     "verse_start": 4,
+     "verse_end": 4,
+     "canonical_chapter": 23,
+     "canonical_verse_start": 4,
+     "canonical_verse_end": 4,
+     "text": "Если я пойду и долиною смертной тени, не убоюсь зла, потому что Ты со мной; Твой жезл и Твой посох — они успокаивают меня."
+    }
    },
    {
     "scenario_id": "ru-005",
     "category": "sensitive",
     "grade": "ungraded",
-    "chosen": "v3:23.035.003-004 (canonical 23 35:3-4)",
-    "method": "fallback_rank1",
-    "reason": "",
-    "highlight": null
+    "chosen": "v3:19.016.001-011 (canonical 19 16:1-11)",
+    "method": "rerank",
+    "reason": "The candidate speaks of finding peace and calm in God during the night, directly addressing insomnia and fear.",
+    "highlight": {
+     "book": 19,
+     "chapter": 15,
+     "verse_start": 8,
+     "verse_end": 9,
+     "canonical_chapter": 16,
+     "canonical_verse_start": 8,
+     "canonical_verse_end": 9,
+     "text": "Всегда видел я пред собою Господа, ибо Он одесную меня; не поколеблюсь. Оттого возрадовалось сердце мое и возвеселился язык мой; даже и плоть моя успокоится в уповании,"
+    }
    },
    {
     "scenario_id": "ru-006",
     "category": "ambiguous",
-    "grade": "relevant",
-    "chosen": "v3:43.008.012-020 (canonical 43 8:12-20)",
-    "method": "fallback_rank1",
-    "reason": "",
-    "highlight": null
+    "grade": "ungraded",
+    "chosen": "v3:43.012.042-050 (canonical 43 12:42-50)",
+    "method": "rerank",
+    "reason": "The passage speaks of Jesus as the light coming into the world so that whoever believes in Him will not remain in darkness.",
+    "highlight": {
+     "book": 43,
+     "chapter": 12,
+     "verse_start": 44,
+     "verse_end": 46,
+     "canonical_chapter": 12,
+     "canonical_verse_start": 44,
+     "canonical_verse_end": 46,
+     "text": "Иисус же возгласил и сказал: верующий в Меня не в Меня верует, но в Пославшего Меня. И видящий Меня видит Пославшего Меня. Я свет пришел в мир, чтобы всякий верующий в Меня не оставался во тьме."
+    }
    },
    {
     "scenario_id": "ru-007",
     "category": "ambiguous",
     "grade": "ungraded",
-    "chosen": "v3:23.030.015-017 (canonical 23 30:15-17)",
-    "method": "fallback_rank1",
-    "reason": "",
-    "highlight": null
+    "chosen": "v3:19.062.000-012 (canonical 19 62:0-12)",
+    "method": "rerank",
+    "reason": "The candidate speaks about finding rest and quiet in God amid turmoil and pressure.",
+    "highlight": {
+     "book": 19,
+     "chapter": 61,
+     "verse_start": 2,
+     "verse_end": 3,
+     "canonical_chapter": 62,
+     "canonical_verse_start": 1,
+     "canonical_verse_end": 2,
+     "text": "Только в Боге успокаивается душа моя: от Него спасение мое. Только Он — твердыня моя, спасение мое, убежище мое: не поколеблюсь более."
+    }
    },
    {
     "scenario_id": "ru-008",
     "category": "short",
     "grade": "ungraded",
-    "chosen": "v3:19.031.000-024 (canonical 19 31:0-24)",
-    "method": "fallback_rank1",
-    "reason": "",
-    "highlight": null
+    "chosen": "v3:23.043.001-013 (canonical 23 43:1-13)",
+    "method": "rerank",
+    "reason": "The passage offers comforting assurance of God's presence and protection in times of trouble.",
+    "highlight": {
+     "book": 23,
+     "chapter": 43,
+     "verse_start": 1,
+     "verse_end": 2,
+     "canonical_chapter": 43,
+     "canonical_verse_start": 1,
+     "canonical_verse_end": 2,
+     "text": "Ныне же так говорит Господь, сотворивший тебя, Иаков, и устроивший тебя, Израиль: не бойся, ибо Я искупил тебя, назвал тебя по имени твоему; ты Мой. Будешь ли переходить через воды, Я с тобою, — через реки ли, они не потопят тебя; пойдешь ли через огонь, не обожжешься, и пламя не опалит тебя."
+    }
    },
    {
     "scenario_id": "ru-009",
@@ -1732,54 +1840,108 @@
     "category": "regular",
     "grade": "relevant",
     "chosen": "v3:56.004.025-032 (canonical 56 4:25-32)",
-    "method": "fallback_rank1",
-    "reason": "",
-    "highlight": null
+    "method": "rerank",
+    "reason": "This passage directly addresses resolving anger with a brother and calls for mutual forgiveness.",
+    "highlight": {
+     "book": 56,
+     "chapter": 4,
+     "verse_start": 32,
+     "verse_end": 32,
+     "canonical_chapter": 4,
+     "canonical_verse_start": 32,
+     "canonical_verse_end": 32,
+     "text": "но будьте друг ко другу добры, сострадательны, прощайте друг друга, как и Бог во Христе простил вас."
+    }
    },
    {
     "scenario_id": "en-001",
     "category": "regular",
     "grade": "ungraded",
-    "chosen": "v3:19.138.001-008 (canonical 19 138:1-8)",
-    "method": "fallback_rank1",
-    "reason": "",
-    "highlight": null
+    "chosen": "v3:13.016.007-022 (canonical 13 16:7-22)",
+    "method": "rerank",
+    "reason": "Candidate 8 provides a song of thanksgiving and praise suitable for celebrating a new beginning and God's blessings.",
+    "highlight": {
+     "book": 13,
+     "chapter": 16,
+     "verse_start": 8,
+     "verse_end": 10,
+     "canonical_chapter": 16,
+     "canonical_verse_start": 8,
+     "canonical_verse_end": 10,
+     "text": "“Give thanks to the Lord ; call upon His name; make known His deeds among the nations. Sing to Him, sing praises to Him; tell of all His wonders. Glory in His holy name; let the hearts of those who seek the Lord rejoice."
+    }
    },
    {
     "scenario_id": "en-002",
     "category": "sensitive",
-    "grade": "ungraded",
-    "chosen": "v3:19.038.000-022 (canonical 19 38:0-22)",
-    "method": "fallback_rank1",
-    "reason": "",
-    "highlight": null
+    "grade": "relevant",
+    "chosen": "v3:19.034.000-022 (canonical 19 34:0-22)",
+    "method": "rerank",
+    "reason": "The passage offers deep comfort to the brokenhearted in their grief.",
+    "highlight": {
+     "book": 19,
+     "chapter": 34,
+     "verse_start": 18,
+     "verse_end": 18,
+     "canonical_chapter": 34,
+     "canonical_verse_start": 18,
+     "canonical_verse_end": 18,
+     "text": "The Lord is near to the brokenhearted; He saves the contrite in spirit."
+    }
    },
    {
     "scenario_id": "en-003",
     "category": "short",
     "grade": "relevant",
-    "chosen": "v3:43.014.015-031 (canonical 43 14:15-31)",
-    "method": "fallback_rank1",
-    "reason": "",
-    "highlight": null
+    "chosen": "v3:57.004.001-009 (canonical 57 4:1-9)",
+    "method": "rerank",
+    "reason": "This passage directly addresses anxiety and offers the promise of God's surpassing peace.",
+    "highlight": {
+     "book": 57,
+     "chapter": 4,
+     "verse_start": 6,
+     "verse_end": 7,
+     "canonical_chapter": 4,
+     "canonical_verse_start": 6,
+     "canonical_verse_end": 7,
+     "text": "Be anxious for nothing, but in everything, by prayer and petition, with thanksgiving, present your requests to God. And the peace of God, which surpasses all understanding, will guard your hearts and your minds in Christ Jesus."
+    }
    },
    {
     "scenario_id": "en-004",
     "category": "ambiguous",
     "grade": "ungraded",
     "chosen": "v3:20.004.010-019 (canonical 20 4:10-19)",
-    "method": "fallback_rank1",
-    "reason": "",
-    "highlight": null
+    "method": "rerank",
+    "reason": "Provides fatherly guidance and instruction for a relationship with a father.",
+    "highlight": {
+     "book": 20,
+     "chapter": 4,
+     "verse_start": 10,
+     "verse_end": 11,
+     "canonical_chapter": 4,
+     "canonical_verse_start": 10,
+     "canonical_verse_end": 11,
+     "text": "Listen, my son, and receive my words, and the years of your life will be many. I will guide you in the way of wisdom; I will lead you on straight paths."
+    }
    },
    {
     "scenario_id": "en-005",
     "category": "sensitive",
     "grade": "relevant",
-    "chosen": "v3:19.139.001-024 (canonical 19 139:1-24)",
-    "method": "fallback_rank1",
-    "reason": "",
-    "highlight": null
+    "chosen": "v3:23.043.001-013 (canonical 23 43:1-13)",
+    "method": "rerank",
+    "reason": "This passage directly addresses feelings of worthlessness by assuring the person they are precious and honored in God's sight.",
+    "highlight": {
+     "book": 23,
+     "chapter": 43,
+     "verse_start": 4,
+     "verse_end": 4,
+     "canonical_chapter": 43,
+     "canonical_verse_start": 4,
+     "canonical_verse_end": 4,
+     "text": "Because you are precious and honored in My sight, and because I love you, I will give men in exchange for you and nations in place of your life."
+    }
    },
    {
     "scenario_id": "en-006",
@@ -1829,38 +1991,65 @@
    {
     "scenario_id": "uk-002",
     "category": "sensitive",
-    "grade": "ungraded",
-    "chosen": "v3:23.041.008-020 (canonical 23 41:8-20)",
-    "method": "fallback_rank1",
-    "reason": "",
+    "grade": "acceptable",
+    "chosen": "v3:19.121.001-008 (canonical 19 121:1-8)",
+    "method": "rerank",
+    "reason": "This passage offers comfort, divine protection and constant watch over loved ones day and night, directly addressing the user's anxiety and fear for family near the frontline.",
     "highlight": null
    },
    {
     "scenario_id": "uk-003",
     "category": "short",
-    "grade": "relevant",
-    "chosen": "v3:19.136.001-026 (canonical 19 136:1-26)",
-    "method": "fallback_rank1",
-    "reason": "",
-    "highlight": null
+    "grade": "ungraded",
+    "chosen": "v3:57.001.003-011 (canonical 57 1:3-11)",
+    "method": "rerank",
+    "reason": "The passage expresses heartfelt thanksgiving and joy in prayer.",
+    "highlight": {
+     "book": 57,
+     "chapter": 1,
+     "verse_start": 3,
+     "verse_end": 4,
+     "canonical_chapter": 1,
+     "canonical_verse_start": 3,
+     "canonical_verse_end": 4,
+     "text": "Дякую Богові моєму щоразу, коли вас згадаю, завжди в кожній моїй молитві за всіх вас із радістю молившися,"
+    }
    },
    {
     "scenario_id": "uk-004",
     "category": "ambiguous",
     "grade": "ungraded",
-    "chosen": "v3:23.048.017-019 (canonical 23 48:17-19)",
-    "method": "fallback_rank1",
-    "reason": "",
-    "highlight": null
+    "chosen": "v3:23.043.001-013 (canonical 23 43:1-13)",
+    "method": "rerank",
+    "reason": "The passage reassures travelers with God's presence and protection through any journey or waters.",
+    "highlight": {
+     "book": 23,
+     "chapter": 43,
+     "verse_start": 1,
+     "verse_end": 2,
+     "canonical_chapter": 43,
+     "canonical_verse_start": 1,
+     "canonical_verse_end": 2,
+     "text": "А тепер так говорить Господь, творець твій, Якове, і твій сотворитель, Ізраїлю: «Не бійся, бо я тебе викупив, прикликав тебе твоїм ім'ям, ти — мій! Чи через води йтимеш, я з тобою, чи крізь ріки, — тебе не затоплять, чи підеш крізь вогонь, — не попечешся, і полум'я тебе не обпалить."
+    }
    },
    {
     "scenario_id": "uk-005",
     "category": "sensitive",
     "grade": "ungraded",
-    "chosen": "v3:23.041.008-020 (canonical 23 41:8-20)",
-    "method": "fallback_rank1",
-    "reason": "",
-    "highlight": null
+    "chosen": "v3:19.023.001-006 (canonical 19 23:1-6)",
+    "method": "rerank",
+    "reason": "The passage reassures a lonely person that God is close and she does not walk alone.",
+    "highlight": {
+     "book": 19,
+     "chapter": 23,
+     "verse_start": 4,
+     "verse_end": 4,
+     "canonical_chapter": 23,
+     "canonical_verse_start": 4,
+     "canonical_verse_end": 4,
+     "text": "Навіть коли б ходив я долиною темряви, — я не боюся лиха, бо ти зо мною. Жезло твоє й палиця твоя — вони дають мені підтримку."
+    }
    },
    {
     "scenario_id": "uk-006",
@@ -1875,10 +2064,19 @@
     "scenario_id": "uk-007",
     "category": "regular",
     "grade": "ungraded",
-    "chosen": "v3:20.004.010-019 (canonical 20 4:10-19)",
-    "method": "fallback_rank1",
-    "reason": "",
-    "highlight": null
+    "chosen": "v3:20.002.001-011 (canonical 20 2:1-11)",
+    "method": "rerank",
+    "reason": "The passage offers divine wisdom, guidance, and protection for walking uprightly, fitting a parent's prayer for their children.",
+    "highlight": {
+     "book": 20,
+     "chapter": 2,
+     "verse_start": 6,
+     "verse_end": 8,
+     "canonical_chapter": 2,
+     "canonical_verse_start": 6,
+     "canonical_verse_end": 8,
+     "text": "Господь бо дає мудрість,  і з його уст виходить знання й розсудливість. Він для праведних зберігає допомогу;  він щит для тих, що ходять чесно. Він стежки правоти пильнує,  він береже дорогу своїх вірних."
+    }
    }
   ],
   "fallback_rank1": [
