@@ -65,8 +65,14 @@ the provider key never leaves the server:
 ```
 
 `first` carries no history; a non-empty history ends with a `user` turn;
-`messages: []` is normal for the other two stages. Details:
-`architect/twinkler-ai.md`.
+`messages: []` is normal for the other two stages.
+
+An optional `skipped_questions` (list of strings, at most 10 of at most 300
+characters, empty by default) carries the questions the person asked to
+replace, so the next one takes another direction. It must be empty with
+`first`, and it counts towards the same 16 000-character total. Details:
+`architect/twinkler-ai.md` and
+`architect/adr/0015-skipped-questions-in-question-request.md`.
 
 The whole AI surface is configured by environment variables:
 

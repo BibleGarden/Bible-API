@@ -39,10 +39,17 @@
 | `stage` | `first` (the opening question), `next` (the following one), `reflect` (the closing question that helps name one takeaway) |
 | `messages` | the conversation so far, chronological, ≤ 40 items; `role` is `assistant` (a question we asked) or `user` (their answer), `text` is non-empty |
 
-`topic` and every `text` together must not exceed **16 000 characters** — the
-client's own ceiling, counted there in UTF-16 units and here in code points
-(they differ only for astral characters, where this bound is the looser of the
-two; the tighter side is the one that decides what is ever sent).
+and one optional field:
+
+| field | rules |
+| --- | --- |
+| `skipped_questions` | questions already shown and left unanswered — replaced or skipped — chronological, ≤ 10 items of ≤ 300 characters each; defaults to `[]`, and must be empty with `first` (ClickUp 86cbehyfe) |
+
+`topic`, every `text` and every skipped question together must not exceed
+**16 000 characters** — the client's own ceiling, counted there in UTF-16 units
+and here in code points (they differ only for astral characters, where this
+bound is the looser of the two; the tighter side is the one that decides what
+is ever sent).
 
 What the client guarantees, and what the server therefore relies on:
 
@@ -133,6 +140,94 @@ answer is one bullet. The topic is trimmed; a whitespace-only topic is "no
 topic". `tests/test_question_prompt.py` holds every assembly as a golden
 string, written out in full rather than imported from the module it checks.
 
+### Replaced questions: `skipped_questions` (ClickUp 86cbehyfe)
+
+In Lampada the person can press "replace question". Until this ticket the
+client dropped the unanswered question and resent an **identical** body, so the
+model was never told its question had been declined and came back with the same
+thought in different words. The client now accumulates them and sends them:
+
+**The client's rule.** Every question of the *current* prayer that was shown
+and left unanswered — replaced or skipped — chronologically, all of them, and
+**never a question that is already in `messages`**: a question the person
+answered belongs in the history as an `assistant` turn, and a question they
+replaced belongs here. The two lists do not overlap. The list is reset with the
+prayer, and it is empty (or absent) when nothing was replaced.
+
+The field is **additive**: a request without it produces byte for byte the
+message the endpoint assembled before, which is why `QUESTION_PROMPT_VERSION`
+stays **3**. `build_user_message` renders one extra block and one extra
+sentence, at `next` only:
+
+```
+Цель молитвы: «{topic}».
+Уже прозвучали вопросы:
+— {each assistant turn}
+Человек попросил другой вопрос вместо этих:
+— {each skipped question}
+Что человек ответил (опирайся на это, но не цитируй дословно):
+— {each user turn}
+Задай один новый вопрос, который смотрит на ситуацию с другой стороны и не повторяет прозвучавшие. Выбери другое направление, а не переформулировку тех вопросов, и оттолкнись от того, что человек написал сам. Ответь только текстом вопроса, без кавычек и пояснений.
+```
+
+The header states **what the person did and nothing else**. Pressing "replace"
+says they want a different question — never that they disagree with the thought
+behind it, and a block that told the model so would be us inventing their
+opinion and then answering it. The wording is deliberately minimal: revising it
+is prompt work (ClickUp 86cbehyf8, prompt v4), and that is where the version
+will move.
+
+At **`reflect`** the field is accepted but **not rendered**. That stage looks
+back at what the *person* said and shows none of our questions at all (above),
+so putting them there is a prompt-design change rather than a property of the
+field; the client may send one unconditional shape, and turning the block on
+later is a server-only edit. At **`first`** a non-empty list is a `422`, the
+same reasoning as `messages` with `first`: nothing has been shown yet.
+
+Entries are stripped and blank ones are **dropped, not refused** — these are
+*our own* questions handed back to us, so an empty one says nothing about the
+person, is indistinguishable from the field being absent, and must not cost
+them their next question. A `messages` turn is the opposite case (`text` has
+`min_length: 1`) because it is the person's own words.
+
+Three examples for the client developer:
+
+```json
+{"topic": "Понять масштаб целей на завтра", "stage": "next", "messages": [],
+ "skipped_questions": ["Что сейчас внутри тебя, когда ты только начинаешь молитву?"]}
+```
+
+```json
+{"topic": "Понять масштаб целей на завтра", "stage": "next",
+ "messages": [
+   {"role": "assistant", "text": "Что сейчас внутри тебя, когда ты только начинаешь молитву?"},
+   {"role": "user", "text": "Я рада тому, что сегодня немало сделано…"},
+   {"role": "assistant", "text": "А что, если завтра окажется, что всё, что ты сегодня считал готовым, всё ещё не совсем то, что нужно?"},
+   {"role": "user", "text": "Ну буду доделывать. Я все делаю для Господа, стараюсь сделать очень качественно"}],
+ "skipped_questions": ["Что из сделанного сегодня тебе самой дороже всего?"]}
+```
+
+```json
+{"topic": "Понять масштаб целей на завтра", "stage": "reflect",
+ "messages": [{"role": "user", "text": "Ну буду доделывать. Я все делаю для Господа"}],
+ "skipped_questions": ["Что ты хочешь унести из этой молитвы?"]}
+```
+
+The second example is the shape that matters: the two questions the person
+answered are `assistant` turns, the one they replaced is in
+`skipped_questions`, and neither list repeats the other.
+
+`422` wordings, so a log is diagnosable without the request body:
+
+- `stage 'first' is the opening question and takes no skipped_questions: nothing has been shown to the person yet (use stage 'next' after a question was replaced)`
+- `each skipped_questions entry must not exceed 300 characters (got N)`
+- `topic, messages and skipped_questions together must not exceed 16000 characters (got N)`
+- more than ten entries is pydantic's own `List should have at most 10 items`, at `loc: ["body", "skipped_questions"]`
+
+**The field reaches the model and nothing else.** It votes on neither the
+answer's language nor the despair rule — see the table below and
+`architect/adr/0015-skipped-questions-in-question-request.md`.
+
 ### Which text each rule reads
 
 Two different questions are asked of one request, deliberately reading
@@ -144,6 +239,7 @@ of the despair rule now agree with each other on which part:
 | the model | the whole assembled message | that is the request |
 | **both tiers** of the despair rule | the **last `user` turn** — or `topic` when `stage` is `first`, where the topic is the newest thing the person wrote | see below |
 | the answer's language (prompt, and tier 2's fixed reply) | the last `user` turn → the topic → their earlier replies, newest first → else the last `assistant` turn → else English | the person's own words decide; a question of ours must not vote |
+| `skipped_questions` | read by **nothing** but the model | our own generated text, wrapped in a Russian block whatever the prayer's language: it can neither name the language nor speak despair on the person's behalf (ClickUp 86cbehyfe) |
 
 That language chain is walked by **decidability, not presence**: `detect_language`
 answers `None` for a line that does not say which language it is («Помоги»
