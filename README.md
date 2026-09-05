@@ -22,7 +22,10 @@ The API will be available at `http://localhost:9084/api`.
 - `GET /api/translations/{code}/books` — books in a translation
 - `GET /api/excerpt_with_alignment` — text with word-level audio timing
 - `GET /api/audio/{translation}/{voice}/{book}/{chapter}.mp3` — audio files
-- `GET /api/about` — about page
+- `GET /api/about` — Bible Garden About page (unchanged default); use
+  `GET /api/about?app=lampada` for Lampada contacts and description.
+  `app=bible-garden` explicitly selects the default; unknown values return 422.
+  Both variants require the existing API key.
 - `GET /api/version-check` — app version check
 - `POST /api/ai/question` — Gemini companion reply (see below)
 - `POST /api/ai/transcribe` — voice recording to text (see below)

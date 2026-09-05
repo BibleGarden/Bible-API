@@ -1,5 +1,8 @@
 # about.py
-from fastapi import APIRouter
+from copy import deepcopy
+from typing import Literal
+
+from fastapi import APIRouter, Query
 from auth import RequireAPIKey
 from models import AboutModel
 
@@ -65,6 +68,23 @@ router = APIRouter()
 
 
 @router.get('/about', response_model=AboutModel, operation_id="getAbout", tags=["About"])
-def get_about(api_key: str = RequireAPIKey):
+def get_about(
+    api_key: str = RequireAPIKey,
+    app: Literal["bible-garden", "lampada"] = Query(
+        default="bible-garden", description="Application whose About content is requested"
+    ),
+):
     """Информация о проекте / About the project"""
-    return ABOUT_DATA
+    if app == "bible-garden":
+        return ABOUT_DATA
+
+    data = deepcopy(ABOUT_DATA)
+    website = next(contact for contact in data["contacts"] if contact["id"] == "website")
+    website["url"] = "https://lampada.bible.garden"
+    website["subtitle"] = {language: website["url"] for language in ("en", "ru", "uk")}
+    data["about_text"] = {
+        "en": "Choose a topic and spend time in prayer. Lampada offers questions for reflection and passages from Scripture to help you focus on what matters.\n\nSave your thoughts in the journal to return to them later.",
+        "ru": "Задай тему и побудь в молитве. Лампада предложит вопросы для размышления и отрывки из Писания, которые помогут сосредоточиться на важном.\n\nСохраняй мысли в дневнике, чтобы возвращаться к ним позже.",
+        "uk": "Обери тему й побудь у молитві. Лампада запропонує запитання для роздумів та уривки зі Святого Письма, які допоможуть зосередитися на важливому.\n\nЗберігай думки в щоденнику, щоб повертатися до них пізніше.",
+    }
+    return data
