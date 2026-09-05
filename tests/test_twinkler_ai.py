@@ -17,7 +17,11 @@ os.environ.setdefault("AI_CLIENT_HMAC_KEY", "test-hmac-key")
 
 from fastapi.testclient import TestClient
 
+import config
+import threading
+
 import twinkler_ai
+import transcription
 import client_ip
 import middleware
 import question_prompt
@@ -1562,3 +1566,240 @@ def test_openapi_documents_transcription_contract():
         operation["responses"]
     )
     assert "Retry-After" in operation["responses"]["429"]["headers"]
+
+
+# --- the transcription provider seam (ClickUp 86cbegg3m, ADR 0012) ---------
+
+
+def transcribe_provider(provider: str, model: str = "whisper-large-v3",
+                        endpoint: str = "", api_key: str = "") -> object:
+    """One resolved transcription stage, as `config.resolve_stage` builds it."""
+    return config.StageProvider(
+        "transcribe", provider, model, endpoint, api_key
+    )
+
+
+def post_recording(locale: str | None = "ru-RU"):
+    data = {"locale": locale} if locale is not None else None
+    return client.post(
+        "/api/ai/transcribe",
+        headers={"X-API-Key": "test-api-key"},
+        files={"file": ("recording.m4a", b"m4a-bytes", "audio/mp4")},
+        data=data,
+    )
+
+
+def test_the_local_provider_runs_the_model_off_the_event_loop(monkeypatch):
+    """A transcription is seconds of arithmetic: on the loop it would stall
+    every other request this worker is serving."""
+    recorded = {}
+
+    class FakeLocalTranscriber:
+        def transcribe(self, audio, mime_type, locale):
+            recorded["thread"] = threading.get_ident()
+            recorded["args"] = (audio, mime_type, locale)
+            return "Господи, помоги мне."
+
+    monkeypatch.setattr(
+        twinkler_ai, "TRANSCRIBE_PROVIDER", transcribe_provider("local")
+    )
+    monkeypatch.setattr(
+        twinkler_ai, "LocalTranscriber", lambda: FakeLocalTranscriber()
+    )
+
+    async def run():
+        recorded["loop_thread"] = threading.get_ident()
+        return await twinkler_ai.transcribe(b"m4a-bytes", "audio/mp4", "ru-RU")
+
+    assert asyncio.run(run()) == "Господи, помоги мне."
+    assert recorded["args"] == (b"m4a-bytes", "audio/mp4", "ru-RU")
+    assert recorded["thread"] != recorded["loop_thread"]
+
+
+def test_the_local_provider_answers_the_documented_shape(monkeypatch):
+    class FakeLocalTranscriber:
+        def transcribe(self, audio, mime_type, locale):
+            return "Господи, помоги мне."
+
+    monkeypatch.setattr(
+        twinkler_ai, "TRANSCRIBE_PROVIDER", transcribe_provider("local")
+    )
+    monkeypatch.setattr(
+        twinkler_ai, "LocalTranscriber", lambda: FakeLocalTranscriber()
+    )
+
+    response = post_recording()
+
+    assert response.status_code == 200
+    assert response.json() == {"text": "Господи, помоги мне."}
+
+
+def test_a_local_model_failure_is_the_same_502(monkeypatch, caplog):
+    """Contract parity: the endpoint's failure says nothing about which
+    provider was serving it, or about the recording."""
+    class FakeLocalTranscriber:
+        def transcribe(self, audio, mime_type, locale):
+            raise twinkler_ai.TranscriptionUnavailable(
+                "local transcription failed on private-recording"
+            )
+
+    monkeypatch.setattr(
+        twinkler_ai, "TRANSCRIBE_PROVIDER", transcribe_provider("local")
+    )
+    monkeypatch.setattr(
+        twinkler_ai, "LocalTranscriber", lambda: FakeLocalTranscriber()
+    )
+
+    response = post_recording()
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": "AI service unavailable"}
+    assert "private-recording" not in response.text
+    assert "private-recording" not in caplog.text
+
+
+def test_the_remote_provider_posts_to_the_audio_api(monkeypatch):
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        captured["auth"] = request.headers.get("authorization")
+        captured["body"] = request.read()
+        return httpx.Response(200, json={"text": "Господи, помоги мне."})
+
+    transport = httpx.MockTransport(handler)
+    real_async_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda *args, **kwargs: real_async_client(
+            *args, transport=transport, **kwargs
+        ),
+    )
+    monkeypatch.setattr(
+        twinkler_ai,
+        "TRANSCRIBE_PROVIDER",
+        transcribe_provider(
+            "openai_compat",
+            model="Systran/faster-whisper-large-v3",
+            endpoint="https://whisper.example:8000/v1",
+            api_key="audio-key",
+        ),
+    )
+
+    response = post_recording()
+
+    assert response.status_code == 200
+    assert response.json() == {"text": "Господи, помоги мне."}
+    assert captured["url"] == (
+        "https://whisper.example:8000/v1/audio/transcriptions"
+    )
+    assert captured["auth"] == "Bearer audio-key"
+    assert b'name="model"' in captured["body"]
+    assert b"m4a-bytes" in captured["body"]
+
+
+def test_a_remote_failure_is_the_same_502(monkeypatch):
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(500, text="model server on fire")
+    )
+    real_async_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda *args, **kwargs: real_async_client(
+            *args, transport=transport, **kwargs
+        ),
+    )
+    monkeypatch.setattr(
+        twinkler_ai,
+        "TRANSCRIBE_PROVIDER",
+        transcribe_provider(
+            "openai_compat",
+            endpoint="https://whisper.example:8000/v1",
+            api_key="audio-key",
+        ),
+    )
+    # One attempt and no backoff: the ladder itself is tested in
+    # tests/test_transcription.py, and this test is about the 502.
+    monkeypatch.setattr(
+        twinkler_ai,
+        "RemoteTranscriber",
+        lambda *args, **kwargs: transcription.RemoteTranscriber(
+            *args, **{**kwargs, "attempts": 1}
+        ),
+    )
+
+    response = post_recording()
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": "AI service unavailable"}
+    assert "fire" not in response.text
+
+
+def test_no_google_host_is_dialled_when_no_stage_is_gemini(monkeypatch):
+    """The tripwire of the whole local-models umbrella: with the chat stages
+    on an OpenAI-compatible server and transcription on the audio one, a
+    request must not reach generativelanguage.googleapis.com — the address
+    every Gemini path in this module hard-codes."""
+    hosts = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        hosts.append(request.url.host)
+        if request.url.path.endswith("/audio/transcriptions"):
+            return httpx.Response(200, json={"text": "Господи, помоги мне."})
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "Что ты сейчас чувствуешь?"}}]},
+        )
+
+    transport = httpx.MockTransport(handler)
+    real_async_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda *args, **kwargs: real_async_client(
+            *args, transport=transport, **kwargs
+        ),
+    )
+    monkeypatch.setattr(
+        twinkler_ai,
+        "QUESTION_PROVIDER",
+        config.StageProvider(
+            "question", "openai_compat", "qwen3-30b",
+            "https://llm.example:8443/v1", "chat-key",
+        ),
+    )
+    monkeypatch.setattr(
+        twinkler_ai,
+        "TRANSCRIBE_PROVIDER",
+        transcribe_provider(
+            "openai_compat",
+            endpoint="https://whisper.example:8000/v1",
+            api_key="audio-key",
+        ),
+    )
+
+    question = client.post(
+        "/api/ai/question",
+        headers={"X-API-Key": "test-api-key"},
+        json=question_body(topic="Мне тревожно перед разговором"),
+    )
+    recording = post_recording()
+
+    assert question.status_code == 200
+    assert recording.status_code == 200
+    assert set(hosts) == {"llm.example", "whisper.example"}
+    assert not any("google" in host for host in hosts)
+
+
+def test_the_gemini_path_is_still_the_default_provider(monkeypatch):
+    """`gemini` is the last branch rather than an `else: raise` — an unknown
+    provider cannot reach the seam, config refuses it at start-up."""
+    monkeypatch.setattr(
+        twinkler_ai, "TRANSCRIBE_PROVIDER", transcribe_provider("gemini")
+    )
+    monkeypatch.setattr(twinkler_ai, "GEMINI_API_KEY", "")
+
+    with pytest.raises(twinkler_ai.AIError, match="GEMINI_API_KEY"):
+        asyncio.run(twinkler_ai.transcribe(b"m4a", "audio/mp4", None))

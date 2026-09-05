@@ -60,6 +60,7 @@ GEMINI_API_KEY=your-google-ai-studio-key
 AI_QUESTION_PROVIDER=gemini
 AI_SCRIPTURE_REWRITE_PROVIDER=gemini
 AI_SCRIPTURE_RERANK_PROVIDER=gemini
+AI_TRANSCRIBE_PROVIDER=gemini
 AI_QUESTION_MODEL=gemini-3.7-flash
 AI_TRANSCRIBE_MODEL=gemini-3.5-flash-lite
 EMBEDDING_PROVIDER=gemini
@@ -97,14 +98,48 @@ A stage can override the shared endpoint and key with
 stage runs on a different server, or bills a different key. The key must
 never be part of the URL; an endpoint carrying credentials or a query string
 is rejected at startup. Model names have no defaults on either provider, and
-the three `AI_*_PROVIDER` variables are required as soon as any AI is
+the four `AI_*_PROVIDER` variables are required as soon as any AI is
 configured: an `.env` with only `GEMINI_API_KEY` refuses to start and names
 them. See `architect/adr/0009-provider-independent-llm-client.md`.
 
-`POST /api/ai/transcribe` is Gemini-only for now — there is no
-`AI_TRANSCRIBE_PROVIDER` — so a deployment whose chat stages are fully local
-still needs `GEMINI_API_KEY` and `AI_TRANSCRIBE_MODEL` for it; without them
-that one endpoint answers `502` and everything else keeps working.
+### Choosing the transcription provider
+
+`POST /api/ai/transcribe` has its own provider, because speech is not the
+chat protocol — `gemini`, `openai_compat` (Whisper behind the OpenAI **audio**
+API: `POST {endpoint}/audio/transcriptions`, which vLLM, speaches and
+faster-whisper-server all serve) or `local` (faster-whisper on this machine's
+CPU, no network and no key):
+
+```dotenv
+AI_TRANSCRIBE_PROVIDER=openai_compat
+AI_TRANSCRIBE_ENDPOINT=https://your-audio-server:8000/v1   # else AI_OPENAI_COMPAT_ENDPOINT
+AI_TRANSCRIBE_API_KEY=server-key                           # may be empty
+AI_TRANSCRIBE_MODEL=Systran/faster-whisper-large-v3
+
+# ...or in this process:
+AI_TRANSCRIBE_PROVIDER=local
+AI_TRANSCRIBE_MODEL=small                       # small | medium
+AI_TRANSCRIBE_MODEL_PATH=/models/whisper/small  # local only; must NOT be set otherwise
+```
+
+The request, the response and every status code are identical whoever
+answers: the recording is transcribed verbatim in its own language and the
+optional locale is only a hint. `local` weights are the same read-only
+`/models` volume the embeddings use and are loaded at start-up (a missing
+directory fails the start, nothing is ever downloaded):
+
+```bash
+hf download Systran/faster-whisper-small --local-dir /srv/models/whisper/small
+```
+
+Measured on 8 CPU cores, int8: 0.07-0.22x the audio duration, 0.85 GB
+(`small`) to 2.1 GB (`medium`) of RSS, word error rate on Russian 0.153
+(`small`) / 0.100 (`medium`) against Gemini's 0.019. The production provider —
+`large-v3-turbo` on a CPU behind the audio API — measures 0.037 on Russian
+(character error rate 0.003, Gemini's own) at 0.20x the audio and no memory on
+this side. Full tables, the side-by-side transcripts and how to re-measure
+(`evaluation/transcribe_bench.py remote`): `evaluation/README.md` and
+`architect/adr/0012-speech-transcription-providers.md`.
 
 ### Choosing the embedding provider
 

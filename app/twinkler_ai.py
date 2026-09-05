@@ -5,6 +5,7 @@ from typing import Any, Literal
 
 import httpx
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from auth import RequireAPIKey
@@ -14,13 +15,20 @@ from config import (
     AI_QUESTION_MODEL,
     AI_QUESTION_TIMEOUT_SECONDS,
     AI_TRANSCRIBE_MODEL,
+    AI_TRANSCRIBE_TIMEOUT_SECONDS,
     AI_REQUESTS_PER_CLIENT_PER_MINUTE,
     AI_REQUESTS_PER_MINUTE,
     QUESTION_PROVIDER,
+    TRANSCRIBE_PROVIDER,
 )
 from llm_client import AsyncChatClient, LLMError
 from question_prompt import build_question_prompt, build_user_message
 from rate_limit import RateLimiter, RateLimitError
+from transcription import (
+    LocalTranscriber,
+    RemoteTranscriber,
+    TranscriptionUnavailable,
+)
 from safety import (
     DEFAULT_LANGUAGE,
     NO_MATCH,
@@ -480,15 +488,72 @@ def _transcription_prompt(locale: str | None) -> str:
 
 
 async def transcribe(audio: bytes, mime_type: str, locale: str | None) -> str:
-    """Transcribe one recording with Gemini, or raise AIError (a 502).
+    """Transcribe one recording, or raise AIError (the handler's 502).
 
-    Deliberately Gemini-only, with no `AI_TRANSCRIBE_PROVIDER` to switch
-    (config refuses that variable): speech is the one stage the
-    OpenAI-compatible chat protocol does not cover, and it moves to a local
-    speech model in its own step. So a deployment whose three CHAT stages run
-    on another provider still needs `GEMINI_API_KEY` for this endpoint — and
-    without one it answers the same explicit 502 it always has, while
-    everything else keeps working.
+    The provider seam of ADR 0012. Three transports, one contract — verbatim,
+    in the recording's own language, the locale a weak hint — and one public
+    failure, so the handler, its status codes and every client are unchanged
+    whichever answers:
+
+    * `openai_compat` — Whisper on the company's model server through the
+      OpenAI **audio** API (`app/transcription.RemoteTranscriber`). The
+      production provider since Maria's decision of 2026-09-05.
+    * `local` — faster-whisper in this process, on a worker THREAD: a
+      transcription is seconds of arithmetic, and on the event loop it would
+      stall every other request the worker is serving. The weights are
+      already loaded (`app/main.py` does it at start-up, fatally), so this
+      call is the transcription and nothing else.
+    * `gemini` — the original path below, byte for byte what it always sent.
+
+    An unknown provider cannot reach here: `config._validate` refuses it at
+    start-up, which is why the last branch is the Gemini one rather than an
+    `else: raise`.
+    """
+    if TRANSCRIBE_PROVIDER.is_local:
+        return await _transcribe_local(audio, mime_type, locale)
+    if TRANSCRIBE_PROVIDER.is_openai_compat:
+        return await _transcribe_openai_compat(audio, mime_type, locale)
+    return await _transcribe_gemini(audio, mime_type, locale)
+
+
+async def _transcribe_local(
+    audio: bytes, mime_type: str, locale: str | None
+) -> str:
+    """faster-whisper in this process, run on a worker thread."""
+    transcriber = LocalTranscriber()
+    try:
+        return await run_in_threadpool(
+            transcriber.transcribe, audio, mime_type, locale
+        )
+    except TranscriptionUnavailable as error:
+        raise AIError(f"local transcription failed: {error}") from None
+
+
+async def _transcribe_openai_compat(
+    audio: bytes, mime_type: str, locale: str | None
+) -> str:
+    """The OpenAI audio API of the configured transcription endpoint."""
+    transcriber = RemoteTranscriber(
+        TRANSCRIBE_PROVIDER.endpoint,
+        TRANSCRIBE_PROVIDER.api_key,
+        TRANSCRIBE_PROVIDER.model,
+        timeout=AI_TRANSCRIBE_TIMEOUT_SECONDS,
+    )
+    try:
+        return await transcriber.transcribe(audio, mime_type, locale)
+    except TranscriptionUnavailable as error:
+        raise AIError(f"remote transcription failed: {error}") from None
+
+
+async def _transcribe_gemini(
+    audio: bytes, mime_type: str, locale: str | None
+) -> str:
+    """The historical path: the recording inline in a `generateContent` call.
+
+    Unchanged except for its timeout, which is now
+    `AI_TRANSCRIBE_TIMEOUT_SECONDS` and defaults to the 60.0 literal it
+    replaces. Without `GEMINI_API_KEY` it answers the same explicit 502 it
+    always has, while everything else keeps working.
     """
     if not GEMINI_API_KEY:
         raise GeminiError("GEMINI_API_KEY is not configured")
@@ -519,7 +584,9 @@ async def transcribe(audio: bytes, mime_type: str, locale: str | None) -> str:
     }
 
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(
+            timeout=AI_TRANSCRIBE_TIMEOUT_SECONDS
+        ) as client:
             response = await client.post(
                 url,
                 headers={"x-goog-api-key": GEMINI_API_KEY},
@@ -667,7 +734,10 @@ async def twinkler_complete(
                 }
             },
         },
-        502: {"model": ErrorResponse, "description": "Gemini request failed"},
+        502: {
+            "model": ErrorResponse,
+            "description": "AI is not configured or the provider request failed",
+        },
         503: {"model": ErrorResponse, "description": "Rate limiter unavailable"},
     },
 )

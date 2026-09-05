@@ -9,10 +9,15 @@ services:
     volumes:
       # Host path with mp3 files. Set AUDIO_DIR in .env
       - ${AUDIO_DIR:?set AUDIO_DIR}:/audio
-      # Embedding model weights, READ-ONLY (EMBEDDING_PROVIDER=local, ADR
-      # 0010). Set EMBEDDING_MODELS_DIR in .env to the host directory that
-      # holds the model directories; EMBEDDING_MODEL_PATH then names one of
-      # them inside the container, e.g. /models/bge-m3.
+      # Model weights, READ-ONLY. One volume, two consumers:
+      #   EMBEDDING_MODEL_PATH   e.g. /models/bge-m3      (EMBEDDING_PROVIDER=local, ADR 0010)
+      #   AI_TRANSCRIBE_MODEL_PATH  e.g. /models/whisper/small
+      #                          (AI_TRANSCRIBE_PROVIDER=local, ADR 0012)
+      # Set EMBEDDING_MODELS_DIR in .env to the host directory that holds the
+      # model directories; each variable then names one of them inside the
+      # container. The variable keeps its name — it predates the second
+      # consumer and renaming it would break every existing `.env` for no
+      # gain.
       #
       # 2.3 GB of weights are data, not image: baking them in would make
       # every image pull carry them and every image rebuild re-push them,

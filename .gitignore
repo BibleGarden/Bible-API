@@ -27,6 +27,15 @@ evaluation/bench_data/*
 # The probe id list is a few hundred bytes and is what makes the
 # description probe set (86cbeef7h) reproducible on another machine.
 !evaluation/bench_data/description_probe_ids.txt
+# Transcription benchmark (86cbegg3m): the sample list and the per-model
+# outputs are tracked — they are the side-by-side material Maria judges the
+# Russian quality by, and the Gemini run cannot be reproduced identically
+# later. The AUDIO EXCERPTS are not: they live in
+# evaluation/bench_data/transcribe_audio/ and stay local, being 4 MB of
+# derivative Bible recordings that `transcribe_bench.py` re-cuts from
+# ${AUDIO_DIR} in seconds.
+!evaluation/bench_data/transcribe_samples.json
+!evaluation/bench_data/transcribe_*.jsonl
 # Leading-question answers (86cbegctz): a few dozen kilobytes, and the same
 # reason as the rewrite/rerank artifacts — the Qwen answers come from Maria's
 # private server and the Gemini ones from free-tier quota on a model that may

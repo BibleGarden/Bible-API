@@ -98,21 +98,36 @@ AI_REQUIRED_VARS = (
 # one as before — the provider decides how it is interpreted (a Gemini model
 # id, or the `model` field of a chat-completions request).
 #
-# Two stages are deliberately NOT in this table:
+# Transcription joined them on 2026-09-05 (ClickUp 86cbegg3m, ADR 0012) with
+# its own value set, because speech is not the chat protocol:
 #
-# * transcription (`AI_TRANSCRIBE_MODEL`) is Gemini-only and stays that way
-#   until step 6 replaces it with Whisper (ClickUp 86cbe4mtq). There is no
-#   `AI_TRANSCRIBE_PROVIDER`; setting one is a startup error rather than a
-#   variable that quietly does nothing. Without `GEMINI_API_KEY` the endpoint
-#   answers its documented 502 — an explicit refusal, not a crash — even when
-#   every chat stage runs on another provider.
-# * embeddings (`EMBEDDING_MODEL`) are step 3 (bge-m3, ClickUp 86cbegg2r) and
-#   are untouched here: they name the stored index, not just a call.
+#   AI_TRANSCRIBE_PROVIDER    POST /api/ai/transcribe
+#                             `gemini` | `openai_compat` | `local`
+#
+# `openai_compat` here is the OpenAI **audio** API — a multipart
+# `POST {endpoint}/audio/transcriptions`, not `/chat/completions` — which is
+# what vLLM, speaches and faster-whisper-server all expose; it is the
+# production provider (Whisper on the company's CPU beside Qwen). It resolves
+# its endpoint and key through `resolve_stage` like any chat stage, including
+# the per-stage `AI_TRANSCRIBE_ENDPOINT` / `AI_TRANSCRIBE_API_KEY` overrides,
+# which matter here because the audio server is a different process from the
+# chat one.
+#
+# `local` is Whisper through faster-whisper in THIS process (see
+# app/transcription.py) — the fallback, and what the measurement ran on. It
+# reads one more variable, `AI_TRANSCRIBE_MODEL_PATH` (the read-only volume
+# its converted weights are mounted at), in exactly the split `EMBEDDING_MODEL`
+# / `EMBEDDING_MODEL_PATH` has: what the model IS and where its bytes happen
+# to live on this machine are different facts.
+#
+# One stage is deliberately NOT in this table: embeddings (`EMBEDDING_MODEL`,
+# step 3, ClickUp 86cbegg2r) have their own provider variable, required in
+# every deployment, because they name the stored index and not just a call.
 #
 # "AI is configured" is now: `GEMINI_API_KEY` is set OR a provider is named.
-# Once configured, all three provider variables must be named — an `.env`
+# Once configured, all four provider variables must be named — an `.env`
 # that predates this change (a Gemini key and no providers) does NOT start,
-# and says which three variables it wants. That is the point: which provider
+# and says which variables it wants. That is the point: which provider
 # answers a request is exactly the class of decision ADR 0008 forbids
 # defaulting in code, and a transitional "assume gemini" default would have
 # been invisible in `.env` for as long as it lasted.
@@ -129,8 +144,35 @@ AI_PROVIDERS = (PROVIDER_GEMINI, PROVIDER_OPENAI_COMPAT)
 # Shared endpoint/key of every openai_compat stage; a stage may override both.
 OPENAI_COMPAT_ENDPOINT_VAR = "AI_OPENAI_COMPAT_ENDPOINT"
 OPENAI_COMPAT_API_KEY_VAR = "AI_OPENAI_COMPAT_API_KEY"
-# Gemini-only, and named here so the error can say so.
+
+# Transcription has its own value SET (ADR 0012): `openai_compat` here means
+# the OpenAI **audio** API (`POST {endpoint}/audio/transcriptions`, multipart)
+# and not `/chat/completions`, and `local` — Whisper in this process — is
+# meaningless for the three chat stages.
+TRANSCRIBE_PROVIDER_GEMINI = PROVIDER_GEMINI
+TRANSCRIBE_PROVIDER_LOCAL = "local"
+TRANSCRIBE_PROVIDER_OPENAI_COMPAT = PROVIDER_OPENAI_COMPAT
+TRANSCRIBE_PROVIDERS = (
+    TRANSCRIBE_PROVIDER_GEMINI,
+    TRANSCRIBE_PROVIDER_LOCAL,
+    TRANSCRIBE_PROVIDER_OPENAI_COMPAT,
+)
 TRANSCRIBE_PROVIDER_VAR = "AI_TRANSCRIBE_PROVIDER"
+TRANSCRIBE_MODEL_PATH_VAR = "AI_TRANSCRIBE_MODEL_PATH"
+# CTranslate2 quantisations that make sense on a CPU host, as a reviewed
+# subset rather than a free-form string: a typo in a quantisation name is a
+# startup failure inside the model load, and this way it is one aggregated
+# ConfigError with the valid values instead.
+TRANSCRIBE_COMPUTE_TYPES = (
+    "int8",
+    "int8_float32",
+    "int8_bfloat16",
+    "int16",
+    "bfloat16",
+    "float32",
+    "auto",
+    "default",
+)
 
 
 @dataclass(frozen=True)
@@ -173,7 +215,18 @@ AI_STAGE_VARS = (
     SCRIPTURE_REWRITE_STAGE_VARS,
     SCRIPTURE_RERANK_STAGE_VARS,
 )
-AI_PROVIDER_VARS = tuple(stage.provider_var for stage in AI_STAGE_VARS)
+TRANSCRIBE_STAGE_VARS = StageVars(
+    "transcribe",
+    TRANSCRIBE_PROVIDER_VAR,
+    "AI_TRANSCRIBE_MODEL",
+    "AI_TRANSCRIBE_ENDPOINT",
+    "AI_TRANSCRIBE_API_KEY",
+)
+CHAT_PROVIDER_VARS = tuple(stage.provider_var for stage in AI_STAGE_VARS)
+# Every provider variable of the AI surface: the three chat stages plus
+# transcription. Naming ANY of them switches the surface on, and once it is
+# on, all four must be named (`missing_required_vars`).
+AI_PROVIDER_VARS = CHAT_PROVIDER_VARS + (TRANSCRIBE_PROVIDER_VAR,)
 
 # ---------------------------------------------------------------------------
 # Who computes the embeddings (ClickUp 86cbegg2r, ADR 0010)
@@ -234,6 +287,11 @@ class StageProvider:
     @property
     def is_openai_compat(self) -> bool:
         return self.provider == PROVIDER_OPENAI_COMPAT
+
+    @property
+    def is_local(self) -> bool:
+        """Only the transcription stage can answer yes (ADR 0012)."""
+        return self.provider == TRANSCRIBE_PROVIDER_LOCAL
 
 
 def parse_int(name: str, raw: str | None, default: int) -> int:
@@ -367,6 +425,11 @@ def resolve_stage(env: Mapping[str, str], stage: StageVars) -> StageProvider:
     provider = env.get(stage.provider_var, "").strip()
     model = env.get(stage.model_var, "").strip()
     own_key = env.get(stage.api_key_var, "").strip()
+    if provider == TRANSCRIBE_PROVIDER_LOCAL:
+        # In-process, so there is no endpoint and no key to resolve — and
+        # inheriting `GEMINI_API_KEY` here would state, in an object other
+        # code reads, that a local model bills a Google key.
+        return StageProvider(stage.stage, provider, model, "", "")
     if provider == PROVIDER_OPENAI_COMPAT:
         endpoint = (
             env.get(stage.endpoint_var, "").strip()
@@ -388,6 +451,30 @@ def stage_model_required(env: Mapping[str, str], stage: StageVars) -> bool:
     if env.get("GEMINI_API_KEY", "").strip():
         return True
     return env.get(stage.provider_var, "").strip() == PROVIDER_OPENAI_COMPAT
+
+
+def transcribe_model_required(env: Mapping[str, str]) -> bool:
+    """Must `AI_TRANSCRIBE_MODEL` be named?
+
+    With `GEMINI_API_KEY` set: yes, exactly as before the other providers
+    existed. On `local` or `openai_compat`: yes regardless of any key —
+    naming that provider IS the statement that the endpoint runs, and there
+    is no key to gate it on (the same rule `stage_model_required` applies to
+    the chat stages).
+
+    What the variable holds differs by provider and that is deliberate: a
+    Gemini model id, the name the remote audio server expects
+    (`Systran/faster-whisper-large-v3`, …), or WHICH Whisper model the
+    weights at `AI_TRANSCRIBE_MODEL_PATH` are (`small`, `medium`). All three
+    are the model IDENTITY, the way `EMBEDDING_MODEL` is, and a report about
+    transcription quality that cannot name the model is worthless.
+    """
+    if env.get("GEMINI_API_KEY", "").strip():
+        return True
+    return env.get(TRANSCRIBE_PROVIDER_VAR, "").strip() in (
+        TRANSCRIBE_PROVIDER_LOCAL,
+        TRANSCRIBE_PROVIDER_OPENAI_COMPAT,
+    )
 
 
 def validate_endpoint(name: str, value: str) -> str | None:
@@ -441,11 +528,11 @@ def missing_required_vars(env: Mapping[str, str]) -> list[str]:
     Pure function over an environment mapping, so it is testable without
     reimporting the module. `ALWAYS_REQUIRED_VARS` must be non-blank,
     `PRESENCE_REQUIRED_VARS` must merely exist, and — once the AI surface is
-    configured at all (`ai_configured`) — the three provider variables, the
+    configured at all (`ai_configured`) — the four provider variables, the
     model of every stage that runs, and the endpoint/key of every stage on
-    openai_compat. `AI_TRANSCRIBE_MODEL` keeps its old gate exactly: it is
-    the Gemini-only stage, so it is required when, and only when, there is a
-    Gemini key.
+    openai_compat. `AI_TRANSCRIBE_MODEL` widened its old gate by exactly one
+    case (ADR 0012): a Gemini key, or `AI_TRANSCRIBE_PROVIDER=local`, which
+    also requires `AI_TRANSCRIBE_MODEL_PATH`.
     """
     missing = [
         name for name in ALWAYS_REQUIRED_VARS if not env.get(name, "").strip()
@@ -466,7 +553,7 @@ def missing_required_vars(env: Mapping[str, str]) -> list[str]:
         for stage in AI_STAGE_VARS
         if stage_model_required(env, stage)
     }
-    if env.get("GEMINI_API_KEY", "").strip():
+    if transcribe_model_required(env):
         required_models.add("AI_TRANSCRIBE_MODEL")
     # AI_REQUIRED_VARS drives the ORDER so the aggregated error keeps reading
     # the way it did before the provider switch.
@@ -475,7 +562,13 @@ def missing_required_vars(env: Mapping[str, str]) -> list[str]:
         for name in AI_REQUIRED_VARS
         if name in required_models and not env.get(name, "").strip()
     )
-    for stage in AI_STAGE_VARS:
+    transcribe_provider = env.get(TRANSCRIBE_PROVIDER_VAR, "").strip()
+    if (
+        transcribe_provider == TRANSCRIBE_PROVIDER_LOCAL
+        and not env.get(TRANSCRIBE_MODEL_PATH_VAR, "").strip()
+    ):
+        missing.append(TRANSCRIBE_MODEL_PATH_VAR)
+    for stage in (*AI_STAGE_VARS, TRANSCRIBE_STAGE_VARS):
         if env.get(stage.provider_var, "").strip() != PROVIDER_OPENAI_COMPAT:
             continue
         for name in _openai_compat_missing(env, stage):
@@ -587,11 +680,57 @@ def invalid_required_values(env: Mapping[str, str]) -> list[str]:
                 problem = validate_endpoint(name, value)
                 if problem and problem not in problems:
                     problems.append(problem)
-    if env.get(TRANSCRIBE_PROVIDER_VAR, "").strip():
+    transcribe_provider = env.get(TRANSCRIBE_PROVIDER_VAR, "").strip()
+    if transcribe_provider and transcribe_provider not in TRANSCRIBE_PROVIDERS:
         problems.append(
-            f"{TRANSCRIBE_PROVIDER_VAR}: transcription is Gemini-only until "
-            f"it moves to a local speech model — remove the variable "
-            f"(AI_TRANSCRIBE_MODEL plus GEMINI_API_KEY configure it)"
+            f"{TRANSCRIBE_PROVIDER_VAR}: unknown provider "
+            f"{transcribe_provider!r}, expected one of "
+            f"{', '.join(TRANSCRIBE_PROVIDERS)}"
+        )
+    # Same rule, and the same reason, as EMBEDDING_MODEL_PATH on the API
+    # provider: a path set beside a REMOTE provider states that this
+    # deployment transcribes locally while every recording still leaves the
+    # machine.
+    if (
+        transcribe_provider
+        in (TRANSCRIBE_PROVIDER_GEMINI, TRANSCRIBE_PROVIDER_OPENAI_COMPAT)
+        and env.get(TRANSCRIBE_MODEL_PATH_VAR, "").strip()
+    ):
+        problems.append(
+            f"{TRANSCRIBE_MODEL_PATH_VAR}: set while {TRANSCRIBE_PROVIDER_VAR}"
+            f"={transcribe_provider} — the weights would never be loaded; "
+            f"remove it or switch the provider to "
+            f"{TRANSCRIBE_PROVIDER_LOCAL}"
+        )
+    # The two rules the chat loop above applies to every stage, applied to
+    # this one: a key only Gemini could spend on a deployment that has no
+    # Gemini key, and an endpoint that carries a secret or is not a URL.
+    if (
+        transcribe_provider != TRANSCRIBE_PROVIDER_OPENAI_COMPAT
+        and env.get(TRANSCRIBE_STAGE_VARS.api_key_var, "").strip()
+        and not env.get("GEMINI_API_KEY", "").strip()
+    ):
+        problems.append(
+            f"{TRANSCRIBE_STAGE_VARS.api_key_var}: set while GEMINI_API_KEY "
+            f"is empty — the key pays for one stage of a pipeline whose "
+            f"other stages (embeddings, and every stage on gemini) have no "
+            f"key at all"
+        )
+    if transcribe_provider == TRANSCRIBE_PROVIDER_OPENAI_COMPAT:
+        for name in (
+            TRANSCRIBE_STAGE_VARS.endpoint_var, OPENAI_COMPAT_ENDPOINT_VAR
+        ):
+            value = env.get(name, "").strip()
+            if value:
+                problem = validate_endpoint(name, value)
+                if problem and problem not in problems:
+                    problems.append(problem)
+    compute_type = env.get("AI_TRANSCRIBE_COMPUTE_TYPE", "").strip()
+    if compute_type and compute_type not in TRANSCRIBE_COMPUTE_TYPES:
+        problems.append(
+            f"AI_TRANSCRIBE_COMPUTE_TYPE: unknown quantisation "
+            f"{compute_type!r}, expected one of "
+            f"{', '.join(TRANSCRIBE_COMPUTE_TYPES)}"
         )
     return problems
 
@@ -630,11 +769,23 @@ def _required_reason(env: Mapping[str, str], name: str) -> str:
             f"{EMBEDDING_PROVIDER_LOCAL}: the directory the model weights are "
             f"mounted at (nothing is downloaded — the image runs offline)"
         )
+    if name == TRANSCRIBE_MODEL_PATH_VAR:
+        return (
+            f"{name} is required when {TRANSCRIBE_PROVIDER_VAR}="
+            f"{TRANSCRIBE_PROVIDER_LOCAL}: the directory the converted "
+            f"Whisper weights are mounted at (nothing is downloaded — the "
+            f"image runs offline)"
+        )
     if name in AI_PROVIDER_VARS:
+        values = (
+            TRANSCRIBE_PROVIDERS
+            if name == TRANSCRIBE_PROVIDER_VAR
+            else AI_PROVIDERS
+        )
         return (
             f"{name} is required when the AI surface is configured "
             f"(GEMINI_API_KEY is set or a provider is named): one of "
-            f"{', '.join(AI_PROVIDERS)}"
+            f"{', '.join(values)}"
         )
     if name == OPENAI_COMPAT_ENDPOINT_VAR:
         return (
@@ -650,6 +801,29 @@ def _required_reason(env: Mapping[str, str], name: str) -> str:
             f"AI_<STAGE>_API_KEY for that stage alone)"
         )
     if name in AI_REQUIRED_VARS:
+        if (
+            name == "AI_TRANSCRIBE_MODEL"
+            and not env.get("GEMINI_API_KEY", "").strip()
+        ):
+            # Which sentence is true depends on the provider, and pointing an
+            # openai_compat deployment at AI_TRANSCRIBE_MODEL_PATH would name
+            # the one variable that is a startup ERROR there.
+            if (
+                env.get(TRANSCRIBE_PROVIDER_VAR, "").strip()
+                == TRANSCRIBE_PROVIDER_OPENAI_COMPAT
+            ):
+                return (
+                    f"{name} is required when {TRANSCRIBE_PROVIDER_VAR}="
+                    f"{TRANSCRIBE_PROVIDER_OPENAI_COMPAT}: it is the model "
+                    f"name the audio server expects (no default: the model "
+                    f"must be named explicitly)"
+                )
+            return (
+                f"{name} is required when {TRANSCRIBE_PROVIDER_VAR}="
+                f"{TRANSCRIBE_PROVIDER_LOCAL}: it names WHICH Whisper model "
+                f"the weights at {TRANSCRIBE_MODEL_PATH_VAR} are (small, "
+                f"medium, …), which the path alone cannot say"
+            )
         on_openai_compat = any(
             stage.model_var == name
             and env.get(stage.provider_var, "").strip() == PROVIDER_OPENAI_COMPAT
@@ -741,6 +915,52 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 # serves: POST /api/ai/question and POST /api/ai/transcribe.
 AI_QUESTION_MODEL = os.getenv("AI_QUESTION_MODEL", "")
 AI_TRANSCRIBE_MODEL = os.getenv("AI_TRANSCRIBE_MODEL", "")
+
+# The read-only directory the converted (CTranslate2) Whisper weights are
+# mounted at, required for, and only for, `AI_TRANSCRIBE_PROVIDER=local`. The
+# model IDENTITY stays AI_TRANSCRIBE_MODEL, exactly as EMBEDDING_MODEL /
+# EMBEDDING_MODEL_PATH split the two: what the model is belongs in a report,
+# where its bytes happen to live does not.
+AI_TRANSCRIBE_MODEL_PATH = os.getenv("AI_TRANSCRIBE_MODEL_PATH", "").strip()
+# Operational knobs of the LOCAL transcriber (the remote providers have their
+# own budgets). Their defaults ARE the reviewed operating point (ADR 0012,
+# measured in evaluation/README.md), not a stand-in for a setting somebody
+# forgot; a malformed value is still a startup error.
+#
+# COMPUTE_TYPE: CTranslate2 quantisation, applied while loading the float16
+# weights the volume holds. `int8` is what the measurement ran on (peak RSS
+# 849 MB for `small`, 2.1 GB for `medium`); the accepted values are above.
+AI_TRANSCRIBE_COMPUTE_TYPE = (
+    os.getenv("AI_TRANSCRIBE_COMPUTE_TYPE", "").strip() or "int8"
+)
+# THREADS: CPU threads one transcription may use. 0 is CTranslate2's own "all
+# cores", which is the right default on a VM dedicated to this service and
+# the wrong one only when the box has other work — hence the knob.
+AI_TRANSCRIBE_THREADS = max(0, _get_int("AI_TRANSCRIBE_THREADS", 0))
+# BEAM_SIZE: 1 (greedy) or 5. Measured on 15 ru/uk/en excerpts (ClickUp
+# 86cbegg3m): beam 5 buys 0.7 WER points on `small` (0.095 -> 0.088) and 0.5
+# on `medium` (0.066 -> 0.061) for ~1.5x the time and ~8% more memory. It does
+# not pay for itself on either model, so greedy is the default.
+AI_TRANSCRIBE_BEAM_SIZE = max(1, _get_int("AI_TRANSCRIBE_BEAM_SIZE", 1))
+# The ceiling of the provider call. On `gemini` it is the httpx timeout the
+# endpoint always had (60 s, per phase, unchanged) and on `openai_compat` it
+# is the same ceiling, carved across httpx's four phases. On `local` there is no
+# call to time out — CTranslate2 offers no cancellation and anyio's thread
+# pool waits for its thread even when the awaiting task is cancelled, so a
+# `wait_for` here would free nobody. It therefore bounds what this deployment
+# ACCEPTS instead (see AI_TRANSCRIBE_MAX_AUDIO_SECONDS) and a run that
+# outlives it is logged as too slow for this machine.
+AI_TRANSCRIBE_TIMEOUT_SECONDS = max(
+    1.0, _get_float("AI_TRANSCRIBE_TIMEOUT_SECONDS", 60.0)
+)
+# The longest recording the LOCAL provider will start work on. The 14 MiB
+# upload cap is a Gemini request-size limit and lets ~30 minutes of 64 kbps
+# AAC through; locally that is 30 minutes of CPU nobody can interrupt, taken
+# from every other request on the box. 600 s is far above anything the app
+# records (a spoken reply in a prayer) and far below that worst case.
+AI_TRANSCRIBE_MAX_AUDIO_SECONDS = max(
+    1.0, _get_float("AI_TRANSCRIBE_MAX_AUDIO_SECONDS", 600.0)
+)
 # Ceiling of the ONE provider call `/api/ai/question` makes. 20 s is the
 # value the endpoint ran with while it was Gemini-only, kept as the default;
 # it is an operational knob because a self-hosted model generating the same
@@ -800,6 +1020,14 @@ AI_SCRIPTURE_RERANK_MODEL = os.getenv("AI_SCRIPTURE_RERANK_MODEL", "")
 # caller can pair a model with another stage's endpoint. `_validate` below has
 # already refused an incomplete one, so these are usable as they stand.
 QUESTION_PROVIDER = resolve_stage(os.environ, QUESTION_STAGE_VARS)
+# Transcription resolves through the same function (ADR 0012) — so the shared
+# `AI_OPENAI_COMPAT_ENDPOINT`/`AI_OPENAI_COMPAT_API_KEY` and the per-stage
+# `AI_TRANSCRIBE_ENDPOINT`/`AI_TRANSCRIBE_API_KEY` behave here exactly as they
+# do for a chat stage. The per-stage override is not decoration: the audio
+# server is a different process from the chat server, very likely on another
+# port, and pointing both at one URL would be wrong on the day it matters.
+# `.provider` is one of `gemini` | `local` | `openai_compat`.
+TRANSCRIBE_PROVIDER = resolve_stage(os.environ, TRANSCRIBE_STAGE_VARS)
 SCRIPTURE_REWRITE_PROVIDER = resolve_stage(
     os.environ, SCRIPTURE_REWRITE_STAGE_VARS
 )

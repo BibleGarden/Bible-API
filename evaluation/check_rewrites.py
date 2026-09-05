@@ -85,6 +85,9 @@ for _name, _value in (
     ("AI_QUESTION_PROVIDER", "gemini"),
     ("AI_SCRIPTURE_REWRITE_PROVIDER", "gemini"),
     ("AI_SCRIPTURE_RERANK_PROVIDER", "gemini"),
+    # And who transcribes (ADR 0012): a fourth provider variable,
+    # required by the same rule. This tool never transcribes anything.
+    ("AI_TRANSCRIBE_PROVIDER", "gemini"),
 ):
     os.environ.setdefault(_name, _value)
 

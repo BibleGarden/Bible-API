@@ -47,3 +47,9 @@ os.environ.setdefault("AI_SCRIPTURE_RERANK_MODEL", "gemini-3.5-flash-lite")
 os.environ.setdefault("AI_QUESTION_PROVIDER", "gemini")
 os.environ.setdefault("AI_SCRIPTURE_REWRITE_PROVIDER", "gemini")
 os.environ.setdefault("AI_SCRIPTURE_RERANK_PROVIDER", "gemini")
+# Who transcribes (ADR 0012). `gemini` for the same reason as the three
+# above, and for one more: it keeps the suite from importing faster-whisper
+# or loading any Whisper weights — the transcription tests inject a stand-in
+# model, and the one test that touches real weights is skipped unless
+# AI_TRANSCRIBE_MODEL_PATH_UNDER_TEST asks for it.
+os.environ.setdefault("AI_TRANSCRIBE_PROVIDER", "gemini")

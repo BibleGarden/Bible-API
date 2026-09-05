@@ -31,6 +31,17 @@ rich==14.3.0
 # layer earlier (see requirements-torch.txt).
 sentence-transformers==6.0.1
 transformers==5.16.1
+# Local speech transcription (ClickUp 86cbegg3m, ADR 0012), the fallback
+# provider of POST /api/ai/transcribe. Deliberately independent of torch:
+# CTranslate2 is its own inference engine, `av` (PyAV, bundling ffmpeg's
+# libraries) decodes the uploaded m4a without a system ffmpeg, and
+# onnxruntime runs the bundled Silero VAD. ~320 MB of image, none of it CUDA.
+# These four are installed under the same `-c requirements-torch.txt`
+# constraint as everything else, and none of them asks for torch.
+faster-whisper==1.2.1
+ctranslate2==4.8.2
+av==18.1.0
+onnxruntime==1.29.0
 tokenizers==0.23.2
 safetensors==0.8.0
 huggingface-hub==1.30.0

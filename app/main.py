@@ -31,12 +31,15 @@ from config import (
     EMBEDDING_MODEL_PATH,
     EMBEDDING_PROVIDER,
     EMBEDDING_PROVIDER_LOCAL,
+    AI_TRANSCRIBE_MODEL_PATH,
     QUESTION_PROVIDER,
     SCRIPTURE_REWRITE_PROVIDER,
     SCRIPTURE_RERANK_PROVIDER,
+    TRANSCRIBE_PROVIDER,
 )
 from embeddings import load_embedding_model
 from llm_client import endpoint_host
+from transcription import load_transcription_model
 
 logger = logging.getLogger(__name__)
 
@@ -149,12 +152,17 @@ def log_ai_providers() -> None:
     """
     ensure_visible_handler(logger)
     for stage in (
-        QUESTION_PROVIDER, SCRIPTURE_REWRITE_PROVIDER, SCRIPTURE_RERANK_PROVIDER
+        QUESTION_PROVIDER,
+        SCRIPTURE_REWRITE_PROVIDER,
+        SCRIPTURE_RERANK_PROVIDER,
+        TRANSCRIBE_PROVIDER,
     ):
-        where = (
-            f" at {endpoint_host(stage.endpoint) or '<no endpoint>'}"
-            if stage.is_openai_compat else ""
-        )
+        if stage.is_openai_compat:
+            where = f" at {endpoint_host(stage.endpoint) or '<no endpoint>'}"
+        elif stage.is_local:
+            where = f" from {AI_TRANSCRIBE_MODEL_PATH or '<no path>'}"
+        else:
+            where = ""
         logger.info(
             "AI stage %s: provider=%s model=%s%s key=%s",
             stage.stage,
@@ -166,6 +174,33 @@ def log_ai_providers() -> None:
 
 
 log_ai_providers()
+
+
+def load_local_transcription_model() -> None:
+    """Pay for the Whisper weights here, or fail the start (ADR 0012).
+
+    The same trade as the embedding model above and for the same reason: a
+    weights volume that is missing, unreadable or holding something else is a
+    deployment error, and loading it lazily would answer the first voice
+    message with a 502 that looks like a provider being briefly down.
+
+    Nothing happens on the other two providers — a deployment on `gemini` or
+    on the remote audio server never imports faster-whisper at all.
+    """
+    if not TRANSCRIBE_PROVIDER.is_local:
+        return
+    load_transcription_model()
+
+
+load_local_transcription_model()
+
+# The transcription timings are `INFO` records from `app/transcription.py`,
+# and uvicorn leaves the root logger bare — so without a handler of their own
+# they never reach `docker logs`, and the documented
+# `docker logs bible-api | grep 'transcription:'` (how the audio-to-CPU ratio
+# is checked on a new machine, ADR 0012) would find nothing at all. Same call,
+# same reason, as the two banners above.
+ensure_visible_handler(logging.getLogger("transcription"))
 
 
 def log_and_load_embedding_provider() -> None:

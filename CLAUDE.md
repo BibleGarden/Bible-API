@@ -31,13 +31,17 @@ docker cp evaluation/. bible-api:/code/evaluation
 docker exec -e API_KEY=test-api-key -e AI_CLIENT_HMAC_KEY=test-hmac-key \
   bible-api pytest -q
 ```
-The suite never loads the embedding model: `conftest` pins
-`EMBEDDING_PROVIDER=gemini` and the local-client tests inject a stand-in
-encoder, so no test imports 2.3 GB of weights. The one test that loads the
-real ones is skipped unless asked for:
+The suite never loads a model: `conftest` pins `EMBEDDING_PROVIDER=gemini`
+and `AI_TRANSCRIBE_PROVIDER=gemini`, and the local-client tests inject
+stand-ins (a fake encoder; a fake `faster_whisper` module), so no test
+imports 2.3 GB of weights — or faster-whisper at all, which is why the suite
+also passes on an image built before ADR 0012. The two tests that load real
+weights are skipped unless asked for:
 ```bash
 docker exec -e EMBEDDING_MODEL_PATH_UNDER_TEST=/models/bge-m3 \
   bible-api pytest -q tests/test_embeddings.py -k real_model
+docker exec -e AI_TRANSCRIBE_MODEL_PATH_UNDER_TEST=/models/whisper/small \
+  bible-api pytest -q tests/test_transcription.py -k real_model
 ```
 
 `tests/conftest.py` supplies the model and DB variables the fail-fast config
@@ -60,7 +64,8 @@ system prompt is a code constant now, not an environment value.
 - **`about.py`** — About page content, per application: `GET /api/about?app=` selects `bible-garden` (the default, byte-for-byte the pre-2026-09-05 response for released clients) or `lampada` (own website URL/subtitles and description, shared Telegram and GitHub). Unknown values are a 422; the response model and the API key are unchanged, and the selector is **not** an authorization boundary (PR #3, `architect/adr/0011-application-specific-about-content.md`)
 - **`version_check.py`** — App version check (Bible Garden only: `LATEST_VERSION`, the App Store URL and the messages name that app — Lampada has no selector here yet)
 - **`import_data.py`** — Import data from Dashboard-API
-- **`twinkler_ai.py`** — Server-prompted AI integration with in-memory rate limiting: `POST /api/ai/question` (Gemini or an OpenAI-compatible endpoint, per `AI_QUESTION_PROVIDER`) and `POST /api/ai/transcribe` (Gemini only) — see `architect/twinkler-ai.md`
+- **`twinkler_ai.py`** — Server-prompted AI integration with in-memory rate limiting: `POST /api/ai/question` (Gemini or an OpenAI-compatible endpoint, per `AI_QUESTION_PROVIDER`) and `POST /api/ai/transcribe` (Whisper on a remote audio server, Whisper in this process, or Gemini — per `AI_TRANSCRIBE_PROVIDER`; the seam is `transcribe()`, everything around it is unchanged) — see `architect/twinkler-ai.md`
+- **`transcription.py`** — the two Whisper transports of `POST /api/ai/transcribe`: `RemoteTranscriber` (multipart `POST {endpoint}/audio/transcriptions`, the OpenAI **audio** API — the production provider) and `LocalTranscriber` (faster-whisper/CTranslate2 on this CPU, weights from a read-only volume, loaded once at start-up, run on a worker thread). Same contract as the Gemini path — verbatim, no translation, the locale a weak `language=` hint — and the same `502` on failure (`architect/adr/0012-speech-transcription-providers.md`)
 - **`llm_client.py`** — the OpenAI-compatible chat-completions transport (`ChatClient`, `AsyncChatClient`): payload, `<think>` stripping, answer extraction, and the shared `gemini_retry` budget/retry policy. Prompts and parsers stay in the stage modules, so both transports send the same bytes (ADR 0009)
 - **`question_prompt.py`** — the system prompt of `POST /api/ai/question` as a versioned template (`QUESTION_PROMPT_TEMPLATE`, `build_question_prompt`, `QUESTION_PROMPT_VERSION` — **3** since 2026-09-05, ClickUp 86cbegmzz) plus `build_user_message(topic, stage, messages)`, which assembles the per-stage instructions the mobile app used to build itself (verbatim, Russian in every language, as the client always sent them). Versioned the way `query_rewrite`/`passage_rerank` version theirs; moved out of `TWINKLER_SYSTEM_PROMPT` on 2026-08-30. v2 named the answer language in the prompt (resolved by `safety.detect_language`, one placeholder) and banned interpreting the person's feelings back at them; v3 removed the one sentence about the incoming layout ("the whole conversation so far … never repeat a question you have already asked") — the stage blocks say it structurally — and nothing else
 - **`safety.py`** — the despair / self-harm rule of `POST /api/ai/question` in code rather than in the prompt (ru/uk/en dictionary + regex, no model, no network): tier 1 answers the versioned fixed reply (`SAFETY_REPLIES`, `SAFETY_REPLY_VERSION`) without calling the provider, tier 2 replaces a model reply that came back as a question for a weaker despair signal. Reason: Qwen3-30B answered the explicit despair input with a question 3/3 while Gemini obeyed the prompt (ClickUp 86cbegctz/86cbegg23) — see `architect/twinkler-ai.md`, "The despair rule is code". Since 86cbegmzz, and since Maria's 2026-09-05 decision, **both tiers** read the person's **last reply** (the topic at `stage: first`, nothing at `next`/`reflect` with no history): a phrase that already got the fixed reply must not answer every later question of that prayer with it. Tier 2's fixed reply takes its **language** from the same source the prompt uses (`language_source`), not from the matched text, so it speaks the prayer's language rather than the tier-2 pattern's
@@ -141,12 +146,14 @@ real password today). `DB_PORT` keeps its default 3306; a non-numeric value
 is an error.
 
 **Enforced once the AI surface is configured** — that is, `GEMINI_API_KEY`
-is set **or** any provider variable is named (ADR 0009): the three
-`AI_*_PROVIDER` variables below. **Enforced when `GEMINI_API_KEY` is set**
+is set **or** any provider variable is named (ADR 0009): the four
+`AI_*_PROVIDER` variables below (the three chat stages and
+`AI_TRANSCRIBE_PROVIDER`, ADR 0012), plus `AI_TRANSCRIBE_MODEL_PATH` when
+transcription is `local`. **Enforced when `GEMINI_API_KEY` is set**
 (no defaults in code): `AI_QUESTION_MODEL`, `AI_TRANSCRIBE_MODEL`,
-`AI_SCRIPTURE_REWRITE_MODEL`, `AI_SCRIPTURE_RERANK_MODEL` — and a chat
-stage's model is required whether or not there is a Gemini key once that
-stage runs on `openai_compat`. (Reason: on 2026-08-29 a default
+`AI_SCRIPTURE_REWRITE_MODEL`, `AI_SCRIPTURE_RERANK_MODEL` — and a stage's
+model is required whether or not there is a Gemini key once that stage runs
+on `openai_compat` (or, for transcription, on `local`). (Reason: on 2026-08-29 a default
 `AI_SCRIPTURE_REWRITE_MODEL=gemini-3.7-flash` sent the rewrite stage to a model
 the key could not reach, while `.env` said flash-lite everywhere.)
 
@@ -170,8 +177,9 @@ index version (`c{chunking}:{model}@{dims}`), not a provider call.
 `AUDIO_DIR` is read by docker-compose, not by the application.
 
 For a stage on Gemini, two variables decide whether the AI surface works:
-`GEMINI_API_KEY` (unset → `/api/ai/question` and `/api/ai/transcribe` answer
-`502`) and `AI_CLIENT_HMAC_KEY` (unset → `503`, the per-client limiter fails
+`GEMINI_API_KEY` (unset → that stage's endpoint answers `502`; since ADR 0012
+`/api/ai/transcribe` is affected only while **its own** provider is `gemini`)
+and `AI_CLIENT_HMAC_KEY` (unset → `503`, the per-client limiter fails
 closed rather than dropping the limit). A stage on `openai_compat` needs its
 endpoint and model instead, and start-up has already refused an incomplete
 one. `AI_SCRIPTURE_REWRITE_API_KEY` is optional and affects the rewrite stage
@@ -190,13 +198,14 @@ Each chat stage names its transport, so moving one to another model is an
 | `AI_QUESTION_PROVIDER` | `gemini`, `openai_compat` | `POST /api/ai/question` |
 | `AI_SCRIPTURE_REWRITE_PROVIDER` | `gemini`, `openai_compat` | retrieval rewrite (ADR 0004) |
 | `AI_SCRIPTURE_RERANK_PROVIDER` | `gemini`, `openai_compat` | grounded rerank (ADR 0005) |
+| `AI_TRANSCRIBE_PROVIDER` | `gemini`, `openai_compat`, `local` | `POST /api/ai/transcribe` (ADR 0012 — `openai_compat` is the **audio** API here, see the next section) |
 | `AI_OPENAI_COMPAT_ENDPOINT` | base URL, e.g. `https://host:8443/v1` | shared by every `openai_compat` stage |
 | `AI_OPENAI_COMPAT_API_KEY` | key; **may be empty** = send no `Authorization` header | same |
 | `AI_QUESTION_ENDPOINT` / `AI_QUESTION_API_KEY` | optional overrides | that stage alone |
 | `AI_SCRIPTURE_REWRITE_ENDPOINT` / `AI_SCRIPTURE_REWRITE_API_KEY` | optional overrides | that stage alone (the key is ADR 0004's paid-key split, generalised) |
 | `AI_SCRIPTURE_RERANK_ENDPOINT` / `AI_SCRIPTURE_RERANK_API_KEY` | optional overrides | that stage alone |
 
-- **All three provider variables are required together** once the AI surface
+- **All four provider variables are required together** once the AI surface
   is configured at all. An `.env` with only `GEMINI_API_KEY` (every
   deployment before this change) does **not** start and names them: which
   provider answers a request is exactly what ADR 0008 forbids defaulting in
@@ -204,12 +213,13 @@ Each chat stage names its transport, so moving one to another model is an
   same information without the error message.
 - An endpoint carrying credentials or a query string is refused: a key
   belongs in `AI_*_API_KEY`, never in a URL that httpx logs.
-- **Transcription is Gemini-only** until it moves to a local speech model
-  (step 6): there is no `AI_TRANSCRIBE_PROVIDER`, and setting one aborts the
-  start. A deployment whose three chat stages run on `openai_compat` still
-  needs `GEMINI_API_KEY` + `AI_TRANSCRIBE_MODEL` for that one endpoint;
-  without them `/api/ai/transcribe` answers its documented `502` and nothing
-  else is affected.
+- **Transcription has its own value set and its own protocol** (ADR 0012, the
+  next section but one): `openai_compat` there means
+  `POST {endpoint}/audio/transcriptions`, and `local` means Whisper in this
+  process. It has the per-stage `AI_TRANSCRIBE_ENDPOINT` /
+  `AI_TRANSCRIBE_API_KEY` overrides for the same reason the chat stages do,
+  and needs them more: the audio server is a different process from the chat
+  one.
 - Embeddings have their own provider variable (step 3, ClickUp 86cbegg2r —
   see the next section): `EMBEDDING_MODEL` names the stored index, not only
   a call, so its provider is required in every deployment rather than only
@@ -267,6 +277,85 @@ Each chat stage names its transport, so moving one to another model is an
   retrieval-stage MRR threshold to 0.50 on 2026-09-05 (`thresholds.json`
   0.4.0); the `final_top1` thresholds are unchanged — see ADR 0010's open
   question 1.
+
+### Transcription: Whisper, remote or local (ClickUp 86cbegg3m, 2026-09-05)
+
+`AI_TRANSCRIBE_PROVIDER` chooses who hears the voice message — full rationale
+in `architect/adr/0012-speech-transcription-providers.md`, the contract in
+`architect/twinkler-ai.md`.
+
+| Variable | `openai_compat` (production) | `local` (fallback) | `gemini` |
+| --- | --- | --- | --- |
+| `AI_TRANSCRIBE_MODEL` | the name the audio server expects — today `deepdml/faster-whisper-large-v3-turbo-ct2` | `small` \| `medium` | `gemini-3.5-flash-lite` |
+| `AI_TRANSCRIBE_MODEL_PATH` | must NOT be set | required, e.g. `/models/whisper/small` | must NOT be set |
+| endpoint / key | `AI_TRANSCRIBE_ENDPOINT` / `AI_TRANSCRIBE_API_KEY`, else the shared `AI_OPENAI_COMPAT_*` pair | none — nothing leaves the process | `GEMINI_API_KEY` |
+
+- **Maria's decision of 2026-09-05**: production transcribes on the **CPU of
+  the company's Qwen server** (24 cores, ~127 GB RAM, idle beside a GPU fully
+  taken by Qwen3-30B), through the OpenAI **audio** API — a multipart
+  `POST {endpoint}/audio/transcriptions`, the shape vLLM, speaches and
+  faster-whisper-server all expose. The recording leaves this VM but stays
+  inside the company, and the model there can be as large as quality wants.
+  **Live since 2026-09-05**: `https://llm.ai2.ru/whisper/v1` (from this
+  machine through the tunnel: `https://llm.ai2.ru:8443/whisper/v1`), server
+  **speaches** on CPU, model `deepdml/faster-whisper-large-v3-turbo-ct2`,
+  `Authorization: Bearer`, 14 MB limit at their nginx. Still open for the
+  deploy: the production key (`bible-api-prod`, Passbolt) and the production
+  VM's place in that server's IP allow-list.
+- **Measured on that live endpoint** (review, 15 excerpts, driven through
+  `RemoteTranscriber` itself — `evaluation/transcribe_bench.py remote`, which
+  is also how to re-measure when the admins change the model): WER ru/uk/en
+  **0.037 / 0.059 / 0.002**, CER ru **0.003** (Gemini's own), 3.9-13.9 s per
+  excerpt = 0.20x the audio on average (0.42x worst, network included),
+  15/15 answered. Better than any local option on Russian by 2.7x; still
+  behind Gemini on ru/uk WER (0.019 / 0.051) on this studio corpus. Our side
+  spends **no memory at all**: 75 MB RSS for the whole API container.
+- **`local` is the fallback and the measured one**: faster-whisper
+  (CTranslate2) in the API process, weights from the same read-only `/models`
+  volume as bge-m3, `HF_HUB_OFFLINE=1`, loaded once at start-up and **fatal**
+  when the directory is missing or unreadable. Materialise it once with
+  `hf download Systran/faster-whisper-small --local-dir <dir>/whisper/small`
+  (464 MB; `medium` is 1.5 GB). On this machine: `/root/models/whisper/small`.
+- **The contract does not change with the provider**: verbatim, in the
+  recording's own language (`task="transcribe"`, never `translate`), the
+  locale a **weak hint** — its primary subtag becomes `language=` when Whisper
+  knows that language and is dropped otherwise. Same 200 shape, same
+  413/415/422/429/502/503, same 14 MiB cap, and no error ever names the
+  provider, the recording or the transcript.
+- **Measured** (8 cores, int8, 15 ru/uk/en excerpts of 17-53 s, full table and
+  the side-by-side transcripts in `evaluation/README.md`): WER ru/uk/en
+  `small` 0.153 / 0.129 / 0.003, `medium` 0.100 / 0.097 / 0.000, Gemini
+  0.019 / 0.051 / 0.000; time 0.07-0.22x the audio (target ≤ 1.5x) and threads
+  saturate at ~4. **Speed is not the constraint** — memory and Russian
+  quality are: `medium` peaks at 2.1 GB beside bge-m3's 2.13 GiB, and even
+  `medium` is 5x Gemini's word error rate on Russian. That is the case for the
+  remote provider, where `large-v3` costs this VM nothing.
+- Operational knobs, defaults are the measured operating point:
+  `AI_TRANSCRIBE_COMPUTE_TYPE` (`int8`, validated against a reviewed list),
+  `AI_TRANSCRIBE_THREADS` (0 = all cores), `AI_TRANSCRIBE_BEAM_SIZE` (1 —
+  beam 5 buys 0.5-0.7 WER points for ~1.5x the time),
+  `AI_TRANSCRIBE_TIMEOUT_SECONDS` (60) and `AI_TRANSCRIBE_MAX_AUDIO_SECONDS`
+  (600). The last two split honestly: the timeout bounds the HTTP call on the
+  two remote providers, while a local run cannot be cancelled at all
+  (CTranslate2 has no cancellation and anyio's pool waits for its thread), so
+  locally the **duration cap** is what bounds the work and an over-long run is
+  logged as "this machine is too slow for this model".
+- Live acceptance (throwaway container from the new image, `small`, this
+  8-core host): four excerpts (2 ru, 1 uk, 1 en, 27-53 s) answered `200` in
+  1.2-2.5 s; API process 859 MB RSS with the weights, **68 MB** on the remote
+  provider.
+- Live acceptance of the **remote** provider against the real company server
+  (review, throwaway instance on 127.0.0.1:9097, `GEMINI_API_KEY` empty):
+  the same four excerpts answered `200` in 3.9-8.4 s with `large-v3-turbo`.
+  It also pins the production wiring: the shared `AI_OPENAI_COMPAT_ENDPOINT`
+  pointed at the **chat** URL (`…:8443/v1`, which has no
+  `/audio/transcriptions`) while `AI_TRANSCRIBE_ENDPOINT` pointed at
+  `…:8443/whisper/v1` — a `200` is only possible if the per-stage override is
+  the one used.
+- Tests: `tests/test_transcription.py` (44 + 1 gated on
+  `AI_TRANSCRIBE_MODEL_PATH_UNDER_TEST=/models/whisper/small`, which is the
+  only one that touches real weights) and the provider-seam and no-Google
+  tripwire tests in `tests/test_twinkler_ai.py`.
 
 RAG / scripture selection:
 

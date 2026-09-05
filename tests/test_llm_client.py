@@ -767,7 +767,11 @@ def test_the_startup_banner_names_the_providers_and_never_the_key(monkeypatch, c
     with caplog.at_level(logging.INFO):
         main.log_ai_providers()
 
-    assert caplog.text.count("AI stage") == 3
+    # Four since ADR 0012: the three chat stages plus transcription, which is
+    # left as the suite configured it (gemini) — a banner that named only the
+    # chat stages would hide exactly the provider that hears a person's voice.
+    assert caplog.text.count("AI stage") == 4
+    assert "AI stage transcribe" in caplog.text
     assert "openai_compat" in caplog.text
     assert "llm.example" in caplog.text          # the host, for the operator
     assert SECRET_KEY not in caplog.text         # never the key itself

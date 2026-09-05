@@ -188,6 +188,14 @@ M4A `file` and an optional BCP 47 `locale`. The response is the same
 recording is transcribed verbatim in its original language without translation
 or generated additions. Empty files and invalid locales return `422`, files
 larger than 14 MiB return `413`, and unsupported audio types return `415`.
+Which model does it — Whisper on the company's server, Whisper in this
+process, or Gemini — is `AI_TRANSCRIBE_PROVIDER` (ADR 0012); the request, the
+response and every status code above are identical either way. The single
+exception is the `local` provider, which also refuses a recording longer than
+`AI_TRANSCRIBE_MAX_AUDIO_SECONDS` (600) with the ordinary `502` — a property
+of the machine transcribing, far above anything the app records, and the
+reason it is not a `413` is that `413` is this endpoint's promise about the
+14 MiB *upload*, which no provider changes.
 
 ## System prompt
 
@@ -510,12 +518,14 @@ double the time a person waits with nothing on screen.
 `AI_QUESTION_TIMEOUT_SECONDS` (default 20, the value this endpoint always
 ran with) caps that call.
 
-Transcription is **Gemini-only** and has no provider variable —
-`AI_TRANSCRIBE_PROVIDER` aborts the start rather than pretending to work.
-Speech moves to a local model in its own step; until then a deployment with
-its chat stages on another provider still needs `GEMINI_API_KEY` and
-`AI_TRANSCRIBE_MODEL` for `/api/ai/transcribe` alone, and without them that
-endpoint answers its documented 502 while everything else keeps working.
+Transcription names its transport in `AI_TRANSCRIBE_PROVIDER` since
+2026-09-05 (ClickUp 86cbegg3m, `architect/adr/0012-speech-transcription-providers.md`),
+with a value set of its own because speech is not the chat protocol:
+`openai_compat` (Whisper on the company's model server, through the OpenAI
+**audio** API — the production provider), `local` (faster-whisper in this
+process, the fallback) and `gemini` (this endpoint's original call,
+unchanged). The variable is required as soon as any AI is configured, exactly
+like the three chat providers.
 
 Provider timeouts, HTTP errors, malformed responses and empty output are
 returned to the client as `502 AI service unavailable` without provider
@@ -528,7 +538,7 @@ of them:
 
 | Condition | `/api/ai/question` and `/api/ai/transcribe` |
 | --- | --- |
-| `GEMINI_API_KEY` unset or blank | `502 AI service unavailable` (no provider call is attempted) — for `/api/ai/question` only while its provider is `gemini`; `/api/ai/transcribe` always, it has no other provider |
+| `GEMINI_API_KEY` unset or blank | `502 AI service unavailable` (no provider call is attempted) — for each endpoint only while its own provider is `gemini` |
 | stage on `openai_compat` with no endpoint or model | `502` — unreachable in practice: that configuration aborts startup (ADR 0009) |
 | `AI_QUESTION_MODEL` / `AI_TRANSCRIBE_MODEL` malformed | `502` — but unreachable in practice: with a key set, a missing model name aborts startup (ADR 0008) |
 | `AI_CLIENT_HMAC_KEY` unset or blank | `503 AI service temporarily unavailable` — the per-client limiter fails closed instead of silently serving without a limit |
@@ -549,16 +559,40 @@ unavailable`, not the `AI service temporarily unavailable` text in the table
 above. Both branches are pinned by `test_missing_provider_key_is_502` and
 `test_missing_hmac_key_is_503`.
 
-Transcription uses `AI_TRANSCRIBE_MODEL` (required whenever
-`GEMINI_API_KEY` is set; no default in code) and the same configured Gemini
-API key. The M4A bytes
-are base64-encoded into an `inline_data` part alongside a server-controlled
-verbatim-transcription instruction. `audio/mp4`, `audio/x-m4a` and `audio/m4a`
-are accepted;
-a `.m4a` filename is used as a fallback only when the client sends no MIME type
-or `application/octet-stream`. The request uses temperature `0` and a 60-second
-provider timeout. The uploaded file is closed after it is read and is never
-persisted by the application.
+Transcription uses `AI_TRANSCRIBE_MODEL` (no default in code; required by a
+Gemini key or by either Whisper provider) and means the model **identity** in
+all three: a Gemini model id, the name the audio server expects, or which
+Whisper the mounted weights are. `audio/mp4`, `audio/x-m4a` and `audio/m4a`
+are accepted whoever transcribes; a `.m4a` filename is used as a fallback only
+when the client sends no MIME type or `application/octet-stream`. The uploaded
+file is closed after it is read and is never persisted by the application, and
+neither the recording nor the transcript is ever logged or quoted in an error.
+
+The three transports, all of them `temperature 0` and none of them allowed to
+translate:
+
+- **`openai_compat`** (`app/transcription.RemoteTranscriber`): one multipart
+  `POST {AI_TRANSCRIBE_ENDPOINT or AI_OPENAI_COMPAT_ENDPOINT}/audio/transcriptions`
+  with `file`, `model`, `response_format=json`, `temperature=0` and —only when
+  the locale names a language Whisper knows— `language`. The answer is
+  `{"text": ...}`. The key travels in `Authorization: Bearer`, and only when
+  there is one. Two attempts on a retryable status, the call bounded by
+  `AI_TRANSCRIBE_TIMEOUT_SECONDS` (60) carved across httpx's four phases.
+- **`local`** (`app/transcription.LocalTranscriber`): faster-whisper on this
+  CPU, `task="transcribe"`, `vad_filter=True`, beam size
+  `AI_TRANSCRIBE_BEAM_SIZE`, weights loaded once at start-up from
+  `AI_TRANSCRIBE_MODEL_PATH`. The upload is decoded first (PyAV) so that a
+  recording longer than `AI_TRANSCRIBE_MAX_AUDIO_SECONDS` (600) is refused
+  before any work starts, and the run happens on a worker thread.
+- **`gemini`**: the M4A bytes base64-encoded into an `inline_data` part
+  alongside a server-controlled verbatim-transcription instruction, at
+  `temperature 0` — byte for byte the request this endpoint always sent.
+
+**The locale is a hint, and only a hint, in every one of them.** On the two
+Whisper paths its primary subtag becomes `language=` when the model knows that
+language (`ru-RU` → `ru`, `zh-Hant-TW` → `zh`) and is dropped otherwise, so a
+phone set to a language Whisper cannot name gets auto-detection rather than an
+error; on Gemini it is the same sentence in the instruction it always was.
 
 ## Rate limiting and observability
 

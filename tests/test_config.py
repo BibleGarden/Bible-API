@@ -43,7 +43,15 @@ PROVIDER_VARS = [
     "AI_SCRIPTURE_REWRITE_PROVIDER",
     "AI_SCRIPTURE_RERANK_PROVIDER",
 ]
-ALL_GEMINI = {name: "gemini" for name in PROVIDER_VARS}
+# Transcription got its own provider on 2026-09-05 (ADR 0012) with a third
+# value the chat stages do not have (`local`), which is why it is a separate
+# name here and not a fourth element of the list above.
+TRANSCRIBE_PROVIDER_VAR = "AI_TRANSCRIBE_PROVIDER"
+ALL_PROVIDER_VARS = PROVIDER_VARS + [TRANSCRIBE_PROVIDER_VAR]
+ALL_GEMINI = {name: "gemini" for name in ALL_PROVIDER_VARS}
+# Chat only: `openai_compat` means `/chat/completions` for these three and the
+# audio API for transcription, so a test that switches "everything" must say
+# which everything it means.
 ALL_OPENAI_COMPAT = {name: "openai_compat" for name in PROVIDER_VARS}
 
 # The minimum a deployment without AI must set.
@@ -79,10 +87,10 @@ AI_ENV = dict(
     AI_SCRIPTURE_RERANK_MODEL="gemini-3.5-flash-lite",
 )
 
-# The same deployment with every chat stage on a local OpenAI-compatible
-# endpoint. Gemini is still configured — transcription has no other provider
-# (ClickUp 86cbegg2f, step 6 replaces it) — which is exactly the mixed state
-# the switch has to support.
+# The same deployment with every CHAT stage on a local OpenAI-compatible
+# endpoint while transcription is still Gemini's — the mixed state the switch
+# has to support, and the one every deployment was in between ADR 0009 and
+# ADR 0012.
 OPENAI_COMPAT_ENV = dict(
     AI_ENV,
     **ALL_OPENAI_COMPAT,
@@ -91,6 +99,28 @@ OPENAI_COMPAT_ENV = dict(
     AI_QUESTION_MODEL="qwen3-30b",
     AI_SCRIPTURE_REWRITE_MODEL="qwen3-30b",
     AI_SCRIPTURE_RERANK_MODEL="qwen3-30b",
+)
+
+# Every provider named, none of them keyed: the "deploy without AI" state
+# that ADR 0008 keeps supported, and the base of the two below.
+NAMED_PROVIDERS_ENV = dict(BASE_ENV, **ALL_GEMINI)
+
+# Transcription in this process (ADR 0012): no key anywhere, the model
+# identity and the weights path both named.
+LOCAL_TRANSCRIBE_ENV = dict(
+    NAMED_PROVIDERS_ENV,
+    AI_TRANSCRIBE_PROVIDER="local",
+    AI_TRANSCRIBE_MODEL="small",
+    AI_TRANSCRIBE_MODEL_PATH="/models/whisper/small",
+)
+
+# Transcription on the company's audio server — the production provider.
+REMOTE_TRANSCRIBE_ENV = dict(
+    NAMED_PROVIDERS_ENV,
+    AI_TRANSCRIBE_PROVIDER="openai_compat",
+    AI_TRANSCRIBE_MODEL="Systran/faster-whisper-large-v3",
+    AI_TRANSCRIBE_ENDPOINT="https://whisper.example:8000/v1",
+    AI_TRANSCRIBE_API_KEY="audio-key",
 )
 
 
@@ -177,9 +207,9 @@ def test_every_provider_model_is_required_with_a_key(name):
 
 def test_gemini_key_makes_the_providers_and_every_model_required():
     """An `.env` that predates ADR 0009: a key, and nothing saying who serves
-    which stage. It does not start, and it names the three variables."""
+    which stage. It does not start, and it names the four variables."""
     env = dict(BASE_ENV, GEMINI_API_KEY="gemini-key")
-    assert config.missing_required_vars(env) == PROVIDER_VARS + AI_REQUIRED
+    assert config.missing_required_vars(env) == ALL_PROVIDER_VARS + AI_REQUIRED
 
 
 def test_embedding_pair_is_required_even_without_a_key():
@@ -355,14 +385,14 @@ def test_no_key_and_no_provider_is_ai_switched_off():
     assert config.missing_required_vars(BASE_ENV) == []
 
 
-@pytest.mark.parametrize("name", PROVIDER_VARS)
+@pytest.mark.parametrize("name", ALL_PROVIDER_VARS)
 def test_naming_one_provider_switches_the_whole_ai_surface_on(name):
     """No half-configured state: naming one stage's transport means the other
-    two must be named too, key or no key."""
+    three must be named too, key or no key."""
     env = dict(BASE_ENV, **{name: "gemini"})
     assert config.ai_configured(env)
     assert config.missing_required_vars(env) == [
-        other for other in PROVIDER_VARS if other != name
+        other for other in ALL_PROVIDER_VARS if other != name
     ]
 
 
@@ -370,7 +400,7 @@ def test_a_fully_named_gemini_deployment_without_a_key_still_starts():
     # ADR 0008 keeps "deploy without AI" supported: a stage on gemini with no
     # GEMINI_API_KEY is the documented 502 / safe-pool state, not a refusal
     # to start.
-    env = dict(BASE_ENV, **ALL_GEMINI)
+    env = dict(NAMED_PROVIDERS_ENV)
     assert config.missing_required_vars(env) == []
     assert config.invalid_required_values(env) == []
 
@@ -415,11 +445,11 @@ def test_per_stage_endpoint_and_key_satisfy_the_requirement_alone():
 
 
 def test_the_chat_models_are_required_on_openai_compat_without_any_key():
-    env = dict(BASE_ENV, **ALL_OPENAI_COMPAT)
+    env = dict(BASE_ENV, **ALL_OPENAI_COMPAT, AI_TRANSCRIBE_PROVIDER="gemini")
     env["AI_OPENAI_COMPAT_ENDPOINT"] = "https://llm.example/v1"
     env["AI_OPENAI_COMPAT_API_KEY"] = "k"
-    # Every chat model, and NOT the transcription one: that stage is
-    # Gemini-only and has no key here, so demanding its model would refuse a
+    # Every chat model, and NOT the transcription one: that stage is on
+    # gemini and has no key here, so demanding its model would refuse a
     # deployment that simply does not transcribe.
     assert config.missing_required_vars(env) == [
         "AI_QUESTION_MODEL",
@@ -434,12 +464,173 @@ def test_the_transcription_model_is_required_by_the_gemini_key_alone():
     assert config.missing_required_vars(env) == ["AI_TRANSCRIBE_MODEL"]
 
 
-def test_transcription_has_no_provider_variable():
+# --- the transcription provider (ADR 0012) ---------------------------------
+
+
+def test_unknown_transcription_provider_is_reported_with_all_three():
     problems = config.invalid_required_values(
-        dict(AI_ENV, AI_TRANSCRIBE_PROVIDER="openai_compat")
+        dict(AI_ENV, AI_TRANSCRIBE_PROVIDER="whisper")
     )
     assert len(problems) == 1
-    assert "AI_TRANSCRIBE_PROVIDER" in problems[0]
+    assert TRANSCRIBE_PROVIDER_VAR in problems[0]
+    assert "whisper" in problems[0]
+    for value in ("gemini", "local", "openai_compat"):
+        assert value in problems[0]
+
+
+def test_local_transcription_environment_is_complete_without_any_key():
+    """The point of the fallback provider: voice messages transcribed with no
+    Google credentials and no model server anywhere in the environment."""
+    assert "GEMINI_API_KEY" not in LOCAL_TRANSCRIBE_ENV
+    assert config.missing_required_vars(LOCAL_TRANSCRIBE_ENV) == []
+    assert config.invalid_required_values(LOCAL_TRANSCRIBE_ENV) == []
+
+
+def test_local_transcription_requires_the_weights_path():
+    env = dict(LOCAL_TRANSCRIBE_ENV)
+    del env["AI_TRANSCRIBE_MODEL_PATH"]
+    assert config.missing_required_vars(env) == ["AI_TRANSCRIBE_MODEL_PATH"]
+
+
+def test_local_transcription_requires_the_model_identity():
+    """The path says where the bytes are; only the model name says WHICH
+    Whisper this deployment runs, and every report needs that."""
+    env = dict(LOCAL_TRANSCRIBE_ENV)
+    del env["AI_TRANSCRIBE_MODEL"]
+    assert config.missing_required_vars(env) == ["AI_TRANSCRIBE_MODEL"]
+
+
+@pytest.mark.parametrize("provider", ["gemini", "openai_compat"])
+def test_a_remote_transcription_provider_wants_no_weights_path(provider):
+    env = dict(
+        REMOTE_TRANSCRIBE_ENV,
+        AI_TRANSCRIBE_PROVIDER=provider,
+        AI_TRANSCRIBE_MODEL_PATH="/models/whisper/small",
+    )
+    problems = [
+        problem
+        for problem in config.invalid_required_values(env)
+        if "AI_TRANSCRIBE_MODEL_PATH" in problem
+    ]
+    assert len(problems) == 1
+    assert provider in problems[0]
+
+
+def test_the_missing_model_error_names_the_provider_that_is_configured():
+    """The production provider must not be told about the local weights path —
+    on `openai_compat` that variable is itself a startup error."""
+    env = dict(REMOTE_TRANSCRIBE_ENV)
+    del env["AI_TRANSCRIBE_MODEL"]
+    with pytest.raises(config.ConfigError) as exc:
+        config._validate(env, [])
+    message = str(exc.value)
+    assert "AI_TRANSCRIBE_MODEL is required" in message
+    assert "openai_compat" in message
+    assert "AI_TRANSCRIBE_MODEL_PATH" not in message
+
+    local = dict(LOCAL_TRANSCRIBE_ENV)
+    del local["AI_TRANSCRIBE_MODEL"]
+    with pytest.raises(config.ConfigError) as exc:
+        config._validate(local, [])
+    assert "AI_TRANSCRIBE_MODEL_PATH" in str(exc.value)
+
+
+def test_remote_transcription_environment_is_complete():
+    assert config.missing_required_vars(REMOTE_TRANSCRIBE_ENV) == []
+    assert config.invalid_required_values(REMOTE_TRANSCRIBE_ENV) == []
+
+
+def test_remote_transcription_needs_an_endpoint_and_a_key_statement():
+    env = dict(NAMED_PROVIDERS_ENV, AI_TRANSCRIBE_PROVIDER="openai_compat")
+    assert config.missing_required_vars(env) == [
+        "AI_TRANSCRIBE_MODEL",
+        "AI_OPENAI_COMPAT_ENDPOINT",
+        "AI_OPENAI_COMPAT_API_KEY",
+    ]
+
+
+def test_the_transcription_stage_may_use_the_shared_openai_compat_pair():
+    """The audio server is usually its own process, but nothing forces it to
+    be: a deployment that serves both from one endpoint says so once."""
+    env = dict(
+        NAMED_PROVIDERS_ENV,
+        AI_TRANSCRIBE_PROVIDER="openai_compat",
+        AI_TRANSCRIBE_MODEL="whisper-large-v3",
+        AI_OPENAI_COMPAT_ENDPOINT="https://llm.example/v1",
+        AI_OPENAI_COMPAT_API_KEY="",
+    )
+    assert config.missing_required_vars(env) == []
+    stage = config.resolve_stage(env, config.TRANSCRIBE_STAGE_VARS)
+    assert stage.endpoint == "https://llm.example/v1"
+    assert stage.api_key == ""
+
+
+def test_the_transcription_endpoint_may_not_carry_a_secret():
+    problems = config.invalid_required_values(
+        dict(
+            REMOTE_TRANSCRIBE_ENV,
+            AI_TRANSCRIBE_ENDPOINT="https://user:pass@whisper.example/v1",
+        )
+    )
+    assert len(problems) == 1
+    assert "AI_TRANSCRIBE_ENDPOINT" in problems[0]
+    assert "pass" not in problems[0]
+
+
+def test_a_transcription_key_without_a_shared_key_is_an_error():
+    env = dict(NAMED_PROVIDERS_ENV, AI_TRANSCRIBE_API_KEY="paid-key")
+    problems = config.invalid_required_values(env)
+    assert len(problems) == 1
+    assert "AI_TRANSCRIBE_API_KEY" in problems[0]
+    assert "GEMINI_API_KEY" in problems[0]
+
+
+def test_resolve_stage_gives_the_local_provider_no_endpoint_and_no_key():
+    """`local` runs in this process: an inherited GEMINI_API_KEY here would
+    state, in the object the code reads, that a local model bills Google."""
+    stage = config.resolve_stage(
+        dict(LOCAL_TRANSCRIBE_ENV, GEMINI_API_KEY="gemini-key"),
+        config.TRANSCRIBE_STAGE_VARS,
+    )
+    assert stage.is_local and not stage.is_gemini and not stage.is_openai_compat
+    assert stage.model == "small"
+    assert stage.endpoint == "" and stage.api_key == ""
+
+
+def test_resolve_stage_reads_the_transcription_override_pair():
+    stage = config.resolve_stage(
+        dict(
+            REMOTE_TRANSCRIBE_ENV,
+            AI_OPENAI_COMPAT_ENDPOINT="https://llm.example/v1",
+            AI_OPENAI_COMPAT_API_KEY="chat-key",
+        ),
+        config.TRANSCRIBE_STAGE_VARS,
+    )
+    # The audio server is not the chat server: the override wins over both
+    # shared values, which is the whole reason it exists.
+    assert stage.is_openai_compat
+    assert stage.endpoint == "https://whisper.example:8000/v1"
+    assert stage.api_key == "audio-key"
+    assert stage.model == "Systran/faster-whisper-large-v3"
+
+
+@pytest.mark.parametrize("value", ["int4", "float64", "INT8"])
+def test_an_unknown_compute_type_is_refused_with_the_valid_ones(value):
+    problems = config.invalid_required_values(
+        dict(LOCAL_TRANSCRIBE_ENV, AI_TRANSCRIBE_COMPUTE_TYPE=value)
+    )
+    assert len(problems) == 1
+    assert "AI_TRANSCRIBE_COMPUTE_TYPE" in problems[0]
+    assert "int8" in problems[0]
+
+
+def test_the_measured_compute_type_is_accepted():
+    assert (
+        config.invalid_required_values(
+            dict(LOCAL_TRANSCRIBE_ENV, AI_TRANSCRIBE_COMPUTE_TYPE="int8")
+        )
+        == []
+    )
 
 
 @pytest.mark.parametrize(
@@ -566,12 +757,17 @@ def test_validate_passes_on_a_complete_environment():
 
 def _reload_config(monkeypatch, env):
     for name in (*ALWAYS_REQUIRED, *PRESENCE_REQUIRED, *AI_REQUIRED,
-                 *PROVIDER_VARS, "GEMINI_API_KEY", "DB_PORT",
+                 *ALL_PROVIDER_VARS, "GEMINI_API_KEY", "DB_PORT",
                  "AI_OPENAI_COMPAT_ENDPOINT", "AI_OPENAI_COMPAT_API_KEY",
                  "AI_QUESTION_ENDPOINT", "AI_QUESTION_API_KEY",
                  "AI_SCRIPTURE_REWRITE_ENDPOINT", "AI_SCRIPTURE_REWRITE_API_KEY",
                  "AI_SCRIPTURE_RERANK_ENDPOINT", "AI_SCRIPTURE_RERANK_API_KEY",
-                 "AI_TRANSCRIBE_PROVIDER", "AI_QUESTION_TIMEOUT_SECONDS",
+                 "AI_TRANSCRIBE_ENDPOINT", "AI_TRANSCRIBE_API_KEY",
+                 "AI_TRANSCRIBE_MODEL_PATH", "AI_TRANSCRIBE_COMPUTE_TYPE",
+                 "AI_TRANSCRIBE_THREADS", "AI_TRANSCRIBE_BEAM_SIZE",
+                 "AI_TRANSCRIBE_TIMEOUT_SECONDS",
+                 "AI_TRANSCRIBE_MAX_AUDIO_SECONDS",
+                 "AI_QUESTION_TIMEOUT_SECONDS",
                  "AI_SCRIPTURE_PROVIDER_TIMEOUT_SECONDS",
                  "EMBEDDING_MODEL_PATH"):
         monkeypatch.delenv(name, raising=False)
@@ -714,13 +910,52 @@ def test_import_succeeds_on_a_fully_configured_environment(monkeypatch):
 
 
 def test_import_fails_on_a_key_without_the_providers(monkeypatch):
-    """The `.env` every deployment had before ADR 0009 does not start."""
+    """The `.env` every deployment had before ADR 0009 does not start — and
+    since ADR 0012 the transcription provider is named in the same error."""
     with pytest.raises(RuntimeError) as exc:
         _reload_config(monkeypatch, dict(BASE_ENV, GEMINI_API_KEY="gemini-key"))
     message = str(exc.value)
-    for name in PROVIDER_VARS:
+    for name in ALL_PROVIDER_VARS:
         assert name in message
     assert "openai_compat" in message
+    assert "local" in message
+
+
+def test_import_reads_the_local_transcription_provider(monkeypatch):
+    module = _reload_config(monkeypatch, LOCAL_TRANSCRIBE_ENV)
+    assert module.TRANSCRIBE_PROVIDER.is_local
+    assert module.AI_TRANSCRIBE_MODEL == "small"
+    assert module.AI_TRANSCRIBE_MODEL_PATH == "/models/whisper/small"
+    # The measured operating point, as defaults rather than as required
+    # variables (ADR 0012).
+    assert module.AI_TRANSCRIBE_COMPUTE_TYPE == "int8"
+    assert module.AI_TRANSCRIBE_THREADS == 0
+    assert module.AI_TRANSCRIBE_BEAM_SIZE == 1
+    assert module.AI_TRANSCRIBE_TIMEOUT_SECONDS == 60.0
+    assert module.AI_TRANSCRIBE_MAX_AUDIO_SECONDS == 600.0
+
+
+def test_import_reads_the_remote_transcription_provider(monkeypatch):
+    module = _reload_config(monkeypatch, REMOTE_TRANSCRIBE_ENV)
+    assert module.TRANSCRIBE_PROVIDER.is_openai_compat
+    assert module.TRANSCRIBE_PROVIDER.endpoint == "https://whisper.example:8000/v1"
+    assert module.TRANSCRIBE_PROVIDER.api_key == "audio-key"
+
+
+def test_import_fails_on_a_local_transcriber_without_a_path(monkeypatch):
+    env = dict(LOCAL_TRANSCRIBE_ENV)
+    del env["AI_TRANSCRIBE_MODEL_PATH"]
+    with pytest.raises(RuntimeError) as exc:
+        _reload_config(monkeypatch, env)
+    assert "AI_TRANSCRIBE_MODEL_PATH" in str(exc.value)
+
+
+def test_import_fails_on_a_garbage_transcription_number(monkeypatch):
+    with pytest.raises(RuntimeError) as exc:
+        _reload_config(
+            monkeypatch, dict(LOCAL_TRANSCRIBE_ENV, AI_TRANSCRIBE_BEAM_SIZE="five")
+        )
+    assert "AI_TRANSCRIBE_BEAM_SIZE" in str(exc.value)
 
 
 def test_import_resolves_every_stage_to_openai_compat(monkeypatch):
@@ -734,7 +969,9 @@ def test_import_resolves_every_stage_to_openai_compat(monkeypatch):
         assert stage.endpoint == "https://llm.example:8443/v1"
         assert stage.api_key == "local-key"
         assert stage.model == "qwen3-30b"
-    # Transcription is untouched by the switch and still Gemini's.
+    # Transcription is untouched by THIS switch and still Gemini's: the two
+    # providers are named separately on purpose (ADR 0012).
+    assert module.TRANSCRIBE_PROVIDER.is_gemini
     assert module.GEMINI_API_KEY == "gemini-key"
     assert module.AI_TRANSCRIBE_MODEL == "gemini-3.5-flash-lite"
 

@@ -366,6 +366,7 @@ _PROBE_ENV = {
     "AI_QUESTION_PROVIDER": "gemini",
     "AI_SCRIPTURE_REWRITE_PROVIDER": "gemini",
     "AI_SCRIPTURE_RERANK_PROVIDER": "gemini",
+    "AI_TRANSCRIBE_PROVIDER": "gemini",
 }
 
 
