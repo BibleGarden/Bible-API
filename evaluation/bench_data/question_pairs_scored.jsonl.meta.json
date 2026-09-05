@@ -1,0 +1,15 @@
+{
+ "ticket": "86cbehyg8",
+ "measured_at": "2026-09-06T02:37:16+0300",
+ "pairs": 176,
+ "distinct_texts": 237,
+ "embedding_host": "llm.ai2.ru",
+ "embedding_model": "BAAI/bge-m3",
+ "embedding_dimensions": 1024,
+ "batch_size": 64,
+ "embed_seconds": 33.42,
+ "lexical_constants": {
+  "near_repeat_threshold": 0.6
+ },
+ "pairs_file": "question_pairs_labelled.json"
+}

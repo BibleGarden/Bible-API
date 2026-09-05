@@ -164,3 +164,52 @@ still earns the retry it costs. The constants stay: every candidate that buys
 more repeats (0.55, 0.50) starts paying false positives immediately, and the
 class of miss it leaves — the same thought in a new dress — is exactly what
 this ADR said a lexical metric cannot see (ClickUp 86cbehyg8).
+
+## Semantic check: measured, decision pending (ClickUp 86cbehyg8, 2026-09-06)
+
+The question this ADR left open has been measured and **not** implemented:
+nothing in `app/` changed, and `POST /api/ai/question` still answers exactly as
+it did. What exists is the evidence for a decision — the labelled set
+`evaluation/question_pairs_labelled.json` (176 pairs, ru 83 / uk 51 / en 42,
+116 `repeat` / 60 `different`), the tool `evaluation/question_semantic_bench.py`
+that scores each pair three ways, and the table in `evaluation/README.md`,
+«Семантическая проверка повторов через bge-m3».
+
+**bge-m3 cosine sees the thought where the trigram score sees the frame.** On
+the same pairs, the classes overlap by 0.525 on trigrams and by 0.179 on
+cosine (0.109 with the arguable pairs removed) — so neither signal separates
+them perfectly, but only one of them is usable. Against the 0.97 precision /
+0.30 recall of the filter as it stands, cosine ≥ 0.80 gives **0.96 / 0.83**,
+and its best F1 (0.92, at 0.76) is twice the filter's 0.46. The 52 repeats
+whose trigram score is below 0.45 — the band the filter never reads — include
+36 that cosine ≥ 0.80 catches.
+
+The one class it does not catch is a repeat rewritten with no shared words at
+all: on the artifact pairs 0.80 recalls 0.89, on the hand-written ones 0.50.
+That is the honest ceiling of the number, and it is the right way round — the
+repeats a model actually produces are the ones being filtered.
+
+**It would be a second signal, never a replacement.** The rule to implement,
+if it is implemented, is `is_repeat(candidate, shown) or cosine >= 0.80`. The
+OR adds one catch over cosine alone on this set, which is not why it is there:
+the lexical branch costs nothing, needs no network, and is the whole check
+when the embedding provider is down — and an `EmbeddingUnavailable` must
+degrade to today's behaviour, never to a `502` for someone waiting on a
+question. The threshold would be a code constant for the same reason 0.60 is
+(ADR 0008), and this table would have to be redone under another prompt
+version or another embedding model, exactly as the lexical one was.
+
+**The cost is latency, and it is the real argument against.** One batched
+call to `https://llm.ai2.ru/v1/embeddings` carrying the candidate plus the ≤ 11
+questions already shown is 549 ms median / 708 ms p90 measured from this
+machine (904 / 1008 back to back), with no cold start — the API process holds
+no weights. Sequentially after the generation, the whole path measures 1002 ms
+median against 397 ms for the question alone: **the check roughly doubles a
+median answer**, while using 3–5% of the 20 s budget. The worst case, a repeat
+plus its one retry, is ~1.5 s.
+
+Open for Maria, and the reason this is "pending" rather than "accepted": 19 of
+the 176 labels are marked `ambiguous` (12 of them sit on the "same topic /
+same thought" line the threshold is drawn through), the labels are one
+reader's proposal, and doubling the median latency of a companion's reply is a
+product decision rather than a technical one.
