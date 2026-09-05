@@ -26,7 +26,15 @@ The API will be available at `http://localhost:9084/api`.
   `GET /api/about?app=lampada` for Lampada contacts and description.
   `app=bible-garden` explicitly selects the default; unknown values return 422.
   Both variants require the existing API key.
-- `GET /api/version-check` — app version check
+- `GET /api/version-check` — app version check. `?app_version=` is required and
+  takes one to three numeric components (missing ones are read as zero);
+  anything else returns 422. `GET /api/version-check?app=lampada&app_version=1.0.0`
+  applies Lampada's own thresholds and store link; omitting `app` keeps the
+  Bible Garden response released clients already receive, with `app` added to
+  it. `update_type` is `none`, `soft` or `hard`; Lampada always answers `none`
+  until its App Store listing is public — see
+  `architect/adr/0013-application-version-policies.md` for the activation
+  constants.
 - `POST /api/ai/question` — Gemini companion reply (see below)
 - `POST /api/ai/transcribe` — voice recording to text (see below)
 - `POST /api/ai/scripture` — contextual Bible passage selection
@@ -241,11 +249,3 @@ persistent storage.
 ## License
 
 [GPLv3](LICENSE)
-
-### Application update checks
-
-`GET /api/version-check?app=lampada&app_version=1.0.0` selects Lampada.
-Omitting `app` retains Bible Garden. Responses identify the selected app and
-return `none`, `soft` or `hard`. Numeric versions with one to three components
-are accepted; missing components are zero. Lampada notifications are disabled
-until its App Store listing is public; see ADR 0012 for activation settings.
