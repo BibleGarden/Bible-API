@@ -244,7 +244,17 @@ to be discovered by using it.
    the private `BibleGarden/Deploy` repository as `env-checklist.md`
    (locally `/root/cep/Deploy/env-checklist.md`), no longer tied to a ticket.
    `infrastructure.md` in the `cep` monorepo is only a pointer to it.
-2. `AI_REQUIRED_VARS` is gated on `GEMINI_API_KEY` alone. If a future
+2. ~~`AI_REQUIRED_VARS` is gated on `GEMINI_API_KEY` alone. If a future
    deployment ever wants AI partially configured (e.g. transcription but not
    rewrite), the current all-or-nothing gate would need to be split — no
-   such deployment exists today.
+   such deployment exists today.~~ **Partly resolved 2026-09-05 (ADR 0009,
+   ClickUp 86cbegg2f):** such a deployment now exists — the three chat stages
+   on a self-hosted OpenAI-compatible model with Gemini left configured for
+   transcription alone. The gate was split along the provider, not the
+   endpoint: "the AI surface is configured" became "`GEMINI_API_KEY` is set
+   OR a provider is named", each chat stage's model is additionally required
+   when that stage runs on `openai_compat`, and `AI_TRANSCRIBE_MODEL` keeps
+   the original key-only gate. The three new `AI_*_PROVIDER` variables are
+   required together once anything is configured — deliberately with no
+   transitional default, so an `.env` predating that change refuses to start
+   instead of quietly assuming a provider (ADR 0009, "Enabling rule").

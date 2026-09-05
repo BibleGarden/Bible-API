@@ -255,6 +255,11 @@ _PROBE_ENV = {
     "EMBEDDING_MODEL": "gemini-embedding-001", "EMBEDDING_DIMENSIONS": "768",
     "AI_QUESTION_MODEL": "m", "AI_TRANSCRIBE_MODEL": "m",
     "AI_SCRIPTURE_REWRITE_MODEL": "m", "AI_SCRIPTURE_RERANK_MODEL": "m",
+    # Every stage on Gemini: this probe is about which KEY each stage bills,
+    # which is a question the provider switch (ADR 0009) did not change.
+    "AI_QUESTION_PROVIDER": "gemini",
+    "AI_SCRIPTURE_REWRITE_PROVIDER": "gemini",
+    "AI_SCRIPTURE_RERANK_PROVIDER": "gemini",
 }
 
 

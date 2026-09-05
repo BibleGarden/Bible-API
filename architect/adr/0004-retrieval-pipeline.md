@@ -13,6 +13,17 @@ Ticket: ClickUp 86cb8vw1g
 > below are unchanged, and the text uses the new names throughout. Benchmark
 > reports produced before that date name the same knobs by their old ones.
 
+> Note (2026-09-05, ClickUp 86cbegg2f, ADR 0009): "Gemini" below names the
+> transport this pipeline was measured on, not a requirement. The rewrite
+> stage now takes its transport from `AI_SCRIPTURE_REWRITE_PROVIDER`
+> (`gemini` or `openai_compat`) and is built by
+> `query_rewrite.build_query_rewriter`; the prompt (v7), the parser, the
+> variant count, the fallbacks and every threshold below are untouched —
+> `GeminiQueryRewriter` and `OpenAICompatQueryRewriter` share all of them and
+> send byte-identical messages. Which model passes the thresholds is still a
+> measurement, and the pinned Gemini values below are the ones that have been
+> measured.
+
 ## Context
 
 The retrieval layer must turn a prayer context (topic + allowed user replies

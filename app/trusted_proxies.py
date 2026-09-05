@@ -49,6 +49,29 @@ from config import (
 logger = logging.getLogger(__name__)
 
 
+def ensure_visible_handler(target: logging.Logger) -> None:
+    """Make sure `target`'s startup banner actually reaches `docker logs`.
+
+    Uvicorn configures its own loggers and leaves the ROOT logger without
+    handlers, so an INFO record from an application module is swallowed:
+    only WARNING and above reach stderr, through logging's last-resort
+    handler. A startup banner that is invisible is the failure this module
+    exists to prevent, so the logger that emits one gets a handler of its own
+    when nothing else has installed one (under pytest, or with any real
+    logging configuration, this is a no-op).
+
+    Per-logger, not on the root: this only makes the banners of the modules
+    that ask for it visible, and never turns on every library's INFO stream.
+    Callers: `TrustedProxies.log_startup_state` and `main.log_ai_providers`.
+    """
+    if target.handlers or logging.getLogger().handlers:
+        return
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(levelname)s:     %(message)s"))
+    target.addHandler(handler)
+    target.setLevel(logging.INFO)
+
+
 def resolve_host_addresses(host: str) -> frozenset[str]:
     """Every address `host` currently resolves to. Raises OSError on failure."""
     infos = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
@@ -322,22 +345,8 @@ class TrustedProxies:
 
     @staticmethod
     def _ensure_visible_handler() -> None:
-        """Make sure the startup banner actually reaches `docker logs`.
-
-        Uvicorn configures its own loggers and leaves the root logger without
-        handlers, so an INFO record from an application module is swallowed:
-        only WARNING and above reach stderr, through logging's last-resort
-        handler. The whole point of this ticket is that the proxy
-        configuration must not be invisible, so this one logger gets a handler
-        of its own when nothing else has installed one (under pytest, or with
-        any real logging configuration, this is a no-op).
-        """
-        if logger.handlers or logging.getLogger().handlers:
-            return
-        handler = logging.StreamHandler()
-        handler.setFormatter(logging.Formatter("%(levelname)s:     %(message)s"))
-        logger.addHandler(handler)
-        logger.setLevel(logging.INFO)
+        """Make sure the startup banner actually reaches `docker logs`."""
+        ensure_visible_handler(logger)
 
     def log_startup_state(self) -> None:
         """One loud line at startup saying what this process trusts, and why.

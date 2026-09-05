@@ -29,3 +29,14 @@ os.environ.setdefault("EMBEDDING_MODEL", "gemini-embedding-001")
 os.environ.setdefault("EMBEDDING_DIMENSIONS", "768")
 os.environ.setdefault("AI_SCRIPTURE_REWRITE_MODEL", "gemini-3.7-flash")
 os.environ.setdefault("AI_SCRIPTURE_RERANK_MODEL", "gemini-3.5-flash-lite")
+
+# Which transport serves each chat stage (ADR 0009). Required as soon as the
+# AI surface is configured at all, so the suite must name them or a container
+# whose real `.env` carries GEMINI_API_KEY would fail to import `config`.
+# `gemini` is the right value here for the same reason the models above are
+# the production ones: it keeps every existing test on the transport it was
+# written against. The provider-switching tests build their own environments
+# and never rely on these.
+os.environ.setdefault("AI_QUESTION_PROVIDER", "gemini")
+os.environ.setdefault("AI_SCRIPTURE_REWRITE_PROVIDER", "gemini")
+os.environ.setdefault("AI_SCRIPTURE_RERANK_PROVIDER", "gemini")

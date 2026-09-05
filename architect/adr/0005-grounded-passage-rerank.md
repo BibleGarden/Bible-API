@@ -14,6 +14,19 @@ Ticket: ClickUp 86cb8vw1h
 > `AI_SCRIPTURE_REWRITE_MODEL`). Name only — the pinned model, the prompt,
 > `RERANK_PROMPT_VERSION` and the benchmark results below are untouched.
 
+> Note (2026-09-05, ClickUp 86cbegg2f, ADR 0009): the stage's transport is
+> now `AI_SCRIPTURE_RERANK_PROVIDER` (`gemini` or `openai_compat`), built by
+> `passage_rerank.build_passage_reranker`. The instruction (v9), the user
+> content and `parse_rerank_response` are shared by both transports, so the
+> grounding contract below is unchanged. **One mechanism does not cross:**
+> the chat-completions protocol has no `responseSchema`, so on
+> `openai_compat` the request asks for `response_format: json_object` and the
+> server-side validation carries the contract alone. That is the half this
+> ADR already called load-bearing ("the server never trusts it"), but a model
+> that answers outside the list now fails validation rather than being
+> constrained by the schema first, and each such answer costs a fallback to
+> retrieval's top-1.
+
 ## Context
 
 The retrieval pipeline (ADR 0004) returns a top-10 of verified candidates —

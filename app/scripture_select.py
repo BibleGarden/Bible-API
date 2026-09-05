@@ -62,6 +62,7 @@ from client_ip import resolve_client_ip
 from config import (
     AI_SCRIPTURE_INDEX_CACHE_SECONDS,
     AI_SCRIPTURE_PRIMARY_TRANSLATIONS,
+    AI_SCRIPTURE_PROVIDER_TIMEOUT_SECONDS,
     AI_SCRIPTURE_REQUESTS_PER_CLIENT_PER_MINUTE,
     AI_SCRIPTURE_REQUESTS_PER_MINUTE,
     AI_SCRIPTURE_TIMEOUT_SECONDS,
@@ -70,14 +71,14 @@ from database import create_connection
 from deadline import Deadline
 from lexical_index import load_lexical_indexes
 from passage_highlight import load_psalm_maps, resolve_highlight
-from passage_rerank import GeminiPassageReranker
+from passage_rerank import build_passage_reranker
 from passage_render import (
     build_coverage,
     load_chunk_ranges,
     reference_faithful_windows,
     render_passage,
 )
-from query_rewrite import REWRITE_VARIANTS, GeminiQueryRewriter
+from query_rewrite import REWRITE_VARIANTS, build_query_rewriter
 from embeddings import GeminiEmbeddingClient
 from rate_limit import RateLimiter, RateLimitError
 from retrieval import (
@@ -122,7 +123,14 @@ TOP_K = 10
 # attempts): here the total deadline, not the retry ladder, must bound the
 # request. Every call is additionally capped by whatever is left of the
 # deadline.
-_PROVIDER_TIMEOUT_SECONDS = 8.0
+#
+# The per-call ceiling became an operational variable with ADR 0009
+# (`AI_SCRIPTURE_PROVIDER_TIMEOUT_SECONDS`, default 8.0 — the measured Gemini
+# value, unchanged for every existing deployment). It has to be settable
+# separately from `AI_SCRIPTURE_TIMEOUT_SECONDS`, because `provider_timeout`
+# takes the MINIMUM of the two: a stage moved to a slower self-hosted model
+# would otherwise stay capped at 8 s however large the request budget is.
+_PROVIDER_TIMEOUT_SECONDS = AI_SCRIPTURE_PROVIDER_TIMEOUT_SECONDS
 _PROVIDER_ATTEMPTS = 2
 
 
@@ -935,36 +943,38 @@ def clear_cached_resources() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Gemini clients (shared, serve-time budgets)
+# Provider clients (shared, serve-time budgets)
 # ---------------------------------------------------------------------------
 
 _clients_lock = threading.Lock()
 _clients: tuple | None = None
 
 
-def _gemini_clients() -> tuple:
+def _provider_clients() -> tuple:
     """Lazily built (rewriter, embedder, reranker) with serve-time budgets.
 
     The HTTP clients are shared across requests (httpx clients are
     thread-safe) so a selection does not pay three TLS handshakes.
 
-    No key is passed here on purpose: each client's constructor already
-    defaults to the key its stage bills — the rewriter to
-    `config.REWRITE_API_KEY` (`AI_SCRIPTURE_REWRITE_API_KEY` when the deployment
-    splits billing, `GEMINI_API_KEY` otherwise), the embedder and the
-    reranker to `GEMINI_API_KEY`.
+    Neither the provider nor the key is chosen here: `build_query_rewriter` /
+    `build_passage_reranker` read the stage's resolved configuration
+    (`AI_SCRIPTURE_REWRITE_PROVIDER` / `AI_SCRIPTURE_RERANK_PROVIDER` and the
+    endpoint/key/model that belong to it — ADR 0009), and each stage's key is
+    still its own (`AI_SCRIPTURE_*_API_KEY` when the deployment splits
+    billing, the provider's shared key otherwise). The embedder stays Gemini:
+    embeddings name the stored index, and moving them is a separate step.
     """
     global _clients
     with _clients_lock:
         if _clients is None:
             _clients = (
-                GeminiQueryRewriter(
+                build_query_rewriter(
                     timeout=_PROVIDER_TIMEOUT_SECONDS, attempts=_PROVIDER_ATTEMPTS
                 ),
                 GeminiEmbeddingClient(
                     timeout=_PROVIDER_TIMEOUT_SECONDS, max_retries=_PROVIDER_ATTEMPTS
                 ),
-                GeminiPassageReranker(
+                build_passage_reranker(
                     timeout=_PROVIDER_TIMEOUT_SECONDS, attempts=_PROVIDER_ATTEMPTS
                 ),
             )
@@ -1064,7 +1074,7 @@ def _run_selection(
         raise ScriptureSelectUnavailable("database is not available")
     cursor = connection.cursor(dictionary=True)
     try:
-        rewriter, embedder, reranker = _gemini_clients()
+        rewriter, embedder, reranker = _provider_clients()
         retriever = ScriptureRetriever(
             index=resources.index,
             embedder=embedder,

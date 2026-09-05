@@ -33,12 +33,15 @@ All endpoints require `X-API-Key` header.
 
 ### AI endpoints
 
-`POST /api/ai/question` accepts `{ "user" }` and calls Gemini. The system
-prompt is applied server-side and the Google AI Studio key never leaves the
-server:
+`POST /api/ai/question` accepts `{ "user" }` and calls the configured model.
+The system prompt is applied server-side and the provider key never leaves
+the server:
 
 ```dotenv
 GEMINI_API_KEY=your-google-ai-studio-key
+AI_QUESTION_PROVIDER=gemini
+AI_SCRIPTURE_REWRITE_PROVIDER=gemini
+AI_SCRIPTURE_RERANK_PROVIDER=gemini
 AI_QUESTION_MODEL=gemini-3.7-flash
 AI_TRANSCRIBE_MODEL=gemini-3.5-flash-lite
 EMBEDDING_MODEL=gemini-embedding-001
@@ -51,6 +54,41 @@ AI_CLIENT_HMAC_KEY=generate-a-separate-random-secret
 TRUSTED_PROXY_HOSTS=my-nginx-container
 ```
 
+### Choosing a provider per stage
+
+The three chat stages — the question endpoint, the retrieval query rewrite
+and the passage rerank — each name their transport, `gemini` or
+`openai_compat` (any OpenAI-compatible `/chat/completions` server: vLLM,
+Ollama, llama.cpp). Moving a stage to another model is an `.env` edit:
+
+```dotenv
+AI_QUESTION_PROVIDER=openai_compat
+AI_SCRIPTURE_REWRITE_PROVIDER=openai_compat
+AI_SCRIPTURE_RERANK_PROVIDER=openai_compat
+AI_OPENAI_COMPAT_ENDPOINT=https://your-model-server:8443/v1
+AI_OPENAI_COMPAT_API_KEY=server-key      # may be empty: no Authorization header
+AI_QUESTION_MODEL=your-model
+AI_SCRIPTURE_REWRITE_MODEL=your-model
+AI_SCRIPTURE_RERANK_MODEL=your-model
+```
+
+A stage can override the shared endpoint and key with
+`AI_QUESTION_ENDPOINT` / `AI_QUESTION_API_KEY` (and the
+`AI_SCRIPTURE_REWRITE_*` / `AI_SCRIPTURE_RERANK_*` pairs) — that is how one
+stage runs on a different server, or bills a different key. The key must
+never be part of the URL; an endpoint carrying credentials or a query string
+is rejected at startup. Model names have no defaults on either provider, and
+the three `AI_*_PROVIDER` variables are required as soon as any AI is
+configured: an `.env` with only `GEMINI_API_KEY` refuses to start and names
+them. See `architect/adr/0009-provider-independent-llm-client.md`.
+
+`POST /api/ai/transcribe` is Gemini-only for now — there is no
+`AI_TRANSCRIBE_PROVIDER` — so a deployment whose chat stages are fully local
+still needs `GEMINI_API_KEY` and `AI_TRANSCRIBE_MODEL` for it; without them
+that one endpoint answers `502` and everything else keeps working. Embeddings
+are configured separately (`EMBEDDING_MODEL`), because they name the stored
+vector index.
+
 The system prompt is **not** configurable: it is the versioned constant
 `QUESTION_PROMPT` in `app/question_prompt.py`. It is product behaviour, is
 reviewed and diffed like the rest of the code, and cannot drift between
@@ -60,7 +98,8 @@ environments. Changing it means editing that file and bumping
 There are no defaults for the model names in the code. Once `GEMINI_API_KEY`
 is set, `AI_QUESTION_MODEL`, `AI_TRANSCRIBE_MODEL`,
 `AI_SCRIPTURE_REWRITE_MODEL` and `AI_SCRIPTURE_RERANK_MODEL` must be set too, or the
-service refuses to start and prints all the missing ones at once.
+service refuses to start and prints all the missing ones at once. A chat
+stage on `openai_compat` must name its model with or without a Gemini key.
 `EMBEDDING_MODEL` and `EMBEDDING_DIMENSIONS` are required with or without a
 key: they name the vector index the service reads, not a provider call.
 Without `GEMINI_API_KEY` the AI endpoints simply report that AI is not
@@ -74,8 +113,9 @@ rate limiter fails closed rather than silently dropping its limit).
 `AI_SCRIPTURE_REWRITE_API_KEY` is optional and applies to the retrieval rewrite
 stage only — set it to bill that one stage (the only one whose model exhausts
 its free daily quota) to a separate, paid key; leave it out and rewrites use
-`GEMINI_API_KEY` like every other call. Setting it without `GEMINI_API_KEY`
-is a startup error.
+the shared key of that stage's provider, like every other call. Setting a
+stage key while the stage runs on Gemini and `GEMINI_API_KEY` is empty is a
+startup error.
 
 The Google key must never be included in the mobile application. Before a
 production deployment, also set a hard quota for the key in Google AI Studio;

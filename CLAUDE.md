@@ -51,7 +51,8 @@ system prompt is a code constant now, not an environment value.
 - **`about.py`** — About page content
 - **`version_check.py`** — App version check
 - **`import_data.py`** — Import data from Dashboard-API
-- **`twinkler_ai.py`** — Server-prompted Gemini integration with in-memory rate limiting: `POST /api/ai/question` and `POST /api/ai/transcribe` (see `architect/twinkler-ai.md`)
+- **`twinkler_ai.py`** — Server-prompted AI integration with in-memory rate limiting: `POST /api/ai/question` (Gemini or an OpenAI-compatible endpoint, per `AI_QUESTION_PROVIDER`) and `POST /api/ai/transcribe` (Gemini only) — see `architect/twinkler-ai.md`
+- **`llm_client.py`** — the OpenAI-compatible chat-completions transport (`ChatClient`, `AsyncChatClient`): payload, `<think>` stripping, answer extraction, and the shared `gemini_retry` budget/retry policy. Prompts and parsers stay in the stage modules, so both transports send the same bytes (ADR 0009)
 - **`question_prompt.py`** — the system prompt of `POST /api/ai/question` as a versioned constant (`QUESTION_PROMPT`, `QUESTION_PROMPT_VERSION`), the way `query_rewrite`/`passage_rerank` version theirs; moved out of `TWINKLER_SYSTEM_PROMPT` on 2026-08-30
 - **`safety.py`** — the despair / self-harm rule of `POST /api/ai/question` in code rather than in the prompt (ru/uk/en dictionary + regex, no model, no network): tier 1 answers the versioned fixed reply (`SAFETY_REPLIES`, `SAFETY_REPLY_VERSION`) without calling the provider, tier 2 replaces a model reply that came back as a question for a weaker despair signal. Reason: Qwen3-30B answered the explicit despair input with a question 3/3 while Gemini obeyed the prompt (ClickUp 86cbegctz/86cbegg23) — see `architect/twinkler-ai.md`, "The despair rule is code"
 - **`scripture_select.py`** — Public scripture-selection endpoint `POST /api/ai/scripture` over `retrieval.select_final`; owns the process-local corpus cache: vector + BM25 indexes, Psalm maps, catalogue, coverage sets (see `architect/scripture-select.md`, `architect/adr/0006-scripture-select-api.md`, `architect/adr/0007-reference-translation-rendering.md`)
@@ -76,10 +77,10 @@ system prompt is a code constant now, not an environment value.
 - **`embeddings.py`** — Gemini embedding client for RAG retrieval (see `architect/adr/0002-embedding-model-and-vector-store.md`)
 - **`vector_index.py`** — `chunk_embeddings` storage + in-process cosine search with language/translation filters
 - **`index_cli.py`** — CLI that (re)builds the vector index idempotently (`rebuild`/`status`/`search`)
-- **`query_rewrite.py`** — Gemini rewrite of prayer context into scripture-register query variants (see `architect/adr/0004-retrieval-pipeline.md`)
+- **`query_rewrite.py`** — LLM rewrite of prayer context into scripture-register query variants (see `architect/adr/0004-retrieval-pipeline.md`); shared prompt v7 and parser, a transport per provider (`GeminiQueryRewriter` / `OpenAICompatQueryRewriter`, chosen by `build_query_rewriter`)
 - **`lexical_index.py`** — in-process BM25 over chunks, the hybrid lexical signal
 - **`retrieval.py`** — retrieval pipeline: interleave fusion, global genre blacklist (`data/genre_blacklist.json`), safe pool (`data/safe_pool.json`), diversity, `ScriptureRetriever` service; `select_final` adds the grounded rerank with top-1 fallback; both entry points accept an optional per-request `Deadline` and can embed query variants concurrently
-- **`passage_rerank.py`** — grounded AI choice of the final passage among retrieval candidates plus its 1-3 key verses: validated index-only answer (candidate number + verse-marker span), JSON schema, injection-hardened prompt (see `architect/adr/0005-grounded-passage-rerank.md`)
+- **`passage_rerank.py`** — grounded AI choice of the final passage among retrieval candidates plus its 1-3 key verses: validated index-only answer (candidate number + verse-marker span), JSON schema, injection-hardened prompt (see `architect/adr/0005-grounded-passage-rerank.md`); same split as `query_rewrite` (`GeminiPassageReranker` / `OpenAICompatPassageReranker`, `build_passage_reranker`)
 - **`passage_highlight.py`** — turns the validated key-verse marker span into canonical and translation coordinates through `psalm_verse_mappings`; the optional `highlight` field of the selection response
 - **`retrieval_cli.py`** — end-to-end retrieval smoke CLI (`select`)
 - **`database.py`** — MySQL connection factory
@@ -121,9 +122,13 @@ is an explicit statement; MySQL accepts a passwordless user — both the local
 and the production `.env` set a real password today). `DB_PORT` keeps its
 default 3306; a non-numeric value is an error.
 
-**Enforced when `GEMINI_API_KEY` is set** (no defaults in code): `AI_QUESTION_MODEL`,
-`AI_TRANSCRIBE_MODEL`, `AI_SCRIPTURE_REWRITE_MODEL`,
-`AI_SCRIPTURE_RERANK_MODEL`. (Reason: on 2026-08-29 a default
+**Enforced once the AI surface is configured** — that is, `GEMINI_API_KEY`
+is set **or** any provider variable is named (ADR 0009): the three
+`AI_*_PROVIDER` variables below. **Enforced when `GEMINI_API_KEY` is set**
+(no defaults in code): `AI_QUESTION_MODEL`, `AI_TRANSCRIBE_MODEL`,
+`AI_SCRIPTURE_REWRITE_MODEL`, `AI_SCRIPTURE_RERANK_MODEL` — and a chat
+stage's model is required whether or not there is a Gemini key once that
+stage runs on `openai_compat`. (Reason: on 2026-08-29 a default
 `AI_SCRIPTURE_REWRITE_MODEL=gemini-3.7-flash` sent the rewrite stage to a model
 the key could not reach, while `.env` said flash-lite everywhere.)
 
@@ -140,16 +145,62 @@ index version (`c{chunking}:{model}@{dims}`), not a provider call.
 `ADMIN_API_URL`, `ADMIN_API_KEY` (for import), `IMPORT_MAX_PAYLOAD_MB` (48),
 `IMPORT_HTTP_TIMEOUT_SECONDS` (300), `AI_REQUESTS_PER_MINUTE`,
 `AI_REQUESTS_PER_CLIENT_PER_MINUTE`, `AI_CLIENT_HMAC_KEY`,
+`AI_QUESTION_TIMEOUT_SECONDS` (20),
+`AI_SCRIPTURE_PROVIDER_TIMEOUT_SECONDS` (8),
 `TRUSTED_PROXY_HOSTS` / `TRUSTED_PROXY_IPS` /
 `TRUSTED_PROXY_DNS_TTL_SECONDS` (30) and the `AI_SCRIPTURE_*` knobs below.
 `AUDIO_DIR` is read by docker-compose, not by the application.
 
-Exactly two variables decide whether the AI surface works:
+For a stage on Gemini, two variables decide whether the AI surface works:
 `GEMINI_API_KEY` (unset → `/api/ai/question` and `/api/ai/transcribe` answer
 `502`) and `AI_CLIENT_HMAC_KEY` (unset → `503`, the per-client limiter fails
-closed rather than dropping the limit). `AI_SCRIPTURE_REWRITE_API_KEY` is
-optional and affects the rewrite stage only (see below). The limiters are
-process-local, so production uses a single API worker.
+closed rather than dropping the limit). A stage on `openai_compat` needs its
+endpoint and model instead, and start-up has already refused an incomplete
+one. `AI_SCRIPTURE_REWRITE_API_KEY` is optional and affects the rewrite stage
+only (see below). The limiters are process-local, so production uses a single
+API worker.
+
+### AI providers per stage (ClickUp 86cbegg2f, 2026-09-05)
+
+Each chat stage names its transport, so moving one to another model is an
+`.env` edit plus a benchmark — see
+`architect/adr/0009-provider-independent-llm-client.md` and
+`app/llm_client.py`.
+
+| Variable | Values | Stage |
+| --- | --- | --- |
+| `AI_QUESTION_PROVIDER` | `gemini`, `openai_compat` | `POST /api/ai/question` |
+| `AI_SCRIPTURE_REWRITE_PROVIDER` | `gemini`, `openai_compat` | retrieval rewrite (ADR 0004) |
+| `AI_SCRIPTURE_RERANK_PROVIDER` | `gemini`, `openai_compat` | grounded rerank (ADR 0005) |
+| `AI_OPENAI_COMPAT_ENDPOINT` | base URL, e.g. `https://host:8443/v1` | shared by every `openai_compat` stage |
+| `AI_OPENAI_COMPAT_API_KEY` | key; **may be empty** = send no `Authorization` header | same |
+| `AI_QUESTION_ENDPOINT` / `AI_QUESTION_API_KEY` | optional overrides | that stage alone |
+| `AI_SCRIPTURE_REWRITE_ENDPOINT` / `AI_SCRIPTURE_REWRITE_API_KEY` | optional overrides | that stage alone (the key is ADR 0004's paid-key split, generalised) |
+| `AI_SCRIPTURE_RERANK_ENDPOINT` / `AI_SCRIPTURE_RERANK_API_KEY` | optional overrides | that stage alone |
+
+- **All three provider variables are required together** once the AI surface
+  is configured at all. An `.env` with only `GEMINI_API_KEY` (every
+  deployment before this change) does **not** start and names them: which
+  provider answers a request is exactly what ADR 0008 forbids defaulting in
+  code, and the alternative — starting with AI silently switched off — is the
+  same information without the error message.
+- An endpoint carrying credentials or a query string is refused: a key
+  belongs in `AI_*_API_KEY`, never in a URL that httpx logs.
+- **Transcription is Gemini-only** until it moves to a local speech model
+  (step 6): there is no `AI_TRANSCRIBE_PROVIDER`, and setting one aborts the
+  start. A deployment whose three chat stages run on `openai_compat` still
+  needs `GEMINI_API_KEY` + `AI_TRANSCRIBE_MODEL` for that one endpoint;
+  without them `/api/ai/transcribe` answers its documented `502` and nothing
+  else is affected.
+- Embeddings are untouched by this switch (step 3, ClickUp 86cbegg2r):
+  `EMBEDDING_MODEL` names the stored index, not only a call.
+- `AI_SCRIPTURE_PROVIDER_TIMEOUT_SECONDS` (8) caps ONE call inside a
+  selection and `AI_QUESTION_TIMEOUT_SECONDS` (20) the question endpoint's
+  single call. Both defaults are the values those stages always ran with;
+  they became variables because `provider_timeout` takes the *minimum* of the
+  per-call ceiling and the remaining request budget, so a slower self-hosted
+  model cannot be given more time by raising `AI_SCRIPTURE_TIMEOUT_SECONDS`
+  alone.
 
 RAG / scripture selection:
 

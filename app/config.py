@@ -1,7 +1,9 @@
 import os
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass
 from ipaddress import IPv4Network, IPv6Network, ip_address, ip_network
+from urllib.parse import urlsplit
 
 
 class ConfigError(RuntimeError):
@@ -31,7 +33,11 @@ class ConfigError(RuntimeError):
 # whole surface is "not configured" — those endpoints already answer with
 # their own error and the rest of the API must keep working, so demanding
 # their model names would turn a supported deployment (Bible API without AI)
-# into a startup failure.
+# into a startup failure. Since ADR 0009 there is one more way for a stage to
+# be "configured" than a Gemini key: a chat stage whose provider is
+# `openai_compat` must name its model whatever `GEMINI_API_KEY` says, because
+# naming that provider IS the statement that the stage runs (see the provider
+# section below).
 #
 # EMBEDDING_MODEL / EMBEDDING_DIMENSIONS are the exception and are required
 # ALWAYS, key or no key: they do not name a provider call, they name the
@@ -68,13 +74,129 @@ ALWAYS_REQUIRED_VARS = (
 # silence this rule forbids. Both the local and the production .env set a real
 # password today.
 PRESENCE_REQUIRED_VARS = ("DB_PASSWORD",)
-# Models of the live Gemini calls: required once AI is configured.
+# Models of the live provider calls: required once AI is configured.
 AI_REQUIRED_VARS = (
     "AI_QUESTION_MODEL",
     "AI_TRANSCRIBE_MODEL",
     "AI_SCRIPTURE_REWRITE_MODEL",
     "AI_SCRIPTURE_RERANK_MODEL",
 )
+
+# ---------------------------------------------------------------------------
+# Which provider serves which stage (ClickUp 86cbegg2f, ADR 0009)
+#
+# Gemini used to be wired into four modules. The three CHAT-shaped stages now
+# name their transport in the environment, so moving a stage to a local model
+# is an `.env` edit plus a benchmark rather than a code change:
+#
+#   AI_QUESTION_PROVIDER           POST /api/ai/question
+#   AI_SCRIPTURE_REWRITE_PROVIDER  the retrieval rewrite stage (ADR 0004)
+#   AI_SCRIPTURE_RERANK_PROVIDER   the grounded rerank stage (ADR 0005)
+#
+# each `gemini` or `openai_compat`. The MODEL variable of a stage is the same
+# one as before — the provider decides how it is interpreted (a Gemini model
+# id, or the `model` field of a chat-completions request).
+#
+# Two stages are deliberately NOT in this table:
+#
+# * transcription (`AI_TRANSCRIBE_MODEL`) is Gemini-only and stays that way
+#   until step 6 replaces it with Whisper (ClickUp 86cbe4mtq). There is no
+#   `AI_TRANSCRIBE_PROVIDER`; setting one is a startup error rather than a
+#   variable that quietly does nothing. Without `GEMINI_API_KEY` the endpoint
+#   answers its documented 502 — an explicit refusal, not a crash — even when
+#   every chat stage runs on another provider.
+# * embeddings (`EMBEDDING_MODEL`) are step 3 (bge-m3, ClickUp 86cbegg2r) and
+#   are untouched here: they name the stored index, not just a call.
+#
+# "AI is configured" is now: `GEMINI_API_KEY` is set OR a provider is named.
+# Once configured, all three provider variables must be named — an `.env`
+# that predates this change (a Gemini key and no providers) does NOT start,
+# and says which three variables it wants. That is the point: which provider
+# answers a request is exactly the class of decision ADR 0008 forbids
+# defaulting in code, and a transitional "assume gemini" default would have
+# been invisible in `.env` for as long as it lasted.
+#
+# `GEMINI_API_KEY` itself stays optional, as ADR 0008 promised: a stage on
+# `gemini` without a key is the supported "deploy without AI" state (502 /
+# safe pool), not a startup failure.
+# ---------------------------------------------------------------------------
+
+PROVIDER_GEMINI = "gemini"
+PROVIDER_OPENAI_COMPAT = "openai_compat"
+AI_PROVIDERS = (PROVIDER_GEMINI, PROVIDER_OPENAI_COMPAT)
+
+# Shared endpoint/key of every openai_compat stage; a stage may override both.
+OPENAI_COMPAT_ENDPOINT_VAR = "AI_OPENAI_COMPAT_ENDPOINT"
+OPENAI_COMPAT_API_KEY_VAR = "AI_OPENAI_COMPAT_API_KEY"
+# Gemini-only, and named here so the error can say so.
+TRANSCRIBE_PROVIDER_VAR = "AI_TRANSCRIBE_PROVIDER"
+
+
+@dataclass(frozen=True)
+class StageVars:
+    """The four environment variables that configure one chat stage."""
+
+    stage: str
+    provider_var: str
+    model_var: str
+    endpoint_var: str
+    api_key_var: str
+
+
+QUESTION_STAGE_VARS = StageVars(
+    "question",
+    "AI_QUESTION_PROVIDER",
+    "AI_QUESTION_MODEL",
+    "AI_QUESTION_ENDPOINT",
+    "AI_QUESTION_API_KEY",
+)
+SCRIPTURE_REWRITE_STAGE_VARS = StageVars(
+    "scripture_rewrite",
+    "AI_SCRIPTURE_REWRITE_PROVIDER",
+    "AI_SCRIPTURE_REWRITE_MODEL",
+    "AI_SCRIPTURE_REWRITE_ENDPOINT",
+    # Pre-dates the provider switch: it was the paid-key override of the
+    # rewrite stage (ADR 0004/0008). Its meaning is unchanged and merely
+    # generalised — "the key THIS stage bills", whoever serves it.
+    "AI_SCRIPTURE_REWRITE_API_KEY",
+)
+SCRIPTURE_RERANK_STAGE_VARS = StageVars(
+    "scripture_rerank",
+    "AI_SCRIPTURE_RERANK_PROVIDER",
+    "AI_SCRIPTURE_RERANK_MODEL",
+    "AI_SCRIPTURE_RERANK_ENDPOINT",
+    "AI_SCRIPTURE_RERANK_API_KEY",
+)
+AI_STAGE_VARS = (
+    QUESTION_STAGE_VARS,
+    SCRIPTURE_REWRITE_STAGE_VARS,
+    SCRIPTURE_RERANK_STAGE_VARS,
+)
+AI_PROVIDER_VARS = tuple(stage.provider_var for stage in AI_STAGE_VARS)
+
+
+@dataclass(frozen=True)
+class StageProvider:
+    """The resolved transport of one chat stage.
+
+    `provider` is "" only when nothing named one (AI not configured, or a
+    configuration `_validate` has already refused). `endpoint` is empty for
+    Gemini, whose URL is a constant of the stage module.
+    """
+
+    stage: str
+    provider: str
+    model: str
+    endpoint: str
+    api_key: str
+
+    @property
+    def is_gemini(self) -> bool:
+        return self.provider == PROVIDER_GEMINI
+
+    @property
+    def is_openai_compat(self) -> bool:
+        return self.provider == PROVIDER_OPENAI_COMPAT
 
 
 def parse_int(name: str, raw: str | None, default: int) -> int:
@@ -177,30 +299,159 @@ def parse_trusted_proxy_hosts(name: str, raw: str | None) -> tuple[str, ...]:
     return tuple(hosts)
 
 
+def ai_configured(env: Mapping[str, str]) -> bool:
+    """Is any AI transport declared in this environment?
+
+    Either the historical switch (`GEMINI_API_KEY`) or a named provider. A
+    deployment that says neither is "Bible API without AI": the AI endpoints
+    answer their documented errors and nothing about them is required.
+    """
+    if env.get("GEMINI_API_KEY", "").strip():
+        return True
+    return any(env.get(name, "").strip() for name in AI_PROVIDER_VARS)
+
+
+def resolve_stage(env: Mapping[str, str], stage: StageVars) -> StageProvider:
+    """The transport of one chat stage, as configured.
+
+    Key resolution keeps the shape `AI_SCRIPTURE_REWRITE_API_KEY` has had
+    since ADR 0004 and generalises it to every stage and both providers: the
+    stage's own key when it is set, otherwise the provider's shared key
+    (`GEMINI_API_KEY` / `AI_OPENAI_COMPAT_API_KEY`). Blank counts as unset on
+    the stage side, so `AI_QUESTION_API_KEY=` is the same statement as
+    omitting it. On the shared openai_compat side a blank value is NOT unset:
+    it is the explicit "this endpoint needs no Authorization header", which is
+    why the presence of that variable is what `missing_required_vars` checks.
+
+    An unset provider resolves like Gemini for the key, so that a deployment
+    predating this change keeps `REWRITE_API_KEY` identical while `_validate`
+    tells its operator to name the providers.
+    """
+    provider = env.get(stage.provider_var, "").strip()
+    model = env.get(stage.model_var, "").strip()
+    own_key = env.get(stage.api_key_var, "").strip()
+    if provider == PROVIDER_OPENAI_COMPAT:
+        endpoint = (
+            env.get(stage.endpoint_var, "").strip()
+            or env.get(OPENAI_COMPAT_ENDPOINT_VAR, "").strip()
+        )
+        api_key = own_key or env.get(OPENAI_COMPAT_API_KEY_VAR, "").strip()
+        return StageProvider(stage.stage, provider, model, endpoint, api_key)
+    api_key = own_key or env.get("GEMINI_API_KEY", "").strip()
+    return StageProvider(stage.stage, provider, model, "", api_key)
+
+
+def stage_model_required(env: Mapping[str, str], stage: StageVars) -> bool:
+    """Must this stage's model be named?
+
+    With `GEMINI_API_KEY` set: yes, exactly as before this change. On
+    openai_compat: yes regardless of any Gemini key — naming that provider IS
+    the statement that the stage runs, and there is no key to gate it on.
+    """
+    if env.get("GEMINI_API_KEY", "").strip():
+        return True
+    return env.get(stage.provider_var, "").strip() == PROVIDER_OPENAI_COMPAT
+
+
+def validate_endpoint(name: str, value: str) -> str | None:
+    """Problem with an openai_compat endpoint, or None.
+
+    Never echoes the value: an endpoint is exactly the place an operator may
+    have pasted a key into, and this string is printed by the startup error.
+    Credentials and query strings are refused for the same reason — the key
+    belongs in `AI_*_API_KEY`, where nothing logs it.
+    """
+    parts = urlsplit(value)
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        return (
+            f"{name}: expected an absolute http(s) URL of the chat API "
+            f"(for example https://host:8443/v1)"
+        )
+    if parts.username or parts.password:
+        return (
+            f"{name}: must not carry credentials — put the key in the "
+            f"stage's API key variable, never in the URL"
+        )
+    if parts.query:
+        return (
+            f"{name}: must not carry a query string — a key in a URL leaks "
+            f"into logs and error messages"
+        )
+    return None
+
+
+def _openai_compat_missing(
+    env: Mapping[str, str], stage: StageVars
+) -> list[str]:
+    """Endpoint/key variables an openai_compat stage still needs."""
+    missing = []
+    if not (
+        env.get(stage.endpoint_var, "").strip()
+        or env.get(OPENAI_COMPAT_ENDPOINT_VAR, "").strip()
+    ):
+        missing.append(OPENAI_COMPAT_ENDPOINT_VAR)
+    if not (
+        env.get(stage.api_key_var, "").strip()
+        or OPENAI_COMPAT_API_KEY_VAR in env
+    ):
+        missing.append(OPENAI_COMPAT_API_KEY_VAR)
+    return missing
+
+
 def missing_required_vars(env: Mapping[str, str]) -> list[str]:
     """Names of variables that must be set for this environment, but are not.
 
     Pure function over an environment mapping, so it is testable without
     reimporting the module. `ALWAYS_REQUIRED_VARS` must be non-blank,
-    `PRESENCE_REQUIRED_VARS` must merely exist, and `AI_REQUIRED_VARS` are
-    added when `GEMINI_API_KEY` is set (see the limitation note above).
+    `PRESENCE_REQUIRED_VARS` must merely exist, and — once the AI surface is
+    configured at all (`ai_configured`) — the three provider variables, the
+    model of every stage that runs, and the endpoint/key of every stage on
+    openai_compat. `AI_TRANSCRIBE_MODEL` keeps its old gate exactly: it is
+    the Gemini-only stage, so it is required when, and only when, there is a
+    Gemini key.
     """
     missing = [
         name for name in ALWAYS_REQUIRED_VARS if not env.get(name, "").strip()
     ]
     missing.extend(name for name in PRESENCE_REQUIRED_VARS if name not in env)
+    if not ai_configured(env):
+        return missing
+    missing.extend(
+        name for name in AI_PROVIDER_VARS if not env.get(name, "").strip()
+    )
+    required_models = {
+        stage.model_var
+        for stage in AI_STAGE_VARS
+        if stage_model_required(env, stage)
+    }
     if env.get("GEMINI_API_KEY", "").strip():
-        missing.extend(
-            name for name in AI_REQUIRED_VARS if not env.get(name, "").strip()
-        )
+        required_models.add("AI_TRANSCRIBE_MODEL")
+    # AI_REQUIRED_VARS drives the ORDER so the aggregated error keeps reading
+    # the way it did before the provider switch.
+    missing.extend(
+        name
+        for name in AI_REQUIRED_VARS
+        if name in required_models and not env.get(name, "").strip()
+    )
+    for stage in AI_STAGE_VARS:
+        if env.get(stage.provider_var, "").strip() != PROVIDER_OPENAI_COMPAT:
+            continue
+        for name in _openai_compat_missing(env, stage):
+            if name not in missing:
+                missing.append(name)
     return missing
 
 
 def resolve_rewrite_api_key(env: Mapping[str, str]) -> str:
-    """The key the retrieval *rewrite* stage calls Gemini with.
+    """The key the retrieval *rewrite* stage calls its provider with.
 
-    `AI_SCRIPTURE_REWRITE_API_KEY` when it is set and non-blank, otherwise
-    `GEMINI_API_KEY`. Blank counts as unset, so `AI_SCRIPTURE_REWRITE_API_KEY=`
+    Thin wrapper over `resolve_stage`, kept because the rule below is what
+    ADR 0004/0008 documented and what every reader of this module looks for.
+
+    `AI_SCRIPTURE_REWRITE_API_KEY` when it is set and non-blank, otherwise the
+    shared key of the stage's provider (`GEMINI_API_KEY`, or
+    `AI_OPENAI_COMPAT_API_KEY` when the stage runs on openai_compat). Blank
+    counts as unset on the stage side, so `AI_SCRIPTURE_REWRITE_API_KEY=`
     is the same statement as omitting it: "this deployment runs on one key".
     Both sides are stripped: a whitespace-only value is "unset" for the
     validation below, and returning it raw would put whitespace into the
@@ -221,10 +472,7 @@ def resolve_rewrite_api_key(env: Mapping[str, str]) -> str:
     empty pays for one stage of a pipeline whose remaining stages
     (embeddings, rerank) cannot run at all.
     """
-    dedicated = env.get("AI_SCRIPTURE_REWRITE_API_KEY", "").strip()
-    if dedicated:
-        return dedicated
-    return env.get("GEMINI_API_KEY", "").strip()
+    return resolve_stage(env, SCRIPTURE_REWRITE_STAGE_VARS).api_key
 
 
 def invalid_required_values(env: Mapping[str, str]) -> list[str]:
@@ -246,14 +494,41 @@ def invalid_required_values(env: Mapping[str, str]) -> list[str]:
             problems.append(
                 f"EMBEDDING_DIMENSIONS: expected a positive integer, got {dims}"
             )
-    if (
-        env.get("AI_SCRIPTURE_REWRITE_API_KEY", "").strip()
-        and not env.get("GEMINI_API_KEY", "").strip()
-    ):
+    for stage in AI_STAGE_VARS:
+        provider = env.get(stage.provider_var, "").strip()
+        if provider and provider not in AI_PROVIDERS:
+            problems.append(
+                f"{stage.provider_var}: unknown provider {provider!r}, "
+                f"expected one of {', '.join(AI_PROVIDERS)}"
+            )
+        # A stage key that only the Gemini path could spend, on a deployment
+        # that has no Gemini key: the 2026-08-29 asymmetry, generalised from
+        # the rewrite stage to all three. On openai_compat the stage key is
+        # the whole story and needs no companion.
+        if (
+            provider in ("", PROVIDER_GEMINI)
+            and env.get(stage.api_key_var, "").strip()
+            and not env.get("GEMINI_API_KEY", "").strip()
+        ):
+            problems.append(
+                f"{stage.api_key_var}: set while GEMINI_API_KEY is empty — "
+                f"the key pays for one stage of a pipeline whose other "
+                f"stages (embeddings, and every stage on gemini) have no key "
+                f"at all"
+            )
+        if provider != PROVIDER_OPENAI_COMPAT:
+            continue
+        for name in (stage.endpoint_var, OPENAI_COMPAT_ENDPOINT_VAR):
+            value = env.get(name, "").strip()
+            if value:
+                problem = validate_endpoint(name, value)
+                if problem and problem not in problems:
+                    problems.append(problem)
+    if env.get(TRANSCRIBE_PROVIDER_VAR, "").strip():
         problems.append(
-            "AI_SCRIPTURE_REWRITE_API_KEY: set while GEMINI_API_KEY is empty — "
-            "the rewrite key pays for one stage of a pipeline whose other "
-            "stages (embeddings, rerank) have no key at all"
+            f"{TRANSCRIBE_PROVIDER_VAR}: transcription is Gemini-only until "
+            f"it moves to a local speech model — remove the variable "
+            f"(AI_TRANSCRIBE_MODEL plus GEMINI_API_KEY configure it)"
         )
     return problems
 
@@ -278,17 +553,50 @@ def _get_float(name: str, default: float) -> float:
         return default
 
 
+def _required_reason(env: Mapping[str, str], name: str) -> str:
+    """"<NAME> is required" plus the rule that made it required."""
+    if name in AI_PROVIDER_VARS:
+        return (
+            f"{name} is required when the AI surface is configured "
+            f"(GEMINI_API_KEY is set or a provider is named): one of "
+            f"{', '.join(AI_PROVIDERS)}"
+        )
+    if name == OPENAI_COMPAT_ENDPOINT_VAR:
+        return (
+            f"{name} is required when a stage runs on "
+            f"{PROVIDER_OPENAI_COMPAT} (or name the endpoint of that stage "
+            f"alone in AI_<STAGE>_ENDPOINT)"
+        )
+    if name == OPENAI_COMPAT_API_KEY_VAR:
+        return (
+            f"{name} must be present when a stage runs on "
+            f"{PROVIDER_OPENAI_COMPAT} — it may be empty, which states that "
+            f"the endpoint needs no Authorization header (or set "
+            f"AI_<STAGE>_API_KEY for that stage alone)"
+        )
+    if name in AI_REQUIRED_VARS:
+        on_openai_compat = any(
+            stage.model_var == name
+            and env.get(stage.provider_var, "").strip() == PROVIDER_OPENAI_COMPAT
+            for stage in AI_STAGE_VARS
+        )
+        if on_openai_compat and not env.get("GEMINI_API_KEY", "").strip():
+            return (
+                f"{name} is required when its stage runs on "
+                f"{PROVIDER_OPENAI_COMPAT} (no default: the model must be "
+                f"named explicitly)"
+            )
+        return (
+            f"{name} is required when GEMINI_API_KEY is set (no default: the "
+            f"model must be named explicitly)"
+        )
+    return f"{name} is required"
+
+
 def _validate(env: Mapping[str, str], problems: list[str]) -> None:
     """Raise one ConfigError listing every problem, or return silently."""
     reasons = [
-        f"{name} is required"
-        + (
-            " when GEMINI_API_KEY is set (no default: the model must be named"
-            " explicitly)"
-            if name in AI_REQUIRED_VARS
-            else ""
-        )
-        for name in missing_required_vars(env)
+        _required_reason(env, name) for name in missing_required_vars(env)
     ]
     reasons.extend(invalid_required_values(env))
     reasons.extend(problems)
@@ -358,6 +666,13 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 # serves: POST /api/ai/question and POST /api/ai/transcribe.
 AI_QUESTION_MODEL = os.getenv("AI_QUESTION_MODEL", "")
 AI_TRANSCRIBE_MODEL = os.getenv("AI_TRANSCRIBE_MODEL", "")
+# Ceiling of the ONE provider call `/api/ai/question` makes. 20 s is the
+# value the endpoint ran with while it was Gemini-only, kept as the default;
+# it is an operational knob because a self-hosted model generating the same
+# answer is slower than a hosted one, and the stage has no other budget.
+AI_QUESTION_TIMEOUT_SECONDS = max(
+    1.0, _get_float("AI_QUESTION_TIMEOUT_SECONDS", 20.0)
+)
 AI_REQUESTS_PER_MINUTE = max(1, _get_int("AI_REQUESTS_PER_MINUTE", 10))
 AI_REQUESTS_PER_CLIENT_PER_MINUTE = min(
     AI_REQUESTS_PER_MINUTE,
@@ -397,6 +712,16 @@ REWRITE_API_KEY = resolve_rewrite_api_key(os.environ)
 # AI_SCRIPTURE_REWRITE_MODEL so each stage can be tuned separately.
 AI_SCRIPTURE_RERANK_MODEL = os.getenv("AI_SCRIPTURE_RERANK_MODEL", "")
 
+# The resolved transport of each chat stage (ADR 0009). One object per stage
+# instead of a variable per field, so a stage is passed around whole and no
+# caller can pair a model with another stage's endpoint. `_validate` below has
+# already refused an incomplete one, so these are usable as they stand.
+QUESTION_PROVIDER = resolve_stage(os.environ, QUESTION_STAGE_VARS)
+SCRIPTURE_REWRITE_PROVIDER = resolve_stage(
+    os.environ, SCRIPTURE_REWRITE_STAGE_VARS
+)
+SCRIPTURE_RERANK_PROVIDER = resolve_stage(os.environ, SCRIPTURE_RERANK_STAGE_VARS)
+
 # Public scripture-selection endpoint (see
 # architect/adr/0006-scripture-select-api.md). Its own rate-limit budget:
 # one selection costs ~8 Gemini calls (1 rewrite + 6 embeddings + 1
@@ -414,6 +739,16 @@ AI_SCRIPTURE_REQUESTS_PER_CLIENT_PER_MINUTE = min(
 # for a slow provider before the endpoint degrades to a verified fallback.
 AI_SCRIPTURE_TIMEOUT_SECONDS = max(
     1.0, _get_float("AI_SCRIPTURE_TIMEOUT_SECONDS", 15.0)
+)
+# Ceiling of ONE provider call inside that budget (rewrite, one embedding,
+# rerank). 8 s is the value measured against Gemini (ADR 0006) and stays the
+# default; it became a knob with ADR 0009 because a stage moved to a local
+# model needs a different one, and a per-call ceiling hard-wired in code
+# cannot be raised by raising the total budget — `provider_timeout` takes the
+# MINIMUM of the two. Operational: the default is the reviewed operating
+# point, a malformed value is still a startup error.
+AI_SCRIPTURE_PROVIDER_TIMEOUT_SECONDS = max(
+    1.0, _get_float("AI_SCRIPTURE_PROVIDER_TIMEOUT_SECONDS", 8.0)
 )
 # TTL of the process-local corpus cache (vector index + BM25 index). The
 # cached data is prayer-independent; nothing derived from a request is

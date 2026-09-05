@@ -27,7 +27,12 @@ import time
 
 import httpx
 
-from config import AI_SCRIPTURE_REWRITE_MODEL, REWRITE_API_KEY
+from config import (
+    AI_SCRIPTURE_REWRITE_MODEL,
+    REWRITE_API_KEY,
+    SCRIPTURE_REWRITE_PROVIDER,
+    StageProvider,
+)
 from deadline import Deadline
 from gemini_retry import (
     RETRYABLE_STATUS,
@@ -35,6 +40,7 @@ from gemini_retry import (
     rate_limit_of,
     retry_pause,
 )
+from llm_client import ChatClient, LLMError
 from prompt_safety import neutralize_prompt_markers
 
 logger = logging.getLogger(__name__)
@@ -164,15 +170,22 @@ def parse_rewrite_response(text: str, variants: int = REWRITE_VARIANTS) -> list[
 
 
 class GeminiQueryRewriter:
-    """Synchronous Gemini wrapper producing rewrite variants for a query."""
+    """Synchronous Gemini wrapper producing rewrite variants for a query.
+
+    One of two transports of the same stage since ADR 0009; the prompt
+    (`build_rewrite_instruction` / `build_rewrite_user_content`) and the
+    parser (`parse_rewrite_response`) are shared with the other one, so a
+    provider switch cannot change what is asked or what is accepted. Pick the
+    configured one with `build_query_rewriter()`.
+    """
 
     def __init__(
         self,
         # Resolved at import: AI_SCRIPTURE_REWRITE_API_KEY when the deployment
         # bills this stage separately, GEMINI_API_KEY otherwise (config.
-        # resolve_rewrite_api_key). Every production creation point —
-        # scripture_select._gemini_clients, retrieval_cli — takes this
-        # default, so the key is chosen in exactly one place.
+        # resolve_rewrite_api_key). Production creation points go through
+        # `build_query_rewriter`, which passes the same value explicitly from
+        # the stage configuration, so the key is chosen in exactly one place.
         api_key: str = REWRITE_API_KEY,
         model: str = AI_SCRIPTURE_REWRITE_MODEL,
         http_client: httpx.Client | None = None,
@@ -313,3 +326,113 @@ class GeminiQueryRewriter:
         except (KeyError, IndexError, TypeError) as exc:
             raise QueryRewriteError("rewrite response has no candidates") from exc
         return parse_rewrite_response(text, self.variants)
+
+
+class OpenAICompatQueryRewriter:
+    """The same rewrite stage over an OpenAI-compatible chat endpoint.
+
+    A duck of `GeminiQueryRewriter`: same method, same arguments, same
+    exception type, so `ScriptureRetriever` cannot tell them apart. The
+    instruction, the user content and the parser are the production
+    functions above — only the transport differs (`llm_client.ChatClient`,
+    which carries the shared retry/budget policy of `gemini_retry`).
+
+    The model name is NOT checked against `_MODEL_PATTERN` here: on Gemini it
+    is interpolated into the request URL and the pattern keeps it from
+    escaping the path, while here it travels as the `model` field of a JSON
+    body, where slashes and colons are ordinary characters of real model ids
+    (`Qwen/Qwen3-30B-A3B`).
+    """
+
+    def __init__(
+        self,
+        stage: StageProvider = SCRIPTURE_REWRITE_PROVIDER,
+        http_client: httpx.Client | None = None,
+        variants: int = REWRITE_VARIANTS,
+        timeout: float = 20.0,
+        attempts: int = 3,
+    ):
+        self.stage = stage
+        self.model = stage.model
+        self.variants = variants
+        self.timeout = timeout
+        self.attempts = max(1, attempts)
+        self._chat = ChatClient(
+            stage.endpoint,
+            stage.api_key,
+            stage.model,
+            http_client=http_client,
+            timeout=timeout,
+            attempts=self.attempts,
+        )
+
+    def close(self) -> None:
+        self._chat.close()
+
+    def __enter__(self) -> "OpenAICompatQueryRewriter":
+        return self
+
+    def __exit__(self, *exc_info) -> None:
+        self.close()
+
+    def rewrite(
+        self,
+        language: str,
+        topic: str,
+        user_replies: list[str],
+        deadline: Deadline | None = None,
+    ) -> list[str]:
+        """Rewrite variants for the prayer context (see GeminiQueryRewriter).
+
+        Same contract, including the privacy one: `QueryRewriteError` carries
+        a failure category only — never the prayer context, the answer or the
+        key.
+        """
+        if language not in _LANGUAGES:
+            raise QueryRewriteError(f"unsupported language: {language}")
+        instruction = build_rewrite_instruction(language, self.variants)
+        user_content = build_rewrite_user_content(topic, user_replies)
+        try:
+            text = self._chat.complete(
+                instruction,
+                user_content,
+                deadline=deadline,
+                json_object=True,
+                temperature=0.0,
+            )
+        except LLMError as exc:
+            raise QueryRewriteError(f"rewrite failed: {exc}") from None
+        return parse_rewrite_response(text, self.variants)
+
+
+def build_query_rewriter(
+    stage: StageProvider = SCRIPTURE_REWRITE_PROVIDER,
+    http_client: httpx.Client | None = None,
+    variants: int = REWRITE_VARIANTS,
+    timeout: float = 20.0,
+    attempts: int = 3,
+):
+    """The rewriter this deployment configured (ADR 0009).
+
+    The one place that maps `AI_SCRIPTURE_REWRITE_PROVIDER` onto a class, so
+    every caller — the endpoint, the CLI — gets the same answer. An unknown
+    provider cannot reach here: `config._validate` refuses it at start-up,
+    and an unset one means "AI is not configured", where the Gemini client's
+    own "not configured" error is the documented behaviour.
+    """
+    if stage.is_openai_compat:
+        return OpenAICompatQueryRewriter(
+            stage,
+            http_client=http_client,
+            variants=variants,
+            timeout=timeout,
+            attempts=attempts,
+        )
+    return GeminiQueryRewriter(
+        api_key=stage.api_key,
+        model=stage.model,
+        http_client=http_client,
+        variants=variants,
+        timeout=timeout,
+        attempts=attempts,
+    )

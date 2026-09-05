@@ -41,7 +41,12 @@ from dataclasses import dataclass
 
 import httpx
 
-from config import GEMINI_API_KEY, AI_SCRIPTURE_RERANK_MODEL
+from config import (
+    GEMINI_API_KEY,
+    AI_SCRIPTURE_RERANK_MODEL,
+    SCRIPTURE_RERANK_PROVIDER,
+    StageProvider,
+)
 from deadline import Deadline
 from gemini_retry import (
     RETRYABLE_STATUS,
@@ -49,6 +54,7 @@ from gemini_retry import (
     rate_limit_of,
     retry_pause,
 )
+from llm_client import ChatClient, LLMError
 from prompt_safety import neutralize_prompt_markers
 from query_rewrite import GEMINI_GENERATE_URL
 
@@ -322,7 +328,13 @@ def parse_rerank_response(text: str, candidate_count: int) -> RerankChoice:
 
 
 class GeminiPassageReranker:
-    """Synchronous Gemini wrapper choosing one candidate index."""
+    """Synchronous Gemini wrapper choosing one candidate index.
+
+    One of two transports of the same stage since ADR 0009; the instruction,
+    the user content and `parse_rerank_response` are shared with the other
+    one, so a provider switch can move neither the prompt version nor the
+    validation. Pick the configured one with `build_passage_reranker()`.
+    """
 
     def __init__(
         self,
@@ -474,3 +486,104 @@ class GeminiPassageReranker:
         except (KeyError, IndexError, TypeError) as exc:
             raise PassageRerankError("rerank response has no candidates") from exc
         return parse_rerank_response(text, count)
+
+
+class OpenAICompatPassageReranker:
+    """The same rerank stage over an OpenAI-compatible chat endpoint.
+
+    A duck of `GeminiPassageReranker`: same method, same arguments, same
+    exception type. Instruction, user content and validation are the
+    production functions above — this class only carries the answer.
+
+    The one contract that cannot cross: Gemini's `responseSchema`, which the
+    chat-completions protocol has no counterpart for. `response_format:
+    json_object` asks for a JSON object and `parse_rerank_response` enforces
+    the rest — the half that was ever load-bearing, since the server never
+    trusted the schema to bound the answer anyway (ADR 0005: "the server
+    never trusts it"). An out-of-range or malformed answer is refused exactly
+    as it is on Gemini, and the caller falls back to retrieval's top-1.
+    """
+
+    def __init__(
+        self,
+        stage: StageProvider = SCRIPTURE_RERANK_PROVIDER,
+        http_client: httpx.Client | None = None,
+        timeout: float = 20.0,
+        attempts: int = 3,
+    ):
+        self.stage = stage
+        self.model = stage.model
+        self.timeout = timeout
+        self.attempts = max(1, attempts)
+        self._chat = ChatClient(
+            stage.endpoint,
+            stage.api_key,
+            stage.model,
+            http_client=http_client,
+            timeout=timeout,
+            attempts=self.attempts,
+        )
+
+    def close(self) -> None:
+        self._chat.close()
+
+    def __enter__(self) -> "OpenAICompatPassageReranker":
+        return self
+
+    def __exit__(self, *exc_info) -> None:
+        self.close()
+
+    def choose(
+        self,
+        topic: str,
+        user_replies: list[str],
+        candidate_texts: list[str],
+        deadline: Deadline | None = None,
+        key_verses: bool = True,
+    ) -> RerankChoice:
+        """Pick the best candidate index (see GeminiPassageReranker.choose).
+
+        Same contract, including the privacy one: `PassageRerankError`
+        carries a failure category only.
+        """
+        if not candidate_texts:
+            raise PassageRerankError("no candidates to rerank")
+        count = len(candidate_texts)
+        instruction = build_rerank_instruction(count, key_verses)
+        user_content = build_rerank_user_content(
+            topic, user_replies, candidate_texts
+        )
+        try:
+            text = self._chat.complete(
+                instruction,
+                user_content,
+                deadline=deadline,
+                json_object=True,
+                temperature=0.0,
+            )
+        except LLMError as exc:
+            raise PassageRerankError(f"rerank failed: {exc}") from None
+        return parse_rerank_response(text, count)
+
+
+def build_passage_reranker(
+    stage: StageProvider = SCRIPTURE_RERANK_PROVIDER,
+    http_client: httpx.Client | None = None,
+    timeout: float = 20.0,
+    attempts: int = 3,
+):
+    """The reranker this deployment configured (ADR 0009)."""
+    if stage.is_openai_compat:
+        return OpenAICompatPassageReranker(
+            stage,
+            http_client=http_client,
+            timeout=timeout,
+            attempts=attempts,
+        )
+    return GeminiPassageReranker(
+        api_key=stage.api_key,
+        model=stage.model,
+        http_client=http_client,
+        timeout=timeout,
+        attempts=attempts,
+    )

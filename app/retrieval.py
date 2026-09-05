@@ -509,10 +509,13 @@ class ScriptureRetriever:
 
     index           - vector_index.InMemoryVectorIndex (search())
     embedder        - embeddings.GeminiEmbeddingClient (embed_query())
-    rewriter        - query_rewrite.GeminiQueryRewriter (rewrite())
-    reranker        - optional passage_rerank.GeminiPassageReranker
-                      (choose()); without it select_final() degrades to the
-                      retrieval top-1
+    rewriter        - anything with rewrite(); production builds it with
+                      query_rewrite.build_query_rewriter, so it is the Gemini
+                      or the OpenAI-compatible transport of that stage
+                      (ADR 0009) and this class cannot tell them apart
+    reranker        - optional, anything with choose()
+                      (passage_rerank.build_passage_reranker); without it
+                      select_final() degrades to the retrieval top-1
     load_passages   - callable(translation_code: int, canonical_ids: list[str])
                       -> dict[canonical_id, PassageText-shaped dict]; the
                       production implementation reads translation_chunks.

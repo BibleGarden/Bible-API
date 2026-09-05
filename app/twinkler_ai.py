@@ -12,10 +12,13 @@ from client_ip import resolve_client_ip
 from config import (
     GEMINI_API_KEY,
     AI_QUESTION_MODEL,
+    AI_QUESTION_TIMEOUT_SECONDS,
     AI_TRANSCRIBE_MODEL,
     AI_REQUESTS_PER_CLIENT_PER_MINUTE,
     AI_REQUESTS_PER_MINUTE,
+    QUESTION_PROVIDER,
 )
+from llm_client import AsyncChatClient, LLMError
 from question_prompt import QUESTION_PROMPT
 from rate_limit import RateLimiter, RateLimitError
 from safety import SAFETY_REPLY_VERSION, check_input, check_reply, safety_reply
@@ -58,8 +61,15 @@ class ErrorResponse(BaseModel):
     detail: str = Field(description="Public error message")
 
 
-class GeminiError(RuntimeError):
-    pass
+class AIError(RuntimeError):
+    """One AI call of this module failed, whichever provider served it."""
+
+
+# The historical name, kept as an alias: it is the exception both handlers
+# catch and the one tests raise. Since ADR 0009 the question stage may run on
+# an OpenAI-compatible endpoint, so the *class* is provider-independent while
+# the name stays what every caller already imports.
+GeminiError = AIError
 
 
 def _reserve_rate_limit(client_key: str) -> None:
@@ -102,8 +112,39 @@ def _extract_text(data: Any) -> str:
     ).strip()
 
 
+async def _complete_openai_compat(user: str) -> str:
+    """The question stage on an OpenAI-compatible endpoint (ADR 0009).
+
+    Same prompt (`QUESTION_PROMPT`), same generation settings (temperature
+    0.7, 1024 output tokens) and the same public failure — `AIError`, which
+    the handler turns into `502 AI service unavailable` without provider
+    detail. `json_object` is deliberately off: this answer is prose for a
+    person, not a parsed contract.
+
+    One attempt, like the Gemini path: this endpoint has no request budget to
+    plan a retry ladder inside, and a second call would double the worst-case
+    latency a person waits with no message on screen.
+    """
+    client = AsyncChatClient(
+        QUESTION_PROVIDER.endpoint,
+        QUESTION_PROVIDER.api_key,
+        QUESTION_PROVIDER.model,
+        timeout=AI_QUESTION_TIMEOUT_SECONDS,
+        attempts=1,
+    )
+    try:
+        text = await client.complete(
+            QUESTION_PROMPT, user, json_object=False, temperature=0.7
+        )
+    except LLMError as error:
+        raise AIError(f"question failed: {error}") from None
+    if not text:
+        raise AIError("AI returned no text")
+    return text
+
+
 async def complete(user: str) -> str:
-    """Answer one user message, or raise GeminiError (the caller's 502).
+    """Answer one user message, or raise AIError (the caller's 502).
 
     "AI is not configured" is decided by exactly two variables since
     2026-08-30, and the prompt is no longer one of them:
@@ -118,9 +159,11 @@ async def complete(user: str) -> str:
     to carry — "prompt is not configured" and "prompt is too long" — are
     gone: neither can be true of a reviewed literal, and keeping them would
     have pretended a code change could arrive at runtime. What remains
-    configurable is exactly what the deployment supplies: the provider key
-    and the model name.
+    configurable is exactly what the deployment supplies: the provider (ADR
+    0009), the key and the model name.
     """
+    if QUESTION_PROVIDER.is_openai_compat:
+        return await _complete_openai_compat(user)
     if not GEMINI_API_KEY:
         raise GeminiError("GEMINI_API_KEY is not configured")
     if not MODEL_PATTERN.fullmatch(AI_QUESTION_MODEL):
@@ -140,7 +183,15 @@ async def complete(user: str) -> str:
     }
 
     try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
+        # The same knob the openai_compat branch honours
+        # (`AI_QUESTION_TIMEOUT_SECONDS`, default 20.0 = the literal this
+        # replaces): a variable documented as "the ceiling of the question
+        # endpoint's single call" must not be silently ignored on one of the
+        # two providers. Still a bare number here, i.e. per httpx PHASE, which
+        # is exactly what this call has always done — carving it the way
+        # `gemini_retry.provider_timeout` does would be a behaviour change to
+        # the Gemini path, and this endpoint has no request budget to carve.
+        async with httpx.AsyncClient(timeout=AI_QUESTION_TIMEOUT_SECONDS) as client:
             response = await client.post(
                 url,
                 headers={"x-goog-api-key": GEMINI_API_KEY},
@@ -181,6 +232,16 @@ def _transcription_prompt(locale: str | None) -> str:
 
 
 async def transcribe(audio: bytes, mime_type: str, locale: str | None) -> str:
+    """Transcribe one recording with Gemini, or raise AIError (a 502).
+
+    Deliberately Gemini-only, with no `AI_TRANSCRIBE_PROVIDER` to switch
+    (config refuses that variable): speech is the one stage the
+    OpenAI-compatible chat protocol does not cover, and it moves to a local
+    speech model in its own step. So a deployment whose three CHAT stages run
+    on another provider still needs `GEMINI_API_KEY` for this endpoint — and
+    without one it answers the same explicit 502 it always has, while
+    everything else keeps working.
+    """
     if not GEMINI_API_KEY:
         raise GeminiError("GEMINI_API_KEY is not configured")
     if not MODEL_PATTERN.fullmatch(AI_TRANSCRIBE_MODEL):
@@ -236,8 +297,8 @@ async def transcribe(audio: bytes, mime_type: str, locale: str | None) -> str:
     tags=["AI"],
     summary="Generate an AI companion response",
     description=(
-        "Sends the user message to the server-configured Gemini model with a "
-        "server-side system prompt. The Gemini API key is never exposed to "
+        "Sends the user message to the server-configured AI model with a "
+        "server-side system prompt. The provider API key is never exposed to "
         "the client. A message showing despair or self-harm is answered with "
         "a fixed supportive text in the same language and no model is called."
     ),
@@ -259,7 +320,7 @@ async def transcribe(audio: bytes, mime_type: str, locale: str | None) -> str:
         # deployment detail for no consumer benefit.
         502: {
             "model": ErrorResponse,
-            "description": "AI is not configured or the Gemini request failed",
+            "description": "AI is not configured or the provider request failed",
         },
         503: {"model": ErrorResponse, "description": "Rate limiter unavailable"},
     },

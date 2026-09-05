@@ -202,14 +202,43 @@ A pattern id names the rule, never the words that matched it, so the whole
 finding is safe to log. Prayer text is not logged here any more than anywhere
 else in this service.
 
-## Gemini contract
+## Provider contract
 
-The service calls
+Which transport answers `/api/ai/question` is configured per stage since
+2026-09-05 (ClickUp 86cbegg2f, `architect/adr/0009-provider-independent-llm-client.md`):
+`AI_QUESTION_PROVIDER` is `gemini` or `openai_compat`. The prompt, the
+generation settings and every public response are the same either way — only
+the transport differs.
+
+**On `gemini`** the service calls
 `POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent`
 with the user message as user content and `QUESTION_PROMPT` as
 `system_instruction`; clients cannot override it. `GEMINI_API_KEY` is sent
 only in the `x-goog-api-key` header. The request sets `maxOutputTokens` to
-`1024` and `temperature` to `0.7`.
+`1024` and `temperature` to `0.7`, and `AI_QUESTION_TIMEOUT_SECONDS`
+(default 20 — the literal this call carried before it became a variable)
+caps it, per httpx phase as it always has.
+
+**On `openai_compat`** (`app/llm_client.AsyncChatClient`) it calls
+`POST {AI_QUESTION_ENDPOINT or AI_OPENAI_COMPAT_ENDPOINT}/chat/completions`
+with `QUESTION_PROMPT` as the system message and the user message as the user
+message, `temperature` `0.7` and `max_tokens` `1024`. The key travels in an
+`Authorization: Bearer` header, and only when there is one — an empty
+`AI_OPENAI_COMPAT_API_KEY` is the explicit "this endpoint is
+unauthenticated". No `response_format` is requested: this answer is prose for
+a person, not a parsed contract. `<think>…</think>` blocks are stripped from
+the answer before it is returned. One attempt, like the Gemini path: this
+endpoint has no request budget to plan a ladder inside, and a retry would
+double the time a person waits with nothing on screen.
+`AI_QUESTION_TIMEOUT_SECONDS` (default 20, the value this endpoint always
+ran with) caps that call.
+
+Transcription is **Gemini-only** and has no provider variable —
+`AI_TRANSCRIBE_PROVIDER` aborts the start rather than pretending to work.
+Speech moves to a local model in its own step; until then a deployment with
+its chat stages on another provider still needs `GEMINI_API_KEY` and
+`AI_TRANSCRIBE_MODEL` for `/api/ai/transcribe` alone, and without them that
+endpoint answers its documented 502 while everything else keeps working.
 
 Provider timeouts, HTTP errors, malformed responses and empty output are
 returned to the client as `502 AI service unavailable` without provider
@@ -222,7 +251,8 @@ of them:
 
 | Condition | `/api/ai/question` and `/api/ai/transcribe` |
 | --- | --- |
-| `GEMINI_API_KEY` unset or blank | `502 AI service unavailable` (no provider call is attempted) |
+| `GEMINI_API_KEY` unset or blank | `502 AI service unavailable` (no provider call is attempted) — for `/api/ai/question` only while its provider is `gemini`; `/api/ai/transcribe` always, it has no other provider |
+| stage on `openai_compat` with no endpoint or model | `502` — unreachable in practice: that configuration aborts startup (ADR 0009) |
 | `AI_QUESTION_MODEL` / `AI_TRANSCRIBE_MODEL` malformed | `502` — but unreachable in practice: with a key set, a missing model name aborts startup (ADR 0008) |
 | `AI_CLIENT_HMAC_KEY` unset or blank | `503 AI service temporarily unavailable` — the per-client limiter fails closed instead of silently serving without a limit |
 

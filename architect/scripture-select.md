@@ -307,11 +307,43 @@ The operational parameters below (limits, TTL, timeout) stay optional and keep
 their defaults — but a non-numeric value in any of them is a startup error,
 never a silent fallback.
 
+### Which provider serves which stage (ClickUp 86cbegg2f, ADR 0009)
+
+`AI_SCRIPTURE_REWRITE_PROVIDER` and `AI_SCRIPTURE_RERANK_PROVIDER` name the
+transport of their stage — `gemini` or `openai_compat` (any OpenAI-compatible
+`/chat/completions` server) — and are required, together with
+`AI_QUESTION_PROVIDER`, as soon as the AI surface is configured at all. The
+model variable of each stage is unchanged; the provider decides how it is
+read. An `openai_compat` stage additionally needs an endpoint and a key
+statement, shared (`AI_OPENAI_COMPAT_ENDPOINT` / `AI_OPENAI_COMPAT_API_KEY`,
+the key may be empty) or per stage
+(`AI_SCRIPTURE_RERANK_ENDPOINT` / `AI_SCRIPTURE_RERANK_API_KEY`).
+
+What does **not** change with the provider: the prompts (rewrite v7, rerank
+v9), the parsers, the server-side validation of the rerank answer, the
+fallbacks and every `fallback_reason`. `build_query_rewriter` /
+`build_passage_reranker` return the configured transport and
+`ScriptureRetriever` cannot tell them apart. The one contract that has no
+counterpart outside Gemini is the rerank `responseSchema`; on
+`openai_compat` the request asks for `response_format: json_object` and
+`parse_rerank_response` carries the rest — the half the server ever trusted
+(ADR 0005).
+
+The embedding stage keeps calling Gemini: it names the stored index, and
+moving it is a separate step (ClickUp 86cbegg2r).
+
+`AI_SCRIPTURE_PROVIDER_TIMEOUT_SECONDS` (default 8, the measured Gemini
+value) is the ceiling of ONE stage call inside the selection budget. It has
+to be raised together with `AI_SCRIPTURE_TIMEOUT_SECONDS` for a slower
+self-hosted model: `provider_timeout` takes the minimum of the two, so a
+larger total budget alone changes nothing.
+
 ### Which key pays for which stage
 
 `AI_SCRIPTURE_REWRITE_API_KEY` (optional) is the key of the **rewrite stage
-only**. Unset or blank means "one shared key": rewrites go out on
-`GEMINI_API_KEY`, exactly as before the variable existed. That default is
+only**. Unset or blank means "one shared key": rewrites go out on the shared
+key of that stage's provider (`GEMINI_API_KEY`, or
+`AI_OPENAI_COMPAT_API_KEY`), exactly as before the variable existed. That default is
 operational, not a hidden fallback in the ADR 0008 sense — the absent value
 has a single intended meaning, and the *configured* behaviour is the same
 either way: same model, same prompt, same request. What the key changes is
@@ -327,17 +359,18 @@ embeddings (`gemini-embedding-001`) and the rerank
 their lite models. Moving one stage to a paid key therefore buys the whole
 endpoint's reliability at the cost of ~1 call per selection.
 
-The key is resolved in exactly one place — `config.resolve_rewrite_api_key`
-→ `config.REWRITE_API_KEY` — and reaches the provider as the default
-`api_key` of `GeminiQueryRewriter`, so every creation point
-(`scripture_select._gemini_clients`, `app/retrieval_cli.py`, and
+The key is resolved in exactly one place — `config.resolve_stage`, of which
+`config.resolve_rewrite_api_key` → `config.REWRITE_API_KEY` is a wrapper —
+and reaches the provider through the stage's client, so every creation point
+(`scripture_select._provider_clients`, `app/retrieval_cli.py`, and
 `evaluation/retrieval_benchmark.py` through `require_rewrite_api_key()`)
-bills the same key without repeating the rule. `GeminiEmbeddingClient`,
-`GeminiPassageReranker` and `twinkler_ai` still read `GEMINI_API_KEY`
-directly.
+bills the same key without repeating the rule. Since ADR 0009 the two other
+chat stages have the same option (`AI_QUESTION_API_KEY`,
+`AI_SCRIPTURE_RERANK_API_KEY`) and fall back to their provider's shared key.
+`GeminiEmbeddingClient` reads `GEMINI_API_KEY` directly.
 
-A `AI_SCRIPTURE_REWRITE_API_KEY` set while `GEMINI_API_KEY` is empty is a
-configuration error in the aggregated startup list: it pays for the first
+A stage key set while that stage runs on Gemini and `GEMINI_API_KEY` is empty
+is a configuration error in the aggregated startup list: it pays for one
 stage of a pipeline whose remaining stages cannot run at all.
 
 ### Rewrite prompt and implicit provider caching

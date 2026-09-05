@@ -3,6 +3,7 @@ from datetime import timedelta, datetime
 from functools import wraps
 import hashlib
 import json
+import logging
 
 from fastapi import FastAPI, HTTPException, status, APIRouter
 from canon import chapter_coverage
@@ -23,7 +24,15 @@ from scripture_select import clear_cached_resources, validation_exception_handle
 from fastapi.exceptions import RequestValidationError
 from auth import RequireAPIKey
 from middleware import RequestStatsMiddleware
-from trusted_proxies import TRUSTED_PROXIES
+from trusted_proxies import TRUSTED_PROXIES, ensure_visible_handler
+from config import (
+    QUESTION_PROVIDER,
+    SCRIPTURE_REWRITE_PROVIDER,
+    SCRIPTURE_RERANK_PROVIDER,
+)
+from llm_client import endpoint_host
+
+logger = logging.getLogger(__name__)
 
 # Simple in-memory cache with TTL
 _cache = {}
@@ -115,6 +124,42 @@ app.add_middleware(RequestStatsMiddleware)
 # mismatched trust setting produces no errors at all, only wrong statistics
 # and a per-client rate limit that acts globally (ClickUp 86cbbq6vz).
 TRUSTED_PROXIES.log_startup_state()
+
+
+def log_ai_providers() -> None:
+    """One line per chat stage saying who answers it (ADR 0009).
+
+    Which model served a request is the question the 2026-08-29 incident was
+    debugged blind for, and a provider is one level above a model — so it is
+    said out loud, once, next to the trusted-proxy banner. Never the key
+    itself: only the host and whether a key is configured.
+    `grep 'AI stage'` after a deploy.
+
+    The handler is ensured for THIS logger: `trusted_proxies` installs one on
+    its own logger, not on the root, so an INFO record from `main` would
+    otherwise be dropped by logging's last-resort handler under uvicorn — an
+    invisible banner, which is the same failure the proxy banner exists to
+    prevent.
+    """
+    ensure_visible_handler(logger)
+    for stage in (
+        QUESTION_PROVIDER, SCRIPTURE_REWRITE_PROVIDER, SCRIPTURE_RERANK_PROVIDER
+    ):
+        where = (
+            f" at {endpoint_host(stage.endpoint) or '<no endpoint>'}"
+            if stage.is_openai_compat else ""
+        )
+        logger.info(
+            "AI stage %s: provider=%s model=%s%s key=%s",
+            stage.stage,
+            stage.provider or "<none: AI not configured>",
+            stage.model or "<none>",
+            where,
+            "set" if stage.api_key else "none",
+        )
+
+
+log_ai_providers()
 
 # Scripture selection answers validation failures with a flat, sanitised
 # {"detail": "..."} body (the default one echoes the prayer text); every
