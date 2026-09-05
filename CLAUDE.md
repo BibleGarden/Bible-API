@@ -55,6 +55,8 @@ system prompt is a code constant now, not an environment value.
 
 ## Architecture
 
+- **`architect/adding-a-language.md`** — cross-cutting checklist: every place a human language is named, enumerated or spelled into code across all repositories (the `languages` table and the per-language `bible_books.short_name_*` columns, bible-parser's closed `ru`/`uk`/`en` branches, the `Language` enum of `POST /api/ai/scripture`, the rewrite prompt's per-language examples, **the despair rule of `app/safety.py`**, transcription, `evaluation/`, ops), with a per-layer verification step, the procedure for validating the despair detector in a new language, a dry run on `uk`, and the full table of hardcoded language literals with file:line (ClickUp 86cbegn16)
+
 ### Application Structure (`app/`)
 
 - **`main.py`** — FastAPI app entry point, languages/translations/books endpoints, `timed_cache` decorator
