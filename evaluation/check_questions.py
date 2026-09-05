@@ -233,8 +233,17 @@ def check(record: dict) -> dict:
         verdict["informal"] = _FORMAL.search(probe) is None
     for rule, needles in _FORBIDDEN.items():
         verdict[rule] = not any(needle in lowered for needle in needles)
-    previous = record.get("avoid_question")
-    verdict["no_repeat"] = None if not previous else not repeats(text, previous)
+    # Since ClickUp 86cbegmzz a record may name several questions already
+    # asked (the whole `assistant` half of the history); a v1/v2 artifact
+    # names one, as a string. Both are read, so the older runs stay checkable.
+    previous = record.get("avoid_question") or []
+    if isinstance(previous, str):
+        previous = [previous]
+    verdict["no_repeat"] = (
+        None
+        if not previous
+        else not any(repeats(text, question) for question in previous)
+    )
 
     verdict["detected_language"] = detected
     verdict["soft_advice_modal"] = any(
@@ -386,7 +395,11 @@ def render_per_input(runs: dict[str, list[dict]], inputs: dict[str, dict]) -> li
                 )
                 body += f" <br>_сэмплы расходятся: нарушений {counts}_"
             cells.append(body)
-        label = f"`{input_id}` ({meta['language']}, {meta['category']})<br>{shorten(meta['text'], 70)}"
+        stage = f", {meta['stage']}" if meta.get("stage") else ""
+        label = (
+            f"`{input_id}` ({meta['language']}, {meta['category']}{stage})"
+            f"<br>{shorten(meta['text'], 70)}"
+        )
         lines.append(f"| {label.replace('|', chr(92) + '|')} | " + " | ".join(cells) + " |")
     return lines
 
@@ -571,6 +584,8 @@ def main(argv: list[str] | None = None) -> int:
             inputs.setdefault(record["id"], {
                 "language": record["language"],
                 "category": record["category"],
+                # Absent in v1/v2 artifacts, which predate the stages.
+                "stage": record.get("stage", ""),
                 # The input text is not in the artifact (only the answer is),
                 # so the label falls back to the id until the caller passes
                 # the source files; the id is the stable key anyway.
@@ -608,8 +623,23 @@ def main(argv: list[str] | None = None) -> int:
                 inputs[scenario["id"]]["text"] = joined
     if probes.exists():
         for probe in json.loads(probes.read_text(encoding="utf-8"))["inputs"]:
-            if probe["id"] in inputs:
+            if probe["id"] not in inputs:
+                continue
+            # Schema v2.0.0 (ClickUp 86cbegmzz): a probe is a request, not a
+            # string. The label shows what the person contributed — topic and
+            # their turns — which is what a reader compares the answer with;
+            # `stage` is shown separately, from the record.
+            if "text" in probe:
                 inputs[probe["id"]]["text"] = probe["text"]
+                continue
+            parts = [probe.get("topic") or ""] + [
+                message["text"]
+                for message in probe.get("messages", [])
+                if message["role"] == "user"
+            ]
+            inputs[probe["id"]]["text"] = " / ".join(
+                part for part in parts if part.strip()
+            )
 
     if args.markdown:
         print("#### Сводка нарушений (доля ответов, нарушивших правило)\n")

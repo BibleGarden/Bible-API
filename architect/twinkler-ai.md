@@ -21,20 +21,154 @@
 > deleted — see "System prompt" below. No old name is accepted as an alias:
 > a forgotten one fails the start naming the variable it wants.
 
-`POST /api/ai/question` accepts a JSON object with one required field:
+> **The request became structured on 2026-09-05 (ClickUp 86cbegmzz).** The
+> single `user` string is gone, with no transitional support: both ends
+> changed at once and the app is unpublished. The response is unchanged.
+
+`POST /api/ai/question` accepts a JSON object with three required fields:
 
 ```json
-{"user": "User message"}
+{"topic": "Отношения с семьёй", "stage": "next",
+ "messages": [{"role": "assistant", "text": "Что сейчас тревожит тебя?"},
+              {"role": "user", "text": "Мне одиноко.\nХочу восстановить общение."}]}
 ```
 
-The endpoint requires the common `X-API-Key` header. Unknown JSON fields are
-rejected. `user` must contain 1–16000 characters. The response is
-`{ "text": "..." }` on success. Documented errors are `403`, `429` with
-`Retry-After`, `502`, and `503`; FastAPI validation errors use `422`.
+| field | rules |
+| --- | --- |
+| `topic` | what the person is praying about, `""` when they named nothing; ≤ 2000 characters |
+| `stage` | `first` (the opening question), `next` (the following one), `reflect` (the closing question that helps name one takeaway) |
+| `messages` | the conversation so far, chronological, ≤ 40 items; `role` is `assistant` (a question we asked) or `user` (their answer), `text` is non-empty |
 
-A message showing despair or self-harm is answered with a fixed warm text
+`topic` and every `text` together must not exceed **16 000 characters** — the
+client's own ceiling, counted there in UTF-16 units and here in code points
+(they differ only for astral characters, where this bound is the looser of the
+two; the tighter side is the one that decides what is ever sent).
+
+What the client guarantees, and what the server therefore relies on:
+
+- **`first` always carries an empty history** — including when the person
+  changes the topic and a new opening question is generated. A non-empty
+  history with `first` is a `422`.
+- **A non-empty history ends with a `user` turn.** The question is asked about
+  what the person said last; anything else is a `422`.
+- The history **may start with a `user` turn**: an over-long conversation is
+  trimmed from the front, whole turns at a time, so the question that answer
+  belonged to can be gone.
+- Skipped questions and empty answers are omitted, so the two roles do not
+  have to alternate.
+- Several transcriptions and the typed text of **one** turn are already joined
+  with newlines into a single `user` element. A multi-line turn is normal.
+- **`messages: []` with `next` or `reflect` is normal**, not an error: the
+  person answered nothing, or forbade sending the answers. The question is
+  then built from the topic and the stage alone — and from the stage alone
+  when the topic is empty too.
+
+The endpoint requires the common `X-API-Key` header. Unknown JSON fields are
+rejected, and the two removed ones (`user`, `last_user_message`) are rejected
+with a `422` that names them and says what to send instead — "extra inputs are
+not permitted" would send whoever reads the log to the wrong place. The
+response is `{ "text": "..." }` on success. Documented errors are `403`, `429`
+with `Retry-After`, `502`, and `503`; validation errors use `422`.
+
+A **reply** showing despair or self-harm is answered with a fixed warm text
 instead of a model answer, and no provider is called — the response shape and
 status are unchanged (see "The despair rule is code" below).
+
+### The stage instructions are the server's (ClickUp 86cbegmzz)
+
+The client used to assemble these blocks itself and put the result into
+`user`. `app/question_prompt.build_user_message(topic, stage, messages)` now
+does it, **verbatim** — the wording below is quoted from the contract the
+mobile agent confirmed on 2026-09-05 (ADR-0019 on their side), down to the
+em-dash bullets and the word «тёплый» in `reflect`. It is previous behaviour
+moving across the wire boundary, not a new prompt: keeping it identical is
+what makes a v2 → v3 comparison mean anything.
+
+The blocks are **Russian whatever language the prayer is in**, exactly as the
+client always sent them. Only the person's own words carry the language, and
+the system prompt names it separately (below), so the instruction language was
+never observed to leak into an answer. If a measurement ever shows a model
+drifting into Russian because of it, translating the blocks per language is
+the change to make — and it is a change, so it needs a version bump.
+
+**`first`** — the goal line, then the instruction:
+
+```
+Человек начинает молитву. Его цель: «{topic}».
+Задай первый наводящий вопрос — про то, что сейчас происходит и что он чувствует. Не пересказывай цель дословно. Ответь только текстом вопроса, без кавычек и пояснений.
+```
+
+With no topic the first line is `Человек начинает молитву без конкретной темы.`
+
+**`next`** — the goal line, the questions already asked, the answers, the
+instruction. A block with nothing in it is omitted, not left empty:
+
+```
+Цель молитвы: «{topic}».
+Уже прозвучали вопросы:
+— {each assistant turn}
+Что человек ответил (опирайся на это, но не цитируй дословно):
+— {each user turn}
+Задай один новый вопрос, который смотрит на ситуацию с другой стороны и не повторяет прозвучавшие. Ответь только текстом вопроса, без кавычек и пояснений.
+```
+
+With no topic the first line is `Молитва без конкретной темы.`
+
+**`reflect`** — the closing question. It never lists our questions: it looks
+back at what the *person* said.
+
+```
+Молитва закончилась, человек готов записать один вывод.
+Цель была: «{topic}».
+Его ответы во время молитвы:
+— {each user turn}
+Задай один тёплый итоговый вопрос, который поможет ему назвать главное из этой молитвы. Не цитируй его ответы дословно. Ответь только текстом вопроса.
+```
+
+The goal line is omitted when there is no topic; with no answers the third
+block is the single line `Он молился молча, письменных ответов нет.`
+
+A turn is copied verbatim into its bullet and never re-split, so a multi-line
+answer is one bullet. The topic is trimmed; a whitespace-only topic is "no
+topic". `tests/test_question_prompt.py` holds every assembly as a golden
+string, written out in full rather than imported from the module it checks.
+
+### Which text each rule reads
+
+Three different questions are asked of one request, and they deliberately read
+three different parts of it:
+
+| | text | why |
+| --- | --- | --- |
+| the model | the whole assembled message | that is the request |
+| **tier 1** of the despair rule | the **last `user` turn** — or `topic` when `stage` is `first`, where the topic is the newest thing the person wrote | see below |
+| **tier 2** | the topic and **every** `user` turn | an older phrase must still refuse a question-shaped answer |
+| the answer's language | the last `user` turn → the topic → their earlier replies, newest first → else the last `assistant` turn → else English | the person's own words decide; a question of ours must not vote |
+
+That language chain is walked by **decidability, not presence**: `detect_language`
+answers `None` for a line that does not say which language it is («Помоги»
+carries none of the four letters or function words separating Russian from
+Ukrainian), so the walk moves on to the next thing the *same person* wrote
+rather than handing the prompt v2's "answer in exactly the language of the
+person's message" — 9 of the 33 evaluation inputs were undetermined when it
+stopped at the first non-empty candidate, 6 when it stops at the first
+decidable one, and the topic alone recovered none of the three that regressed
+(their evidence is an earlier reply). The last `assistant` turn is still
+reached only when the person wrote nothing at all.
+
+**Tier 1 reads the last reply, and this is the bug the ticket closed.** While
+the request was one string, tier 1 saw the whole conversation: the phrase that
+had already been answered with the fixed reply kept answering every later
+question of that prayer with it, and the conversation could not continue. The
+last reply is also why the topic is **not** substituted for a missing one at
+`next`/`reflect`: the person said nothing new, so nothing new can be found —
+and substituting it would rebuild the same loop out of a topic.
+
+Tier 2 reads the person's words rather than the assembled message on purpose.
+The words are the same either way, but the *language* is not: the assembled
+message is mostly Russian instructions, and `safety.check_reply` takes the
+language of the fixed reply from the text it is given. An English prayer must
+not be answered in Russian because our own wrapper outvoted it.
 
 `POST /api/ai/transcribe` accepts `multipart/form-data` with a required
 M4A `file` and an optional BCP 47 `locale`. The response is the same
@@ -47,7 +181,7 @@ larger than 14 MiB return `413`, and unsupported audio types return `415`.
 
 The system prompt of `POST /api/ai/question` lives in
 `app/question_prompt.py`, versioned by `QUESTION_PROMPT_VERSION` (currently
-`2`) in the same way as `query_rewrite.REWRITE_PROMPT_VERSION` and
+`3`) in the same way as `query_rewrite.REWRITE_PROMPT_VERSION` and
 `passage_rerank.RERANK_PROMPT_VERSION`. Changing the wording means editing
 that file and bumping the version.
 
@@ -112,32 +246,45 @@ provider anything either. Numbers, tables and every answer verbatim:
 and a prompt carrying a rule it no longer enforces would invite the next
 reader to trust it.
 
-### What the structured request must keep (ClickUp 86cbegmzz, next)
+### v3: the stage instructions moved in, one sentence moved out (ClickUp 86cbegmzz, 2026-09-05)
 
-The mobile app is moving from one `user` string to `topic` + `stage` +
-`messages`, and the server will assemble the stage instructions itself. Two
-things in v2 are built for that and must survive it:
+v3 is a **deletion plus a relocation**, not a rewrite. The system prompt lost
+exactly one sentence — "The incoming message may contain the whole
+conversation so far rather than a single line. Respond to the most recent
+thing the person said, and never repeat a question you have already asked." —
+because the stage blocks say it structurally: «Уже прозвучали вопросы:» is the
+list not to repeat and «Что человек ответил:» is what the answer responds to.
+A prompt that describes a layout it no longer receives misleads its next
+reader. Every other rule of v2 is byte for byte unchanged: they belong to the
+person, not to the request shape.
+
+Two v2 properties this was built on, and both held:
 
 - **The language seam is a function of text, not of the request.**
-  `twinkler_ai.question_prompt_for(text)` resolves the language and builds
-  the prompt; today it is handed the whole `user` string, and the structured
-  version hands it the **last user message** instead. Nothing else changes —
-  `detect_language` and `build_question_prompt` never see the request shape.
-  Detect on the person's own words only: an assistant question already in the
-  conversation must not vote on the language of the answer.
-- **The language, no-interpretation, open-question and register rules are
-  independent of layout** and belong to the person, not to the stage. The one
-  sentence in v2 that *is* about layout — "The incoming message may contain
-  the whole conversation so far rather than a single line. Respond to the most
-  recent thing the person said, and never repeat a question you have already
-  asked." — is exactly what the stage blocks replace: the "questions already
-  asked" and "what the person answered" sections say it structurally. Replace
-  that sentence, keep the rest, and bump the version.
-- The `reflect` stage asks for a closing question that helps formulate a
-  takeaway. That is still one question, so the form rules hold; if it ever
-  stops being a question, `question`/`len160` in
-  `evaluation/check_questions.py` need a per-stage expectation the way
-  `expect_question` works today.
+  `twinkler_ai.question_prompt_for(text)` still resolves the language and
+  builds the prompt; what changed is who chooses the text —
+  `twinkler_ai.language_source` hands it the **last `user` turn** (see "Which
+  text each rule reads"). `detect_language` and `build_question_prompt` never
+  see the request shape. The one addition: an **empty** source — a
+  `next`/`reflect` request with no topic and no history — names English rather
+  than v2's "answer in exactly the language of the person's message", which
+  points at nothing when there is no message.
+- **Both providers still send identical bytes**, now for two strings instead
+  of one: the system prompt and the assembled message.
+  `tests/test_llm_client.py` runs the parity check for all three stages, and
+  separately pins that an English conversation is not answered in Russian
+  because the (Russian) stage blocks outvoted the reply.
+
+The `reflect` stage asks for a closing question that helps formulate a
+takeaway. That is still one question, so the form rules hold; if it ever stops
+being a question, `question`/`len160` in `evaluation/check_questions.py` need a
+per-stage expectation the way `expect_question` works today.
+
+**Not measured yet.** v3 changes the bytes the model receives, and no run has
+been made against it: `evaluation/gen_questions.py` builds the new request
+(and has a `--dry-run` that prints it without contacting a provider), but the
+v3 numbers are a separate step. Until then the tables in
+`evaluation/README.md` describe v2.
 
 It used to be the environment variable `TWINKLER_SYSTEM_PROMPT`. That was the
 wrong home for it: the prompt is product behaviour, not a deployment knob, so
@@ -196,6 +343,7 @@ tier-2 corpus grows.
 
 | | Tier 1 — skip the model | Tier 2 — post-check the reply |
 | --- | --- | --- |
+| Reads (since 86cbegmzz) | the person's **last** reply — the topic at `stage: first`, nothing at `next`/`reflect` with no history | the topic and **every** reply of theirs |
 | Fires on | an explicit statement: "не хочу жить", "хочу умереть", "покончить с собой", "не хочу жити", "покінчити з собою", "don't want to live", "kill myself", "no reason to live", "better off dead", self-harm | a weaker signal with a plausible ordinary reading: "устала жить", "всем будет лучше без меня", "everyone would be fine without me", "I can't go on like this", "I'm a burden" |
 | Provider | **never called** | called normally |
 | Effect | the fixed reply is returned | the reply is kept — **unless it contains a question mark**, in which case the fixed reply replaces it |
@@ -215,7 +363,9 @@ narrow phrase patterns, never single loaded words, and both are swept over the
 whole reference corpus by `tests/test_safety.py`: the 24 approved scenarios of
 `evaluation/scenarios.json` and the probe inputs of
 `evaluation/question_probe_inputs.json` raise **no** tier 1, and no tier 2
-either bar the one case below.
+either bar the one case below. Since the probe file became a set of *requests*
+(schema v2.0.0) the sweep runs on both views of each probe — what tier 1 reads
+and what tier 2 reads — so the two selections are covered separately.
 
 `en-005` ("Feeling worthless / I keep thinking everyone would be fine without
 me") is that case, and it is tier 2 on purpose: passive ideation stated about
@@ -260,8 +410,9 @@ wants to kill himself" stay silent), and a future rewording of
 writer. Pinned by `test_praying_for_a_suicidal_person_is_answered_by_the_rule_too`.
 
 Before matching, the text is normalised: casefolded, `ё` folded to `е`, all
-apostrophe spellings unified, whitespace flattened (the app sends the whole
-conversation, one line per turn, so a phrase may straddle a line break) and
+apostrophe spellings unified, whitespace flattened (one answer can be a typed
+line plus two transcriptions joined with newlines, and tier 2 is handed every
+reply at once, so a phrase may straddle a line break) and
 invisible characters removed by reusing `prompt_safety.neutralize_prompt_markers`
 — a soft hyphen from a phone keyboard must not hide "не хо­чу жить".
 
@@ -293,14 +444,18 @@ so the two paths behave identically and one of them cannot be used to probe
 the endpoint for free.
 
 Both tiers log one `WARNING` line — the tier, the pattern id, the resolved
-language and the reply version, and nothing else. `WARNING` rather than `INFO`
-because uvicorn leaves the root logger without handlers, so an `INFO` record
-would never reach `docker logs`:
+language, the reply version and (since 86cbegmzz) the stage, and nothing else.
+`WARNING` rather than `INFO` because uvicorn leaves the root logger without
+handlers, so an `INFO` record would never reach `docker logs`:
 
 ```
-Safety rule fired on the request: tier=1 pattern=ru.no-wish-to-live language=ru reply_version=2
-Safety rule fired on the model reply: tier=2 pattern=en.better-without-me language=en reply_version=2
+Safety rule fired on the request: tier=1 pattern=ru.no-wish-to-live language=ru reply_version=2 stage=first
+Safety rule fired on the model reply: tier=2 pattern=en.better-without-me language=en reply_version=2 stage=next
 ```
+
+The stage is worth having: tier 1 reads a different part of the request at
+`first` than at the other two, so "which text was this decided on" is
+otherwise unanswerable from the log.
 
 A pattern id names the rule, never the words that matched it, so the whole
 finding is safe to log. Prayer text is not logged here any more than anywhere
@@ -311,12 +466,15 @@ else in this service.
 Which transport answers `/api/ai/question` is configured per stage since
 2026-09-05 (ClickUp 86cbegg2f, `architect/adr/0009-provider-independent-llm-client.md`):
 `AI_QUESTION_PROVIDER` is `gemini` or `openai_compat`. The prompt, the
-generation settings and every public response are the same either way — only
-the transport differs.
+assembled user message, the generation settings and every public response are
+the same either way — only the transport differs. Both strings are built once
+per request (`build_question_prompt`, `build_user_message`) and handed to
+whichever transport answers, which is what makes "the same bytes" a fact
+rather than a hope.
 
 **On `gemini`** the service calls
 `POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent`
-with the user message as user content and the built prompt
+with the assembled message as user content and the built prompt
 (`build_question_prompt`, see "System prompt") as `system_instruction`;
 clients cannot override it. `GEMINI_API_KEY` is sent
 only in the `x-goog-api-key` header. The request sets `maxOutputTokens` to
@@ -326,8 +484,8 @@ caps it, per httpx phase as it always has.
 
 **On `openai_compat`** (`app/llm_client.AsyncChatClient`) it calls
 `POST {AI_QUESTION_ENDPOINT or AI_OPENAI_COMPAT_ENDPOINT}/chat/completions`
-with the same built prompt as the system message and the user message as the
-user message, `temperature` `0.7` and `max_tokens` `1024`. The key travels in an
+with the same built prompt as the system message and the same assembled
+message as the user message, `temperature` `0.7` and `max_tokens` `1024`. The key travels in an
 `Authorization: Bearer` header, and only when there is one — an empty
 `AI_OPENAI_COMPAT_API_KEY` is the explicit "this endpoint is
 unauthenticated". No `response_format` is requested: this answer is prose for

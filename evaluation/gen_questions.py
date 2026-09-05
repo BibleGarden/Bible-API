@@ -4,9 +4,10 @@ Generate answers of the "leading question" feature (`POST /api/ai/question`)
 for the evaluation inputs, on either provider (ClickUp 86cbegctz).
 
 The endpoint is a single provider call: `system_instruction` =
-`app/question_prompt.build_question_prompt(safety.detect_language(message))`,
-`contents` = the one user message the app sends (it packs the WHOLE
-conversation into that one string), temperature 0.7, maxOutputTokens 1024.
+`app/question_prompt.build_question_prompt(safety.detect_language(<the
+person's last words>))`, `contents` = the message
+`app/question_prompt.build_user_message(topic, stage, messages)` assembles
+from the request, temperature 0.7, maxOutputTokens 1024.
 This tool reproduces exactly that call against two providers so the answers
 are comparable:
 
@@ -19,22 +20,41 @@ are comparable:
   `/chat/completions` endpoint (Maria's Qwen3-30B behind the SSH tunnel), the
   protocol `gen_rewrites.py` / `gen_reranks.py` already use.
 
-The prompt itself is NOT re-typed here: it is imported from `app/`, so a
-change of the production wording changes this measurement too.
+The prompt and the stage blocks are NOT re-typed here: both are imported from
+`app/question_prompt.py`, so a change of the production wording changes this
+measurement too.
 
-Inputs are the approved benchmark set (`scenarios.json`, topic + replies
-joined by newlines — that is what "the whole conversation" looks like) plus
-`question_probe_inputs.json`, which covers what the scripture set does not
-(despair, one word, pure joy, a conversation with a previous question in it).
-`empty` scenarios are SKIPPED and reported as skipped: `CompleteRequest.user`
-declares `min_length=1`, so an empty message never reaches the model at all —
-FastAPI answers 422 before the handler runs.
+**Since ClickUp 86cbegmzz the request is structured** (`topic` + `stage` +
+`messages`) and the stage instructions are the server's. So an input is a
+request now, not a string:
+
+* `question_probe_inputs.json` (v2.0.0) carries `stage`, `topic` and
+  `messages` per input, covering what the scripture set does not — despair,
+  one word, pure joy, a conversation that already holds a question, both
+  stages the app added, a language switch mid-conversation, and an explicit
+  despair phrase in an older reply.
+* `scenarios.json` is the approved benchmark set and is NOT edited for this:
+  its `prayer_context` maps to a request the same way the app would send one
+  — the topic is the topic, every recorded reply is a `user` turn, and the
+  stage is `next` when there are replies and `first` when there are none.
+  (The scenarios record no questions of ours, so those histories carry no
+  `assistant` turns; the "already asked" block is simply absent.)
+* `empty` scenarios are still SKIPPED, for a new reason: the endpoint now
+  *accepts* them (an empty topic with an empty history is a legal `first`
+  request that asks for a generic opening question), but with no words of the
+  person in the request at all the prompt names English by contract, and the
+  scenario's declared language stops being an expectation anything can be
+  graded against.
 
 Artifacts: one JSONL row per (input, sample) plus a `<out>.meta.json`
 sidecar. Neither ever carries a key: transport failures are recorded as a
 category and, for an HTTP error, a status code — never the URL.
 
 Examples:
+
+    # what every input turns into — no provider, no key, no quota
+    python gen_questions.py --dry-run
+    python gen_questions.py --dry-run --only probe-dialog,probe-reflect
 
     # Maria's 30B over the tunnel (key read by the caller, see
     # run_local_picker_qwen.sh — it must never land in a file)
@@ -73,6 +93,7 @@ sys.path.insert(0, str(HERE.parent / "app"))
 from question_prompt import (  # noqa: E402
     QUESTION_PROMPT_VERSION,
     build_question_prompt,
+    build_user_message,
 )
 from safety import check_input, detect_language  # noqa: E402
 
@@ -203,35 +224,105 @@ def gemini_settings() -> tuple[str, str]:
     return model, key
 
 
-def conversation_text(context: dict) -> str:
-    """The one string the app sends: the topic and every reply, one per line.
+def turns(entry: dict) -> list[tuple[str, str]]:
+    """The history as `(role, text)` pairs — what `build_user_message` takes."""
+    return [
+        (message["role"], message["text"]) for message in entry.get("messages", [])
+    ]
 
-    `POST /api/ai/question` takes a single `user` field and the prompt says so
-    ("The incoming message may contain the whole conversation so far"), so the
-    scenario's structured context is flattened the same way here.
+
+def user_message(entry: dict) -> str:
+    """The bytes `POST /api/ai/question` sends as the user content."""
+    return build_user_message(entry["topic"], entry["stage"], turns(entry))
+
+
+def last_reply(entry: dict) -> str | None:
+    """The person's last `user` turn, or `None`.
+
+    Mirrors `twinkler_ai.safety_input_text` / `language_source`, which take the
+    FastAPI request model this file must not import (it would drag `config`
+    and the whole fail-fast environment in). `tests/test_gen_questions.py`
+    pins the two against each other on every probe, so the mirror cannot
+    drift.
     """
-    parts = [context.get("topic") or ""]
-    parts.extend(context.get("user_replies") or [])
-    return "\n".join(part for part in parts if part.strip())
+    replies = [text for role, text in turns(entry) if role == "user"]
+    return replies[-1] if replies else None
+
+
+def safety_input(entry: dict) -> str | None:
+    """What tier 1 reads: the last reply, or the topic at `first`."""
+    reply = last_reply(entry)
+    if reply is not None:
+        return reply
+    return entry["topic"] if entry["stage"] == "first" else None
+
+
+def language_source(entry: dict) -> str:
+    """What the prompt's language is detected on.
+
+    Mirrors `twinkler_ai.person_language_candidates` / `language_source`: the
+    person's own words, best evidence first (last reply, topic, earlier
+    replies newest first), walked by **decidability** rather than by presence
+    — `detect_language` returns `None` for a line that does not say which
+    language it is, and the same person usually said it elsewhere in the same
+    request. The last assistant question answers only when they wrote nothing
+    at all.
+    """
+    replies = [text for role, text in turns(entry) if role == "user"]
+    candidates = [
+        text
+        for text in replies[-1:] + [entry["topic"]] + list(reversed(replies[:-1]))
+        if text.strip()
+    ]
+    for text in candidates:
+        if detect_language(text) is not None:
+            return text
+    if candidates:
+        return candidates[0]
+    questions = [text for role, text in turns(entry) if role == "assistant"]
+    return questions[-1] if questions else ""
+
+
+def scenario_request(scenario: dict) -> dict:
+    """`prayer_context` as the request the app would send for it.
+
+    The scenarios record a topic and the person's replies, never the questions
+    that were asked, so the history is `user` turns only and the stage is
+    `next` exactly when there is one. That is a legal request of the contract
+    (a history that starts with `user` is what a trimmed conversation looks
+    like), and it keeps the approved set unedited — `scenarios.json` and
+    `thresholds.json` are frozen reference data.
+    """
+    context = scenario["prayer_context"]
+    replies = [
+        reply for reply in (context.get("user_replies") or []) if reply.strip()
+    ]
+    return {
+        "topic": context.get("topic") or "",
+        "stage": "next" if replies else "first",
+        "messages": [{"role": "user", "text": reply} for reply in replies],
+    }
 
 
 def load_inputs(scenarios_path: Path, probes_path: Path) -> tuple[list[dict], list[dict]]:
     """(inputs to send, inputs skipped with a reason).
 
-    Two kinds of input are skipped, both because the endpoint itself never
-    sends them to a provider — measuring them would measure a request the app
-    cannot make:
+    Two kinds of input are skipped, both because sending them would measure
+    something the endpoint does not do:
 
-    * `empty` scenarios: the request model declares
-      `user: str = Field(min_length=1, ...)`, so an empty conversation is
-      rejected with 422 by FastAPI before the handler runs. Sending a space
-      instead would not be the same request.
-    * anything `safety.check_input` catches (tier 1): since ClickUp 86cbegg23
-      the despair rule is code, so `probe-despair` is answered by
-      `app/safety.py` with the fixed reply and the model is never called. It
-      stayed in the v1 measurement because the rule was still an instruction
-      in the prompt then; from v2 it is not, and a model answer to it would
-      grade a code path the model no longer has.
+    * `empty` scenarios — an empty topic with an empty history. The endpoint
+      accepts it since ClickUp 86cbegmzz (it is a legal `first` request asking
+      for a generic opening question), but the request then contains no words
+      of the person at all: the prompt names English by contract, so the
+      scenario's declared language is no longer an expectation the checker can
+      grade, and the answer would say nothing about the prompt.
+    * anything `safety.check_input` catches on the text tier 1 actually reads
+      (the last reply, or the topic at `first`): since ClickUp 86cbegg23 the
+      despair rule is code, so `probe-despair` is answered by `app/safety.py`
+      with the fixed reply and the model is never called. Note the input this
+      test runs on — `probe-next-despair-older` carries the same phrase two
+      turns back and is NOT skipped, because the endpoint does call the model
+      for it (tier 2 then guards the answer).
     """
     dataset = json.loads(scenarios_path.read_text(encoding="utf-8"))
     probes = json.loads(probes_path.read_text(encoding="utf-8"))
@@ -239,8 +330,9 @@ def load_inputs(scenarios_path: Path, probes_path: Path) -> tuple[list[dict], li
     skipped: list[dict] = []
 
     def answered_in_code(entry: dict) -> bool:
-        finding = check_input(entry["text"])
-        if not finding.matched:
+        checked = safety_input(entry)
+        finding = check_input(checked) if checked else None
+        if finding is None or not finding.matched:
             return False
         skipped.append({
             "id": entry["id"],
@@ -254,22 +346,25 @@ def load_inputs(scenarios_path: Path, probes_path: Path) -> tuple[list[dict], li
         return True
 
     for scenario in dataset["scenarios"]:
-        text = conversation_text(scenario["prayer_context"])
+        request = scenario_request(scenario)
         entry = {
             "id": scenario["id"],
             "source": "scenarios",
             "language": scenario["language"],
             "category": scenario["category"],
             "expect_question": True,
-            "text": text,
+            **request,
         }
-        if scenario["category"] == "empty" or not text:
+        if scenario["category"] == "empty" or not (
+            entry["topic"].strip() or entry["messages"]
+        ):
             skipped.append({
                 "id": scenario["id"],
                 "reason": (
-                    "empty conversation: CompleteRequest.user has min_length=1, "
-                    "so POST /api/ai/question answers 422 before the model is "
-                    "called — there is nothing to measure"
+                    "empty request: no topic and no history, so it carries "
+                    "none of the person's words. The endpoint answers it (a "
+                    "generic first question) but names English by contract, "
+                    "and the scenario's language can no longer be graded"
                 ),
             })
             continue
@@ -284,10 +379,20 @@ def load_inputs(scenarios_path: Path, probes_path: Path) -> tuple[list[dict], li
             "language": probe["language"],
             "category": probe["category"],
             "expect_question": bool(probe.get("expect_question", True)),
-            "text": probe["text"],
+            "topic": probe["topic"],
+            "stage": probe["stage"],
+            "messages": probe["messages"],
         }
-        if probe.get("avoid_question"):
-            entry["avoid_question"] = probe["avoid_question"]
+        # What `check_questions.no_repeat` compares the answer against: every
+        # question already in this history, plus anything the probe names
+        # explicitly (a question asked before the trimmed head, say).
+        asked = [text for role, text in turns(entry) if role == "assistant"]
+        explicit = probe.get("avoid_question") or []
+        if isinstance(explicit, str):
+            explicit = [explicit]
+        avoid = list(dict.fromkeys(explicit + asked))
+        if avoid:
+            entry["avoid_question"] = avoid
         if answered_in_code(entry):
             continue
         inputs.append(entry)
@@ -377,16 +482,21 @@ def generate_one(
     attempts = 0
     last_error = ""
     text = ""
-    prompt_language = detect_language(entry["text"])
+    source = language_source(entry)
+    # `twinkler_ai.question_prompt_for`: an empty source (no topic, no
+    # history) is the one case the detector cannot speak for, and English is
+    # the documented answer there rather than v1's "detect it yourself".
+    prompt_language = detect_language(source) if source.strip() else "en"
     prompt = build_question_prompt(prompt_language)
+    sent = user_message(entry)
 
     while attempts < TRANSPORT_ATTEMPTS:
         attempts += 1
         try:
             if args.provider == "gemini":
-                text = call_gemini(client, url, api_key, entry["text"], prompt)
+                text = call_gemini(client, url, api_key, sent, prompt)
             else:
-                text = call_qwen(client, url, api_key, model, entry["text"], prompt)
+                text = call_qwen(client, url, api_key, model, sent, prompt)
             break
         except (httpx.HTTPError, ValueError) as exc:
             last_error = transport_error(exc) if isinstance(exc, httpx.HTTPError) \
@@ -403,6 +513,9 @@ def generate_one(
         "source": entry["source"],
         "language": entry["language"],
         "category": entry["category"],
+        # The stage decides which instructions the message carries, so an
+        # artifact without it cannot be read back (ClickUp 86cbegmzz).
+        "stage": entry["stage"],
         "expect_question": entry["expect_question"],
         "provider": args.provider,
         "model": model,
@@ -435,8 +548,12 @@ def build_meta(
         "model": model,
         "endpoint": url_host,
         "date": date.today().isoformat(),
-        "ticket": "ClickUp 86cbegctz, 86cbegg3f",
-        "prompt": "app/question_prompt.build_question_prompt(detect_language(message))",
+        "ticket": "ClickUp 86cbegctz, 86cbegg3f, 86cbegmzz",
+        "prompt": (
+            "app/question_prompt.build_question_prompt(detect_language(last "
+            "words of the person)) over "
+            "app/question_prompt.build_user_message(topic, stage, messages)"
+        ),
         "prompt_version": QUESTION_PROMPT_VERSION,
         "scenarios_file": args.scenarios,
         "probes_file": args.probes,
@@ -456,6 +573,54 @@ def build_meta(
     }
 
 
+def select_inputs(args: argparse.Namespace, parser: argparse.ArgumentParser):
+    """(inputs, skipped) after `--only`, or a parser error naming what is off."""
+    inputs, skipped = load_inputs(
+        resolve_path(args.scenarios), resolve_path(args.probes)
+    )
+    wanted = {value.strip() for value in args.only.split(",") if value.strip()}
+    if wanted:
+        inputs = [entry for entry in inputs if entry["id"] in wanted]
+        missing = wanted - {entry["id"] for entry in inputs}
+        if missing:
+            parser.error(f"--only names unknown or skipped ids: {sorted(missing)}")
+    if not inputs:
+        parser.error("no inputs selected")
+    return inputs, skipped
+
+
+def dry_run(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    """Print the request every input becomes; contact nothing.
+
+    The point of the flag is that the *bytes* are reviewable without a
+    provider, a key or a quota: since ClickUp 86cbegmzz this tool assembles
+    the message the endpoint assembles (`build_user_message`) instead of
+    sending a string somebody wrote by hand, and a run that costs money is a
+    bad place to discover that the assembly is wrong.
+    """
+    inputs, skipped = select_inputs(args, parser)
+    print(
+        f"dry run — {len(inputs)} inputs, {len(skipped)} skipped, "
+        f"prompt v{QUESTION_PROMPT_VERSION}, no provider contacted\n"
+    )
+    for entry in inputs:
+        source = language_source(entry)
+        language = detect_language(source) if source.strip() else "en"
+        checked = safety_input(entry)
+        print(f"=== {entry['id']} ({entry['language']}, stage {entry['stage']})")
+        print(f"    prompt language: {language or 'undetermined'}")
+        print(
+            "    despair rule reads: "
+            + (repr(checked) if checked else "nothing (no reply of theirs)")
+        )
+        for line in user_message(entry).splitlines():
+            print(f"    | {line}")
+        print()
+    for entry in skipped:
+        print(f"--- {entry['id']} skipped: {entry['reason']}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=(
@@ -463,7 +628,9 @@ def main(argv: list[str] | None = None) -> int:
             "inputs on Gemini (production) or an OpenAI-compatible endpoint."
         )
     )
-    parser.add_argument("--provider", required=True, choices=("qwen", "gemini"))
+    # Required for a real run, checked below rather than by argparse: a
+    # --dry-run needs no provider at all (both send the same bytes).
+    parser.add_argument("--provider", default="", choices=("qwen", "gemini", ""))
     parser.add_argument(
         "--endpoint", default="",
         help="qwen only: base URL of the OpenAI-compatible API "
@@ -487,9 +654,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT_SECONDS)
     parser.add_argument(
-        "--out", required=True,
+        "--out", default="",
         help="JSONL artifact; metadata goes to <out>.meta.json. A relative "
-             "path is resolved against the evaluation/ directory.",
+             "path is resolved against the evaluation/ directory. Required "
+             "for a real run, meaningless with --dry-run.",
     )
     parser.add_argument("--scenarios", default="scenarios.json")
     parser.add_argument("--probes", default="question_probe_inputs.json")
@@ -497,10 +665,24 @@ def main(argv: list[str] | None = None) -> int:
         "--only", default="",
         help="comma-separated input ids — a probe run over a subset",
     )
+    parser.add_argument(
+        "--dry-run", action="store_true",
+        help="print the request each input turns into (the assembled user "
+             "message, the language the prompt will name, and what the "
+             "despair rule reads) and exit — no provider is contacted, no "
+             "artifact is written, no key is needed",
+    )
     args = parser.parse_args(argv)
 
     if args.samples < 1:
         parser.error("--samples must be >= 1")
+
+    if args.dry_run:
+        return dry_run(args, parser)
+    if not args.provider:
+        parser.error("--provider is required (qwen or gemini)")
+    if not args.out:
+        parser.error("--out is required")
 
     api_key = ""
     if args.provider == "gemini":
@@ -522,17 +704,7 @@ def main(argv: list[str] | None = None) -> int:
         url = base if base.endswith("/chat/completions") else f"{base}/chat/completions"
         url_host = endpoint_host(args.endpoint)
 
-    inputs, skipped = load_inputs(
-        resolve_path(args.scenarios), resolve_path(args.probes)
-    )
-    wanted = {value.strip() for value in args.only.split(",") if value.strip()}
-    if wanted:
-        inputs = [entry for entry in inputs if entry["id"] in wanted]
-        missing = wanted - {entry["id"] for entry in inputs}
-        if missing:
-            parser.error(f"--only names unknown or skipped ids: {sorted(missing)}")
-    if not inputs:
-        parser.error("no inputs selected")
+    inputs, skipped = select_inputs(args, parser)
 
     out = resolve_path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)

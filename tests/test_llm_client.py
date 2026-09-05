@@ -59,7 +59,7 @@ from query_rewrite import (
     build_rewrite_instruction,
     build_rewrite_user_content,
 )
-from question_prompt import build_question_prompt
+from question_prompt import build_question_prompt, build_user_message
 from safety import detect_language
 
 ENDPOINT = "https://llm.example:8443/v1"
@@ -588,6 +588,96 @@ def test_question_parity_between_providers(monkeypatch):
         detect_language("Мне тяжело")
     )
     assert captured["openai_compat"]["user"] == "Мне тяжело"
+
+
+# The three stages of the structured request (ClickUp 86cbegmzz). The stage
+# instructions are assembled by the server now, so "the same bytes on both
+# providers" has to be re-established for the assembled message, not only for
+# the system prompt: an assembly that ran on one transport and not the other
+# would be invisible to every other test in this file.
+QUESTION_REQUESTS = [
+    ("Отношения с семьёй", "first", [], "Отношения с семьёй"),
+    (
+        "Отношения с семьёй",
+        "next",
+        [
+            ("assistant", "Что сейчас тревожит тебя?"),
+            ("user", "Мне одиноко.\nХочу восстановить общение."),
+        ],
+        "Мне одиноко.\nХочу восстановить общение.",
+    ),
+    (
+        "Прошу сил",
+        "reflect",
+        [("user", "Сегодня было легче, чем вчера.")],
+        "Сегодня было легче, чем вчера.",
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("topic", "question_stage", "messages", "language_source"), QUESTION_REQUESTS
+)
+def test_question_parity_on_every_stage(
+    monkeypatch, topic, question_stage, messages, language_source
+):
+    gemini, openai_compat, captured = both_transports(QUESTION_ANSWER)
+    user_message = build_user_message(topic, question_stage, messages)
+
+    monkeypatch.setattr(twinkler_ai, "GEMINI_API_KEY", "g")
+    monkeypatch.setattr(twinkler_ai, "AI_QUESTION_MODEL", "gemini-test")
+    monkeypatch.setattr(
+        twinkler_ai, "QUESTION_PROVIDER",
+        stage("question", "gemini-test", provider=config.PROVIDER_GEMINI, endpoint=""),
+    )
+    with mock_async(gemini):
+        on_gemini = asyncio.run(twinkler_ai.complete(user_message, language_source))
+
+    monkeypatch.setattr(twinkler_ai, "QUESTION_PROVIDER", stage("question"))
+    with mock_async(openai_compat):
+        on_local = asyncio.run(twinkler_ai.complete(user_message, language_source))
+
+    assert on_local == on_gemini == QUESTION_ANSWER
+    assert captured["gemini"] == captured["openai_compat"]
+    assert captured["openai_compat"]["user"] == user_message
+    # The language comes from the person's words, NOT from the assembled
+    # message — which is Russian stage instructions whatever the prayer is.
+    assert captured["openai_compat"]["system"] == build_question_prompt(
+        detect_language(language_source)
+    )
+
+
+def test_the_stage_instructions_do_not_choose_the_language(monkeypatch):
+    """An English prayer must not be answered in Russian by our own wrapper.
+
+    The blocks `build_user_message` assembles are Russian in every language
+    (that is what the client always sent), so the message the model receives
+    is majority-Russian even for an English conversation. Both transports must
+    therefore be told the language separately, and told the same one.
+    """
+    gemini, openai_compat, captured = both_transports(QUESTION_ANSWER)
+    reply = "My mother stopped calling after the wedding."
+    user_message = build_user_message(
+        "Отношения с семьёй",
+        "next",
+        [("assistant", "Что сейчас тревожит тебя больше всего?"), ("user", reply)],
+    )
+    assert detect_language(user_message) == "ru"      # the wrapper, outvoting
+
+    monkeypatch.setattr(twinkler_ai, "GEMINI_API_KEY", "g")
+    monkeypatch.setattr(twinkler_ai, "AI_QUESTION_MODEL", "gemini-test")
+    monkeypatch.setattr(
+        twinkler_ai, "QUESTION_PROVIDER",
+        stage("question", "gemini-test", provider=config.PROVIDER_GEMINI, endpoint=""),
+    )
+    with mock_async(gemini):
+        asyncio.run(twinkler_ai.complete(user_message, reply))
+    monkeypatch.setattr(twinkler_ai, "QUESTION_PROVIDER", stage("question"))
+    with mock_async(openai_compat):
+        asyncio.run(twinkler_ai.complete(user_message, reply))
+
+    assert captured["gemini"] == captured["openai_compat"]
+    assert captured["gemini"]["system"].endswith("Answer in English.")
 
 
 @pytest.mark.parametrize(

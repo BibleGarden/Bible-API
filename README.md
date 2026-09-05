@@ -36,9 +36,24 @@ All endpoints require `X-API-Key` header.
 
 ### AI endpoints
 
-`POST /api/ai/question` accepts `{ "user" }` and calls the configured model.
-The system prompt is applied server-side and the provider key never leaves
-the server:
+`POST /api/ai/question` asks one leading question about a prayer. It accepts
+`{ "topic", "stage", "messages" }` — the topic (may be empty), the stage
+(`first`, `next` or `reflect`) and the conversation so far as
+`{ "role": "assistant" | "user", "text" }` turns — and answers `{ "text" }`.
+The instructions for the stage and the system prompt are built server-side and
+the provider key never leaves the server:
+
+```json
+{"topic": "Отношения с семьёй", "stage": "next",
+ "messages": [{"role": "assistant", "text": "Что сейчас тревожит тебя?"},
+              {"role": "user", "text": "Мне одиноко."}]}
+```
+
+`first` carries no history; a non-empty history ends with a `user` turn;
+`messages: []` is normal for the other two stages. Details:
+`architect/twinkler-ai.md`.
+
+The whole AI surface is configured by environment variables:
 
 ```dotenv
 GEMINI_API_KEY=your-google-ai-studio-key

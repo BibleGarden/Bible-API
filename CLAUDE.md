@@ -62,8 +62,8 @@ system prompt is a code constant now, not an environment value.
 - **`import_data.py`** — Import data from Dashboard-API
 - **`twinkler_ai.py`** — Server-prompted AI integration with in-memory rate limiting: `POST /api/ai/question` (Gemini or an OpenAI-compatible endpoint, per `AI_QUESTION_PROVIDER`) and `POST /api/ai/transcribe` (Gemini only) — see `architect/twinkler-ai.md`
 - **`llm_client.py`** — the OpenAI-compatible chat-completions transport (`ChatClient`, `AsyncChatClient`): payload, `<think>` stripping, answer extraction, and the shared `gemini_retry` budget/retry policy. Prompts and parsers stay in the stage modules, so both transports send the same bytes (ADR 0009)
-- **`question_prompt.py`** — the system prompt of `POST /api/ai/question` as a versioned template (`QUESTION_PROMPT_TEMPLATE`, `build_question_prompt`, `QUESTION_PROMPT_VERSION` — **2** since 2026-09-05, ClickUp 86cbegg3f), the way `query_rewrite`/`passage_rerank` version theirs; moved out of `TWINKLER_SYSTEM_PROMPT` on 2026-08-30. v2 names the answer language in the prompt (resolved by `safety.detect_language`, one placeholder), bans interpreting the person's feelings back at them, and no longer carries the despair sentence — that rule is `safety.py`
-- **`safety.py`** — the despair / self-harm rule of `POST /api/ai/question` in code rather than in the prompt (ru/uk/en dictionary + regex, no model, no network): tier 1 answers the versioned fixed reply (`SAFETY_REPLIES`, `SAFETY_REPLY_VERSION`) without calling the provider, tier 2 replaces a model reply that came back as a question for a weaker despair signal. Reason: Qwen3-30B answered the explicit despair input with a question 3/3 while Gemini obeyed the prompt (ClickUp 86cbegctz/86cbegg23) — see `architect/twinkler-ai.md`, "The despair rule is code"
+- **`question_prompt.py`** — the system prompt of `POST /api/ai/question` as a versioned template (`QUESTION_PROMPT_TEMPLATE`, `build_question_prompt`, `QUESTION_PROMPT_VERSION` — **3** since 2026-09-05, ClickUp 86cbegmzz) plus `build_user_message(topic, stage, messages)`, which assembles the per-stage instructions the mobile app used to build itself (verbatim, Russian in every language, as the client always sent them). Versioned the way `query_rewrite`/`passage_rerank` version theirs; moved out of `TWINKLER_SYSTEM_PROMPT` on 2026-08-30. v2 named the answer language in the prompt (resolved by `safety.detect_language`, one placeholder) and banned interpreting the person's feelings back at them; v3 removed the one sentence about the incoming layout ("the whole conversation so far … never repeat a question you have already asked") — the stage blocks say it structurally — and nothing else
+- **`safety.py`** — the despair / self-harm rule of `POST /api/ai/question` in code rather than in the prompt (ru/uk/en dictionary + regex, no model, no network): tier 1 answers the versioned fixed reply (`SAFETY_REPLIES`, `SAFETY_REPLY_VERSION`) without calling the provider, tier 2 replaces a model reply that came back as a question for a weaker despair signal. Reason: Qwen3-30B answered the explicit despair input with a question 3/3 while Gemini obeyed the prompt (ClickUp 86cbegctz/86cbegg23) — see `architect/twinkler-ai.md`, "The despair rule is code". Since 86cbegmzz tier 1 reads the person's **last reply** (the topic at `stage: first`) and tier 2 the topic plus **every** reply: a phrase that already got the fixed reply must not answer every later question of that prayer with it
 - **`scripture_select.py`** — Public scripture-selection endpoint `POST /api/ai/scripture` over `retrieval.select_final`; owns the process-local corpus cache: vector + BM25 indexes, Psalm maps, catalogue, coverage sets (see `architect/scripture-select.md`, `architect/adr/0006-scripture-select-api.md`, `architect/adr/0007-reference-translation-rendering.md`)
 - **`passage_render.py`** — renders a canonical passage window in a translation that has no chunk corpus (coordinates through `psalm_verse_mappings`, text from `translation_verses` with `chunking.build_text` semantics) and builds the per-translation coverage sets used to filter candidates before the rerank (ADR 0007)
 - **`rate_limit.py`** — Shared in-memory rolling-window limiter (Twinkler + scripture selection)
@@ -881,6 +881,44 @@ drops the despair sentence (that rule is `app/safety.py`). Measured: Qwen's
 language violations 6/81 → 0/81, interpretations 5/81 → 0/81, clean answers
 65/81 → 81/81, and Gemini 75/81 → 81/81 on the same prompt
 (`evaluation/README.md`, "Промпт наводящего вопроса v2").
+
+**`QUESTION_PROMPT_VERSION = 3`, the same day** (ClickUp 86cbegmzz): the
+request became `topic` + `stage` + `messages` and the stage instructions
+became the server's (`build_user_message`), so the prompt lost its one
+sentence about the incoming layout and kept everything else byte for byte.
+Not measured yet — that is the next step; `evaluation/gen_questions.py` builds
+the new request and has a `--dry-run` that prints it without contacting a
+provider.
+
+### `POST /api/ai/question` takes topic + stage + messages (ClickUp 86cbegmzz, 2026-09-05)
+
+`{"topic": "…", "stage": "first|next|reflect", "messages": [{"role":
+"assistant|user", "text": "…"}]}`; the response is unchanged. The old `user`
+string is gone with **no** transitional support (both ends changed at once and
+the app is unpublished), and a body carrying `user` or `last_user_message`
+answers `422` naming the field and what to send instead. Limits mirror the
+client's: topic ≤ 2000, ≤ 40 messages, topic + texts ≤ 16 000. Two shape rules
+are `422` as well: `first` takes no history, and a non-empty history must end
+with a `user` turn. The history may *start* with a `user` turn (the client
+trims the old head whole), and `messages: []` with `next`/`reflect` is normal
+— no answers, or the person forbade sending them.
+
+Three parts of the request are read by three different rules, on purpose: the
+model gets the whole assembled message; **tier 1** of the despair rule gets
+the last `user` turn (the topic at `first`, and *nothing* at `next`/`reflect`
+with no history — the topic is never substituted for a reply, or one phrase
+would answer every later question of that prayer with the fixed reply, which
+is the bug this ticket closed); **tier 2** gets the topic plus every `user`
+turn, and the language detector the last one alone, falling back to the topic,
+then to their earlier replies newest first, then to the last `assistant` turn,
+then to English — a chain walked by *decidability* rather than presence, since
+`detect_language` returns `None` for a line like «Помоги» that does not say
+which language it is and the same person usually said it elsewhere in the same
+request (undetermined on the evaluation set: 9 of 33 → 6). The blocks the server
+assembles are Russian whatever the prayer's language is — that is what the
+client always sent — which is exactly why the language is resolved separately:
+our own wrapper must not outvote an English prayer. Verbatim blocks, the 422
+wordings and the reasoning: `architect/twinkler-ai.md`.
 
 The request statistics store the path verbatim, so `api_requests` and
 `api_request_daily_stats` carry the old names before the rename and the new

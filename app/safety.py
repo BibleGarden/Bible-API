@@ -13,7 +13,13 @@ matters this much cannot be an instruction one provider happens to follow —
 so it lives here, in code, and behaves identically whatever model the
 endpoint is pointed at.
 
-Two tiers, deliberately separate:
+Two tiers, deliberately separate — and, since the request became structured
+(ClickUp 86cbegmzz), reading different parts of it. This module is handed the
+text; the choice is `app/twinkler_ai.py`'s (`safety_input_text`,
+`written_by_the_person`): **tier 1 gets the person's last reply**, tier 2 the
+topic and every reply. That split is what lets a prayer continue after the
+fixed reply has been given once — while the whole conversation was one string,
+tier 1 kept re-firing on a phrase that had already been answered.
 
 **Tier 1 — skip the model.** An explicit statement of not wanting to live, of
 wanting to die, of ending one's own life or of harming oneself
@@ -131,10 +137,12 @@ NO_MATCH = SafetyFinding(matched=False)
 # ---------------------------------------------------------------------------
 # Normalisation
 # ---------------------------------------------------------------------------
-# The message arrives as the whole conversation, one line per turn, typed on a
-# phone keyboard. So a pattern must survive line breaks, casing, the two
-# spellings of `ё`, curly apostrophes and stray invisible characters — none of
-# which change what the person said.
+# The text arrives typed on a phone keyboard, and it may span several lines: a
+# single answer can be a typed line plus two transcriptions joined with
+# newlines, and tier 2 is handed the topic and every reply at once. So a
+# pattern must survive line breaks, casing, the two spellings of `ё`, curly
+# apostrophes and stray invisible characters — none of which change what the
+# person said.
 
 _WHITESPACE_RE = re.compile(r"\s+")
 _APOSTROPHES = str.maketrans({"’": "'", "‘": "'", "ʼ": "'", "`": "'", "´": "'"})

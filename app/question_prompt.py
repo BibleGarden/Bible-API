@@ -16,8 +16,9 @@ Kept in its own module rather than in `twinkler_ai.py` so the prompt can be
 imported (tests, evaluation) without pulling in the FastAPI router, matching
 how `query_rewrite.REWRITE_PROMPT_VERSION` and
 `passage_rerank.RERANK_PROMPT_VERSION` version their prompts. The module
-imports nothing on purpose — the language of the message is *resolved by the
-caller* (`safety.detect_language`) and handed in, so this file stays a
+imports nothing from the application on purpose (one typing alias from the
+standard library, nothing else) — the language of the message is *resolved by
+the caller* (`safety.detect_language`) and handed in, so this file stays a
 dependency-free literal.
 
 **v2 (2026-09-05, ClickUp 86cbegg3f)** — three changes, all of them measured
@@ -64,12 +65,43 @@ rather than guessed (the v1 provider measurement is 86cbegctz):
 not turn the model faceless and monotonously positive). The tone sentence is
 v1's, unchanged; every addition is a *precision* rule — ask about the
 concrete thing — not a softness rule.
+
+**v3 (2026-09-05, ClickUp 86cbegmzz)** — the request became structured
+(`topic` + `stage` + `messages`) and the *stage instructions*, which the
+mobile app used to assemble into its single `user` string, are assembled
+**here** by `build_user_message`. Two consequences:
+
+1. One sentence left the system prompt: "The incoming message may contain the
+   whole conversation so far rather than a single line. Respond to the most
+   recent thing the person said, and never repeat a question you have already
+   asked." The stage blocks say it structurally now — «Уже прозвучали
+   вопросы:» lists what must not be repeated and «Что человек ответил:» is
+   what the answer responds to — and a prompt that describes a layout it no
+   longer receives misleads its next reader. Everything else in v2 is byte for
+   byte unchanged: those rules belong to the person, not to the request shape.
+2. The stage blocks are **Russian whatever language the prayer is in**, which
+   is exactly what the client did before this ticket. Only the person's own
+   words carry the language, and the system prompt names it (see above), so
+   the instruction language was measured never to leak into the answer. This
+   is preserved behaviour, not a new decision; if a measurement ever shows the
+   model drifting into Russian because of it, translating the blocks per
+   language is the change to make — and it is a change, so it needs a version.
+
+The wording of the blocks is the mobile app's own, quoted verbatim from the
+contract confirmed on 2026-09-05 (ClickUp 86cbegmzz, ADR-0019 on the app
+side), down to the em-dash bullets and the word «тёплый» in `reflect`. It is
+*previous behaviour being moved*, not a new prompt: keeping it identical is
+what makes the v2 → v3 comparison meaningful.
 """
+
+from collections.abc import Sequence
 
 # Bump on any change of the wording. v1 is the text that ran in production
 # as TWINKLER_SYSTEM_PROMPT up to 2026-08-30, carried over unchanged; v2 is
-# the language/interpretation revision of 2026-09-05 described above.
-QUESTION_PROMPT_VERSION = 2
+# the language/interpretation revision of 2026-09-05 described above; v3 is
+# the structured request of the same day — the layout sentence removed from
+# the system prompt, the stage blocks assembled by `build_user_message`.
+QUESTION_PROMPT_VERSION = 3
 
 # `safety.detect_language` returns `ru`, `uk`, `en` — or `None` for a message
 # that does not say (a bare Cyrillic "Помоги" carries none of the four letters
@@ -115,10 +147,7 @@ QUESTION_PROMPT_TEMPLATE = (
     "subordinate clauses. Your grammar must be flawless in whatever "
     "language you write. In inflected languages such as Russian and "
     "Ukrainian, watch case endings and preposition agreement especially "
-    "closely when you compress a sentence to fit the line. The incoming "
-    "message may contain the whole conversation so far rather than a "
-    "single line. Respond to the most recent thing the person said, and "
-    "never repeat a question you have already asked. Never speak as God "
+    "closely when you compress a sentence to fit the line. Never speak as God "
     "or claim to deliver a verdict on God behalf, never suggest that "
     "someone's pain is a punishment, and give no medical, legal or "
     "financial advice. Answer in {language}."
@@ -137,3 +166,117 @@ def build_question_prompt(language: str | None) -> str:
     return QUESTION_PROMPT_TEMPLATE.format(
         language=LANGUAGE_NAMES.get(language or "", UNDETERMINED_LANGUAGE)
     )
+
+
+# ---------------------------------------------------------------------------
+# The user message: stage instructions, assembled server-side since v3
+# ---------------------------------------------------------------------------
+# Verbatim the blocks the mobile app used to build itself and put into the old
+# `user` field (ClickUp 86cbegmzz, confirmed 2026-09-05). Every string below is
+# quoted, not paraphrased: this is previous behaviour moving across the wire
+# boundary, and a reworded instruction would silently change what a measurement
+# of v2 vs v3 is comparing. Russian on purpose whatever the prayer's language
+# — see the module docstring.
+
+STAGES = ("first", "next", "reflect")
+
+FIRST_TOPIC_BLOCK = "Человек начинает молитву. Его цель: «{topic}».\n"
+FIRST_NO_TOPIC_BLOCK = "Человек начинает молитву без конкретной темы.\n"
+FIRST_INSTRUCTION = (
+    "Задай первый наводящий вопрос — про то, что сейчас происходит и что он "
+    "чувствует. Не пересказывай цель дословно. Ответь только текстом вопроса, "
+    "без кавычек и пояснений."
+)
+
+NEXT_TOPIC_BLOCK = "Цель молитвы: «{topic}».\n"
+NEXT_NO_TOPIC_BLOCK = "Молитва без конкретной темы.\n"
+ASKED_HEADER = "Уже прозвучали вопросы:\n"
+ANSWERED_HEADER = (
+    "Что человек ответил (опирайся на это, но не цитируй дословно):\n"
+)
+NEXT_INSTRUCTION = (
+    "Задай один новый вопрос, который смотрит на ситуацию с другой стороны и "
+    "не повторяет прозвучавшие. Ответь только текстом вопроса, без кавычек и "
+    "пояснений."
+)
+
+REFLECT_OPENING = "Молитва закончилась, человек готов записать один вывод.\n"
+REFLECT_TOPIC_BLOCK = "Цель была: «{topic}».\n"
+REFLECT_ANSWERS_HEADER = "Его ответы во время молитвы:\n"
+REFLECT_SILENT_BLOCK = "Он молился молча, письменных ответов нет.\n"
+REFLECT_INSTRUCTION = (
+    "Задай один тёплый итоговый вопрос, который поможет ему назвать главное "
+    "из этой молитвы. Не цитируй его ответы дословно. Ответь только текстом "
+    "вопроса."
+)
+
+ROLE_ASSISTANT = "assistant"
+ROLE_USER = "user"
+
+
+def _bullets(texts: Sequence[str]) -> str:
+    """One `— text` line per turn.
+
+    A turn may itself be multi-line: since this ticket the client joins the
+    typed text and every transcription of ONE answer with `\\n` before sending
+    it, so a bullet spanning several lines is the normal shape of one answer
+    and is deliberately not re-split.
+    """
+    return "".join(f"— {text}\n" for text in texts)
+
+
+def build_user_message(
+    topic: str, stage: str, messages: Sequence[tuple[str, str]]
+) -> str:
+    """The user content of one `POST /api/ai/question` call.
+
+    A pure function of the request: `topic` (may be empty), `stage` (one of
+    `STAGES`) and `messages` as `(role, text)` pairs in chronological order.
+    Pairs rather than the request model on purpose — this module imports
+    nothing from the application (see the docstring), which is what lets the
+    evaluation tools build the very same bytes without a FastAPI import.
+
+    Whitespace-only turns are dropped and every turn is stripped: the client
+    never sends one, and a stray blank would otherwise become an empty bullet
+    in the middle of a list. The topic is stripped for the same reason.
+    """
+    if stage not in STAGES:
+        raise ValueError(f"unknown stage: {stage!r}")
+
+    topic = topic.strip()
+    assistant_texts = [
+        text.strip()
+        for role, text in messages
+        if role == ROLE_ASSISTANT and text.strip()
+    ]
+    user_texts = [
+        text.strip() for role, text in messages if role == ROLE_USER and text.strip()
+    ]
+
+    if stage == "first":
+        opening = (
+            FIRST_TOPIC_BLOCK.format(topic=topic) if topic else FIRST_NO_TOPIC_BLOCK
+        )
+        return opening + FIRST_INSTRUCTION
+
+    if stage == "next":
+        parts = [
+            NEXT_TOPIC_BLOCK.format(topic=topic) if topic else NEXT_NO_TOPIC_BLOCK
+        ]
+        if assistant_texts:
+            parts.append(ASKED_HEADER + _bullets(assistant_texts))
+        if user_texts:
+            parts.append(ANSWERED_HEADER + _bullets(user_texts))
+        parts.append(NEXT_INSTRUCTION)
+        return "".join(parts)
+
+    parts = [REFLECT_OPENING]
+    if topic:
+        parts.append(REFLECT_TOPIC_BLOCK.format(topic=topic))
+    parts.append(
+        REFLECT_ANSWERS_HEADER + _bullets(user_texts)
+        if user_texts
+        else REFLECT_SILENT_BLOCK
+    )
+    parts.append(REFLECT_INSTRUCTION)
+    return "".join(parts)

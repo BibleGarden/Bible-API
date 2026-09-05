@@ -1,11 +1,11 @@
 import base64
 import logging
 import re
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from auth import RequireAPIKey
 from client_ip import resolve_client_ip
@@ -19,9 +19,11 @@ from config import (
     QUESTION_PROVIDER,
 )
 from llm_client import AsyncChatClient, LLMError
-from question_prompt import build_question_prompt
+from question_prompt import build_question_prompt, build_user_message
 from rate_limit import RateLimiter, RateLimitError
 from safety import (
+    DEFAULT_LANGUAGE,
+    NO_MATCH,
     SAFETY_REPLY_VERSION,
     check_input,
     check_reply,
@@ -49,14 +51,121 @@ _request_times = _limiter.request_times
 _client_request_times = _limiter.client_request_times
 
 
-class CompleteRequest(BaseModel):
+# The client's own limits, mirrored so a request it would not have sent is
+# refused here too (ClickUp 86cbegmzz, ADR-0019 on the app side). 16 000 is
+# counted in UTF-16 units there and in code points here: the two agree for
+# everything but astral characters (emoji), where this bound is the looser of
+# the two — deliberately, since the tighter side is the one that decides what
+# is ever sent.
+MAX_TOPIC_LENGTH = 2000
+MAX_MESSAGES = 40
+MAX_TOTAL_LENGTH = 16000
+_LEGACY_FIELDS = ("user", "last_user_message")
+
+
+class QuestionMessage(BaseModel):
+    """One turn of the prayer conversation."""
+
     model_config = ConfigDict(extra="forbid")
 
-    user: str = Field(
-        min_length=1,
-        max_length=16000,
-        description="User message to answer",
+    role: Literal["assistant", "user"] = Field(
+        description=(
+            "Who said it: `assistant` is a question the companion asked, "
+            "`user` is the person's own answer"
+        ),
     )
+    text: str = Field(
+        min_length=1,
+        max_length=MAX_TOTAL_LENGTH,
+        description=(
+            "The turn verbatim. One answer may be several lines: the client "
+            "joins the typed text and every transcription of the same turn "
+            "with newlines before sending them as one `user` element"
+        ),
+    )
+
+
+class CompleteRequest(BaseModel):
+    """The structured request of `POST /api/ai/question` (ClickUp 86cbegmzz).
+
+    Replaced the single `user` string on 2026-09-05: the client used to
+    assemble the stage instructions itself, so the server could not tell the
+    person's own words from the wrapper around them — and the despair rule and
+    the language detector both need exactly that distinction. There is no
+    transitional support for the old field; both ends changed at once, the app
+    is unpublished, and a request carrying `user` is answered with a 422 that
+    says so.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    topic: str = Field(
+        max_length=MAX_TOPIC_LENGTH,
+        description="What the person is praying about; empty when they named nothing",
+    )
+    stage: Literal["first", "next", "reflect"] = Field(
+        description=(
+            "`first` — the opening question (always with an empty history), "
+            "`next` — the following question given the conversation so far, "
+            "`reflect` — the closing question that helps name one takeaway"
+        ),
+    )
+    messages: list[QuestionMessage] = Field(
+        max_length=MAX_MESSAGES,
+        description=(
+            "The conversation so far, chronologically: skipped questions and "
+            "empty answers are omitted, so it may start with a `user` turn "
+            "(an over-long history is trimmed from the front) and it must end "
+            "with one. Empty for `first`, and normal for the other two stages "
+            "when the person answered nothing or forbade sending the answers"
+        ),
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _name_the_removed_field(cls, data: Any) -> Any:
+        """A helpful 422 for the pre-86cbegmzz body, not a bare "extra input"."""
+        if isinstance(data, dict):
+            for field in _LEGACY_FIELDS:
+                if field in data:
+                    raise ValueError(
+                        f"the '{field}' field was removed on 2026-09-05: send "
+                        "topic (may be empty), stage (first|next|reflect) and "
+                        "messages ([{role: assistant|user, text}], empty for "
+                        "first) instead"
+                    )
+        return data
+
+    @model_validator(mode="after")
+    def _check_history_matches_the_stage(self) -> "CompleteRequest":
+        if self.stage == "first" and self.messages:
+            raise ValueError(
+                "stage 'first' is the opening question and takes no history: "
+                "send messages: [] (use stage 'next' to continue a conversation)"
+            )
+        if self.messages and self.messages[-1].role != "user":
+            raise ValueError(
+                "a non-empty history must end with a 'user' turn: the question "
+                "is asked about what the person said last"
+            )
+        total = len(self.topic) + sum(len(message.text) for message in self.messages)
+        if total > MAX_TOTAL_LENGTH:
+            raise ValueError(
+                f"topic and messages together must not exceed "
+                f"{MAX_TOTAL_LENGTH} characters (got {total})"
+            )
+        return self
+
+    def turns(self) -> list[tuple[str, str]]:
+        """`(role, text)` pairs — what `question_prompt.build_user_message` takes."""
+        return [(message.role, message.text) for message in self.messages]
+
+    def last_text(self, role: str) -> str | None:
+        """The most recent turn of `role`, or `None` when there is none."""
+        for message in reversed(self.messages):
+            if message.role == role:
+                return message.text
+        return None
 
 
 class CompleteResponse(BaseModel):
@@ -83,14 +192,123 @@ def question_prompt_for(text: str) -> str:
 
     One seam, on purpose: the prompt needs a *language*, and the language
     comes from whatever text the caller considers the person's own words.
-    Today `POST /api/ai/question` takes a single `user` field carrying the
-    whole conversation, so that whole string is what is passed. When the
-    request becomes structured (topic + stage + messages, ClickUp 86cbegmzz)
-    the caller passes the last user message here instead and nothing else
-    changes — the detector is a pure function of the text it is given, and
-    `build_question_prompt` never sees the request shape at all.
+    Since the request became structured (ClickUp 86cbegmzz) that text is the
+    **last `user` turn**, chosen by `language_source`; this function stays a
+    pure function of the string it is handed and `build_question_prompt` never
+    sees the request shape at all.
+
+    An **empty** text is the one case the detector cannot speak for: its
+    `None` means "this message does not say which language it is", and the
+    prompt turns that into v1's "answer in exactly the language of the
+    person's message" — a sentence that points at nothing when there is no
+    message (a `next`/`reflect` request with an empty topic and no history:
+    legal, and asking for a generic question of that stage). English is the
+    documented default there, the same one `safety.safety_reply` falls back
+    to, so it is named rather than left to the model.
     """
+    if not text.strip():
+        return build_question_prompt(DEFAULT_LANGUAGE)
     return build_question_prompt(detect_language(text))
+
+
+def person_language_candidates(request: CompleteRequest) -> list[str]:
+    """Everything the person wrote, best evidence for the language first.
+
+    The last `user` turn, then the topic, then their earlier replies newest
+    first. Only their own words: an assistant question already in the
+    conversation is *our* text and must never vote (an English answer to a
+    Russian question is a language switch the person made, and the prompt
+    honours it). Blank texts are dropped, so the list is empty exactly when
+    the person contributed nothing.
+    """
+    replies = [
+        message.text for message in request.messages if message.role == "user"
+    ]
+    ordered = (
+        replies[-1:] + [request.topic] + list(reversed(replies[:-1]))
+    )
+    return [text for text in ordered if text.strip()]
+
+
+def language_source(request: CompleteRequest) -> str:
+    """The text whose language the answer must be written in.
+
+    The candidates above are walked by **decidability**, not merely by
+    presence (ClickUp 86cbegmzz, review of this ticket). `detect_language`
+    answers `None` for a message that does not say — a short Cyrillic line
+    carrying none of the four letters and none of the function words that
+    separate Russian from Ukrainian, «Помоги» being the canonical one — and
+    stopping at the first *non-empty* candidate threw away evidence the same
+    person had already written in the same request. The prompt then got v2's
+    "answer in exactly the language of the person's message", the wording v2
+    exists to avoid: Qwen3-30B broke it in 6 answers out of 81. Measured on
+    the evaluation set (`evaluation/gen_questions.py --dry-run`): 9 of 33
+    inputs undetermined before, **6** after, and the topic alone recovered
+    none of them — the evidence for `ru-001`/`ru-002`/`ru-005` is in an
+    earlier reply, which is why the walk does not stop at the topic.
+
+    When no candidate is decidable the newest one is returned anyway, so the
+    prompt still gets that honest "the detector has no evidence" sentence
+    rather than a guess. Only when the person wrote nothing at all does the
+    last `assistant` question answer — it is at least the language the
+    conversation has been happening in — and an empty string, meaning English,
+    when there is not even that.
+
+    Still one *text*, not a language: `question_prompt_for` stays a pure
+    function of the string it is handed, both transports are handed the same
+    one, and `evaluation/gen_questions.py` mirrors this selection (pinned
+    against it by `tests/test_gen_questions.py`).
+    """
+    candidates = person_language_candidates(request)
+    for text in candidates:
+        if detect_language(text) is not None:
+            return text
+    if candidates:
+        return candidates[0]
+    return request.last_text("assistant") or ""
+
+
+def safety_input_text(request: CompleteRequest) -> str | None:
+    """What tier 1 of the despair rule reads, or `None` when there is nothing.
+
+    The person's **last reply**, which is the whole point of the structured
+    request: a despair phrase two turns back has already been answered by the
+    fixed reply, and re-answering it forever would end the conversation the
+    first time it happened (the bug that opened this ticket). An older reply
+    is still read by tier 2, which sees the assembled message.
+
+    For `first` there is no reply yet and the topic is what the person typed,
+    so the topic is checked. For `next`/`reflect` with an empty history there
+    is no reply either — and the topic is deliberately **not** substituted:
+    the person said nothing new, so nothing new can be found in it, and using
+    the topic there would fire the fixed reply on every question of a prayer
+    whose topic once carried the phrase.
+    """
+    last_user = request.last_text("user")
+    if last_user is not None:
+        return last_user
+    if request.stage == "first":
+        return request.topic
+    return None
+
+
+def written_by_the_person(request: CompleteRequest) -> str:
+    """Everything in the request the person wrote, oldest first.
+
+    What tier 2 reads: the topic and **every** reply, so a despair signal two
+    turns back still refuses a question-shaped answer even though tier 1 no
+    longer answers it. The assembled message would have done as well for the
+    *matching* — it contains the same words — but not for the *language*: it
+    is mostly Russian stage instructions whatever language the prayer is in
+    (see `question_prompt.build_user_message`), and `safety.check_reply`
+    resolves the language of the fixed reply from the text it is given. An
+    English prayer must not be answered in Russian because our own wrapper
+    outvoted it.
+    """
+    parts = [request.topic] + [
+        message.text for message in request.messages if message.role == "user"
+    ]
+    return "\n".join(part for part in parts if part.strip())
 
 
 def _reserve_rate_limit(client_key: str) -> None:
@@ -165,8 +383,16 @@ async def _complete_openai_compat(user: str, prompt: str) -> str:
     return text
 
 
-async def complete(user: str) -> str:
+async def complete(user: str, language_source_text: str | None = None) -> str:
     """Answer one user message, or raise AIError (the caller's 502).
+
+    `user` is the message sent to the model — since ClickUp 86cbegmzz the
+    text `question_prompt.build_user_message` assembled from the request.
+    `language_source_text` is the text whose language the prompt names; it is
+    a *different* string now, because the assembled message is mostly Russian
+    stage instructions whatever language the person prays in. `None` means
+    "the message itself", which is what a single-string caller (the parity
+    tests, a one-off script) means by it.
 
     "AI is not configured" is decided by exactly two variables since
     2026-08-30, and the prompt is no longer one of them:
@@ -191,7 +417,9 @@ async def complete(user: str) -> str:
     whichever transport answers, so the two providers keep sending identical
     bytes.
     """
-    prompt = question_prompt_for(user)
+    prompt = question_prompt_for(
+        user if language_source_text is None else language_source_text
+    )
     if QUESTION_PROVIDER.is_openai_compat:
         return await _complete_openai_compat(user, prompt)
     if not GEMINI_API_KEY:
@@ -327,10 +555,15 @@ async def transcribe(audio: bytes, mime_type: str, locale: str | None) -> str:
     tags=["AI"],
     summary="Generate an AI companion response",
     description=(
-        "Sends the user message to the server-configured AI model with a "
-        "server-side system prompt. The provider API key is never exposed to "
-        "the client. A message showing despair or self-harm is answered with "
-        "a fixed supportive text in the same language and no model is called."
+        "Asks one leading question about the prayer described by `topic`, "
+        "`stage` and the conversation so far. The instructions for the stage "
+        "and the system prompt are built on the server and the provider API "
+        "key is never exposed to the client. The person's last reply is what "
+        "the question is asked about: a reply showing despair or self-harm is "
+        "answered with a fixed supportive text in the same language and no "
+        "model is called. `422` also covers the two shape rules: `first` "
+        "takes no history, and a non-empty history must end with a `user` "
+        "turn."
     ),
     responses={
         403: {"model": ErrorResponse, "description": "Invalid or missing API key"},
@@ -367,36 +600,47 @@ async def twinkler_complete(
     # follow (app/safety.py, ClickUp 86cbegg23). Tier 1 answers here and the
     # model is never called; the reservation above is deliberately kept — the
     # client got a reply, and the quota must not depend on what was in it.
-    finding = check_input(request.user)
+    # It reads the LAST reply only (`safety_input_text`): before this ticket
+    # it read the whole conversation, so one despair phrase turned every
+    # further question of that prayer into the fixed reply.
+    checked = safety_input_text(request)
+    finding = check_input(checked) if checked is not None else NO_MATCH
     if finding.matched:
         logger.warning(
             "Safety rule fired on the request: tier=%d pattern=%s language=%s "
-            "reply_version=%d",
+            "reply_version=%d stage=%s",
             finding.tier,
             finding.pattern_id,
             finding.language,
             SAFETY_REPLY_VERSION,
+            request.stage,
         )
         return CompleteResponse(text=safety_reply(finding.language))
 
+    user_message = build_user_message(
+        request.topic, request.stage, request.turns()
+    )
     try:
-        text = await complete(request.user)
+        text = await complete(user_message, language_source(request))
     except GeminiError as error:
         # Log the failure category, but never the prayer text or provider key.
         logger.warning("Twinkler AI request failed: %s", error)
         raise HTTPException(status_code=502, detail="AI service unavailable") from error
 
-    # Tier 2: the message carried a weaker despair signal and the model
-    # answered it with a question anyway. Replace the answer, keep the fact.
-    guard = check_reply(request.user, text)
+    # Tier 2: the conversation carried a weaker despair signal — or an
+    # explicit one in an OLDER reply, which tier 1 no longer answers — and the
+    # model asked a question anyway. Replace the answer, keep the fact. Every
+    # reply of the prayer is read here, not only the last one.
+    guard = check_reply(written_by_the_person(request), text)
     if guard.matched:
         logger.warning(
             "Safety rule fired on the model reply: tier=%d pattern=%s "
-            "language=%s reply_version=%d",
+            "language=%s reply_version=%d stage=%s",
             guard.tier,
             guard.pattern_id,
             guard.language,
             SAFETY_REPLY_VERSION,
+            request.stage,
         )
         text = safety_reply(guard.language)
     return CompleteResponse(text=text)

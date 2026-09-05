@@ -21,6 +21,13 @@ Tier 2 is held to the same standard for a reason that is easy to miss: it can
 only fire on a reply that contains a question mark, and on this endpoint every
 ordinary reply does (the prompt demands one). So a tier-2 pattern matching an
 ordinary message would replace *every* answer to it.
+
+Since the request became structured (ClickUp 86cbegmzz) the two tiers read
+different parts of it — tier 1 the person's last reply, tier 2 the topic and
+all of them — so the probe file is swept through both views
+(`probe_inputs` / `probe_conversations`). `probe-next-despair-older` is the
+case that separates them: an explicit phrase two turns back, silent for
+tier 1 (it was already answered when it was sent) and loud for tier 2.
 """
 
 import hashlib
@@ -44,10 +51,13 @@ A_QUESTION = "Что ты чувствуешь прямо сейчас?"
 
 
 def scenario_inputs() -> dict[str, str]:
-    """The scenarios as `/api/ai/question` receives them.
+    """The scenarios as one text: the topic and every reply, newline-joined.
 
-    Topic and replies joined by newlines — the string `evaluation/
-    gen_questions.py` builds and the app sends ("the whole conversation").
+    That is what **tier 2** reads of a request built from a scenario
+    (`twinkler_ai.written_by_the_person`). The sweeps below run tier 1 over it
+    as well, which is stricter than the endpoint — tier 1 sees only the last
+    reply since ClickUp 86cbegmzz — and stricter is the right side to be on
+    for a corpus that must raise nothing at all.
     """
     payload = json.loads(SCENARIOS.read_text(encoding="utf-8"))
     inputs = {}
@@ -59,9 +69,44 @@ def scenario_inputs() -> dict[str, str]:
     return inputs
 
 
+def probe_requests() -> list[dict]:
+    return json.loads(PROBES.read_text(encoding="utf-8"))["inputs"]
+
+
 def probe_inputs() -> dict[str, str]:
-    payload = json.loads(PROBES.read_text(encoding="utf-8"))
-    return {probe["id"]: probe["text"] for probe in payload["inputs"]}
+    """What **tier 1** reads for each probe (ClickUp 86cbegmzz).
+
+    The person's last reply — or the topic when the request is `first`, which
+    is the only stage where the topic is the newest thing they wrote. A
+    `next`/`reflect` request with no history gives tier 1 nothing to read, and
+    the empty string is exactly that.
+    """
+    inputs = {}
+    for probe in probe_requests():
+        replies = [
+            message["text"]
+            for message in probe["messages"]
+            if message["role"] == "user"
+        ]
+        inputs[probe["id"]] = (
+            replies[-1]
+            if replies
+            else (probe["topic"] if probe["stage"] == "first" else "")
+        )
+    return inputs
+
+
+def probe_conversations() -> dict[str, str]:
+    """What **tier 2** reads: the topic and every reply of the probe."""
+    conversations = {}
+    for probe in probe_requests():
+        parts = [probe["topic"]] + [
+            message["text"]
+            for message in probe["messages"]
+            if message["role"] == "user"
+        ]
+        conversations[probe["id"]] = "\n".join(p for p in parts if p.strip())
+    return conversations
 
 
 def despair_samples() -> list[dict]:
@@ -141,10 +186,38 @@ def test_no_approved_scenario_loses_its_answer(scenario_id):
     sorted(set(probe_inputs()) - {"probe-despair"}),
 )
 def test_no_probe_input_but_the_despair_one_fires(probe_id):
-    text = probe_inputs()[probe_id]
+    """Tier 1 reads the last reply, so an older despair phrase is silent here.
 
-    assert not safety.check_input(text).matched
-    assert not safety.check_reply(text, A_QUESTION).matched
+    `probe-next-despair-older` carries the explicit phrase two turns back and
+    is deliberately in this list: it was answered with the fixed reply when it
+    was sent, and answering it again forever is the bug this ticket closes
+    (ClickUp 86cbegmzz). Tier 2 still sees it — the test below.
+    """
+    assert not safety.check_input(probe_inputs()[probe_id]).matched
+
+
+@pytest.mark.parametrize(
+    "probe_id",
+    sorted(set(probe_conversations()) - {"probe-despair", "probe-next-despair-older"}),
+)
+def test_no_probe_conversation_loses_its_answer(probe_id):
+    assert not safety.check_reply(probe_conversations()[probe_id], A_QUESTION).matched
+
+
+def test_an_older_despair_reply_still_refuses_a_question():
+    """The other half of the split: tier 1 lets the model answer, tier 2 does
+    not let that answer be a question."""
+    conversation = probe_conversations()["probe-next-despair-older"]
+
+    assert not safety.check_input(probe_inputs()["probe-next-despair-older"]).matched
+    finding = safety.check_reply(conversation, A_QUESTION)
+    assert finding.matched
+    assert finding.pattern_id == "ru.no-wish-to-live"
+    assert finding.language == "ru"
+    # A reply that already dropped the question format is kept as it is.
+    assert not safety.check_reply(
+        conversation, "Ты не один в этом, и хорошо, что ты позвонила сестре."
+    ).matched
 
 
 def test_en_005_is_tier_two_and_only_against_a_question():

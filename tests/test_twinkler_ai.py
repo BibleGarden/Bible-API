@@ -33,13 +33,31 @@ real_reserve_rate_limit = twinkler_ai._reserve_rate_limit
 EVALUATION = Path(__file__).resolve().parent.parent / "evaluation"
 
 
-def _probe_text(probe_id: str) -> str:
+def _probe_topic(probe_id: str) -> str:
+    """The topic of a `first`-stage probe — its whole text, in this schema."""
     payload = json.loads(
         (EVALUATION / "question_probe_inputs.json").read_text(encoding="utf-8")
     )
-    return next(
-        probe["text"] for probe in payload["inputs"] if probe["id"] == probe_id
+    probe = next(
+        probe for probe in payload["inputs"] if probe["id"] == probe_id
     )
+    assert probe["stage"] == "first" and not probe["messages"]
+    return probe["topic"]
+
+
+def question_body(
+    topic: str = "", stage: str = "first", messages: tuple = ()
+) -> dict:
+    """One request body of the structured contract (ClickUp 86cbegmzz).
+
+    `messages` is given as `(role, text)` pairs for readability; the wire
+    format is the list of objects this builds.
+    """
+    return {
+        "topic": topic,
+        "stage": stage,
+        "messages": [{"role": role, "text": text} for role, text in messages],
+    }
 
 
 @pytest.fixture(autouse=True)
@@ -72,19 +90,40 @@ def test_question_prompt_is_a_usable_constant():
     # Pins the wording itself, not just its shape: if this fails, the
     # prompt text changed. Update the hash/len together with a bump of
     # QUESTION_PROMPT_VERSION (app/question_prompt.py says why).
-    assert len(template) == 2335
+    assert len(template) == 2143
     assert (
         hashlib.sha256(template.encode("utf-8")).hexdigest()
-        == "3858a569ff894e7dfe89290115c0a8a1496e8b11179c5aff543de8cf9dd2010f"
+        == "7b860999e1ce7df3a349a585b9791e5e5f587c473596012dd38016ed365f6a45"
     )
 
 
 def test_question_prompt_is_versioned():
     version = question_prompt.QUESTION_PROMPT_VERSION
     assert isinstance(version, int) and version >= 1
-    # v2 = the language/interpretation revision of 2026-09-05 (86cbegg3f);
-    # bumped together with the hash above.
-    assert version == 2
+    # v3 = the structured request of 2026-09-05 (86cbegmzz), which took the
+    # layout sentence out of the prompt; bumped with the hash above.
+    assert version == 3
+
+
+def test_v3_dropped_only_the_sentence_about_the_layout():
+    """The one v2 rule the stage blocks replace, and nothing else.
+
+    `question_prompt.build_user_message` now lists the questions already asked
+    and the answers given, so the prompt no longer describes an incoming
+    "whole conversation" it never receives (ClickUp 86cbegmzz). Every other
+    rule of v2 is about the person, not the request shape, and stays.
+    """
+    template = question_prompt.QUESTION_PROMPT_TEMPLATE
+
+    assert "the whole conversation so far" not in template
+    assert "never repeat a question you have already asked" not in template
+    assert "Respond to the most recent thing the person said" not in template
+    # The neighbouring sentences are untouched, so the removal is a deletion
+    # and not a rewrite.
+    assert (
+        "closely when you compress a sentence to fit the line. Never speak as "
+        "God" in template
+    )
 
 
 # --- the prompt names the language of the message (ClickUp 86cbegg3f) -----
@@ -159,11 +198,11 @@ def test_the_prompt_bans_interpreting_and_rhetorical_questions():
 
 
 def test_the_prompt_is_built_from_whatever_text_it_is_given():
-    """The seam the structured request will move (ClickUp 86cbegmzz).
+    """The seam the structured request moved (ClickUp 86cbegmzz).
 
-    `question_prompt_for` is a pure function of the text handed to it, so the
-    follow-up that replaces the single `user` string with topic + stage +
-    messages passes the LAST user message here and nothing else changes.
+    `question_prompt_for` stayed a pure function of the text handed to it;
+    what changed is who chooses that text — `language_source` now hands it the
+    LAST user message instead of the whole `user` string.
     """
     conversation = (
         "I have been praying about my father.\n"
@@ -269,9 +308,18 @@ def test_extracts_text_parts():
 def test_requires_api_key():
     response = client.post(
         "/api/ai/question",
-        json={"user": "Запрос"},
+        json=question_body(topic="Запрос"),
     )
     assert response.status_code == 403
+
+
+# --- the structured request (ClickUp 86cbegmzz) ---------------------------
+#
+# The single `user` string became topic + stage + messages on 2026-09-05, and
+# the server assembles the stage instructions the app used to build itself.
+# The assembly itself is tested in tests/test_question_prompt.py; what is
+# pinned here is what the endpoint does with it — which text the model gets,
+# which text the language comes from, and which text each safety tier reads.
 
 
 def test_returns_generated_text(monkeypatch):
@@ -281,12 +329,206 @@ def test_returns_generated_text(monkeypatch):
     response = client.post(
         "/api/ai/question",
         headers={"X-API-Key": "test-api-key"},
-        json={"user": "Запрос"},
+        json=question_body(topic="Запрос"),
     )
 
     assert response.status_code == 200
     assert response.json() == {"text": "Ответ"}
-    generated.assert_awaited_once_with("Запрос")
+    generated.assert_awaited_once_with(
+        question_prompt.build_user_message("Запрос", "first", []), "Запрос"
+    )
+
+
+@pytest.mark.parametrize(
+    ("body", "expected_language_source"),
+    [
+        (question_body(topic="Умерла мама"), "Умерла мама"),
+        (
+            question_body(
+                topic="Отношения с семьёй",
+                stage="next",
+                messages=(
+                    ("assistant", "Что сейчас тревожит тебя?"),
+                    ("user", "Мне одиноко.\nХочу восстановить общение."),
+                ),
+            ),
+            "Мне одиноко.\nХочу восстановить общение.",
+        ),
+        # No topic, no history: legal for next/reflect, and there is nothing
+        # to detect a language from at all.
+        (question_body(stage="next"), ""),
+        (
+            question_body(
+                topic="Прошу сил",
+                stage="reflect",
+                messages=(("user", "Сегодня было легче, чем вчера."),),
+            ),
+            "Сегодня было легче, чем вчера.",
+        ),
+    ],
+)
+def test_the_model_gets_the_assembled_message_and_the_language_of_the_person(
+    monkeypatch, body, expected_language_source
+):
+    generated = AsyncMock(return_value="Ответ")
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+
+    response = client.post(
+        "/api/ai/question",
+        headers={"X-API-Key": "test-api-key"},
+        json=body,
+    )
+
+    assert response.status_code == 200
+    expected_message = question_prompt.build_user_message(
+        body["topic"],
+        body["stage"],
+        [(message["role"], message["text"]) for message in body["messages"]],
+    )
+    generated.assert_awaited_once_with(expected_message, expected_language_source)
+
+
+def test_the_language_follows_the_last_reply_not_the_question_it_answers(
+    monkeypatch,
+):
+    """An assistant question is OUR text and must not vote on their language.
+
+    The app asks in the language of the prayer; a person who answers in
+    another one has switched, and prompt v2's rule is to follow them.
+    """
+    sent = {}
+
+    async def fake_complete(user, language_source_text=None):
+        sent["prompt"] = twinkler_ai.question_prompt_for(language_source_text)
+        return "Answer"
+
+    monkeypatch.setattr(twinkler_ai, "complete", fake_complete)
+
+    response = client.post(
+        "/api/ai/question",
+        headers={"X-API-Key": "test-api-key"},
+        json=question_body(
+            topic="Отношения с семьёй",
+            stage="next",
+            messages=(
+                ("assistant", "Что сейчас тревожит тебя больше всего?"),
+                ("user", "My mother stopped calling after the wedding."),
+            ),
+        ),
+    )
+
+    assert response.status_code == 200
+    assert sent["prompt"].endswith("Answer in English.")
+
+
+def test_without_any_words_of_the_person_the_prompt_names_english(monkeypatch):
+    """`next`/`reflect`, empty topic, empty history — the documented fallback.
+
+    Not `UNDETERMINED_LANGUAGE`: "answer in exactly the language of the
+    person's message" points at nothing when there is no message.
+    """
+    assert twinkler_ai.question_prompt_for("").endswith("Answer in English.")
+    assert twinkler_ai.language_source(
+        twinkler_ai.CompleteRequest(topic="", stage="reflect", messages=[])
+    ) == ""
+
+
+def test_the_language_falls_back_to_the_assistant_turn_last():
+    """Only when the person wrote nothing at all: no topic, no reply of theirs.
+
+    Unreachable through HTTP — a non-empty history must end with a `user`
+    turn, so a request that has any message has a reply of the person's in it
+    — hence `model_construct`, which skips the validators. `language_source`
+    is kept total anyway: it is the ordering the contract names, and a partial
+    function here would fail at the one moment it is asked something new.
+    """
+    request = twinkler_ai.CompleteRequest.model_construct(
+        topic="",
+        stage="reflect",
+        messages=[
+            twinkler_ai.QuestionMessage(role="assistant", text="Що зараз найважче?")
+        ],
+    )
+
+    assert twinkler_ai.language_source(request) == "Що зараз найважче?"
+    assert twinkler_ai.question_prompt_for(
+        twinkler_ai.language_source(request)
+    ).endswith("Answer in Ukrainian.")
+
+
+# --- the language chain is walked by decidability (86cbegmzz, review) -----
+#
+# `detect_language` answers `None` for a message that does not say — a short
+# Cyrillic line with none of the four letters and none of the function words
+# that separate Russian from Ukrainian. Stopping at the first *non-empty*
+# candidate handed the prompt v2's "answer in exactly the language of the
+# person's message" for those, which is the sentence v2 exists to avoid (Qwen
+# broke it 6/81). So the walk continues to the next thing the SAME PERSON
+# wrote. Measured on the evaluation set: 9 of 33 inputs undetermined before,
+# 6 after.
+
+
+def _prompt_language_of(**body) -> str:
+    request = twinkler_ai.CompleteRequest(**body)
+    return twinkler_ai.question_prompt_for(twinkler_ai.language_source(request))
+
+
+def test_an_undecidable_reply_lets_the_topic_name_the_language():
+    """«Помоги» says nothing; the goal the same person typed does."""
+    assert _prompt_language_of(
+        topic="Что делать с обидой на брата",
+        stage="next",
+        messages=[
+            {"role": "assistant", "text": "Що зараз найважче?"},
+            {"role": "user", "text": "Помоги"},
+        ],
+    ).endswith("Answer in Russian.")
+
+
+def test_the_topic_answers_for_an_undecidable_reply_in_english_too():
+    assert _prompt_language_of(
+        topic="Praying about my father",
+        stage="next",
+        messages=[{"role": "user", "text": "Помоги"}],
+    ).endswith("Answer in English.")
+
+
+def test_an_earlier_reply_answers_when_neither_the_last_one_nor_the_topic_can():
+    """The shape of `ru-001`: the evidence is two turns back, and it counts.
+
+    Which is why the walk does not stop at the topic — on the evaluation set
+    the topic alone recovered none of the three inputs that regressed.
+    """
+    assert _prompt_language_of(
+        topic="Благодарность за рождение дочки",
+        stage="next",
+        messages=[
+            {"role": "user", "text": "Мы ждали её несколько лет, и вот она родилась здоровой."},
+            {"role": "assistant", "text": "Что сейчас важнее всего сказать Богу?"},
+            {"role": "user", "text": "Хочу просто сказать Богу спасибо."},
+        ],
+    ).endswith("Answer in Russian.")
+
+
+def test_when_nothing_the_person_wrote_decides_the_prompt_says_so():
+    """v2's wording, and our own question still does not get a vote.
+
+    The assistant turn here IS decidable Russian. It must not be reached: a
+    question of ours is not evidence about the language of their answer.
+    """
+    prompt = _prompt_language_of(
+        topic="Помоги",
+        stage="next",
+        messages=[
+            {"role": "assistant", "text": "Что сейчас тяжелее всего?"},
+            {"role": "user", "text": "Помоги"},
+        ],
+    )
+
+    assert not prompt.endswith("Answer in Russian.")
+    assert prompt.endswith(
+        f"Answer in {question_prompt.UNDETERMINED_LANGUAGE}."
+    )
 
 
 # --- the despair rule lives in code (ClickUp 86cbegg23) -------------------
@@ -298,20 +540,210 @@ def test_returns_generated_text(monkeypatch):
 # level the client sees. The detector itself is tested in tests/test_safety.py.
 
 
-def test_an_explicit_despair_message_never_reaches_the_model(monkeypatch):
+@pytest.mark.parametrize(
+    "body",
+    [
+        question_body(topic=_probe_topic("probe-despair")),
+        # The same phrase as the newest reply of a conversation.
+        question_body(
+            topic="Развод",
+            stage="next",
+            messages=(
+                ("assistant", "Что сейчас тяжелее всего?"),
+                ("user", _probe_topic("probe-despair")),
+            ),
+        ),
+        question_body(
+            topic="Развод",
+            stage="reflect",
+            messages=(("user", _probe_topic("probe-despair")),),
+        ),
+    ],
+)
+def test_an_explicit_despair_message_never_reaches_the_model(monkeypatch, body):
     generated = AsyncMock(return_value="Ты сейчас очень одинок?")
     monkeypatch.setattr(twinkler_ai, "complete", generated)
 
     response = client.post(
         "/api/ai/question",
         headers={"X-API-Key": "test-api-key"},
-        json={"user": _probe_text("probe-despair")},
+        json=body,
     )
 
     assert response.status_code == 200
     assert response.json() == {"text": safety.SAFETY_REPLIES["ru"]}
     generated.assert_not_awaited()
     assert "?" not in response.json()["text"]
+
+
+def test_despair_in_an_older_reply_lets_the_conversation_go_on(monkeypatch):
+    """The bug this ticket closes (ClickUp 86cbegmzz).
+
+    Tier 1 read the whole conversation while the request was one string, so
+    the phrase that was answered with the fixed reply kept answering every
+    later question of that prayer with it. It reads the LAST reply now: the
+    model is called again — and tier 2 still refuses to let it come back with
+    a question.
+    """
+    generated = AsyncMock(return_value="Что помогло тебе сегодня?")
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+    body = question_body(
+        topic="Развод",
+        stage="next",
+        messages=(
+            ("assistant", "Что сейчас тяжелее всего?"),
+            ("user", _probe_topic("probe-despair")),
+            ("assistant", "Что помогло тебе продержаться сегодня?"),
+            ("user", "Позвонила сестре, стало чуть легче, но вечером снова пусто."),
+        ),
+    )
+
+    response = client.post(
+        "/api/ai/question",
+        headers={"X-API-Key": "test-api-key"},
+        json=body,
+    )
+
+    assert response.status_code == 200
+    generated.assert_awaited_once()
+    # Tier 2: the older phrase is still in the conversation, so a
+    # question-shaped answer is replaced by the fixed reply.
+    assert response.json() == {"text": safety.SAFETY_REPLIES["ru"]}
+
+
+def test_an_older_despair_reply_keeps_a_warm_answer(monkeypatch):
+    """Tier 2 is a floor, not a mute button: a non-question answer stands."""
+    warm = "Хорошо, что ты позвонила сестре — ты не одна в этом."
+    monkeypatch.setattr(twinkler_ai, "complete", AsyncMock(return_value=warm))
+
+    response = client.post(
+        "/api/ai/question",
+        headers={"X-API-Key": "test-api-key"},
+        json=question_body(
+            topic="Развод",
+            stage="next",
+            messages=(
+                ("user", _probe_topic("probe-despair")),
+                ("assistant", "Что помогло тебе продержаться сегодня?"),
+                ("user", "Позвонила сестре, стало чуть легче."),
+            ),
+        ),
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"text": warm}
+
+
+def test_a_topic_is_never_read_as_a_reply_the_person_did_not_send(monkeypatch):
+    """`next`/`reflect` with an empty history: tier 1 has nothing to read.
+
+    Substituting the topic there would answer every question of the prayer
+    with the fixed reply — the same forever-loop as above, wearing a topic.
+    The model is called normally and tier 2 still guards the answer.
+    """
+    generated = AsyncMock(return_value="Ты не один с этим.")
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+
+    response = client.post(
+        "/api/ai/question",
+        headers={"X-API-Key": "test-api-key"},
+        json=question_body(topic=_probe_topic("probe-despair"), stage="next"),
+    )
+
+    assert response.status_code == 200
+    generated.assert_awaited_once()
+    assert response.json() == {"text": "Ты не один с этим."}
+
+
+def test_the_same_topic_on_the_first_question_is_answered_in_code(monkeypatch):
+    """…but at `first` the topic IS the newest thing the person wrote."""
+    generated = AsyncMock(return_value="unused")
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+
+    response = client.post(
+        "/api/ai/question",
+        headers={"X-API-Key": "test-api-key"},
+        json=question_body(topic=_probe_topic("probe-despair"), stage="first"),
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"text": safety.SAFETY_REPLIES["ru"]}
+    generated.assert_not_awaited()
+
+
+def test_the_fixed_reply_is_in_the_language_of_the_person_not_of_the_blocks(
+    monkeypatch,
+):
+    """The assembled message is Russian whatever the prayer is; the reply is not.
+
+    Tier 2 reads the person's own words (`written_by_the_person`) precisely so
+    the stage instructions cannot outvote an English prayer.
+    """
+    monkeypatch.setattr(
+        twinkler_ai,
+        "complete",
+        AsyncMock(return_value="What would you like to tell God?"),
+    )
+
+    response = client.post(
+        "/api/ai/question",
+        headers={"X-API-Key": "test-api-key"},
+        json=question_body(
+            topic="Feeling worthless",
+            stage="next",
+            messages=(
+                ("assistant", "What is heaviest right now?"),
+                ("user", "I keep thinking everyone would be fine without me."),
+            ),
+        ),
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"text": safety.SAFETY_REPLIES["en"]}
+
+
+# product decision pending, ClickUp 86cbegmzz — this test pins TODAY's
+# behaviour so that changing it is a deliberate edit with a red test, not a
+# silent drift. Whoever decides the other way flips the expectation here.
+def test_a_long_russian_topic_still_outvotes_a_short_english_reply(monkeypatch):
+    """Tier 2 takes the fixed reply's language from topic + ALL replies.
+
+    `written_by_the_person` joins them, and `safety.check_reply` resolves the
+    language from that one string — so a long Russian topic can outvote the
+    short English reply that actually carried the tier-2 phrase, and the
+    person reading English gets the Russian text. That is the residual half of
+    the reason tier 2 does not read the assembled message at all (the Russian
+    stage blocks would outvote it far more often); tier 1 and the prompt both
+    read the last reply alone and would answer English here, so the two halves
+    of one request can disagree.
+
+    NOT changed in the review of 86cbegmzz: making tier 2 follow
+    `language_source` would fix this case and break the mirror one (a bare
+    "ok" in an otherwise Russian prayer would switch the crisis reply to
+    English), and which way that trades is Maria's call, not a reviewer's.
+    """
+    monkeypatch.setattr(
+        twinkler_ai, "complete", AsyncMock(return_value="Что тебя сейчас держит?")
+    )
+
+    response = client.post(
+        "/api/ai/question",
+        headers={"X-API-Key": "test-api-key"},
+        json=question_body(
+            topic="Развод и постоянные ссоры с мамой, не знаю, что делать",
+            stage="next",
+            messages=(
+                ("assistant", "Что сейчас тяжелее всего?"),
+                ("user", "I'm a burden"),
+            ),
+        ),
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"text": safety.SAFETY_REPLIES["ru"]}
+    # The two halves that disagree, spelled out: the person's last words are
+    # English, and that is what the prompt and tier 1 would have used.
+    assert safety.detect_language("I'm a burden") == "en"
 
 
 def test_the_fixed_reply_still_costs_a_request_slot(monkeypatch, allow_ai_requests):
@@ -326,7 +758,7 @@ def test_the_fixed_reply_still_costs_a_request_slot(monkeypatch, allow_ai_reques
     response = client.post(
         "/api/ai/question",
         headers={"X-API-Key": "test-api-key"},
-        json={"user": _probe_text("probe-despair")},
+        json=question_body(topic=_probe_topic("probe-despair")),
     )
 
     assert response.status_code == 200
@@ -337,18 +769,22 @@ def test_a_weak_signal_answered_with_a_question_is_replaced(monkeypatch):
     """Tier 2: the model was asked, and answered the wrong way."""
     generated = AsyncMock(return_value="What would you like to tell God?")
     monkeypatch.setattr(twinkler_ai, "complete", generated)
-    # en-005 of the approved scenarios, as the app sends a conversation.
-    user = "Feeling worthless\nI keep thinking everyone would be fine without me."
+    # en-005 of the approved scenarios, as the app sends it now.
+    body = question_body(
+        topic="Feeling worthless",
+        stage="reflect",
+        messages=(("user", "I keep thinking everyone would be fine without me."),),
+    )
 
     response = client.post(
         "/api/ai/question",
         headers={"X-API-Key": "test-api-key"},
-        json={"user": user},
+        json=body,
     )
 
     assert response.status_code == 200
     assert response.json() == {"text": safety.SAFETY_REPLIES["en"]}
-    generated.assert_awaited_once_with(user)
+    generated.assert_awaited_once()
 
 
 def test_a_weak_signal_answered_warmly_keeps_the_model_answer(monkeypatch):
@@ -359,7 +795,7 @@ def test_a_weak_signal_answered_warmly_keeps_the_model_answer(monkeypatch):
     response = client.post(
         "/api/ai/question",
         headers={"X-API-Key": "test-api-key"},
-        json={"user": "I am so tired of living"},
+        json=question_body(topic="I am so tired of living"),
     )
 
     assert response.status_code == 200
@@ -369,38 +805,44 @@ def test_a_weak_signal_answered_warmly_keeps_the_model_answer(monkeypatch):
 def test_an_ordinary_message_is_untouched_by_either_tier(monkeypatch):
     generated = AsyncMock(return_value="Что тебе сейчас труднее всего?")
     monkeypatch.setattr(twinkler_ai, "complete", generated)
-    user = _probe_text("probe-tech")
+    topic = _probe_topic("probe-tech")
 
     response = client.post(
         "/api/ai/question",
         headers={"X-API-Key": "test-api-key"},
-        json={"user": user},
+        json=question_body(topic=topic),
     )
 
     assert response.status_code == 200
     assert response.json() == {"text": "Что тебе сейчас труднее всего?"}
-    generated.assert_awaited_once_with(user)
+    generated.assert_awaited_once_with(
+        question_prompt.build_user_message(topic, "first", []), topic
+    )
 
 
 @pytest.mark.parametrize(
-    ("user", "reply", "expected", "private_words"),
+    ("body", "reply", "expected", "private_words"),
     [
         (
-            "Я больше не хочу жить, началась паника",
+            question_body(topic="Я больше не хочу жить, началась паника"),
             "Ты сейчас очень одинок?",
-            "tier=1 pattern=ru.no-wish-to-live language=ru",
+            "tier=1 pattern=ru.no-wish-to-live language=ru reply_version=2 stage=first",
             ("больше", "жить", "паника", "одинок", "сейчас"),
         ),
         (
-            "Feeling worthless\nEveryone would be fine without me",
+            question_body(
+                topic="Feeling worthless",
+                stage="next",
+                messages=(("user", "Everyone would be fine without me"),),
+            ),
             "What hurts the most right now?",
-            "tier=2 pattern=en.better-without-me language=en",
+            "tier=2 pattern=en.better-without-me language=en reply_version=2 stage=next",
             ("worthless", "Everyone", "fine", "hurts"),
         ),
     ],
 )
 def test_the_safety_log_records_the_rule_and_not_the_message(
-    monkeypatch, caplog, user, reply, expected, private_words
+    monkeypatch, caplog, body, reply, expected, private_words
 ):
     monkeypatch.setattr(twinkler_ai, "complete", AsyncMock(return_value=reply))
 
@@ -408,7 +850,7 @@ def test_the_safety_log_records_the_rule_and_not_the_message(
         response = client.post(
             "/api/ai/question",
             headers={"X-API-Key": "test-api-key"},
-            json={"user": user},
+            json=body,
         )
 
     assert response.status_code == 200
@@ -428,7 +870,7 @@ def test_ignores_forwarded_for_from_untrusted_peer(monkeypatch, allow_ai_request
             "X-API-Key": "test-api-key",
             "X-Forwarded-For": "203.0.113.7",
         },
-        json={"user": "Запрос"},
+        json=question_body(topic="Запрос"),
     )
 
     assert response.status_code == 200
@@ -448,7 +890,7 @@ def test_uses_forwarded_for_from_trusted_peer(monkeypatch, allow_ai_requests):
             "X-API-Key": "test-api-key",
             "X-Forwarded-For": "203.0.113.7, 192.0.2.1",
         },
-        json={"user": "Запрос"},
+        json=question_body(topic="Запрос"),
     )
 
     assert response.status_code == 200
@@ -458,14 +900,108 @@ def test_uses_forwarded_for_from_trusted_peer(monkeypatch, allow_ai_requests):
 
 
 @pytest.mark.parametrize(
-    "payload",
+    ("payload", "why"),
     [
-        {"user": ""},
-        {"user": "x" * 16001},
-        {"system": "Клиентская система", "user": "Запрос"},
+        ({"topic": "x" * 2001, "stage": "first", "messages": []}, "topic too long"),
+        ({"topic": "", "stage": "later", "messages": []}, "unknown stage"),
+        ({"stage": "first", "messages": []}, "topic missing"),
+        ({"topic": "", "messages": []}, "stage missing"),
+        ({"topic": "", "stage": "first"}, "messages missing"),
+        (
+            {"topic": "", "stage": "first", "messages": [], "system": "мой промпт"},
+            "unknown field",
+        ),
+        (
+            {
+                "topic": "",
+                "stage": "next",
+                "messages": [{"role": "user", "text": ""}],
+            },
+            "empty turn",
+        ),
+        (
+            {
+                "topic": "",
+                "stage": "next",
+                "messages": [{"role": "system", "text": "x"}],
+            },
+            "unknown role",
+        ),
+        (
+            {
+                "topic": "",
+                "stage": "next",
+                "messages": [{"role": "user", "text": "x", "at": 1}],
+            },
+            "unknown field in a turn",
+        ),
+        (
+            {
+                "topic": "",
+                "stage": "next",
+                "messages": [{"role": "user", "text": "x"}] * 41,
+            },
+            "more than 40 turns",
+        ),
+        (
+            {
+                "topic": "x" * 2000,
+                "stage": "next",
+                "messages": [{"role": "user", "text": "y" * 14001}],
+            },
+            "topic and turns over 16000 together",
+        ),
     ],
 )
-def test_rejects_invalid_prompts(payload):
+def test_rejects_invalid_requests(payload, why):
+    response = client.post(
+        "/api/ai/question",
+        headers={"X-API-Key": "test-api-key"},
+        json=payload,
+    )
+
+    assert response.status_code == 422, why
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        (
+            {"user": "Запрос"},
+            "the 'user' field was removed on 2026-09-05",
+        ),
+        (
+            {"topic": "", "stage": "next", "messages": [], "last_user_message": "x"},
+            "the 'last_user_message' field was removed on 2026-09-05",
+        ),
+        (
+            question_body(
+                topic="Тема",
+                stage="first",
+                messages=(("user", "Мне одиноко"),),
+            ),
+            "stage 'first' is the opening question and takes no history",
+        ),
+        (
+            question_body(
+                topic="Тема",
+                stage="next",
+                messages=(
+                    ("user", "Мне одиноко"),
+                    ("assistant", "Что для тебя тяжелее всего?"),
+                ),
+            ),
+            "a non-empty history must end with a 'user' turn",
+        ),
+    ],
+)
+def test_the_422_says_what_is_wrong(payload, expected):
+    """A rejected request must be diagnosable from its answer alone.
+
+    The mobile app is the only client and both ends changed at once, so the
+    old body has no transitional support — but "Extra inputs are not
+    permitted" would send someone reading a log to the wrong place.
+    """
     response = client.post(
         "/api/ai/question",
         headers={"X-API-Key": "test-api-key"},
@@ -473,6 +1009,37 @@ def test_rejects_invalid_prompts(payload):
     )
 
     assert response.status_code == 422
+    assert expected in response.text
+
+
+def test_the_limits_are_the_ones_the_client_enforces(monkeypatch):
+    """40 turns and 16 000 characters together are accepted, one more is not."""
+    monkeypatch.setattr(twinkler_ai, "complete", AsyncMock(return_value="Ответ"))
+    body = question_body(
+        topic="т" * 2000,
+        stage="next",
+        messages=tuple(("user", "о" * 350) for _ in range(40)),
+    )
+    assert len(body["topic"]) + sum(
+        len(m["text"]) for m in body["messages"]
+    ) == 16000
+
+    response = client.post(
+        "/api/ai/question",
+        headers={"X-API-Key": "test-api-key"},
+        json=body,
+    )
+    assert response.status_code == 200
+
+    body["messages"].append({"role": "user", "text": "ещё"})
+    assert (
+        client.post(
+            "/api/ai/question",
+            headers={"X-API-Key": "test-api-key"},
+            json=body,
+        ).status_code
+        == 422
+    )
 
 
 def test_hides_provider_failure(monkeypatch):
@@ -482,7 +1049,7 @@ def test_hides_provider_failure(monkeypatch):
     response = client.post(
         "/api/ai/question",
         headers={"X-API-Key": "test-api-key"},
-        json={"user": "Запрос"},
+        json=question_body(topic="Запрос"),
     )
 
     assert response.status_code == 502
@@ -507,7 +1074,7 @@ def test_missing_provider_key_is_502(monkeypatch):
     response = client.post(
         "/api/ai/question",
         headers={"X-API-Key": "test-api-key"},
-        json={"user": "Запрос"},
+        json=question_body(topic="Запрос"),
     )
     assert response.status_code == 502
     assert response.json() == {"detail": "AI service unavailable"}
@@ -546,12 +1113,12 @@ def test_rate_limits_requests(monkeypatch):
     first_response = client.post(
         "/api/ai/question",
         headers={"X-API-Key": "test-api-key"},
-        json={"user": "Первый запрос"},
+        json=question_body(topic="Первый запрос"),
     )
     second_response = client.post(
         "/api/ai/question",
         headers={"X-API-Key": "test-api-key"},
-        json={"user": "Второй запрос"},
+        json=question_body(topic="Второй запрос"),
     )
 
     assert first_response.status_code == 200
@@ -580,7 +1147,7 @@ def test_trailing_slash_is_recorded_without_request_body(monkeypatch):
     response = client.post(
         "/api/ai/question/",
         headers={"X-API-Key": "test-api-key"},
-        json={"user": "Запрос"},
+        json=question_body(topic="Запрос"),
         follow_redirects=False,
     )
 
