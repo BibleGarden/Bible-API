@@ -3,10 +3,14 @@
 !.env.example
 .git
 .pytest_cache
-.venv
+**/.venv
 **/__pycache__
 **/*.pyc
 audio
+# Regenerable benchmark artifacts (caches/matrices); the container never
+# reads them (verified: no `app/` module references `bench_data`). Tracked
+# results under evaluation/ are tiny and unaffected.
+evaluation/bench_data
 # Default host directory of the embedding weights (docker-compose.yml,
 # ${EMBEDDING_MODELS_DIR:-./models}). Same reason as `audio`: `COPY . /code`
 # would otherwise send 2.3 GB of weights as build context and bake them into
