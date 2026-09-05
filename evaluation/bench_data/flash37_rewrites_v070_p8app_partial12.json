@@ -1,0 +1,298 @@
+{
+  "meta": {
+    "model": "gemini-3.7-flash",
+    "date": "2026-09-05",
+    "prompt_version": "8c",
+    "prompt_revision": 3,
+    "rewrite_prompt_version": 8,
+    "scenarios_version": "0.7.0",
+    "endpoint": "provider:gemini",
+    "provider": "gemini",
+    "sampling": {
+      "temperature": 0.0,
+      "max_tokens": 8192,
+      "response_format": "json_object",
+      "variants": 6
+    },
+    "transport": "app",
+    "partial": false,
+    "scenarios_covered": [
+      "ru-001",
+      "ru-002",
+      "ru-003",
+      "ru-004",
+      "ru-005",
+      "ru-006",
+      "ru-007",
+      "ru-008",
+      "ru-010",
+      "en-001",
+      "en-002",
+      "en-003",
+      "en-004",
+      "en-005",
+      "en-007",
+      "uk-001",
+      "uk-002",
+      "uk-003",
+      "uk-004",
+      "uk-005",
+      "uk-007"
+    ],
+    "scenarios_expected": 21
+  },
+  "scenarios": [
+    {
+      "id": "ru-001",
+      "language": "ru",
+      "variants": [
+        "О сем дитяти молилась я, и исполнил мне Господь прошение мое, о котором я просила Его",
+        "Вот наследие от Господа: дети; награда от Него — плод чрева",
+        "Ты устроил внутренности мои и соткал меня во чреве матери; славлю Тебя, потому что дивно устроен я",
+        "Всякое даяние доброе и всякий дар совершенный нисходит свыше, от Отца светов",
+        "Благослови, душа моя, Господа, и вся внутренность моя — святое имя Его, не забывай всех благодеяний Его",
+        "Да благословит тебя Господь и сохранит тебя, да призрит на тебя Господь светлым лицем Своим и помилует тебя"
+      ],
+      "latency_ms": 8148,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "ru-002",
+      "language": "ru",
+      "variants": [
+        "Бог мой да восполнит всякую нужду вашу, по богатству Своему в славе, Христом Иисусом",
+        "Не заботьтесь и не говорите: что нам есть или во что одеться, Отец ваш Небесный знает, что вы имеете нужду во всем этом",
+        "Я был молод и состарился, и не видал праведника оставленным и потомков его просящими хлеба",
+        "Сам сказал: не оставлю тебя и не покину тебя, так что мы смело говорим: Господь мне помощник, и не убоюсь",
+        "Возложи на Господа заботы твои, и Он поддержит тебя, никогда не даст поколебаться праведнику",
+        "Не бойся, ибо Я с тобою, не смущайся, ибо Я Бог твой, Я укреплю тебя и помогу тебе"
+      ],
+      "latency_ms": 3437,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "ru-003",
+      "language": "ru",
+      "variants": [
+        "Как утешает кого-либо мать его, так утешу Я вас, и вы будете утешены",
+        "Близок Господь к сокрушенным сердцем и смиренных духом спасет",
+        "Он исцеляет сокрушенных сердцем и врачует скорби их",
+        "Блаженны плачущие, ибо они утешатся",
+        "Отец милосердия и Бог всякого утешения, утешающий нас во всякой скорби нашей",
+        "Если я пойду и долиною смертной тени, не убоюсь зла, потому что Ты со мною; Твой жезл и Твой посох — они успокаивают меня"
+      ],
+      "latency_ms": 4221,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "ru-004",
+      "language": "ru",
+      "variants": [
+        "Исцели меня, Господи, и исцелен буду; спаси меня, и спасен буду, ибо Ты хвала моя",
+        "Не бойся, ибо Я с тобою; не смущайся, ибо Я Бог твой; Я укреплю тебя, и помогу тебе, и поддержу тебя",
+        "Благослови, душа моя, Господа, прощающего все беззакония твои, исцеляющего все недуги твои, избавляющего от могилы жизнь твою",
+        "Господь укрепит его на одре болезни его; Ты изменишь все ложе его в болезни его",
+        "Мир Божий, который превыше всякого ума, соблюдет сердца ваши и помышления ваши во Христе Иисусе",
+        "Он дает утомленному силу, и изнемогшему дарует крепость; надеющиеся на Господа обновятся в силе, поднимут крылья, как орлы"
+      ],
+      "latency_ms": 7252,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "ru-005",
+      "language": "ru",
+      "variants": [],
+      "latency_ms": 36452,
+      "attempts": 1,
+      "error": "app: rewrite request failed after retries"
+    },
+    {
+      "id": "ru-006",
+      "language": "ru",
+      "variants": [
+        "Слово Твое — светильник ноге моей и свет стезе моей",
+        "Поведу слепых дорогою, которой они не знают, мрак сделаю светом пред ними и кривые пути прямыми",
+        "Я свет миру; кто последует за Мною, тот не будет ходить во тьме, но будет иметь свет жизни",
+        "Пошли свет Твой и истину Твою: да ведут они меня и приведут к жилищам Твоим",
+        "Не радуйся ради меня, неприятель мой: хотя я во мраке, Господь — свет для меня",
+        "Стезя праведных — как светило лучезарное, которое более и более светлеет до полного дня"
+      ],
+      "latency_ms": 9360,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "ru-007",
+      "language": "ru",
+      "variants": [],
+      "latency_ms": 12934,
+      "attempts": 1,
+      "error": "app: rewrite request failed after retries"
+    },
+    {
+      "id": "ru-008",
+      "language": "ru",
+      "variants": [],
+      "latency_ms": 35644,
+      "attempts": 1,
+      "error": "app: rewrite request failed after retries"
+    },
+    {
+      "id": "ru-010",
+      "language": "ru",
+      "variants": [
+        "Пойди прежде примирись с братом твоим, и тогда приди и принеси дар твой",
+        "Всякое раздражение и гнев да удалятся от вас; будьте друг ко другу добры, сострадательны, прощайте друг друга, как Бог простил вас",
+        "Облекитесь в милосердие, благость, кротость и долготерпение, снисходя друг другу и прощая взаимно, как Христос простил вас",
+        "Если возможно с вашей стороны, будьте в мире со всеми людьми, не будь побежден злом, но побеждай зло добром",
+        "Как хорошо и как приятно жить братьям вместе, ибо там заповедал Господь благословение и жизнь навеки",
+        "Когда Господу угодны пути человека, Он и врагов его примиряет с ним"
+      ],
+      "latency_ms": 29225,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "en-001",
+      "language": "en",
+      "variants": [
+        "I waited patiently for the LORD; He inclined to me and heard my cry, and He set my feet upon a rock",
+        "Commit your works to the LORD, and your plans will be established",
+        "May the favor of the Lord our God rest upon us; establish the work of our hands for us",
+        "Whatever you do, work at it with all your heart, as working for the Lord and not for human masters",
+        "Trust in the LORD with all your heart; in all your ways acknowledge Him, and He will make your paths straight",
+        "Behold, I am doing a new thing, now it springs forth; I will make a way in the wilderness"
+      ],
+      "latency_ms": 7649,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "en-002",
+      "language": "en",
+      "variants": [
+        "The LORD is near to the brokenhearted and saves those who are crushed in spirit",
+        "He heals the brokenhearted and binds up their wounds",
+        "For your Maker is your husband, the LORD of Hosts is His name, and the Holy One of Israel is your Redeemer",
+        "Blessed are those who mourn, for they will be comforted",
+        "Even though I walk through the valley of the shadow of death, I will fear no evil, for You are with me; Your rod and Your staff, they comfort me",
+        "My flesh and my heart may fail, but God is the strength of my heart and my portion forever"
+      ],
+      "latency_ms": 4278,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "en-003",
+      "language": "en",
+      "variants": [
+        "The peace of God, which surpasses all understanding, will guard your hearts and your minds in Christ Jesus",
+        "Peace I leave with you; My peace I give you. Do not let your hearts be troubled and do not be afraid",
+        "You will keep in perfect peace him whose mind is steadfast, because he trusts in You",
+        "May the Lord of peace Himself give you peace at all times and in every way",
+        "Let the peace of Christ rule in your hearts, to which indeed you were called in one body",
+        "In peace I will lie down and sleep, for You alone, O LORD, make me dwell in safety"
+      ],
+      "latency_ms": 3133,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "en-004",
+      "language": "en",
+      "variants": [
+        "He will turn the hearts of the fathers to their children, and the hearts of the children to their fathers",
+        "If it is possible, as far as it depends on you, live at peace with everyone",
+        "If any of you lacks wisdom, you should ask God, who gives generously to all without finding fault",
+        "Get rid of all bitterness, rage, and anger; be kind and compassionate to one another, forgiving each other as God forgave you",
+        "Let your speech always be gracious, seasoned with salt, so that you may know how you ought to answer everyone",
+        "Turn away from evil and do good; seek peace and pursue it"
+      ],
+      "latency_ms": 8929,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "en-005",
+      "language": "en",
+      "variants": [
+        "I praise You because I am fearfully and wonderfully made; marvelous are Your works, and my soul knows it well",
+        "Do not be afraid; you are worth more than many sparrows, and even the very hairs of your head are all numbered",
+        "Do not fear, for I have redeemed you; I have called you by name, you are Mine, precious and honored in My sight",
+        "Even if a mother could forget her nursing child, I will not forget you; behold, I have engraved you on the palms of My hands",
+        "For we are God's workmanship, created in Christ Jesus for good works, which God prepared in advance for us to do",
+        "The LORD your God is in your midst; He will rejoice over you with gladness, He will quiet you with His love and singing"
+      ],
+      "latency_ms": 31741,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "en-007",
+      "language": "en",
+      "variants": [
+        "I will give you a new heart and put a new spirit within you, I will remove your heart of stone and give you a heart of flesh",
+        "I have loved you with an everlasting love, therefore with loving devotion I have drawn you",
+        "Come to Me all you who are weary and burdened and I will give you rest",
+        "The LORD is near to the brokenhearted and saves those who are crushed in spirit",
+        "That they would seek Him and reach out for Him and find Him, though He is not far from each one of us",
+        "God who said let light shine out of darkness made His light shine in our hearts to give the knowledge of the glory of God"
+      ],
+      "latency_ms": 4610,
+      "attempts": 1,
+      "error": null
+    },
+    {
+      "id": "uk-001",
+      "language": "uk",
+      "variants": [],
+      "latency_ms": 91,
+      "attempts": 1,
+      "error": "app: rewrite request failed after retries"
+    },
+    {
+      "id": "uk-002",
+      "language": "uk",
+      "variants": [],
+      "latency_ms": 176,
+      "attempts": 1,
+      "error": "app: rewrite request failed after retries"
+    },
+    {
+      "id": "uk-003",
+      "language": "uk",
+      "variants": [],
+      "latency_ms": 83,
+      "attempts": 1,
+      "error": "app: rewrite request failed after retries"
+    },
+    {
+      "id": "uk-004",
+      "language": "uk",
+      "variants": [],
+      "latency_ms": 157,
+      "attempts": 1,
+      "error": "app: rewrite request failed after retries"
+    },
+    {
+      "id": "uk-005",
+      "language": "uk",
+      "variants": [],
+      "latency_ms": 105,
+      "attempts": 1,
+      "error": "app: rewrite request failed after retries"
+    },
+    {
+      "id": "uk-007",
+      "language": "uk",
+      "variants": [],
+      "latency_ms": 148,
+      "attempts": 1,
+      "error": "app: rewrite request failed after retries"
+    }
+  ]
+}

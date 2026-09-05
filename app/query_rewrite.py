@@ -6,16 +6,29 @@ failure mode of raw embedding search is the register gap between everyday
 prayer wording and biblical language (ADR 0002 diagnostic probe: a raw query
 ranked the reference passage ~356th, a scripture-styled rephrasing of the
 same intent ranked it 4th). Before searching, the prayer context is rewritten
-by Gemini into several short queries in the biblical register of the target
-language, each covering a different spiritual angle of the situation; the
-retrieval layer then searches with every variant and fuses the results.
+by the configured model into several short queries in the biblical register
+of the target language, each covering a different spiritual angle of the
+situation; the retrieval layer then searches with every variant and fuses the
+results.
 
-Privacy: the prayer context goes to Gemini (pre-cleared: it already goes
-there for the Twinkler companion). Neither the prayer text nor the API key
-must ever be logged — callers log only failure categories.
+Prompt v8 (ClickUp 86cbegg36, 2026-09-05) is the former benchmark prompt
+"8c": the model first names the passage it means in a `ref` field and only
+then writes the `query`, the instruction carries per-language worked
+examples, and a closing line repeats the answer language. Measured on
+`qwen3-30b-a3b-instruct-2507`, the reference anchor alone lifted hit@10 from
+0.583 to 0.875 and few-shot on top of it lifted recall@10 to 0.547 and MRR to
+0.558 (evaluation/README.md, 86cbea05x). `ref` never reaches the retrieval
+layer: `parse_rewrite_response` drops it — it is scaffolding for the model's
+recall, and the queries themselves still carry no coordinates.
+
+Privacy: the prayer context goes to the configured provider (pre-cleared: it
+already goes there for the Twinkler companion). Neither the prayer text nor
+the API key must ever be logged — callers log only failure categories.
 
 The prompt is generic: it knows nothing about the evaluation dataset and
-never receives reference answers.
+never receives reference answers. The worked examples are de-fingerprinted —
+no example topic and no example passage may touch `evaluation/scenarios.json`,
+which `tests/test_rewrite_prompts.py` checks against the live dataset.
 """
 
 from __future__ import annotations
@@ -47,7 +60,7 @@ logger = logging.getLogger(__name__)
 
 # Bump on any change of the prompt wording or output contract; benchmark
 # caches are keyed by (model, prompt version).
-REWRITE_PROMPT_VERSION = 7
+REWRITE_PROMPT_VERSION = 8
 
 # 6 variants + interleave fusion is the benchmark-approved configuration
 # (fewer variants lose recall, more dilute the fused top-10 — ADR 0004).
@@ -99,10 +112,267 @@ def build_search_query(topic: str, user_replies: list[str]) -> str:
     return "\n".join(p for p in parts if p)
 
 
+# ---------------------------------------------------------------------------
+# Worked examples of the instruction (prompt v8)
+#
+# Item = (canonical book code from app/canon.py, chapter, display reference,
+# query text). The book code and chapter are carried so the de-fingerprint
+# test can compare COORDINATES instead of parsing English book names.
+#
+# De-fingerprinting is mandatory (the rule the rerank prompt v6 established):
+# not one example topic and not one example passage may coincide with anything
+# in `evaluation/scenarios.json`, or the prompt would be measuring itself.
+# Example topics are outside the evaluation set (exam, flat hunting, public
+# speaking, moving city, starting university, a wedding) and the quoted texts
+# are written from memory, close to the text, never copied from the dataset.
+# `tests/test_rewrite_prompts.py` enforces this against the live dataset.
+# ---------------------------------------------------------------------------
+
+_EXAMPLES: dict[str, list[dict]] = {
+    "ru": [
+        {
+            "topic": "Готовлюсь к экзамену, боюсь не сдать",
+            "replies": ["Учил всё лето", "Очень боюсь провалиться"],
+            "items": [
+                ("psa", 32, "Psalm 32:8",
+                 "Вразумлю тебя, наставлю тебя на путь, по которому тебе идти, "
+                 "буду руководить тебя, око Мое над тобою"),
+                ("pro", 2, "Proverbs 2:6",
+                 "Господь даёт мудрость, из уст Его — знание и разум"),
+                ("isa", 30, "Isaiah 30:15",
+                 "В тишине и уповании крепость ваша, в покое и надежде — "
+                 "спасение ваше"),
+                ("2ti", 1, "2 Timothy 1:7",
+                 "Дал нам Бог духа не боязни, но силы, и любви, и целомудрия"),
+                ("psa", 62, "Psalm 62:1-2",
+                 "Только в Боге успокаивается душа моя, от Него спасение моё, "
+                 "Он твердыня моя, не поколеблюсь более"),
+                ("psa", 138, "Psalm 138:8",
+                 "Господь совершит за меня, милость Твоя, Господи, вовек, "
+                 "дела рук Твоих не оставляй"),
+            ],
+        },
+        {
+            "topic": "Ищу квартиру, скоро заканчивается аренда",
+            "replies": ["Осталось меньше месяца", "Ничего подходящего не нахожу"],
+            "items": [
+                ("psa", 16, "Psalm 16:5-6",
+                 "Господь есть часть наследия моего и чаши моей, межи мои "
+                 "прошли по прекрасным местам, и наследие моё приятно для меня"),
+                ("mat", 7, "Matthew 7:7-8",
+                 "Просите, и дано будет вам, ищите, и найдёте, стучите, и "
+                 "отворят вам"),
+                ("psa", 145, "Psalm 145:15-16",
+                 "Очи всех уповают на Тебя, и Ты даёшь им пищу их в своё "
+                 "время, открываешь руку Твою и насыщаешь всё живущее"),
+                ("jer", 29, "Jeremiah 29:11",
+                 "Я знаю намерения, какие имею о вас, намерения во благо, а не "
+                 "на зло, чтобы дать вам будущность и надежду"),
+                ("luk", 12, "Luke 12:31",
+                 "Ищите прежде Царствия Божия, и это всё приложится вам"),
+                ("isa", 58, "Isaiah 58:11",
+                 "Будет Господь вождём твоим всегда, и во время засухи будет "
+                 "насыщать душу твою, и ты будешь как напоенный водою сад"),
+            ],
+        },
+    ],
+    "en": [
+        {
+            "topic": "I have to speak in front of a large audience tomorrow",
+            "replies": ["My hands shake when everyone looks at me",
+                        "I am afraid my mind will go blank"],
+            "items": [
+                ("jos", 1, "Joshua 1:9",
+                 "Be strong and courageous, do not be afraid, for the LORD "
+                 "your God is with you wherever you go"),
+                ("psa", 138, "Psalm 138:3",
+                 "On the day I called, You answered me, You emboldened me and "
+                 "strengthened my soul"),
+                ("isa", 50, "Isaiah 50:4",
+                 "The Lord GOD has given me the tongue of a disciple, to know "
+                 "how to sustain the weary with a word"),
+                ("1jn", 4, "1 John 4:18",
+                 "There is no fear in love, but perfect love drives out fear"),
+                ("pro", 4, "Proverbs 4:11-12",
+                 "I have guided you in the way of wisdom, when you walk your "
+                 "steps will not be hindered, and when you run you will not "
+                 "stumble"),
+                ("psa", 19, "Psalm 19:14",
+                 "May the words of my mouth and the meditation of my heart be "
+                 "pleasing in Your sight, O LORD, my Rock and my Redeemer"),
+            ],
+        },
+        {
+            "topic": "Preparing to move to another city",
+            "replies": ["We leave in three weeks", "I know no one there"],
+            "items": [
+                ("gen", 12, "Genesis 12:1-2",
+                 "Go from your country to the land I will show you, and I will "
+                 "bless you and make your name great"),
+                ("exo", 33, "Exodus 33:14",
+                 "My Presence will go with you, and I will give you rest"),
+                ("psa", 143, "Psalm 143:8",
+                 "Show me the way I should walk, for to You I lift up my soul"),
+                ("jer", 17, "Jeremiah 17:7-8",
+                 "Blessed is the man who trusts in the LORD, he is like a tree "
+                 "planted by the waters, sending out its roots toward the "
+                 "stream"),
+                ("psa", 84, "Psalm 84:5",
+                 "Blessed are those whose strength is in You, in whose heart "
+                 "are the highways to Zion"),
+                ("rom", 15, "Romans 15:13",
+                 "May the God of hope fill you with all joy and peace as you "
+                 "believe, so that you may overflow with hope"),
+            ],
+        },
+    ],
+    "uk": [
+        {
+            "topic": "Починаю навчання в університеті",
+            "replies": ["Перший тиждень уже наступного понеділка",
+                        "Боюся, що не впораюся"],
+            "items": [
+                ("pro", 9, "Proverbs 9:10",
+                 "Початок мудрості — страх Господній, і пізнання Святого — "
+                 "це розум"),
+                ("psa", 143, "Psalm 143:10",
+                 "Навчи мене чинити волю Твою, бо Ти Бог мій, Дух Твій добрий "
+                 "нехай веде мене по рівній землі"),
+                ("jhn", 15, "John 15:5",
+                 "Я — виноградна лоза, а ви — гілки, хто перебуває в Мені, той "
+                 "приносить рясний плід, бо без Мене нічого чинити не можете"),
+                ("col", 1, "Colossians 1:9-10",
+                 "Щоб ви наповнилися пізнанням волі Його в усякій мудрості й "
+                 "розумінні духовному"),
+                ("1co", 10, "1 Corinthians 10:13",
+                 "Вірний Бог, Який не попустить, щоб ви були спокушені понад "
+                 "силу, але при спокусі дасть і полегшення"),
+                ("jer", 33, "Jeremiah 33:3",
+                 "Клич до Мене — і Я тобі відповім, і подам тобі великі та "
+                 "незрозумілі речі, яких ти не знаєш"),
+            ],
+        },
+        {
+            "topic": "Готуюся до весілля",
+            "replies": ["Вінчання за місяць", "Хочу, щоб наш дім був у Господі"],
+            "items": [
+                ("gen", 2, "Genesis 2:24",
+                 "Покине чоловік батька свого та матір свою, і пристане до "
+                 "жінки своєї, і стануть вони одним тілом"),
+                ("sng", 8, "Song of Songs 8:6-7",
+                 "Поклади мене, як печатку, на серце своє, бо сильна любов, як "
+                 "смерть, і великі води не зможуть згасити любові"),
+                ("1co", 13, "1 Corinthians 13:4-7",
+                 "Любов довготерпить, милосердствує, не заздрить, не "
+                 "величається, не шукає свого, усе зносить, усе терпить"),
+                ("psa", 67, "Psalm 67:1",
+                 "Нехай Бог помилує нас і поблагословить нас, нехай засяє над "
+                 "нами лице Його"),
+                ("eph", 5, "Ephesians 5:25",
+                 "Чоловіки, любіть своїх дружин, як і Христос полюбив Церкву "
+                 "й видав Себе за неї"),
+                ("psa", 37, "Psalm 37:5",
+                 "Здай на Господа дорогу свою, і надійся на Нього, і Він "
+                 "зробить"),
+            ],
+        },
+    ],
+}
+
+_EXAMPLE_LANGUAGE_ORDER = ("ru", "en", "uk")
+
+
+def _render_context(topic: str, replies: list[str]) -> str:
+    """An example's input, rendered exactly like `build_rewrite_user_content`."""
+    lines = [f"Topic: {topic}"]
+    if replies:
+        lines.append("Remarks:")
+        lines.extend(f"- {reply}" for reply in replies)
+    return "\n".join(lines)
+
+
+def render_examples(
+    variants: int, language_name: str, with_refs: bool = True
+) -> str:
+    """The few-shot block of the instruction, identical for every language.
+
+    All three languages are shown on purpose: the register differs per
+    language and a small model benefits from seeing what "close paraphrase"
+    means in each of them. The closing reminder exists because a 4B probe
+    copied an example verbatim into an unrelated scenario (86cbe4nd3).
+
+    `with_refs=False` produces the answers as plain strings instead of
+    `{ref, query}` objects. Production never asks for it: it is what the
+    historical benchmark prompt 8b was made of, and
+    `evaluation/rewrite_prompts.py` calls this function rather than keeping a
+    second copy of the examples that could drift from these.
+    """
+    blocks: list[str] = []
+    for language in _EXAMPLE_LANGUAGE_ORDER:
+        for example in _EXAMPLES[language]:
+            items = example["items"][:variants]
+            if with_refs:
+                answer = {
+                    "queries": [
+                        {"ref": ref, "query": query}
+                        for _, _, ref, query in items
+                    ]
+                }
+            else:
+                answer = {"queries": [query for _, _, _, query in items]}
+            blocks.append(
+                f"### Example ({language})\n"
+                f"Input:\n{_render_context(example['topic'], example['replies'])}\n"
+                f"Output:\n{json.dumps(answer, ensure_ascii=False)}"
+            )
+    reminder = (
+        "The examples above are about OTHER situations and exist only to show "
+        "the FORM of a good answer: how concrete a query is, and how closely it "
+        "follows scriptural wording.\n"
+        f"- Write your queries in {language_name}, whatever language the "
+        "examples happen to use.\n"
+        "- Never copy a sentence from an example. Every query must come from "
+        "the prayer context you were actually given; a line lifted from an "
+        "example is a wrong answer even if it sounds beautiful.\n"
+        "- Choose passages that speak to THIS person's situation, not the "
+        "passages the examples chose."
+    )
+    return (
+        "Worked examples of the same task on unrelated situations. Match this "
+        "level of concreteness: every query carries the meaning of THAT "
+        "situation in scriptural wording — never a generic formula of praise "
+        "that would fit any prayer.\n\n"
+        + "\n\n".join(blocks)
+        + "\n\n"
+        + reminder
+    )
+
+
 def build_rewrite_instruction(language: str, variants: int = REWRITE_VARIANTS) -> str:
-    """System instruction for the rewrite call (static per language)."""
+    """System instruction for the rewrite call (static per language).
+
+    Prompt v8. Three things distinguish it from v7, each measured on a small
+    local model (evaluation/README.md, 86cbea05x):
+
+    1. the reference anchor — the model names the passage in `ref` before
+       writing the `query`, which turns generic pious formulas into near
+       quotes (hit@10 0.583 -> 0.875 on qwen3-30b) and, as a side effect,
+       almost eliminates verbatim copying of the examples (0.112 -> 0.008);
+    2. the worked examples, which add the rest of recall@10 and MRR on top;
+    3. the closing reminder of the answer language, the last line of the
+       instruction: the examples are shown in three languages, and a small
+       model that has just read six of them is where language drift would
+       start. This one is a precaution, not a measured gain — on
+       qwen3-30b the variants were already in the right language for 21 of
+       21 scenarios without it. It stays because removing it is not measurably
+       better either: warm run against warm run on the production embedder it
+       is ahead on hit@10 and recall@10 and 0.044 behind on MRR, inside that
+       server's own 0.072 spread (ADR 0004, "Prompt v8"; evaluation/README.md,
+       86cbegg36). Dropping this paragraph makes the prompt byte-identical to
+       the measured 8c revision 2.
+    """
     language_name, register_hint = _LANGUAGES[language]
-    return f"""You prepare search queries for a Bible passage retrieval system inside a prayer app.
+    instruction = f"""You prepare search queries for a Bible passage retrieval system inside a prayer app.
 
 Input: a prayer context — a topic and optional remarks from the person praying.
 
@@ -112,12 +382,21 @@ Rules:
 - Cover DIFFERENT passages and different spiritual angles of the situation (for example: thanksgiving, God's care, comfort in sorrow, God's presence, guidance, hope, peace of heart).
 - Order the queries from the passage most directly fitting the situation to more complementary angles.
 - When the prayer is for another person (intercession — a child, a friend, a family member), include passages about God's heart and promises toward that person: His desire to save, keep, guide and bless them.
-- Stay as close to the actual scriptural wording as you can recall; near-quotes are ideal. Never include book names, chapter numbers or verse numbers — only the passage's own words.
+- First recall WHICH passage you mean and write its reference in the "ref" field (book, chapter and verses, e.g. "Psalm 32:8"). Naming it first is what lets you then quote it accurately.
+- Then write "query" as a close paraphrase of THAT passage — as near to its actual wording as you can recall. The "query" field must contain only the passage's own words: no book names, no chapter numbers, no verse numbers (they belong in "ref" and nowhere else).
 - The person may be in grief, anxiety or crisis. Choose only passages of comfort, mercy, hope and God's closeness — never accusation, condemnation, punishment, curses or end-times fear.
 - Beware of words with double meanings: resolve them by the person's intent (for example, peace of heart versus the world).
 - 5-25 words per query. No explanations, no numbering inside the strings.
 
-Output strictly a JSON object: {{"queries": ["...", "...", "...", "..."]}} with exactly {variants} strings in {language_name}."""
+Output strictly a JSON object: {{"queries": [{{"ref": "Book chapter:verses", "query": "..."}}, ...]}} with exactly {variants} objects. Every "query" is in {language_name}; "ref" may be in English."""
+    examples = render_examples(variants, language_name)
+    closing = (
+        f"Before you answer, check the language once more: every \"query\" "
+        f"must be written in {language_name} — the language of the prayer "
+        f"context, not the language of the examples above and not the "
+        f"language of the \"ref\" field."
+    )
+    return f"{instruction}\n\n{examples}\n\n{closing}"
 
 
 def build_rewrite_user_content(topic: str, user_replies: list[str]) -> str:
@@ -137,28 +416,178 @@ def build_rewrite_user_content(topic: str, user_replies: list[str]) -> str:
     return "\n".join(lines)
 
 
-def parse_rewrite_response(text: str, variants: int = REWRITE_VARIANTS) -> list[str]:
-    """Parse the model output into a clean list of query strings.
+def repair_json_object(blob: str) -> str | None:
+    """Repair the three malformations small models actually produce, or None.
 
-    Tolerates markdown fences and surrounding prose; deduplicates, drops
-    empties and reference-like leftovers, truncates overlong strings.
-    Raises QueryRewriteError when nothing usable remains.
+    This is NOT a general-purpose JSON fixer, and deliberately so: it may only
+    ever delete or re-type a *punctuation* character, never add, complete or
+    guess a value. What it handles, each observed in a real run (86cbe4nd3:
+    a 4B model broke the syntax on 8 of 21 scenarios, always the same way):
+
+    1. **a closer of the wrong type** — `{"queries": ["a", "b"}}`, the array
+       closed with a brace. The stack of open brackets says which closer was
+       meant, so the character is re-typed;
+    2. **a truncated answer** — the output ceiling cut the object off at a
+       clean boundary. The missing closers are appended;
+    3. **a trailing comma** before a closer, which JSON forbids and most
+       models emit sooner or later.
+
+    Anything else returns None and the caller reports invalid JSON: a broken
+    answer is a `rewrite_failed` degradation to the raw query, which is a
+    documented, harmless path — inventing content to avoid it would not be.
+    In particular an answer cut off INSIDE a string is refused: closing the
+    quote would hand the retrieval layer half a sentence the model never
+    finished writing.
+
+    Returns the repaired text (which the caller still has to parse), or None
+    when nothing safe can be done. Never returns the input unchanged: if no
+    repair applied, the input was not repairable, and pretending otherwise
+    would hide a second parse failure behind the first.
     """
+    out: list[str] = []
+    stack: list[str] = []
+    changed = False
+    in_string = False
+    escaped = False
+    closed = False
+    for char in blob:
+        if closed:
+            # The object ended; the greedy `\{.*\}` search simply captured
+            # trailing junk (the second brace of case 1, prose, a fence).
+            changed = True
+            break
+        if in_string:
+            out.append(char)
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+            out.append(char)
+            continue
+        if char in "{[":
+            stack.append("}" if char == "{" else "]")
+            out.append(char)
+            continue
+        if char in "}]":
+            if not stack:
+                changed = True
+                break
+            expected = stack.pop()
+            if char != expected:
+                changed = True
+            out.append(expected)
+            closed = not stack
+            continue
+        out.append(char)
+    if in_string:
+        return None
+    if stack:
+        # Truncated at a clean boundary: close what is still open.
+        changed = True
+        out.extend(reversed(stack))
+    repaired = _drop_trailing_commas("".join(out))
+    if repaired != "".join(out):
+        changed = True
+    return repaired if changed else None
+
+
+def _drop_trailing_commas(blob: str) -> str:
+    """Remove commas that sit right before a closer, outside strings."""
+    out: list[str] = []
+    in_string = False
+    escaped = False
+    pending_comma_at: int | None = None
+    for char in blob:
+        if in_string:
+            out.append(char)
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+            pending_comma_at = None
+            out.append(char)
+            continue
+        if char == ",":
+            pending_comma_at = len(out)
+            out.append(char)
+            continue
+        if char in "]}" and pending_comma_at is not None:
+            del out[pending_comma_at]
+            pending_comma_at = None
+            out.append(char)
+            continue
+        if not char.isspace():
+            pending_comma_at = None
+        out.append(char)
+    return "".join(out)
+
+
+def _load_rewrite_payload(text: str) -> dict:
+    """The JSON object of a rewrite answer, repaired if it needs it."""
     match = re.search(r"\{.*\}", text, flags=re.DOTALL)
     if not match:
         raise QueryRewriteError("rewrite response contains no JSON object")
+    blob = match.group(0)
     try:
-        payload = json.loads(match.group(0))
+        payload = json.loads(blob)
     except json.JSONDecodeError as exc:
-        raise QueryRewriteError("rewrite response is not valid JSON") from exc
+        repaired = repair_json_object(blob)
+        if repaired is None:
+            raise QueryRewriteError(
+                "rewrite response is not valid JSON"
+            ) from exc
+        try:
+            payload = json.loads(repaired)
+        except json.JSONDecodeError:
+            raise QueryRewriteError(
+                "rewrite response is not valid JSON"
+            ) from exc
+    if not isinstance(payload, dict):
+        raise QueryRewriteError("rewrite response is not a JSON object")
+    return payload
+
+
+def parse_rewrite_response(text: str, variants: int = REWRITE_VARIANTS) -> list[str]:
+    """Parse the model output into a clean list of query strings.
+
+    Tolerates markdown fences, surrounding prose and the bounded syntax
+    breakage `repair_json_object` describes; deduplicates, drops empties,
+    truncates overlong strings. Raises QueryRewriteError when nothing usable
+    remains — the caller then degrades to the raw query.
+
+    Prompt v8 asks for `{"ref": ..., "query": ...}` objects: **`ref` is read
+    and thrown away here**. It exists to make the model recall a real passage
+    before paraphrasing it; letting it through would put book names and
+    chapter numbers into an embedding whose corpus contains neither. A bare
+    string is still accepted, so an answer in the v7 shape (an older model
+    ignoring the object contract) degrades to exactly what it used to be
+    rather than to nothing.
+    """
+    payload = _load_rewrite_payload(text)
     raw = payload.get("queries")
     if not isinstance(raw, list):
         raise QueryRewriteError("rewrite response has no 'queries' list")
     queries: list[str] = []
     for item in raw:
-        if not isinstance(item, str):
+        if isinstance(item, str):
+            query = item
+        elif isinstance(item, dict):
+            query = item.get("query")
+            if not isinstance(query, str):
+                continue
+        else:
             continue
-        cleaned = " ".join(item.split()).strip()
+        cleaned = " ".join(query.split()).strip()
         if not cleaned:
             continue
         cleaned = cleaned[:_MAX_QUERY_CHARS]

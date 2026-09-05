@@ -319,7 +319,8 @@ statement, shared (`AI_OPENAI_COMPAT_ENDPOINT` / `AI_OPENAI_COMPAT_API_KEY`,
 the key may be empty) or per stage
 (`AI_SCRIPTURE_RERANK_ENDPOINT` / `AI_SCRIPTURE_RERANK_API_KEY`).
 
-What does **not** change with the provider: the prompts (rewrite v7, rerank
+What does **not** change with the provider: the prompts (rewrite v8 since
+2026-09-05, ClickUp 86cbegg36 — v7 when this section was written; rerank
 v9), the parsers, the server-side validation of the rerank answer, the
 fallbacks and every `fallback_reason`. `build_query_rewriter` /
 `build_passage_reranker` return the configured transport and
@@ -404,14 +405,27 @@ implicit prompt cache requires. No change was needed and none was made: the
 prompt text is fingerprinted by the benchmark (`REWRITE_PROMPT_VERSION`), so
 any edit forces a re-run.
 
-Reality check on the benefit, measured 2026-08-29: the instruction is ~2.0 kB
-(~500 tokens for each of ru/en/uk). Flash-class models document a minimum
-cacheable prefix of ~1024 tokens, so today's prefix is roughly half of what
-an implicit cache hit needs — the ordering is correct and costs nothing, but
-no cache discount should be assumed in cost estimates until the prefix is
-measured against the model's actual minimum. Padding the instruction to reach
-the threshold is explicitly not done: it would change retrieval quality (and
-the fingerprint) to chase a discount on ~500 tokens per selection.
+Reality check on the benefit, measured 2026-08-29 **on prompt v7**: the
+instruction was ~2.0 kB (~500 tokens for each of ru/en/uk). Flash-class
+models document a minimum cacheable prefix of ~1024 tokens, so that prefix
+was roughly half of what an implicit cache hit needs — the ordering is
+correct and costs nothing, but no cache discount should be assumed in cost
+estimates until the prefix is measured against the model's actual minimum.
+Padding the instruction to reach the threshold was explicitly not done: it
+would change retrieval quality (and the fingerprint) to chase a discount on
+~500 tokens per selection.
+
+**Prompt v8 (2026-09-05, ClickUp 86cbegg36) crosses that threshold on its
+own**: the six worked examples take the instruction to ~8.6-8.8 kB, roughly
+2 200 tokens, and they are the same bytes for every request in a language.
+So the prefix is now comfortably above the documented ~1024-token minimum and
+an implicit cache hit is plausible for the first time — but still unmeasured,
+so still not to be assumed in a cost estimate. Note the other side of the
+same change: without a cache hit each selection now sends ~4x the instruction
+tokens it used to. On the self-hosted Qwen that is compute, not money
+(measured cost of the whole rewrite call: median 3.0 s, max 4.1 s,
+evaluation/README.md 86cbea05x); on a metered provider it is a real increase
+in input tokens per selection.
 
 ## Time budget
 

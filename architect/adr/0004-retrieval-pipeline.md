@@ -17,12 +17,19 @@ Ticket: ClickUp 86cb8vw1g
 > transport this pipeline was measured on, not a requirement. The rewrite
 > stage now takes its transport from `AI_SCRIPTURE_REWRITE_PROVIDER`
 > (`gemini` or `openai_compat`) and is built by
-> `query_rewrite.build_query_rewriter`; the prompt (v7), the parser, the
+> `query_rewrite.build_query_rewriter`; the prompt, the parser, the
 > variant count, the fallbacks and every threshold below are untouched —
 > `GeminiQueryRewriter` and `OpenAICompatQueryRewriter` share all of them and
 > send byte-identical messages. Which model passes the thresholds is still a
 > measurement, and the pinned Gemini values below are the ones that have been
 > measured.
+
+> Note (2026-09-05, ClickUp 86cbegg36): **the rewrite prompt is v8 now.**
+> Everything below about the pipeline holds; what changed is the wording of
+> step 2 and the shape of its answer. See "Prompt v8" at the end of this
+> file. The measurements in this ADR were taken on v7 with
+> `gemini-3.7-flash` and have NOT been re-taken on v8 — the free daily quota
+> of that model is 20 requests and it ran out after 12 of the 21 scenarios.
 
 ## Context
 
@@ -76,11 +83,13 @@ Modules (all in `app/`):
 2. **Rewrite** (the main quality lever): Gemini
    (`AI_SCRIPTURE_REWRITE_MODEL`, pinned by the benchmark to gemini-3.7-flash
    and set explicitly in the environment, temperature 0,
-   JSON output, prompt v7) recalls well-known passages fitting the
+   JSON output, prompt v8 — v7 when this ADR was written, see "Prompt v8"
+   below) recalls well-known passages fitting the
    situation and writes 6 near-quote paraphrases in the register of the
    indexed translation (syn/bsb/ubh), ordered most-central-first, each a
    different spiritual angle. The prompt is generic — it never sees the
-   evaluation dataset. On rewrite failure the raw query alone is searched
+   evaluation dataset; its worked examples are de-fingerprinted against it by
+   a test. On rewrite failure the raw query alone is searched
    (`rewrite_failed` flag).
 3. **Hybrid search per variant**: embedding (`RETRIEVAL_QUERY`, 768d) ->
    exact cosine over the c3 index with the language filter (top-50), plus
@@ -227,6 +236,119 @@ parallel embedding is an obvious later optimisation).
   must be re-benchmarked (`retrieval_benchmark.py pipeline`, cache keys
   include the version).
 
+## Prompt v8 (2026-09-05, ClickUp 86cbegg36)
+
+Step 2 above is unchanged in role and in every threshold; what changed is the
+instruction it sends and the shape of the answer it accepts. v8 is the
+benchmark prompt "8c" of the 7/8a/8b/8c matrix (evaluation/README.md,
+86cbea05x) moved into `app/query_rewrite.py`, plus one closing line.
+
+**Why.** v7 was written for `gemini-3.7-flash` and measured on it. On
+`qwen3-30b-a3b-instruct-2507` — the model Maria chose for the local AI
+contour on 2026-09-05 — the same prompt collapses: the variants become short
+generic pious formulas carrying none of the situation (mean 58 characters
+against 89 for the Gemini baseline) and 10 of 21 scenarios end up without a
+single relevant passage in top-10 (0.583 / 0.312 / 0.404 against
+1.000 / 0.789 / 0.664). Two changes fixed most of it, measured separately:
+
+| on qwen3-30b, gemini index | hit@10 | recall@10 | MRR |
+|---|---|---|---|
+| v7 | 0.583 | 0.312 | 0.404 |
+| + reference anchor (8a) | 0.875 | 0.496 | 0.490 |
+| + worked examples (8b) | 0.667 | 0.361 | 0.447 |
+| **both (8c → v8)** | **0.875** | **0.547** | **0.558** |
+
+1. **Reference anchor.** The model answers objects
+   `{"ref": "Psalm 32:8", "query": "…"}` — it must name the passage before
+   paraphrasing it. That is what turns a formula into a near-quote; it is
+   also what stopped the model copying the examples (8b copied one variant in
+   nine, 8c one in 126). **`ref` never leaves the parser**:
+   `parse_rewrite_response` reads it and drops it, so no book name or chapter
+   number reaches an embedding whose corpus contains neither — the v7 rule
+   "only the passage's own words" is unchanged, it is merely satisfied by a
+   separate field instead of by suppression.
+2. **Six worked examples**, two per language, shown whatever the target
+   language is. They are de-fingerprinted by the rule the rerank prompt v6
+   established — no example topic and no example passage may touch
+   `evaluation/scenarios.json` — and that is a test against the live dataset
+   (`tests/test_rewrite_prompts.py`), not a claim in a comment.
+3. **A closing reminder of the answer language**, the last line of the
+   instruction: the model has just read six examples in three languages.
+   This one is a precaution and not a measured gain — the language was
+   already right for 21 of 21 scenarios without it. Dropping this paragraph
+   would make the production prompt byte-identical to the measured 8c
+   revision 2; see the reproducibility note below for why the measurement
+   cannot currently tell the two texts apart.
+
+   **Decision (review, 2026-09-05): the line stays.** It was re-examined
+   against the control artifacts, because "unmeasured benefit" is a reason to
+   delete a line only if deleting it is measurably better. It is not. The one
+   *reproducible* comparison on the production embedder — warm run against
+   warm run, the state the server actually settles into — has v8 **ahead** of
+   8c revision 2 on hit@10 (+0.042) and recall@10 (+0.026) and behind by
+   0.044 on MRR, which is smaller than the 0.072 spread of a single prompt.
+   The earlier "all three 8c-rev2 MRR points are above both v8 points"
+   reading does not survive: one of those three points was taken on a
+   different endpoint, a different `max_tokens` and the benchmark's own
+   transport rather than the production rewriter, and the other two mix a
+   cold run with a warm one. So the metrics disagree, the direction flips
+   with the server state, and nothing clears the noise floor. Against that,
+   the line defends a **user-visible correctness failure** (a Ukrainian
+   speaker served Russian scripture) in a prompt that shows examples in three
+   languages, and the 21/21 language result comes from one model while the
+   prompt is shared by every provider. An unmeasurable ranking cost does not
+   buy back that risk.
+
+The prompt is still shared by both transports (ADR 0009) and is now the
+single source for the benchmark too: `rewrite_prompts.build_instruction("8c")`
+returns the production text, and 7/8a/8b are frozen historical copies there.
+
+**The parser repairs bounded JSON breakage** (`repair_json_object`): a closer
+of the wrong type (`{"queries": ["a", "b"}}` — the stereotypical failure of a
+4B model, 8 of 21 scenarios in 86cbe4nd3), a truncation at a clean boundary,
+a trailing comma. It may only delete or re-type punctuation; an answer cut
+off inside a string is refused rather than closed, because half a sentence
+the model never finished is not a search query. A refused answer is
+`rewrite_failed` — the documented degradation to the raw query.
+
+**What v8 was measured to do, and what it was not.** On the reference set,
+`qwen3-30b-a3b-instruct-2507` through the production `OpenAICompatQueryRewriter`:
+JSON failures 0/21, variant language = scenario language 21/21, hit@10 0.875
+(equal to the 8c reference), recall@10 0.524-0.546 and MRR 0.525-0.541 across
+two samples against the 8c reference 0.547 / 0.558. It did **not** clear the
+retrieval thresholds (0.90 / 0.60 / 0.50) — no local-model configuration has
+yet, which is the open work of umbrella 86cbe4mtq.
+
+**The measurement's own limit, and it is a large one.** The self-hosted vLLM
+server is not reproducible at temperature 0 *on the first run of a new prompt
+text*: that run shares only 42 of 125 variants with the ones after it, and
+the retrieval metrics of one prompt move by up to 0.125 hit@10 / 0.072 recall
+/ 0.072 MRR between a "cold" and a "warm" sample. A single run is therefore
+not evidence that one prompt beats another by less than that, and the
+published 8c numbers are themselves one draw. Details, sample tables and the
+artifacts: evaluation/README.md, subsection 86cbegg36.
+
+What is *not* random is the warm state. Reproduced independently at review
+(2026-09-05) with nine production-rewriter calls at temperature 0 — three
+scenarios, three consecutive calls each: all nine were byte-identical per
+scenario, and all eighteen variants matched the warm artifact taken hours
+earlier byte for byte, while matching the cold artifact in only 8 of 18. So
+the server settles into a reproducible state and it is the *first* run that
+cannot be repeated. **Protocol for future prompt comparisons** (recommended,
+not yet adopted): discard the first run of any new prompt text as warm-up and
+publish the second; take a third only to confirm it equals the second, and
+treat a disagreement as an unstable configuration rather than averaging it
+away. A median of N adds nothing when runs 2..N are identical. Every
+published figure should say which state it came from.
+
+On `gemini-3.7-flash` v8 is **not worse than v7**, measured on the 12
+scenarios its free daily quota (20 requests) allowed before it ran out:
+0.625 / 0.484 / 0.313 against v7's 0.583 / 0.482 / 0.319 under identical
+conditions. That is a weak measurement on a reduced set, and it is what
+exists; a full-set Gemini re-run needs a day's quota or a paid key. One
+prompt for both providers is therefore kept — no
+`REWRITE_PROMPT_VERSION_BY_PROVIDER`, because nothing measured asks for one.
+
 ## Open questions
 
 1. uk recall/MRR are the weakest (0.619/0.571 vs thresholds 0.60/0.60 for
@@ -239,3 +361,11 @@ parallel embedding is an obvious later optimisation).
    with Maria when the mobile API defines the repeat window. Partly done:
    `safe_pool.json` 1.1.0 (Мария, 2026-08-28, ADR 0007) has 9 places, chosen
    so that every active translation carries them.
+4. (2026-09-05, 86cbegg36) **The first benchmark run of a new prompt text on
+   the self-hosted model is one draw, not a measurement.** Runs after it are
+   byte-reproducible (verified at review), so the cheap protocol above —
+   discard run 1, publish run 2, confirm with run 3 — costs two calls and
+   removes most of the problem. Until the cause is known (a fixed seed, or a
+   documented prefix-cache behaviour), a prompt or model comparison on this
+   21-scenario set only resolves differences larger than about 0.07 MRR, and
+   every published figure should say which server state it came from.

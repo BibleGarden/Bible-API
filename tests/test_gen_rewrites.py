@@ -72,6 +72,7 @@ def _args(tool, **overrides):
         prompt_version="7", variants=6, temperature=0.0,
         max_tokens=tool.DEFAULT_MAX_TOKENS, out="out.json",
         scenarios=str(EVALUATION / "scenarios.json"), only="", timeout=1.0,
+        via_app=False, provider="openai_compat",
     )
     return argparse.Namespace(**{**defaults, **overrides})
 
@@ -107,6 +108,57 @@ def test_transport_error_keeps_the_status_and_drops_the_message(tool):
         "transport: HTTPStatusError (HTTP 429)"
     assert tool.transport_error(httpx.ConnectError("boom to host 10.0.0.1")) \
         == "transport: ConnectError"
+
+
+def test_via_app_records_the_failure_category_of_the_production_stage(tool):
+    """`--via-app` reports what a production caller would see, nothing more."""
+
+    class Failing:
+        def rewrite(self, *_args, **_kwargs):
+            raise tool.QueryRewriteError(
+                "rewrite failed: chat request failed (HTTP 429)"
+            )
+
+    record = tool.generate_via_app(
+        Failing(), _args(tool, via_app=True, prompt_version="8c"), SCENARIO)
+    assert record["variants"] == []
+    assert record["error"].startswith("app: rewrite failed")
+    assert record["attempts"] == 1
+
+
+def test_via_app_builds_the_provider_it_was_asked_for(tool):
+    """ADR 0009: one option, two transports, one prompt."""
+    from query_rewrite import GeminiQueryRewriter, OpenAICompatQueryRewriter
+
+    gemini = tool.build_app_rewriter(
+        _args(tool, via_app=True, provider="gemini", prompt_version="8c",
+              api_key="k", endpoint=""))
+    assert isinstance(gemini, GeminiQueryRewriter)
+    gemini.close()
+    compat = tool.build_app_rewriter(
+        _args(tool, via_app=True, provider="openai_compat",
+              prompt_version="8c"))
+    assert isinstance(compat, OpenAICompatQueryRewriter)
+    compat.close()
+
+
+def test_gemini_provider_needs_the_app_path(tool, tmp_path):
+    """The raw path speaks OpenAI's protocol; Gemini's is another one."""
+    with pytest.raises(SystemExit):
+        tool.main([
+            "--endpoint", "http://localhost:11434/v1", "--model", "m",
+            "--out", str(tmp_path / "x.json"), "--provider", "gemini",
+        ])
+
+
+def test_via_app_refuses_a_historical_prompt_version(tool, tmp_path):
+    """The app always sends v8; a run labelled "7" would be a false artifact."""
+    with pytest.raises(SystemExit):
+        tool.main([
+            "--endpoint", "http://localhost:11434/v1", "--model", "m",
+            "--out", str(tmp_path / "x.json"), "--via-app",
+            "--prompt-version", "7",
+        ])
 
 
 def test_a_short_answer_warning_carries_no_url_either(tool, monkeypatch):

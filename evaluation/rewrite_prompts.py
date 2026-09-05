@@ -2,14 +2,22 @@
 Rewrite-prompt variants for benchmarking SMALL models on the rewrite stage
 (ClickUp 86cbe4nd3, umbrella 86cbe4mtq).
 
-Benchmark-only. The production prompt lives in `app/query_rewrite.py` and is
-NOT touched here: version 7 is imported from it verbatim, and every 8x variant
-is built by explicit, asserted surgery on that imported text. If the
-production wording ever changes so that an anchor substring is gone, the build
-raises instead of silently producing a different prompt (project rule: no
-silent fallbacks).
+**Since 86cbegg36 (2026-09-05) prompt "8c" IS the production prompt.** It won
+the 7/8a/8b/8c matrix on `qwen3-30b-a3b-instruct-2507` and moved into
+`app/query_rewrite.py` as v8, so `build_instruction("8c", ...)` returns
+`query_rewrite.build_rewrite_instruction(...)` itself — one text, no copy that
+could drift (`tests/test_rewrite_prompts.py` asserts the identity). What
+version 8 adds to the winning 8c revision 2 is the closing reminder of the
+answer language, hence `PROMPT_REVISIONS["8c"] = 3`: artifacts of revision 2
+are a different prompt and are not comparable byte for byte.
 
-Why the 8x family exists. The 30B local candidate (86cbbm70n) failed hard on
+The other three names are **history**. Version 7 is no longer production, so
+it can no longer be imported; it is frozen below verbatim as
+`_V7_INSTRUCTION`, and 8a/8b are still built by explicit surgery on that
+frozen text, exactly as they were when they were measured. They exist so the
+published matrix stays reproducible — nothing else reads them.
+
+Why the 8x family existed. The 30B local candidate (86cbbm70n) failed hard on
 v7: its variants were short generic pious formulas with none of the query's
 semantics (mean 59 chars against 89 for the Gemini baseline), and 10 of 24
 scenarios ended up without a single relevant passage in top-10. Two hypotheses
@@ -23,23 +31,23 @@ about *why* a small model does that, one prompt each:
   satisfied by a separate field instead of by suppression.)
 - 8b "few-shot": a small model does not know how *specific* the queries are
   supposed to be without seeing examples. Two worked examples per language.
-- 8c: both.
+- 8c: both. This one won and is now production.
 
 De-fingerprinting (mandatory, same rule as the rerank prompt v6): not one
 example topic and not one example passage may coincide with anything in
-`scenarios.json`. Every example below therefore carries its canonical
-`(book_code, chapter)` explicitly, and `tests/test_rewrite_prompts.py`
-enforces the rule against the live dataset — book codes are resolved through
-`app/canon.py`, so the check is a real comparison of coordinates rather than a
-comment claiming one. Example topics are outside the evaluation set (exam,
-flat hunting, public speaking, moving city, starting university, a wedding),
-and the quoted texts are written from memory, close to the text, never copied
-from the dataset.
+`scenarios.json`. The examples now live in `app/query_rewrite.py` (they are
+part of the shipped prompt) and are re-exported here so the benchmark's
+statistics and the historical 8b keep reading the same list;
+`tests/test_rewrite_prompts.py` enforces the rule against the live dataset —
+book codes are resolved through `app/canon.py`, so the check is a real
+comparison of coordinates rather than a comment claiming one. Example topics
+are outside the evaluation set (exam, flat hunting, public speaking, moving
+city, starting university, a wedding), and the quoted texts are written from
+memory, close to the text, never copied from the dataset.
 """
 
 from __future__ import annotations
 
-import json
 import re
 
 # Each prompt below is versioned by its own revision constant. Bump on any
@@ -53,11 +61,13 @@ import re
 #          examples show the FORM and must not be copied) — added after a 4B
 #          probe copied an example verbatim into an unrelated scenario
 #   8c r1/r2  same changes as 8b, since 8c embeds the same block
+#   8c r3  8c became production v8 (86cbegg36) and gained the closing
+#          language reminder; the text is now imported, not built here
 PROMPT_REVISIONS = {
-    "7": 0,    # revision of the *production* prompt is REWRITE_PROMPT_VERSION
+    "7": 0,    # frozen ex-production text, kept for the published matrix
     "8a": 1,
     "8b": 2,
-    "8c": 2,
+    "8c": 3,
 }
 
 PROMPT_VERSIONS = tuple(PROMPT_REVISIONS)
@@ -93,168 +103,38 @@ def _8a_output_contract(variants: int, language_name: str) -> str:
 
 
 # --------------------------------------------------------------------------
-# Few-shot examples (8b / 8c)
+# Few-shot examples: re-exported from the production prompt.
+#
+# They were defined here while the block was an experiment. Since 8c became
+# production v8 they are part of the shipped instruction and live in
+# `app/query_rewrite.py`; this module reads that same list, so the
+# de-fingerprint test, the "copied an example verbatim" statistic of
+# `gen_rewrites.py` and the historical 8b prompt can never disagree with what
+# the application actually sends.
 #
 # Item = (canonical book code from app/canon.py, chapter, display reference,
-# query text). The book code and chapter exist so the de-fingerprint test can
-# compare coordinates instead of parsing English book names.
+# query text).
 #
-# Deliberately outside the evaluation set: no topic and no passage below
-# appears in scenarios.json (enforced by tests/test_rewrite_prompts.py).
+# The re-export is lazy, like every other app import in this module: importing
+# `query_rewrite` pulls in `app/config.py`, which fails fast on a missing
+# deployment variable, and the tools that import this module set their
+# environment stubs first.
 # --------------------------------------------------------------------------
 
-_EXAMPLES: dict[str, list[dict]] = {
-    "ru": [
-        {
-            "topic": "Готовлюсь к экзамену, боюсь не сдать",
-            "replies": ["Учил всё лето", "Очень боюсь провалиться"],
-            "items": [
-                ("psa", 32, "Psalm 32:8",
-                 "Вразумлю тебя, наставлю тебя на путь, по которому тебе идти, "
-                 "буду руководить тебя, око Мое над тобою"),
-                ("pro", 2, "Proverbs 2:6",
-                 "Господь даёт мудрость, из уст Его — знание и разум"),
-                ("isa", 30, "Isaiah 30:15",
-                 "В тишине и уповании крепость ваша, в покое и надежде — "
-                 "спасение ваше"),
-                ("2ti", 1, "2 Timothy 1:7",
-                 "Дал нам Бог духа не боязни, но силы, и любви, и целомудрия"),
-                ("psa", 62, "Psalm 62:1-2",
-                 "Только в Боге успокаивается душа моя, от Него спасение моё, "
-                 "Он твердыня моя, не поколеблюсь более"),
-                ("psa", 138, "Psalm 138:8",
-                 "Господь совершит за меня, милость Твоя, Господи, вовек, "
-                 "дела рук Твоих не оставляй"),
-            ],
-        },
-        {
-            "topic": "Ищу квартиру, скоро заканчивается аренда",
-            "replies": ["Осталось меньше месяца", "Ничего подходящего не нахожу"],
-            "items": [
-                ("psa", 16, "Psalm 16:5-6",
-                 "Господь есть часть наследия моего и чаши моей, межи мои "
-                 "прошли по прекрасным местам, и наследие моё приятно для меня"),
-                ("mat", 7, "Matthew 7:7-8",
-                 "Просите, и дано будет вам, ищите, и найдёте, стучите, и "
-                 "отворят вам"),
-                ("psa", 145, "Psalm 145:15-16",
-                 "Очи всех уповают на Тебя, и Ты даёшь им пищу их в своё "
-                 "время, открываешь руку Твою и насыщаешь всё живущее"),
-                ("jer", 29, "Jeremiah 29:11",
-                 "Я знаю намерения, какие имею о вас, намерения во благо, а не "
-                 "на зло, чтобы дать вам будущность и надежду"),
-                ("luk", 12, "Luke 12:31",
-                 "Ищите прежде Царствия Божия, и это всё приложится вам"),
-                ("isa", 58, "Isaiah 58:11",
-                 "Будет Господь вождём твоим всегда, и во время засухи будет "
-                 "насыщать душу твою, и ты будешь как напоенный водою сад"),
-            ],
-        },
-    ],
-    "en": [
-        {
-            "topic": "I have to speak in front of a large audience tomorrow",
-            "replies": ["My hands shake when everyone looks at me",
-                        "I am afraid my mind will go blank"],
-            "items": [
-                ("jos", 1, "Joshua 1:9",
-                 "Be strong and courageous, do not be afraid, for the LORD "
-                 "your God is with you wherever you go"),
-                ("psa", 138, "Psalm 138:3",
-                 "On the day I called, You answered me, You emboldened me and "
-                 "strengthened my soul"),
-                ("isa", 50, "Isaiah 50:4",
-                 "The Lord GOD has given me the tongue of a disciple, to know "
-                 "how to sustain the weary with a word"),
-                ("1jn", 4, "1 John 4:18",
-                 "There is no fear in love, but perfect love drives out fear"),
-                ("pro", 4, "Proverbs 4:11-12",
-                 "I have guided you in the way of wisdom, when you walk your "
-                 "steps will not be hindered, and when you run you will not "
-                 "stumble"),
-                ("psa", 19, "Psalm 19:14",
-                 "May the words of my mouth and the meditation of my heart be "
-                 "pleasing in Your sight, O LORD, my Rock and my Redeemer"),
-            ],
-        },
-        {
-            "topic": "Preparing to move to another city",
-            "replies": ["We leave in three weeks", "I know no one there"],
-            "items": [
-                ("gen", 12, "Genesis 12:1-2",
-                 "Go from your country to the land I will show you, and I will "
-                 "bless you and make your name great"),
-                ("exo", 33, "Exodus 33:14",
-                 "My Presence will go with you, and I will give you rest"),
-                ("psa", 143, "Psalm 143:8",
-                 "Show me the way I should walk, for to You I lift up my soul"),
-                ("jer", 17, "Jeremiah 17:7-8",
-                 "Blessed is the man who trusts in the LORD, he is like a tree "
-                 "planted by the waters, sending out its roots toward the "
-                 "stream"),
-                ("psa", 84, "Psalm 84:5",
-                 "Blessed are those whose strength is in You, in whose heart "
-                 "are the highways to Zion"),
-                ("rom", 15, "Romans 15:13",
-                 "May the God of hope fill you with all joy and peace as you "
-                 "believe, so that you may overflow with hope"),
-            ],
-        },
-    ],
-    "uk": [
-        {
-            "topic": "Починаю навчання в університеті",
-            "replies": ["Перший тиждень уже наступного понеділка",
-                        "Боюся, що не впораюся"],
-            "items": [
-                ("pro", 9, "Proverbs 9:10",
-                 "Початок мудрості — страх Господній, і пізнання Святого — "
-                 "це розум"),
-                ("psa", 143, "Psalm 143:10",
-                 "Навчи мене чинити волю Твою, бо Ти Бог мій, Дух Твій добрий "
-                 "нехай веде мене по рівній землі"),
-                ("jhn", 15, "John 15:5",
-                 "Я — виноградна лоза, а ви — гілки, хто перебуває в Мені, той "
-                 "приносить рясний плід, бо без Мене нічого чинити не можете"),
-                ("col", 1, "Colossians 1:9-10",
-                 "Щоб ви наповнилися пізнанням волі Його в усякій мудрості й "
-                 "розумінні духовному"),
-                ("1co", 10, "1 Corinthians 10:13",
-                 "Вірний Бог, Який не попустить, щоб ви були спокушені понад "
-                 "силу, але при спокусі дасть і полегшення"),
-                ("jer", 33, "Jeremiah 33:3",
-                 "Клич до Мене — і Я тобі відповім, і подам тобі великі та "
-                 "незрозумілі речі, яких ти не знаєш"),
-            ],
-        },
-        {
-            "topic": "Готуюся до весілля",
-            "replies": ["Вінчання за місяць", "Хочу, щоб наш дім був у Господі"],
-            "items": [
-                ("gen", 2, "Genesis 2:24",
-                 "Покине чоловік батька свого та матір свою, і пристане до "
-                 "жінки своєї, і стануть вони одним тілом"),
-                ("sng", 8, "Song of Songs 8:6-7",
-                 "Поклади мене, як печатку, на серце своє, бо сильна любов, як "
-                 "смерть, і великі води не зможуть згасити любові"),
-                ("1co", 13, "1 Corinthians 13:4-7",
-                 "Любов довготерпить, милосердствує, не заздрить, не "
-                 "величається, не шукає свого, усе зносить, усе терпить"),
-                ("psa", 67, "Psalm 67:1",
-                 "Нехай Бог помилує нас і поблагословить нас, нехай засяє над "
-                 "нами лице Його"),
-                ("eph", 5, "Ephesians 5:25",
-                 "Чоловіки, любіть своїх дружин, як і Христос полюбив Церкву "
-                 "й видав Себе за неї"),
-                ("psa", 37, "Psalm 37:5",
-                 "Здай на Господа дорогу свою, і надійся на Нього, і Він "
-                 "зробить"),
-            ],
-        },
-    ],
-}
 
-_EXAMPLE_LANGUAGE_ORDER = ("ru", "en", "uk")
+def _examples() -> dict[str, list[dict]]:
+    """The production example list."""
+    from query_rewrite import _EXAMPLES  # noqa: WPS433
+
+    return _EXAMPLES
+
+
+def __getattr__(name: str):
+    """`rewrite_prompts._EXAMPLES` still resolves, for the tests and tools."""
+    if name == "_EXAMPLES":
+        return _examples()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 # «глава:стих» and its spaced variants — what a leaked reference looks like
 # once it is inside a query string.
@@ -274,91 +154,81 @@ def example_queries() -> set[str]:
     """
     return {
         " ".join(query.split())
-        for examples in _EXAMPLES.values()
+        for examples in _examples().values()
         for example in examples
         for _, _, _, query in example["items"]
     }
 
 
-def _render_context(topic: str, replies: list[str]) -> str:
-    lines = [f"Topic: {topic}"]
-    if replies:
-        lines.append("Remarks:")
-        lines.extend(f"- {reply}" for reply in replies)
-    return "\n".join(lines)
-
-
 def _render_examples(with_refs: bool, variants: int, language_name: str) -> str:
-    """The few-shot block, identical in content for every target language.
+    """The few-shot block — the production renderer, not a copy of it.
 
-    All three languages are shown on purpose: the register differs per
-    language and a small model benefits from seeing what "close paraphrase"
-    means in each of them. The closing reminder exists because a 4B probe
-    copied one example verbatim into an unrelated scenario (revision 2).
+    `with_refs=False` is the plain-string answer form of the historical 8b;
+    production (and therefore 8c) always renders the `{ref, query}` objects.
     """
-    blocks: list[str] = []
-    for language in _EXAMPLE_LANGUAGE_ORDER:
-        for example in _EXAMPLES[language]:
-            items = example["items"][:variants]
-            if with_refs:
-                answer = {
-                    "queries": [
-                        {"ref": ref, "query": query}
-                        for _, _, ref, query in items
-                    ]
-                }
-            else:
-                answer = {"queries": [query for _, _, _, query in items]}
-            blocks.append(
-                f"### Example ({language})\n"
-                f"Input:\n{_render_context(example['topic'], example['replies'])}\n"
-                f"Output:\n{json.dumps(answer, ensure_ascii=False)}"
-            )
-    reminder = (
-        "The examples above are about OTHER situations and exist only to show "
-        "the FORM of a good answer: how concrete a query is, and how closely it "
-        "follows scriptural wording.\n"
-        f"- Write your queries in {language_name}, whatever language the "
-        "examples happen to use.\n"
-        "- Never copy a sentence from an example. Every query must come from "
-        "the prayer context you were actually given; a line lifted from an "
-        "example is a wrong answer even if it sounds beautiful.\n"
-        "- Choose passages that speak to THIS person's situation, not the "
-        "passages the examples chose."
-    )
-    return (
-        "Worked examples of the same task on unrelated situations. Match this "
-        "level of concreteness: every query carries the meaning of THAT "
-        "situation in scriptural wording — never a generic formula of praise "
-        "that would fit any prayer.\n\n"
-        + "\n\n".join(blocks)
-        + "\n\n"
-        + reminder
-    )
+    from query_rewrite import render_examples  # noqa: WPS433
+
+    return render_examples(variants, language_name, with_refs=with_refs)
+
+
+# The ex-production v7 instruction, frozen on 2026-09-05 when v8 replaced it
+# (86cbegg36). Copied byte for byte out of `app/query_rewrite.py` at commit
+# 79243c1 so that the published 7 / 8a / 8b columns of the matrix
+# (README, 86cbea05x) can still be rebuilt. It is dead text: nothing in the
+# application reads it, and it must NOT be "kept in sync" with v8 — the whole
+# point of a frozen baseline is that it does not move.
+_V7_INSTRUCTION = """You prepare search queries for a Bible passage retrieval system inside a prayer app.
+
+Input: a prayer context — a topic and optional remarks from the person praying.
+
+Task: recall which well-known Bible passages truly speak to this person's situation and state, then write exactly {variants} short standalone search queries in {language_name}. Each query must be a close paraphrase of a DIFFERENT well-known Bible passage — rendered in the wording of {register_hint}. The queries are matched against Bible passage texts by semantic similarity, so each query must sound like the passage itself — a promise, comfort, declaration or praise as Scripture phrases it — not like the person's own words and not like a prayer request.
+
+Rules:
+- Cover DIFFERENT passages and different spiritual angles of the situation (for example: thanksgiving, God's care, comfort in sorrow, God's presence, guidance, hope, peace of heart).
+- Order the queries from the passage most directly fitting the situation to more complementary angles.
+- When the prayer is for another person (intercession — a child, a friend, a family member), include passages about God's heart and promises toward that person: His desire to save, keep, guide and bless them.
+- Stay as close to the actual scriptural wording as you can recall; near-quotes are ideal. Never include book names, chapter numbers or verse numbers — only the passage's own words.
+- The person may be in grief, anxiety or crisis. Choose only passages of comfort, mercy, hope and God's closeness — never accusation, condemnation, punishment, curses or end-times fear.
+- Beware of words with double meanings: resolve them by the person's intent (for example, peace of heart versus the world).
+- 5-25 words per query. No explanations, no numbering inside the strings.
+
+Output strictly a JSON object: {{"queries": ["...", "...", "...", "..."]}} with exactly {variants} strings in {language_name}."""
 
 
 def _v7_instruction(language: str, variants: int) -> str:
-    """The production v7 instruction, imported — never re-typed here."""
-    from query_rewrite import build_rewrite_instruction  # noqa: WPS433
+    """The frozen v7 instruction, rendered for one language."""
+    from query_rewrite import _LANGUAGES  # noqa: WPS433
 
-    return build_rewrite_instruction(language, variants)
+    language_name, register_hint = _LANGUAGES[language]
+    return _V7_INSTRUCTION.format(
+        variants=variants,
+        language_name=language_name,
+        register_hint=register_hint,
+    )
 
 
 def _require(text: str, anchor: str, version: str) -> None:
     if anchor not in text:
         raise RuntimeError(
-            f"prompt {version}: anchor not found in the production v7 "
-            f"instruction — app/query_rewrite.py changed, update "
-            f"evaluation/rewrite_prompts.py instead of guessing: {anchor!r}"
+            f"prompt {version}: anchor not found in the frozen v7 "
+            f"instruction — do not guess, fix "
+            f"evaluation/rewrite_prompts.py: {anchor!r}"
         )
 
 
 def build_instruction(version: str, language: str, variants: int) -> str:
-    """System instruction for one prompt version."""
+    """System instruction for one prompt version.
+
+    `8c` is the production prompt itself (v8), returned by the application's
+    own builder. `7`, `8a` and `8b` are the frozen historical texts.
+    """
     if version not in PROMPT_REVISIONS:
         raise ValueError(f"unknown prompt version: {version}")
 
-    from query_rewrite import _LANGUAGES  # noqa: WPS433
+    from query_rewrite import _LANGUAGES, build_rewrite_instruction  # noqa: WPS433
+
+    if version == "8c":
+        return build_rewrite_instruction(language, variants)
 
     base = _v7_instruction(language, variants)
     if version == "7":
@@ -366,7 +236,7 @@ def build_instruction(version: str, language: str, variants: int) -> str:
 
     language_name = _LANGUAGES[language][0]
     text = base
-    if version in ("8a", "8c"):
+    if version == "8a":
         _require(text, _V7_REFERENCE_RULE, version)
         text = text.replace(_V7_REFERENCE_RULE, _8A_REFERENCE_RULE)
         marker_at = text.find(_V7_OUTPUT_MARKER)
@@ -376,8 +246,8 @@ def build_instruction(version: str, language: str, variants: int) -> str:
                 f"({_V7_OUTPUT_MARKER!r})"
             )
         text = text[:marker_at] + _8a_output_contract(variants, language_name)
-    if version in ("8b", "8c"):
-        block = _render_examples(version == "8c", variants, language_name)
+    if version == "8b":
+        block = _render_examples(False, variants, language_name)
         text = f"{text}\n\n{block}"
     return text
 
@@ -391,9 +261,16 @@ def parse_response(
     `{"ref": ..., "query": ...}` objects, hand the queries to the same
     production cleaning (dedup, whitespace, length cap) and return the
     references separately — they never reach the artifact's `variants`.
+
+    For 8c (= production v8) the `queries` half is deliberately identical to
+    what `parse_rewrite_response` returns for the same answer: the JSON is
+    loaded by the production loader, including its bounded repair, and the
+    per-item rules below match it case for case. The only thing this function
+    adds is `refs`, which production reads and drops.
     """
     from query_rewrite import (  # noqa: WPS433
         _MAX_QUERY_CHARS,
+        _load_rewrite_payload,
         QueryRewriteError,
         parse_rewrite_response,
     )
@@ -401,13 +278,7 @@ def parse_response(
     if version in ("7", "8b"):
         return parse_rewrite_response(text, variants), []
 
-    match = re.search(r"\{.*\}", text, flags=re.DOTALL)
-    if not match:
-        raise QueryRewriteError("rewrite response contains no JSON object")
-    try:
-        payload = json.loads(match.group(0))
-    except json.JSONDecodeError as exc:
-        raise QueryRewriteError("rewrite response is not valid JSON") from exc
+    payload = _load_rewrite_payload(text)
     raw = payload.get("queries")
     if not isinstance(raw, list):
         raise QueryRewriteError("rewrite response has no 'queries' list")
@@ -420,9 +291,12 @@ def parse_response(
             query, ref = item, ""
         elif isinstance(item, dict):
             query = item.get("query")
-            ref = item.get("ref") or ""
-            if not isinstance(query, str) or not isinstance(ref, str):
+            ref = item.get("ref")
+            if not isinstance(query, str):
                 continue
+            # A non-string `ref` is not a reason to drop a usable query —
+            # production would keep it, and the two must not diverge.
+            ref = ref if isinstance(ref, str) else ""
         else:
             continue
         cleaned = " ".join(query.split()).strip()

@@ -177,10 +177,11 @@ LOCAL_RERANK_ENDPOINT = os.environ.get("TRACE_LOCAL_RERANK_ENDPOINT", "").strip(
 LOCAL_RERANK_MODEL = os.environ.get("TRACE_LOCAL_RERANK_MODEL", "").strip()
 LOCAL_RERANK_API_KEY = os.environ.get("TRACE_LOCAL_RERANK_API_KEY", "").strip()
 
-# The rewrite prompt of the local column: 8c, the object-per-query variant
-# measured for small models (evaluation/rewrite_prompts.py). The rerank
-# prompt is the PRODUCTION one (v9) and is not versioned here at all — it is
-# imported, so it cannot drift.
+# The rewrite prompt of the local column: 8c — which since 86cbegg36 IS the
+# production prompt (v8), returned by `query_rewrite.build_rewrite_instruction`
+# under that name. So neither prompt of this stand can drift from the
+# application any more: both are imported. Runs recorded before 2026-09-05
+# used 8c revision 2, the same text without its closing language reminder.
 LOCAL_REWRITE_PROMPT = "8c"
 # The embedding side is the benchmark's cached document matrix, so the model
 # key and the doc-text variant must be the pair that matrix was built from.
@@ -413,9 +414,17 @@ class QwenQueryRewriter:
 
     Same surface: `rewrite(language, topic, user_replies, deadline=None)` ->
     list of query strings, `QueryRewriteError` on any failure. The prompt is
-    `rewrite_prompts.build_instruction("8c", ...)` and the answer goes
-    through `rewrite_prompts.parse_response`, which hands the queries to the
-    production cleaner and throws the `ref` fields away.
+    `rewrite_prompts.build_instruction("8c", ...)` — the production v8 since
+    86cbegg36 — and the answer goes through `rewrite_prompts.parse_response`,
+    which hands the queries to the production cleaner and throws the `ref`
+    fields away.
+
+    The application now has a rewriter of its own for this transport
+    (`query_rewrite.OpenAICompatQueryRewriter`, ADR 0009), which
+    `evaluation/gen_rewrites.py --via-app` uses. This class predates it and is
+    kept because the stand needs the per-call diagnostics it records; it is
+    NOT a second implementation of the prompt or the parser, both of which it
+    imports.
     """
 
     def __init__(self, client: httpx.Client, variants: int = REWRITE_VARIANTS):

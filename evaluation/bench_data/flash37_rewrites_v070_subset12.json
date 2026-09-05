@@ -1,0 +1,236 @@
+{
+  "meta": {
+    "model": "gemini-3.7-flash",
+    "source": "pipeline_cache",
+    "source_cache_key": "gemini-3.7-flash|p7|n6|<scenario_id> (no cache tag)",
+    "date": "2026-09-04",
+    "rewrite_prompt_version": 7,
+    "scenarios_version": "0.7.0",
+    "variants_per_scenario": 6,
+    "note": "DERIVED, not a run: bench_data/flash37_rewrites_v070.json with the 9 scenarios blanked that bench_data/flash37_rewrites_v070_p8app_partial12.json could not produce (gemini-3.7-flash free daily quota, 20 requests/day, 2026-09-05). It exists so v7 and v8 can be compared on gemini-3.7-flash under IDENTICAL conditions: both files degrade the same 9 scenarios to the raw query, so the difference between the two runs is the prompt. Absolute numbers from it are NOT comparable with any full-set run. Rebuild: evaluation/README.md, subsection 86cbegg36.",
+    "derived_from": "flash37_rewrites_v070.json",
+    "scenarios_excluded": [
+      "ru-005",
+      "ru-007",
+      "ru-008",
+      "uk-001",
+      "uk-002",
+      "uk-003",
+      "uk-004",
+      "uk-005",
+      "uk-007"
+    ]
+  },
+  "scenarios": [
+    {
+      "id": "ru-001",
+      "language": "ru",
+      "variants": [
+        "О сем дитяти молилась я, и исполнил мне Господь прошение мое, которое я просила у Него.",
+        "Вот наследие от Господа: дети; награда от Него — плод чрева.",
+        "Славлю Тебя, потому что я дивно устроен; дивны дела Твои, и душа моя вполне сознает это.",
+        "Благослови, душа моя, Господа, и не забывай всех благодеяний Его, венчающего тебя милостью и щедротами.",
+        "Всякое даяние доброе и всякий дар совершенный нисходит свыше, от Отца светов.",
+        "Величит душа моя Господа, и возрадовался дух мой о Боге, ибо сотворил мне величие Сильный."
+      ],
+      "error": null
+    },
+    {
+      "id": "ru-002",
+      "language": "ru",
+      "variants": [
+        "Не заботьтесь о завтрашнем дне, Отец ваш Небесный знает, что вы имеете нужду во всем этом",
+        "Не заботьтесь ни о чем, но открывайте желания ваши пред Богом, и мир Божий соблюдет сердца ваши",
+        "Господь Пастырь мой, я ни в чем не буду нуждаться, на злачных пажитях Он покоит меня",
+        "Не бойся, ибо Я с тобою, не смущайся, Я укреплю тебя и помогу тебе, поддержу тебя десницею Моей",
+        "Предай Господу путь твой и уповай на Него, не видел я праведника оставленным и потомков его просящими хлеба",
+        "Ибо только Я знаю намерения о вас, говорит Господь, намерения во благо, а не на зло, дать вам будущность и надежду"
+      ],
+      "error": null
+    },
+    {
+      "id": "ru-003",
+      "language": "ru",
+      "variants": [
+        "Как утешает кого-либо мать его так утешу Я вас и вы будете утешены",
+        "Близок Господь к сокрушенным сердцем и смиренных духом спасет",
+        "Он исцеляет сокрушенных сердцем и врачует скорби их",
+        "Блаженны плачущие ибо они утешатся",
+        "И отрет Бог всякую слезу с очей их и смерти не будет уже ни плача ни вопля ни болезни",
+        "Изнемогает плоть моя и сердце мое Бог твердыня сердца моего и часть моя вовек"
+      ],
+      "error": null
+    },
+    {
+      "id": "ru-004",
+      "language": "ru",
+      "variants": [
+        "Не бойся, ибо Я с тобою; не смущайся, ибо Я Бог твой; Я укреплю тебя и помогу тебе, и поддержу тебя десницею правды Моей.",
+        "Благослови, душа моя, Господа: Он прощает все беззакония твои, исцеляет все недуги твои, избавляет от могилы жизнь твою.",
+        "Если я пойду и долиною смертной тени, не убоюсь зла, потому что Ты со мною; Твой жезл и Твой посох успокаивают меня.",
+        "Господь укрепит его на одре болезни его; Ты изменишь все ложе его в болезни его.",
+        "Мир Божий, который превыше всякого ума, соблюдет сердца ваши и помышления ваши во Христе Иисусе.",
+        "Он дает утомленному силу, и изнемогшему дарует крепость; надеющиеся на Господа обновятся в силе."
+      ],
+      "error": null
+    },
+    {
+      "id": "ru-005",
+      "language": "ru",
+      "variants": [],
+      "error": "excluded: no v8 counterpart (daily quota)"
+    },
+    {
+      "id": "ru-006",
+      "language": "ru",
+      "variants": [
+        "Слово Твое — светильник ноге моей и свет стезе моей",
+        "Я свет миру; кто последует за Мною, тот не будет ходить во тьме, но будет иметь свет жизни",
+        "Поведу слепых дорогою, которой они не знают, мрак сделаю светом пред ними и кривые пути прямыми",
+        "Ты возжигаешь светильник мой, Господи; Бог мой просвещает тьму мою",
+        "Вразумлю тебя, наставлю тебя на путь, по которому тебе идти; буду руководить тебя",
+        "Господь — свет мой и спасение мое: кого мне бояться? Господь крепость жизни моей"
+      ],
+      "error": null
+    },
+    {
+      "id": "ru-007",
+      "language": "ru",
+      "variants": [],
+      "error": "excluded: no v8 counterpart (daily quota)"
+    },
+    {
+      "id": "ru-008",
+      "language": "ru",
+      "variants": [],
+      "error": "excluded: no v8 counterpart (daily quota)"
+    },
+    {
+      "id": "ru-010",
+      "language": "ru",
+      "variants": [
+        "Пойди прежде примирись с братом твоим, и тогда приди и принеси дар твой пред Богом",
+        "Будьте друг ко другу добры, сострадательны, прощайте друг друга, как и Бог во Христе простил вас",
+        "Блаженны миротворцы, ибо они будут наречены сынами Божиими, ищите мира и стремитесь к нему",
+        "Как хорошо и как приятно жить братьям вместе, ибо там заповедал Господь благословение и жизнь навеки",
+        "Кроткий ответ отвращает гнев, а прикрывающий проступок ищет любви и мира",
+        "Облекитесь в милосердие, благость, смиренномудрие, кротость, долготерпение, снисходя друг другу и взаимно прощая"
+      ],
+      "error": null
+    },
+    {
+      "id": "en-001",
+      "language": "en",
+      "variants": [
+        "May the favor of the Lord our God rest upon us; establish the work of our hands for us, yes, establish the work of our hands.",
+        "Commit your works to the LORD, and your plans will be established.",
+        "Whatever you do, work heartily, as for the Lord and not for men, knowing that you will receive the inheritance.",
+        "I waited patiently for the LORD; He turned to me and heard my cry, and He put a new song in my mouth.",
+        "Trust in the LORD with all your heart and lean not on your own understanding; in all your ways acknowledge Him, and He will make your paths straight.",
+        "Behold, I am doing a new thing; now it springs forth, do you not perceive it? I will make a way in the wilderness."
+      ],
+      "error": null
+    },
+    {
+      "id": "en-002",
+      "language": "en",
+      "variants": [
+        "The LORD is near to the brokenhearted and saves those who are crushed in spirit",
+        "Blessed are those who mourn, for they will be comforted",
+        "A father to the fatherless and a defender of widows is God in His holy dwelling",
+        "He heals the brokenhearted and binds up their wounds",
+        "Do not fear, for I am with you; do not be dismayed, for I am your God; I will strengthen you and help you",
+        "The Father of compassion and the God of all comfort, who comforts us in all our troubles"
+      ],
+      "error": null
+    },
+    {
+      "id": "en-003",
+      "language": "en",
+      "variants": [
+        "The peace of God which surpasses all understanding will guard your hearts and your minds in Christ Jesus",
+        "Peace I leave with you My peace I give to you do not let your hearts be troubled",
+        "You will keep in perfect peace those whose minds are steadfast because they trust in You",
+        "Now may the Lord of peace Himself give you peace at all times and in every way",
+        "May the God of hope fill you with all joy and peace as you trust in Him",
+        "Come to Me all who are weary and burdened and I will give you rest for your souls"
+      ],
+      "error": null
+    },
+    {
+      "id": "en-004",
+      "language": "en",
+      "variants": [
+        "He will turn the hearts of the fathers to their children and the hearts of the children to their fathers",
+        "if it is possible as far as it depends on you live at peace with everyone",
+        "if any of you lacks wisdom you should ask God who gives generously to all without finding fault",
+        "be kind and compassionate to one another forgiving each other just as in Christ God forgave you",
+        "trust in the LORD with all your heart and lean not on your own understanding and He will make your paths straight",
+        "He heals the brokenhearted and binds up their wounds"
+      ],
+      "error": null
+    },
+    {
+      "id": "en-005",
+      "language": "en",
+      "variants": [
+        "I praise You because I am fearfully and wonderfully made; marvelous are Your works, and my soul knows it well.",
+        "You are precious in My eyes and honored, and I have loved you. Do not be afraid, for I am with you.",
+        "Do not be afraid; you are worth more than many sparrows. Even the hairs of your head are all numbered.",
+        "For we are God’s handiwork, created in Christ Jesus for good works, which God prepared in advance for us to do.",
+        "Can a mother forget her nursing child? Even if she forgets, I will not forget you. I have engraved you on My palms.",
+        "The LORD your God is in your midst; He will rejoice over you with gladness and quiet you with His love."
+      ],
+      "error": null
+    },
+    {
+      "id": "en-007",
+      "language": "en",
+      "variants": [
+        "I will give you a new heart and put a new spirit within you; I will remove your heart of stone and give you a heart of flesh.",
+        "The LORD is close to the brokenhearted and saves those who are crushed in spirit; He heals the broken in heart and binds their wounds.",
+        "Come to Me, all you who are weary and burdened, and I will give you rest for your souls.",
+        "I have loved you with an everlasting love; therefore I have drawn you with loving devotion and lovingkindness.",
+        "God, who said, Let light shine out of darkness, has shone in our hearts to give the light of the knowledge of His glory.",
+        "The Lord is patient toward you, not wishing that any should perish, but that all should reach repentance and life."
+      ],
+      "error": null
+    },
+    {
+      "id": "uk-001",
+      "language": "uk",
+      "variants": [],
+      "error": "excluded: no v8 counterpart (daily quota)"
+    },
+    {
+      "id": "uk-002",
+      "language": "uk",
+      "variants": [],
+      "error": "excluded: no v8 counterpart (daily quota)"
+    },
+    {
+      "id": "uk-003",
+      "language": "uk",
+      "variants": [],
+      "error": "excluded: no v8 counterpart (daily quota)"
+    },
+    {
+      "id": "uk-004",
+      "language": "uk",
+      "variants": [],
+      "error": "excluded: no v8 counterpart (daily quota)"
+    },
+    {
+      "id": "uk-005",
+      "language": "uk",
+      "variants": [],
+      "error": "excluded: no v8 counterpart (daily quota)"
+    },
+    {
+      "id": "uk-007",
+      "language": "uk",
+      "variants": [],
+      "error": "excluded: no v8 counterpart (daily quota)"
+    }
+  ]
+}

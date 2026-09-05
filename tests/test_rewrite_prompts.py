@@ -1,18 +1,23 @@
-"""De-fingerprinting and fidelity checks for the benchmark rewrite prompts.
+"""De-fingerprinting and fidelity checks for the rewrite prompts.
 
-`evaluation/rewrite_prompts.py` builds experimental rewrite prompts (8a/8b/8c)
-for benchmarking small models. Two invariants must hold, and neither can be
-left to a comment in a docstring:
+Since 86cbegg36 the few-shot prompt "8c" IS the production prompt (v8,
+`app/query_rewrite.py`), and `evaluation/rewrite_prompts.py` keeps the frozen
+historical texts 7 / 8a / 8b of the published matrix. Three invariants must
+hold, and none of them can be left to a comment in a docstring:
 
 1. **The few-shot examples must not leak the evaluation set.** The same rule
    the rerank prompt v6 established (README, "Редакторские решения"): a prompt
    that quotes the reference answers measures the prompt, not the model. So no
    example topic may equal a scenario topic and no example passage may share
-   book+chapter with ANY reference of ANY grade in `scenarios.json`.
-2. **Version 7 must be the production prompt, byte for byte.** It is imported
-   from `app/query_rewrite.py`; if a refactor ever turned that import into a
-   local copy, the baseline column of every comparison would silently stop
-   being the baseline.
+   book+chapter with ANY reference of ANY grade in `scenarios.json`. The
+   examples are now shipped INSIDE the production instruction, so this file
+   checks the prompt the service actually sends.
+2. **"8c" must be the production prompt, byte for byte** — it is returned by
+   `query_rewrite.build_rewrite_instruction`, and if a refactor ever turned
+   that into a local copy, the benchmark would stop measuring production.
+3. **The frozen v7 must stay frozen.** It is the baseline column of the
+   published 7/8a/8b/8c matrix; it is not production any more and must not be
+   "kept in sync" with anything.
 
 No database and no network: `scenarios.json` and the canon table are read from
 disk.
@@ -46,6 +51,8 @@ rewrite_prompts = pytest.importorskip("rewrite_prompts")
 
 from canon import CANONICAL_BOOKS  # noqa: E402
 from query_rewrite import (  # noqa: E402
+    _EXAMPLES,
+    REWRITE_PROMPT_VERSION,
     REWRITE_VARIANTS,
     build_rewrite_instruction,
 )
@@ -142,17 +149,39 @@ def test_example_queries_carry_no_digits_and_no_book_names():
     assert not problems, problems
 
 
-def test_version_7_is_the_production_prompt_byte_for_byte():
+def test_the_examples_are_the_production_ones():
+    """One list, not two: the de-fingerprint checks above must bind the app."""
+    assert rewrite_prompts._EXAMPLES is _EXAMPLES
+
+
+def test_8c_is_the_production_prompt_byte_for_byte():
     for language in LANGUAGES:
         assert rewrite_prompts.build_instruction(
-            "7", language, REWRITE_VARIANTS
+            "8c", language, REWRITE_VARIANTS
         ) == build_rewrite_instruction(language, REWRITE_VARIANTS), language
+    assert REWRITE_PROMPT_VERSION == 8
+    assert rewrite_prompts.PROMPT_REVISIONS["8c"] == 3
+
+
+def test_frozen_v7_is_not_production_and_keeps_its_own_wording():
+    """The baseline column of the published matrix, deliberately dead text."""
+    for language in LANGUAGES:
+        v7 = rewrite_prompts.build_instruction("7", language, REWRITE_VARIANTS)
+        assert v7 != build_rewrite_instruction(language, REWRITE_VARIANTS)
+        # v7's contract: plain strings, no `ref` field, no examples.
+        assert '"ref"' not in v7
+        assert "### Example" not in v7
+        assert rewrite_prompts._V7_REFERENCE_RULE in v7
 
 
 def test_8x_prompts_build_and_keep_the_v7_body():
-    """Each 8x variant extends v7 rather than replacing it."""
+    """Each 8x variant extends v7 rather than replacing it.
+
+    Including 8c, which is production now: v8 grew out of v7 and still
+    contains its task statement and its safety rules.
+    """
     for language in LANGUAGES:
-        base = build_rewrite_instruction(language, REWRITE_VARIANTS)
+        base = rewrite_prompts.build_instruction("7", language, REWRITE_VARIANTS)
         opening = base.split("\n", 1)[0]
         for version in ("8a", "8b", "8c"):
             text = rewrite_prompts.build_instruction(
@@ -160,6 +189,9 @@ def test_8x_prompts_build_and_keep_the_v7_body():
             )
             assert text.startswith(opening), (version, language)
             assert len(text) > len(base) * 0.9, (version, language)
+            # The rule that keeps a person in crisis away from condemnation
+            # survives every variant.
+            assert "never accusation, condemnation" in text, (version, language)
 
 
 def test_8a_and_8c_ask_for_objects_and_8b_does_not():
@@ -187,6 +219,19 @@ def test_few_shot_prompts_forbid_copying_and_name_the_language():
                 f"{version}/{language}: the reminder must follow the examples"
             )
             assert f"Write your queries in {expected_name}" in text
+
+
+def test_the_production_prompt_ends_with_the_language_reminder():
+    """v8's closing line: the last thing the model reads is its answer
+    language, because the six examples it has just read are in three."""
+    for language, expected_name in (
+        ("ru", "Russian"), ("en", "English"), ("uk", "Ukrainian")
+    ):
+        text = build_rewrite_instruction(language, REWRITE_VARIANTS)
+        closing = text.rsplit("\n\n", 1)[1]
+        assert closing.startswith("Before you answer, check the language")
+        assert f"must be written in {expected_name}" in closing
+        assert text.rindex("### Example") < text.rindex(closing)
 
 
 def test_parse_response_splits_refs_from_queries():
@@ -258,6 +303,8 @@ class _Args:
     temperature = 0.0
     max_tokens = 1024
     variants = 6
+    via_app = False
+    provider = "openai_compat"
 
 
 def _dataset_and_eligible():
@@ -305,6 +352,8 @@ def test_artifact_records_the_sampling_actually_used():
     assert meta["sampling"]["max_tokens"] == 1024
     assert meta["sampling"]["variants"] == 6
     assert meta["prompt_revision"] == rewrite_prompts.PROMPT_REVISIONS["8c"]
+    # Which code path answered is part of the artifact's identity.
+    assert meta["transport"] == "raw"
     # The endpoint is recorded without any path or query string (keys live
     # in those on some providers).
     assert meta["endpoint"] == "http://localhost:11434"

@@ -13,8 +13,16 @@ system = the rewrite instruction, user = the prayer context, temperature 0,
 max_tokens 8192 (see DEFAULT_MAX_TOKENS — the one value local runs lower),
 response_format json_object; invalid JSON is retried once, transport failures
 up to three attempts; wall time of each scenario recorded.
-The prompt is not re-typed here — v7 comes from `app/query_rewrite.py` and the
-8x variants are built from it in `rewrite_prompts.py`.
+The prompt is not re-typed here — the production one (v8, registered as "8c")
+comes from `app/query_rewrite.py`, and the frozen historical 7/8a/8b are built
+in `rewrite_prompts.py`.
+
+`--via-app` swaps this tool's own chat request for the PRODUCTION rewriter
+(`OpenAICompatQueryRewriter`): same prompt, same parser — including its
+bounded JSON repair — and the same retry ladder the endpoint runs with. Use it
+when the question is "what would the deployed service do with this model"; the
+default `raw` path stays for the historical prompts, which the application
+cannot produce.
 
 `empty` scenarios are skipped: production answers them from the safe pool
 before the rewrite stage ever runs (README, resolved question 5).
@@ -32,6 +40,16 @@ Examples (local endpoints want `--max-tokens` lowered — see DEFAULT_MAX_TOKENS
         --model qwen3-30b-a3b-instruct-2507 --prompt-version 8c \\
         --max-tokens 1024 \\
         --out bench_data/qwen30b_rewrites_v070_p8c.json
+
+    # exactly what the deployed service would produce with that model
+    python gen_rewrites.py --endpoint https://<host>/v1 --via-app \\
+        --model qwen3-30b-a3b-instruct-2507 --prompt-version 8c \\
+        --out bench_data/qwen30b_rewrites_v070_p8app.json
+
+    # the same for the Gemini transport (no endpoint: it is a constant)
+    python gen_rewrites.py --via-app --provider gemini \\
+        --model gemini-3.7-flash --prompt-version 8c \\
+        --out bench_data/flash37_rewrites_v070_p8app.json
 """
 
 from __future__ import annotations
@@ -64,19 +82,39 @@ for _name, _value in (
     ("DB_NAME", "gen-rewrites-unused"),
     ("EMBEDDING_MODEL", "gemini-embedding-001"),
     ("EMBEDDING_DIMENSIONS", "768"),
+    # Required in every deployment since ADR 0010, and this tool computes no
+    # vectors at all — the stub only has to let `config` import.
+    ("EMBEDDING_PROVIDER", "gemini"),
     ("AI_SCRIPTURE_REWRITE_MODEL", "gemini-3.7-flash"),
     ("AI_SCRIPTURE_RERANK_MODEL", "gemini-3.5-flash-lite"),
     ("AI_QUESTION_MODEL", "gemini-3.5-flash-lite"),
     ("AI_TRANSCRIBE_MODEL", "gemini-3.5-flash-lite"),
+    # Required together once the AI surface is configured at all (ADR 0009),
+    # which a `GEMINI_API_KEY` in the caller's environment does. This tool
+    # never reads them: `--via-app` builds its `StageProvider` from the
+    # command line, precisely so a benchmark run cannot depend on which
+    # provider the machine's `.env` happens to name today.
+    ("AI_QUESTION_PROVIDER", "gemini"),
+    ("AI_SCRIPTURE_REWRITE_PROVIDER", "gemini"),
+    ("AI_SCRIPTURE_RERANK_PROVIDER", "gemini"),
 ):
     os.environ.setdefault(_name, _value)
 
 from query_rewrite import (  # noqa: E402
     REWRITE_PROMPT_VERSION,
     REWRITE_VARIANTS,
+    GeminiQueryRewriter,
+    OpenAICompatQueryRewriter,
     QueryRewriteError,
     build_rewrite_user_content,
 )
+from config import StageProvider  # noqa: E402
+
+# The prompt version this tool asks for when it runs through the application's
+# own rewriter (`--via-app`): the name under which the production instruction
+# is registered in `rewrite_prompts`. Named once, so the check below cannot
+# drift from what `build_instruction` returns.
+PRODUCTION_PROMPT_NAME = "8c"
 
 import rewrite_prompts  # noqa: E402
 
@@ -168,13 +206,23 @@ def build_artifact(
         # The production prompt these variants are derived from.
         "rewrite_prompt_version": REWRITE_PROMPT_VERSION,
         "scenarios_version": dataset["version"],
-        "endpoint": endpoint_host(args.endpoint),
+        # Gemini has no configurable endpoint: the URL is a constant of
+        # `app/query_rewrite.py`, so the provider name is what identifies it.
+        "endpoint": endpoint_host(args.endpoint) or "provider:gemini",
+        "provider": args.provider if args.via_app else "openai_compat",
         "sampling": {
             "temperature": args.temperature,
             "max_tokens": args.max_tokens,
             "response_format": "json_object",
             "variants": args.variants,
         },
+        # Which code path produced the answers: "app" means the production
+        # rewriter (class, prompt, parser and retry ladder of
+        # `app/query_rewrite.py`), "raw" the tool's own chat call. The two ask
+        # the same model the same question; only "app" also measures the
+        # production parser, so a run that claims the production path has to
+        # say so in the artifact.
+        "transport": "app" if args.via_app else "raw",
         "partial": partial,
         "scenarios_covered": covered,
         "scenarios_expected": len(eligible),
@@ -230,6 +278,91 @@ def call_model(
         # content came back empty; that is a failure, not something to guess.
         raise QueryRewriteError("response content is empty")
     return _THINK_BLOCK.sub("", text)
+
+
+def build_app_rewriter(args: argparse.Namespace):
+    """The PRODUCTION rewriter of the chosen provider (`--via-app`).
+
+    Not a re-implementation of the stage and not a copy of its settings: the
+    class, the instruction, the parser and the retry ladder are the ones
+    `POST /api/ai/scripture` runs with for that
+    `AI_SCRIPTURE_REWRITE_PROVIDER`. Only the stage configuration is built
+    here instead of read from the environment, so one machine can benchmark
+    several endpoints and providers without rewriting its `.env`.
+
+    The two classes are the same duck (ADR 0009) and send the same prompt, so
+    the caller does not branch — which is the property this option exists to
+    measure in the first place.
+    """
+    if args.provider == "gemini":
+        return GeminiQueryRewriter(
+            api_key=args.api_key,
+            model=args.model,
+            variants=args.variants,
+            timeout=args.timeout,
+        )
+    return OpenAICompatQueryRewriter(
+        StageProvider(
+            stage="scripture_rewrite",
+            provider="openai_compat",
+            model=args.model,
+            endpoint=args.endpoint,
+            api_key=args.api_key,
+        ),
+        variants=args.variants,
+        timeout=args.timeout,
+    )
+
+
+def generate_via_app(
+    rewriter: OpenAICompatQueryRewriter,
+    args: argparse.Namespace,
+    scenario: dict,
+) -> dict:
+    """One scenario through the application's own rewrite stage.
+
+    The record has the same shape as `generate_one`'s, minus `refs`: the
+    production parser reads the reference field and drops it, and inventing a
+    second parser here to recover it would defeat the purpose of measuring the
+    production path. `attempts` is 1 because the ladder lives inside the
+    stage — `QueryRewriteError` is what a production caller would see, and it
+    is recorded as the failure category it is.
+    """
+    context = scenario["prayer_context"]
+    started = time.monotonic()
+    variants: list[str] = []
+    error = ""
+    try:
+        variants = rewriter.rewrite(
+            scenario["language"],
+            context["topic"],
+            list(context.get("user_replies") or []),
+        )
+    except QueryRewriteError as exc:
+        # The stage's own message is already a category, never the prayer
+        # text and never a URL (app/llm_client.transport_error).
+        error = f"app: {exc}"
+    latency_ms = int((time.monotonic() - started) * 1000)
+    record: dict = {
+        "id": scenario["id"],
+        "language": scenario["language"],
+        "variants": variants,
+        "latency_ms": latency_ms,
+        "attempts": 1,
+        "error": None if variants else (error or "no variants"),
+    }
+    if variants and len(variants) < args.variants:
+        record["warning"] = (
+            f"short answer: {len(variants)} of {args.variants} variants"
+        )
+    leaks = sorted({
+        leak
+        for variant in variants
+        for leak in rewrite_prompts.find_reference_leaks(variant)
+    })
+    if leaks:
+        record["reference_leaks"] = leaks
+    return record
 
 
 def generate_one(
@@ -327,9 +460,16 @@ def main(argv: list[str] | None = None) -> int:
         )
     )
     parser.add_argument(
-        "--endpoint", required=True,
+        "--endpoint", default="",
         help="base URL of the OpenAI-compatible API, e.g. "
-             "http://localhost:11434/v1 (…/chat/completions is appended)",
+             "http://localhost:11434/v1 (…/chat/completions is appended). "
+             "Required except with --via-app --provider gemini, whose URL is "
+             "a constant of the stage module.",
+    )
+    parser.add_argument(
+        "--provider", default="openai_compat", choices=("openai_compat", "gemini"),
+        help="with --via-app: which production rewriter to build. Ignored "
+             "otherwise — the raw path speaks OpenAI's protocol only.",
     )
     parser.add_argument("--model", required=True, help="model id at that endpoint")
     parser.add_argument(
@@ -338,8 +478,10 @@ def main(argv: list[str] | None = None) -> int:
              "$OPENROUTER_API_KEY. Local endpoints need none.",
     )
     parser.add_argument(
-        "--prompt-version", default="7", choices=rewrite_prompts.PROMPT_VERSIONS,
-        help="7 = the production prompt; 8a/8b/8c = the small-model variants "
+        "--prompt-version", default=PRODUCTION_PROMPT_NAME,
+        choices=rewrite_prompts.PROMPT_VERSIONS,
+        help="8c = the production prompt (v8, app/query_rewrite.py); 7/8a/8b "
+             "= the frozen historical texts of the prompt matrix "
              "(evaluation/rewrite_prompts.py)",
     )
     parser.add_argument("--variants", type=int, default=REWRITE_VARIANTS)
@@ -366,15 +508,38 @@ def main(argv: list[str] | None = None) -> int:
         help="comma-separated scenario ids — a probe run over a subset",
     )
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT_SECONDS)
+    parser.add_argument(
+        "--via-app", action="store_true",
+        help="call the PRODUCTION rewriter (app.query_rewrite."
+             "OpenAICompatQueryRewriter) instead of this tool's own chat "
+             f"request: same prompt, same parser, same retry ladder as "
+             f"POST /api/ai/scripture. Requires --prompt-version "
+             f"{PRODUCTION_PROMPT_NAME} (the production instruction) and "
+             f"ignores --temperature/--max-tokens, which the stage pins.",
+    )
     args = parser.parse_args(argv)
 
     if args.variants < 1:
         parser.error("--variants must be >= 1")
     if args.max_tokens < 1:
         parser.error("--max-tokens must be >= 1")
+    gemini_app = args.via_app and args.provider == "gemini"
+    if not args.endpoint and not gemini_app:
+        parser.error("--endpoint is required (except --via-app --provider gemini)")
+    if args.provider == "gemini" and not args.via_app:
+        parser.error("--provider gemini only makes sense with --via-app")
+    if args.via_app and args.prompt_version != PRODUCTION_PROMPT_NAME:
+        # No silent substitution: the app sends the production prompt whatever
+        # this flag says, so a run labelled with another version would be a
+        # lie in the artifact.
+        parser.error(
+            f"--via-app runs the production instruction; use "
+            f"--prompt-version {PRODUCTION_PROMPT_NAME} or drop --via-app"
+        )
     if not args.api_key:
         args.api_key = (
             os.environ.get("REWRITE_BENCH_API_KEY")
+            or (os.environ.get("GEMINI_API_KEY") if gemini_app else "")
             or os.environ.get("OPENROUTER_API_KEY")
             or ""
         )
@@ -396,39 +561,51 @@ def main(argv: list[str] | None = None) -> int:
     if not scenarios:
         parser.error("no scenarios selected")
 
-    url = completions_url(args.endpoint)
+    url = completions_url(args.endpoint) if args.endpoint else ""
     out = resolve_path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     records: list[dict] = []
     print(
-        f"{args.model} @ {endpoint_host(args.endpoint)} — prompt "
+        f"{args.model} @ {endpoint_host(args.endpoint) or args.provider} — prompt "
         f"v{args.prompt_version}, {args.variants} variants, "
-        f"{len(scenarios)} of {len(eligible)} eligible scenarios",
+        f"{len(scenarios)} of {len(eligible)} eligible scenarios"
+        + (" — through the production rewriter" if args.via_app else ""),
         flush=True,
     )
 
     def snapshot() -> None:
         write_artifact(out, build_artifact(args, dataset, records, eligible))
 
+    def report(record: dict) -> None:
+        mark = "ok " if record["error"] is None else "ERR"
+        note = record.get("error") or record.get("warning")
+        print(
+            f"  {mark} {record['id']:<7} {len(record['variants'])} "
+            f"variants {record['latency_ms'] / 1000:6.1f}s "
+            f"attempts={record['attempts']}"
+            + (f" — {note}" if note else ""),
+            flush=True,
+        )
+
     # The artifact is rewritten after EVERY scenario, and once more in
     # `finally`. Reason: an interrupted run used to leave nothing at all on
     # disk, and a completed 21-scenario run was lost that way (86cbe4nd3).
     # A partial file that says it is partial beats no file.
     try:
-        with httpx.Client(timeout=httpx.Timeout(args.timeout)) as client:
-            for scenario in scenarios:
-                record = generate_one(client, url, args, scenario)
-                records.append(record)
-                mark = "ok " if record["error"] is None else "ERR"
-                note = record.get("error") or record.get("warning")
-                print(
-                    f"  {mark} {record['id']:<7} {len(record['variants'])} "
-                    f"variants {record['latency_ms'] / 1000:6.1f}s "
-                    f"attempts={record['attempts']}"
-                    + (f" — {note}" if note else ""),
-                    flush=True,
-                )
-                snapshot()
+        if args.via_app:
+            with build_app_rewriter(args) as rewriter:
+                for scenario in scenarios:
+                    record = generate_via_app(rewriter, args, scenario)
+                    records.append(record)
+                    report(record)
+                    snapshot()
+        else:
+            with httpx.Client(timeout=httpx.Timeout(args.timeout)) as client:
+                for scenario in scenarios:
+                    record = generate_one(client, url, args, scenario)
+                    records.append(record)
+                    report(record)
+                    snapshot()
     finally:
         snapshot()
 

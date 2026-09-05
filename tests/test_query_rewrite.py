@@ -17,11 +17,13 @@ import config
 from query_rewrite import (
     GeminiQueryRewriter,
     QueryRewriteError,
+    REWRITE_PROMPT_VERSION,
     REWRITE_VARIANTS,
     build_rewrite_instruction,
     build_rewrite_user_content,
     build_search_query,
     parse_rewrite_response,
+    repair_json_object,
 )
 
 
@@ -52,6 +54,34 @@ def test_instruction_mentions_language_and_variant_count():
 def test_instruction_rejects_unknown_language():
     with pytest.raises(KeyError):
         build_rewrite_instruction("de")
+
+
+# --- prompt v8 (ClickUp 86cbegg36): reference anchor + few-shot -------------
+
+def test_instruction_asks_for_ref_and_query_objects():
+    text = build_rewrite_instruction("en", 6)
+    assert REWRITE_PROMPT_VERSION == 8
+    assert '{"ref": "Book chapter:verses", "query": "..."}' in text
+    assert "with exactly 6 objects" in text
+    # The anchor is a RULE, not only an output shape: naming the passage
+    # first is what makes a small model quote it (86cbea05x).
+    assert "First recall WHICH passage you mean" in text
+
+
+def test_instruction_carries_worked_examples_in_all_three_languages():
+    text = build_rewrite_instruction("ru", 6)
+    assert text.count("### Example") == 6
+    for marker in ("### Example (ru)", "### Example (en)", "### Example (uk)"):
+        assert marker in text
+    assert "Never copy a sentence from an example" in text
+
+
+def test_instruction_examples_shrink_with_the_variant_count():
+    """A run with fewer variants must not show examples of six."""
+    text = build_rewrite_instruction("en", 2)
+    example = text.split("### Example (ru)", 1)[1]
+    first_answer = example.split("Output:\n", 1)[1].split("\n", 1)[0]
+    assert first_answer.count('"ref"') == 2
 
 
 def test_user_content_contains_topic_and_replies():
@@ -105,6 +135,79 @@ def test_parse_rejects_junk():
                 '{"queries": []}', '{"queries": [null]}'):
         with pytest.raises(QueryRewriteError):
             parse_rewrite_response(bad)
+
+
+# --- v8 answers: objects, and the reference never leaves the parser ---------
+
+def test_parse_reads_ref_query_objects_and_drops_the_reference():
+    text = json.dumps({"queries": [
+        {"ref": "Psalm 23:1", "query": "The LORD is my shepherd"},
+        {"ref": "John 3:16", "query": "For God so loved the world"},
+    ]})
+    assert parse_rewrite_response(text) == [
+        "The LORD is my shepherd", "For God so loved the world",
+    ]
+
+
+def test_parse_still_accepts_the_v7_string_shape_and_a_mix():
+    text = json.dumps({"queries": [
+        "плоский вариант",
+        {"ref": "Ps 23:1", "query": "объектный вариант"},
+        {"ref": "Ps 23:1", "query": ""},
+        {"ref": "Ps 23:1"},
+        {"query": "без ссылки"},
+    ]})
+    assert parse_rewrite_response(text) == [
+        "плоский вариант", "объектный вариант", "без ссылки",
+    ]
+
+
+# --- bounded JSON repair (the failure mode of small models) -----------------
+
+def test_repair_fixes_an_array_closed_with_a_brace():
+    """The stereotypical breakage of a 4B model: `[".", "."}}`."""
+    text = '{"queries": ["первый", "второй"}}'
+    assert parse_rewrite_response(text) == ["первый", "второй"]
+
+
+def test_repair_completes_an_answer_cut_off_at_a_clean_boundary():
+    text = '{"queries": [{"ref": "Ps 23:1", "query": "первый"},'
+    assert parse_rewrite_response(text) == ["первый"]
+
+
+def test_repair_drops_a_trailing_comma():
+    assert parse_rewrite_response('{"queries": ["a", "b",]}') == ["a", "b"]
+
+
+def test_repair_refuses_an_answer_cut_off_inside_a_string():
+    """Closing the quote would hand retrieval half a sentence."""
+    # A brace inside the unterminated string is what lets the answer reach the
+    # repair at all (the JSON search needs a closing brace to find anything).
+    assert repair_json_object('{"queries": ["первый", "втор}') is None
+    with pytest.raises(QueryRewriteError, match="not valid JSON"):
+        parse_rewrite_response('{"queries": ["первый", "втор}')
+    # Without any closing brace the answer does not even look like an object.
+    with pytest.raises(QueryRewriteError, match="no JSON object"):
+        parse_rewrite_response('{"queries": ["первый", "втор')
+
+
+def test_repair_never_invents_content():
+    # A brace-for-bracket answer whose only query is empty stays a failure:
+    # the repair fixes punctuation, never the absence of an answer.
+    with pytest.raises(QueryRewriteError):
+        parse_rewrite_response('{"queries": [""}}')
+    # And a string that is not a JSON object at all is not "repaired" into one.
+    assert repair_json_object('{"queries": "not-a-list"}') is None
+
+
+def test_repair_reports_nothing_to_do_as_none():
+    """A blob that parses on its own must not travel the repair path."""
+    assert repair_json_object('{"queries": ["a"]}') is None
+
+
+def test_repair_ignores_brackets_inside_strings():
+    text = '{"queries": ["скобка ] внутри", "и { тоже"}}'
+    assert parse_rewrite_response(text) == ["скобка ] внутри", "и { тоже"]
 
 
 # ---------------------------------------------------------------------------
