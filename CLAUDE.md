@@ -397,6 +397,16 @@ in `architect/adr/0012-speech-transcription-providers.md`, the contract in
   (CTranslate2 has no cancellation and anyio's pool waits for its thread), so
   locally the **duration cap** is what bounds the work and an over-long run is
   logged as "this machine is too slow for this model".
+- **The timeout bounds the whole call, retries included** (86cbegg3w,
+  2026-09-05). It used to bound each attempt, so an audio server that accepted
+  the connection and answered nothing was waited out twice with a backoff
+  between: `/api/ai/transcribe` answered its 502 after a measured **116.1 s**
+  against the 60 s ceiling. `RemoteTranscriber` now builds a per-call
+  `deadline.Deadline` (the scripture endpoint's mechanism), and the same
+  failure answers in **57.0 s**. The retry that buys a recovery from a
+  restarting server is untouched — a fast failure leaves the budget intact.
+  `/api/ai/question` got the same explicit budget: it held its 20 s only
+  because its client is built with `attempts=1`.
 - Live acceptance (throwaway container from the new image, `small`, this
   8-core host): four excerpts (2 ru, 1 uk, 1 en, 27-53 s) answered `200` in
   1.2-2.5 s; API process 859 MB RSS with the weights, **68 MB** on the remote

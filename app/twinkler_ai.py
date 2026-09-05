@@ -21,6 +21,7 @@ from config import (
     QUESTION_PROVIDER,
     TRANSCRIBE_PROVIDER,
 )
+from deadline import Deadline
 from llm_client import AsyncChatClient, LLMError
 from question_prompt import build_question_prompt, build_user_message
 from rate_limit import RateLimiter, RateLimitError
@@ -359,9 +360,18 @@ async def _complete_openai_compat(user: str, prompt: str) -> str:
     detail. `json_object` is deliberately off: this answer is prose for a
     person, not a parsed contract.
 
-    One attempt, like the Gemini path: this endpoint has no request budget to
-    plan a retry ladder inside, and a second call would double the worst-case
-    latency a person waits with no message on screen.
+    One attempt, like the Gemini path: a second call would double the
+    worst-case latency a person waits with no message on screen.
+
+    The call carries a per-request `Deadline` of
+    `AI_QUESTION_TIMEOUT_SECONDS` (ClickUp 86cbegg3w). With one attempt the
+    carved `provider_timeout` already bounds the request at the ceiling —
+    measured 17.0 s against 20 s on a server that accepts the connection and
+    answers nothing — so this changes no latency today. It makes the bound
+    **structural** instead of incidental on `attempts=1`: the ceiling is the
+    endpoint's promise about its own latency, not the length of one rung, and
+    the transcribe path had exactly this bug (two attempts of 60 s each,
+    116.1 s measured) precisely because its budget was per attempt.
     """
     client = AsyncChatClient(
         QUESTION_PROVIDER.endpoint,
@@ -372,7 +382,11 @@ async def _complete_openai_compat(user: str, prompt: str) -> str:
     )
     try:
         text = await client.complete(
-            prompt, user, json_object=False, temperature=0.7
+            prompt,
+            user,
+            deadline=Deadline(AI_QUESTION_TIMEOUT_SECONDS),
+            json_object=False,
+            temperature=0.7,
         )
     except LLMError as error:
         raise AIError(f"question failed: {error}") from None

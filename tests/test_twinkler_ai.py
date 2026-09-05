@@ -1743,6 +1743,50 @@ def test_a_remote_failure_is_the_same_502(monkeypatch):
     assert "fire" not in response.text
 
 
+def test_the_question_call_carries_the_endpoint_budget(monkeypatch):
+    """`AI_QUESTION_TIMEOUT_SECONDS` bounds the whole call (86cbegg3w).
+
+    With `attempts=1` the carved `provider_timeout` already held the ceiling
+    live (17.0 s against 20 s on a server that answers nothing), but only
+    incidentally: the transcribe path had the same shape with two attempts
+    and answered after 116.1 s against a 60 s ceiling. The budget is now an
+    explicit `Deadline`, so the bound survives a change of the attempt count.
+    """
+    captured = {}
+
+    class RecordingChatClient:
+        def __init__(self, *args, **kwargs):
+            captured["attempts"] = kwargs.get("attempts")
+            captured["timeout"] = kwargs.get("timeout")
+
+        async def complete(self, prompt, user, deadline=None, **kwargs):
+            captured["deadline"] = deadline
+            return "Что ты сейчас чувствуешь?"
+
+    monkeypatch.setattr(twinkler_ai, "AsyncChatClient", RecordingChatClient)
+    monkeypatch.setattr(
+        twinkler_ai,
+        "QUESTION_PROVIDER",
+        config.StageProvider(
+            "question", "openai_compat", "qwen3-30b",
+            "https://llm.example:8443/v1", "chat-key",
+        ),
+    )
+
+    response = client.post(
+        "/api/ai/question",
+        headers={"X-API-Key": "test-api-key"},
+        json=question_body(topic="Мне тревожно перед разговором"),
+    )
+
+    assert response.status_code == 200
+    deadline = captured["deadline"]
+    assert deadline is not None
+    assert deadline.total == twinkler_ai.AI_QUESTION_TIMEOUT_SECONDS
+    assert 0 < deadline.remaining() <= twinkler_ai.AI_QUESTION_TIMEOUT_SECONDS
+    assert captured["timeout"] == twinkler_ai.AI_QUESTION_TIMEOUT_SECONDS
+
+
 def test_no_google_host_is_dialled_on_any_of_the_five_stages(monkeypatch):
     """The tripwire of the whole local-models umbrella (ClickUp 86cbe4mtq).
 

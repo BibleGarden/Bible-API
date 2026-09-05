@@ -22,6 +22,7 @@ import numpy as np
 import pytest
 
 import transcription
+from test_gemini_retry import FakeClock
 from transcription import (
     LocalTranscriber,
     RemoteTranscriber,
@@ -580,6 +581,76 @@ def test_the_call_is_bounded_by_a_carved_timeout(monkeypatch):
     timeout = seen["timeout"]
     assert isinstance(timeout, httpx.Timeout)
     assert timeout.connect + timeout.write + timeout.pool + timeout.read <= 60.0
+
+
+def test_the_whole_remote_call_stays_inside_the_ceiling(monkeypatch):
+    """`AI_TRANSCRIBE_TIMEOUT_SECONDS` bounds the CALL, not one attempt.
+
+    The failure this pins (ClickUp 86cbegg3w, live matrix): a stand-in that
+    accepted the connection and answered nothing — the ordinary "process up,
+    app dead" outage — was waited out once per attempt with a backoff in
+    between, and `/api/ai/transcribe` answered its 502 after **116.1 s**
+    against a documented 60 s ceiling.
+
+    Run on a fake clock that advances only where real time would be spent:
+    inside the provider call (by the sum of httpx's four phases, which is
+    what a hung endpoint may take) and inside the backoff.
+    """
+    clock = FakeClock()
+    start = clock.now
+    phases = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        timeout = dict(request.extensions.get("timeout", {}))
+        phases.append(timeout)
+        clock.advance(sum(value for value in timeout.values() if value))
+        raise httpx.ReadTimeout("timed out", request=request)
+
+    async def sleep(seconds):
+        clock.advance(seconds)
+
+    client, async_client = remote_client(
+        handler, timeout=60.0, attempts=2, sleep=sleep, clock=clock
+    )
+
+    with pytest.raises(TranscriptionUnavailable):
+        run_remote(client, async_client, monkeypatch)
+
+    assert clock.now - start <= 60.0
+    # The first attempt spent the whole budget, so the second one — which
+    # could only have answered past the ceiling — was never started.
+    assert len(phases) == 1
+
+
+def test_a_fast_failure_still_buys_the_retry_inside_the_budget(monkeypatch):
+    """The ceiling must not cost the recovery the second attempt exists for.
+
+    A server that fails FAST (a 503 while restarting) leaves almost the whole
+    budget, so the backoff is slept and the retry runs — the case
+    `test_a_restarting_server_recovers_on_the_second_attempt` covers
+    functionally, asserted here against the clock.
+    """
+    clock = FakeClock()
+    start = clock.now
+    answers = [
+        httpx.Response(503, text="starting"),
+        httpx.Response(200, json={"text": "Господи"}),
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        clock.advance(0.5)
+        return answers.pop(0)
+
+    async def sleep(seconds):
+        clock.advance(seconds)
+
+    client, async_client = remote_client(
+        handler, timeout=60.0, attempts=2, sleep=sleep, clock=clock
+    )
+
+    assert run_remote(client, async_client, monkeypatch) == "Господи"
+    elapsed = clock.now - start
+    assert 2.0 <= elapsed <= 60.0   # the backoff was slept, the budget held
 
 
 @pytest.mark.parametrize("missing", ["endpoint", "model"])

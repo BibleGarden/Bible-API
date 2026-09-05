@@ -237,6 +237,31 @@ Degradation is part of the contract, not an error:
 | `safe_pool` | `coverage_empty` | retrieval ran, but the candidate pool narrowed by the requested translation's coverage together with the caller's exclusions and the genre blacklist left nothing (only possible for a translation other than the language's primary — ADR 0007) |
 | `safe_pool` | `ranking_empty` | the same, without a coverage filter: retrieval ran and the caller's exclusions or the genre blacklist left the ranking empty (a long repeat history on a narrow topic; ADR 0007 fix F1 on the primary path) |
 
+**A failed rewrite has no `fallback_reason` of its own, and that is not an
+omission.** `rewrite_failed` is an internal boolean of `SelectionResult`, not
+a public category: when the rewrite stage fails the pipeline searches the raw
+query alone and the rerank still chooses among real candidates, so the answer
+is a `rerank` with `fallback_reason: null` — indistinguishable from a healthy
+one, because it *is* a healthy answer of a lower-quality retrieval. What the
+failure costs is measured in the benchmark (the rewrite is the dominant
+quality lever), not in the contract. Operators read it in the log line
+`query rewrite failed: …`, which is also why that line exists.
+
+**Both chat stages down is NOT the safe pool.** The safe pool is what answers
+when *no query can be embedded* (`ai_unavailable`) or when the ranking is
+empty; the rewrite and the rerank are the two stages that can fail with the
+retrieval pipeline still intact. With rewrite *and* rerank unreachable the
+endpoint answers `retrieval_fallback` / `rerank_failed` with a real passage —
+the raw query is embedded, searched, fused and filtered exactly as always, and
+its top-1 is served. Verified against every failure mode in
+`evaluation/README.md`, "Отказы сервера компании: матрица деградации
+(86cbegg3w)"; the safe pool needs the *embedding* provider to be gone, which
+is why part B of that ticket is a separate measurement. The one way a chat
+outage alone still reaches the safe pool is by exhausting the whole budget
+before any query is embedded — the `deadline` row of the table above, not
+`ai_unavailable`; none of the 13 measured rows did (a black-holed rewrite
+leaves the embedding stage its share, and a local embedder needs 39 ms).
+
 The safe pool is a curated, versioned list of comforting passages
 (`app/data/safe_pool.json`, 9 places in version 1.1.0) rotated with the same
 exclusion list. It is resolved through the requested translation's coverage
@@ -495,6 +520,26 @@ so a provider dribbling bytes forever inside its read timeout cannot be cut
 off by httpx at all. These stages receive one small JSON document each, and
 the stage boundaries re-check the deadline, so the residual exposure is one
 hung call rather than a summed retry ladder.
+
+### The budget holds on a self-hosted provider too (ClickUp 86cbegg3w, 2026-09-05)
+
+The ceiling above was measured and fixed against Gemini. It was re-measured
+against the company's Qwen server with every chat stage on `openai_compat`,
+under four failure modes applied to the rewrite stage, the rerank stage and
+both at once (full table in `evaluation/README.md`). **Every cell answered
+`200` inside 15 s** — the worst was 14.7 s, with both stages pointed at a
+server that accepts connections and never answers. Nothing in the selection
+pipeline needed changing; the two endpoints whose budget was *not* built this
+way did (`architect/twinkler-ai.md`, "The ceiling bounds the call, not one
+attempt").
+
+Worth knowing when reading those latencies: the two stages share one budget in
+sequence, so a rewrite that spends 13 s of it leaves the rerank whatever is
+left, and `provider_timeout` shrinks the rerank call to fit rather than
+skipping it. On a fast model that still produces a real `rerank` answer at
+14.2 s; on a slower one the same row would degrade to `deadline`. Both are
+documented behaviour, and the difference between them is the model's speed,
+not a code path.
 
 ### Which quota rejected us (429 details)
 

@@ -60,6 +60,7 @@ from config import (
     AI_TRANSCRIBE_THREADS,
     AI_TRANSCRIBE_TIMEOUT_SECONDS,
 )
+from deadline import Deadline
 from gemini_retry import RETRYABLE_STATUS, provider_timeout, retry_pause
 from llm_client import transport_error
 
@@ -399,9 +400,21 @@ class RemoteTranscriber:
     reuses it: retryable statuses, a linear backoff that refuses to sleep
     unless the attempt after it still fits, and `provider_timeout` carving one
     call's ceiling across httpx's four phases (a bare number would authorise
-    four times it). There is no per-request `Deadline` on this endpoint — the
-    transcribe handler has never had one — so the budget is the ceiling
-    itself.
+    four times it).
+
+    **`AI_TRANSCRIBE_TIMEOUT_SECONDS` bounds the WHOLE call, retries and
+    backoff included** (ClickUp 86cbegg3w). It used to bound each attempt
+    separately, so a server that accepted the connection and then answered
+    nothing — the ordinary "process up, app dead" outage — was waited out
+    twice with a backoff in between: measured **116.1 s** against a
+    documented 60 s ceiling, on a request a person is watching a spinner
+    for. A per-call `Deadline` (the scripture endpoint's mechanism, ADR
+    0006) now owns the budget: `provider_timeout` takes the minimum of the
+    ceiling and what is left, and `retry_pause` refuses a backoff whose
+    attempt would no longer fit. The recovery the second attempt exists for
+    is untouched — a server that *fails fast* (a 503 while restarting) still
+    leaves most of the budget, so the retry happens exactly where it can
+    help.
 
     Never logged and never quoted in an error: the recording, the transcript,
     the key, and the endpoint URL (an httpx message carries it, which is why
@@ -416,6 +429,7 @@ class RemoteTranscriber:
         timeout: float = AI_TRANSCRIBE_TIMEOUT_SECONDS,
         attempts: int = 2,
         sleep=asyncio.sleep,
+        clock=time.monotonic,
     ):
         self.endpoint = endpoint
         self.api_key = api_key
@@ -427,6 +441,10 @@ class RemoteTranscriber:
         # rather than three times the worst-case wait.
         self.attempts = max(1, attempts)
         self._sleep = sleep
+        # Injectable for the same reason `sleep` is: the wall-clock ceiling
+        # is asserted on a fake clock (tests/test_transcription.py), never by
+        # waiting a real minute.
+        self._clock = clock
 
     def _check_configured(self) -> None:
         """Unreachable in a started service (`config._validate` refuses an
@@ -482,8 +500,18 @@ class RemoteTranscriber:
         headers = bearer_headers(self.api_key)
         last_error: Exception | None = None
         started = time.time()
+        # ONE budget for the whole call. Every attempt and every pause below
+        # is measured against it, so `AI_TRANSCRIBE_TIMEOUT_SECONDS` is the
+        # endpoint's promise about its own latency rather than the length of
+        # one rung of the ladder.
+        deadline = Deadline(self.timeout, clock=self._clock)
         for attempt in range(self.attempts):
-            timeout = provider_timeout(None, self.timeout)
+            timeout = provider_timeout(deadline, self.timeout)
+            if timeout is None:
+                # The budget is gone: starting a call that cannot finish
+                # inside it would only make the person wait past the ceiling
+                # for an answer this request can no longer use.
+                break
             try:
                 async with httpx.AsyncClient(timeout=timeout) as client:
                     response = await client.post(
@@ -497,7 +525,7 @@ class RemoteTranscriber:
                         if attempt + 1 >= self.attempts:
                             break
                         pause = retry_pause(
-                            None, _RETRY_BASE_SECONDS * (attempt + 1)
+                            deadline, _RETRY_BASE_SECONDS * (attempt + 1)
                         )
                         if pause is None:
                             break
@@ -511,7 +539,9 @@ class RemoteTranscriber:
                 last_error = exc
                 if attempt + 1 >= self.attempts:
                     break
-                pause = retry_pause(None, _RETRY_BASE_SECONDS * (attempt + 1))
+                pause = retry_pause(
+                    deadline, _RETRY_BASE_SECONDS * (attempt + 1)
+                )
                 if pause is None:
                     break
                 await self._sleep(pause)

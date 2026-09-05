@@ -512,11 +512,50 @@ message as the user message, `temperature` `0.7` and `max_tokens` `1024`. The ke
 `AI_OPENAI_COMPAT_API_KEY` is the explicit "this endpoint is
 unauthenticated". No `response_format` is requested: this answer is prose for
 a person, not a parsed contract. `<think>…</think>` blocks are stripped from
-the answer before it is returned. One attempt, like the Gemini path: this
-endpoint has no request budget to plan a ladder inside, and a retry would
-double the time a person waits with nothing on screen.
-`AI_QUESTION_TIMEOUT_SECONDS` (default 20, the value this endpoint always
-ran with) caps that call.
+the answer before it is returned. One attempt, like the Gemini path: a retry
+would double the time a person waits with nothing on screen.
+`AI_QUESTION_TIMEOUT_SECONDS` (default 20, the value this endpoint always ran
+with) is the ceiling of the whole call, carried by a per-request `Deadline`
+and carved across httpx's four phases.
+
+### The ceiling bounds the call, not one attempt (ClickUp 86cbegg3w, 2026-09-05)
+
+Measured against a stand-in that accepted the connection and answered nothing
+— the ordinary "process up, app dead" outage, and the one failure mode that
+does not fail fast:
+
+| Endpoint | Before | After | Ceiling |
+| --- | --- | --- | --- |
+| `POST /api/ai/question` | 17.0 s | 17.0 s | `AI_QUESTION_TIMEOUT_SECONDS` = 20 |
+| `POST /api/ai/transcribe` | **116.1 s** | **57.0 s** | `AI_TRANSCRIBE_TIMEOUT_SECONDS` = 60 |
+
+Both clients bounded each *attempt* at the configured seconds and neither
+counted the backoff. The question endpoint got away with it because
+`_complete_openai_compat` builds its client with `attempts=1` — the ceiling
+held by accident, not by construction. Transcription has two attempts (it buys
+one recovery from a restarting server), so it waited the ceiling out twice
+with a 2 s pause in between and answered its `502` at nearly double the
+documented bound, in front of a person watching a spinner.
+
+Both calls now carry a per-request `deadline.Deadline` of their own ceiling,
+the mechanism `POST /api/ai/scripture` has used since ClickUp 86cbbnaxn:
+`gemini_retry.provider_timeout` takes the minimum of the ceiling and what is
+left, and `gemini_retry.retry_pause` refuses a backoff whose attempt would no
+longer fit. **The retry itself is unchanged where it can help**: a server that
+fails *fast* (a 503 while restarting) leaves nearly the whole budget, so the
+second attempt still runs — verified live in review against a stand-in that
+answers `503` to the first request and `200` to the second: the recording is
+transcribed, `200` in **2.0 s** (the 2 s backoff plus two fast calls), i.e. the
+ladder still buys the recovery it exists for. On a fake clock the same is
+asserted in `tests/test_transcription.py`. (The separate F4 row below — a
+stand-in that answers `200` only after 30 s, served at 30.0 s — says something
+else, and is worth not confusing with this: a slow but *working* server is not
+cut off inside the budget.)
+
+Not changed, and deliberately: the two **Gemini** paths still hand httpx a
+bare `AI_*_TIMEOUT_SECONDS`, i.e. that value per phase. Carving them would be
+a behaviour change to a path this ticket did not measure; it is recorded as an
+open item in `evaluation/README.md`.
 
 Transcription names its transport in `AI_TRANSCRIBE_PROVIDER` since
 2026-09-05 (ClickUp 86cbegg3m, `architect/adr/0012-speech-transcription-providers.md`),
@@ -576,8 +615,10 @@ translate:
   with `file`, `model`, `response_format=json`, `temperature=0` and —only when
   the locale names a language Whisper knows— `language`. The answer is
   `{"text": ...}`. The key travels in `Authorization: Bearer`, and only when
-  there is one. Two attempts on a retryable status, the call bounded by
-  `AI_TRANSCRIBE_TIMEOUT_SECONDS` (60) carved across httpx's four phases.
+  there is one. Two attempts on a retryable status, and
+  `AI_TRANSCRIBE_TIMEOUT_SECONDS` (60) bounds the **whole call** — both
+  attempts and the backoff between them — through a per-call `Deadline`, on
+  top of the four-phase carving of each attempt.
 - **`local`** (`app/transcription.LocalTranscriber`): faster-whisper on this
   CPU, `task="transcribe"`, `vad_filter=True`, beam size
   `AI_TRANSCRIBE_BEAM_SIZE`, weights loaded once at start-up from
