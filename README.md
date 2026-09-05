@@ -44,6 +44,7 @@ AI_SCRIPTURE_REWRITE_PROVIDER=gemini
 AI_SCRIPTURE_RERANK_PROVIDER=gemini
 AI_QUESTION_MODEL=gemini-3.7-flash
 AI_TRANSCRIBE_MODEL=gemini-3.5-flash-lite
+EMBEDDING_PROVIDER=gemini
 EMBEDDING_MODEL=gemini-embedding-001
 EMBEDDING_DIMENSIONS=768
 AI_SCRIPTURE_REWRITE_MODEL=gemini-3.7-flash
@@ -85,9 +86,43 @@ them. See `architect/adr/0009-provider-independent-llm-client.md`.
 `POST /api/ai/transcribe` is Gemini-only for now — there is no
 `AI_TRANSCRIBE_PROVIDER` — so a deployment whose chat stages are fully local
 still needs `GEMINI_API_KEY` and `AI_TRANSCRIBE_MODEL` for it; without them
-that one endpoint answers `502` and everything else keeps working. Embeddings
-are configured separately (`EMBEDDING_MODEL`), because they name the stored
-vector index.
+that one endpoint answers `502` and everything else keeps working.
+
+### Choosing the embedding provider
+
+Embeddings have their own variable, because they name the stored vector
+index and not merely a call:
+
+```dotenv
+EMBEDDING_PROVIDER=local                 # or: gemini
+EMBEDDING_MODEL=BAAI/bge-m3              # gemini: gemini-embedding-001
+EMBEDDING_DIMENSIONS=1024                # gemini: 768
+EMBEDDING_MODEL_PATH=/models/bge-m3      # local only; must NOT be set on gemini
+```
+
+`EMBEDDING_PROVIDER` is required in **every** deployment, with or without any
+AI key. `local` runs BAAI/bge-m3 on CPU inside the API process: no network
+and no key, ~2.1 GiB of RSS held for the life of the process, ~39 ms per
+query, and a ~1-hour CPU rebuild of the index (11 960 chunks, 8 cores). The weights are a read-only volume, never a
+download — the image runs with `HF_HUB_OFFLINE=1`, so a missing directory
+fails the start instead of fetching 2.3 GB:
+
+```bash
+huggingface-cli download BAAI/bge-m3 --local-dir /srv/models/bge-m3
+# .env: EMBEDDING_MODELS_DIR=/srv/models   (mounted read-only at /models)
+python app/index_cli.py rebuild           # writes the new index version
+# ...verify, switch EMBEDDING_PROVIDER, restart, then:
+python app/index_cli.py rebuild --drop-other-versions
+```
+
+A rebuild keeps the rows of every other index version, so the old index
+keeps serving while the new one is built and the switch is an `.env` edit
+plus a restart. That edit is **four lines, not one**, in both directions:
+provider, model, dimensions, and the path — which is required on `local` and
+a startup error on `gemini`. Rolling back to Gemini therefore means removing
+`EMBEDDING_MODEL_PATH` as well, or the service refuses to start naming it.
+See
+`architect/adr/0010-local-embeddings-bge-m3.md`.
 
 The system prompt is **not** configurable: it is the versioned constant
 `QUESTION_PROMPT` in `app/question_prompt.py`. It is product behaviour, is
@@ -100,8 +135,9 @@ is set, `AI_QUESTION_MODEL`, `AI_TRANSCRIBE_MODEL`,
 `AI_SCRIPTURE_REWRITE_MODEL` and `AI_SCRIPTURE_RERANK_MODEL` must be set too, or the
 service refuses to start and prints all the missing ones at once. A chat
 stage on `openai_compat` must name its model with or without a Gemini key.
-`EMBEDDING_MODEL` and `EMBEDDING_DIMENSIONS` are required with or without a
-key: they name the vector index the service reads, not a provider call.
+`EMBEDDING_MODEL`, `EMBEDDING_DIMENSIONS` and `EMBEDDING_PROVIDER` are
+required with or without a key: they name the vector index the service
+reads, not a provider call.
 Without `GEMINI_API_KEY` the AI endpoints simply report that AI is not
 configured and the rest of the API runs normally: `/api/ai/question` and
 `/api/ai/transcribe` answer `502`, `/api/ai/scripture` degrades to the safe

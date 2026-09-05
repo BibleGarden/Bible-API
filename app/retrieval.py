@@ -15,11 +15,12 @@ Pipeline (ScriptureRetriever.select):
    search suffers from the register gap between everyday wording and
    biblical language (ADR 0002 probe: rank 356 raw vs rank 4 reformulated).
    On rewrite failure the raw query alone is still searched.
-3. Embed every variant (RETRIEVAL_QUERY) and search the vector index per
-   language; fuse the per-variant rankings (max cosine per canonical chunk).
-   If NO query can be embedded (Gemini down), fall back to the safe pool —
-   the deterministic no-AI path (raw embedding search is impossible without
-   the API embedder, so the safe pool IS the retrieval fallback).
+3. Embed every variant (RETRIEVAL_QUERY on the API embedder) and search the
+   vector index per language; fuse the per-variant rankings (max cosine per
+   canonical chunk). If NO query can be embedded (the provider is down, or
+   the local model failed), fall back to the safe pool — the deterministic
+   no-AI path (raw embedding search is impossible without an embedder, so
+   the safe pool IS the retrieval fallback).
 4. Filter: already-shown canonical IDs (repeat exclusion) and the global
    genre blacklist (app/data/genre_blacklist.json) by canonical-range
    intersection.
@@ -508,7 +509,10 @@ class ScriptureRetriever:
     """Wires the pipeline against a vector index, embedder, rewriter and DB.
 
     index           - vector_index.InMemoryVectorIndex (search())
-    embedder        - embeddings.GeminiEmbeddingClient (embed_query())
+    embedder        - anything with embed_query(); production builds it with
+                      embeddings.build_embedding_client, so it is the Gemini
+                      API client or the in-process bge-m3 one (ADR 0010) and
+                      this class cannot tell them apart either
     rewriter        - anything with rewrite(); production builds it with
                       query_rewrite.build_query_rewriter, so it is the Gemini
                       or the OpenAI-compatible transport of that stage
@@ -550,12 +554,15 @@ class ScriptureRetriever:
 
     embed_workers=1 by default (sequential, with the provider-down
     fail-fast of ADR 0005 m2) — the CLI and the benchmark want a
-    deterministic, patient path. The public endpoint passes
-    embed_workers=REWRITE_VARIANTS: variant embeddings are independent
-    round trips and embedding them concurrently is the single biggest
-    serve-time saving (measured 1.6 s -> 0.31 s, ADR 0006). Under
+    deterministic, patient path. On the Gemini embedder the public endpoint
+    passes embed_workers=REWRITE_VARIANTS: variant embeddings are
+    independent round trips and embedding them concurrently is the single
+    biggest serve-time saving (measured 1.6 s -> 0.31 s, ADR 0006). Under
     concurrency the fail-fast heuristic is moot (all calls are already in
-    flight); the shared deadline bounds them instead.
+    flight); the shared deadline bounds them instead. On the LOCAL embedder
+    it passes 1: there is no round trip to overlap, torch already uses every
+    core for one encode, and the client serialises encodes anyway
+    (ADR 0010).
 
     trace           - optional diagnostic observer `trace(stage, payload)`
                       called after each pipeline stage with the objects that

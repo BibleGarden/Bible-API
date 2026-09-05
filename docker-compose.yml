@@ -9,6 +9,28 @@ services:
     volumes:
       # Host path with mp3 files. Set AUDIO_DIR in .env
       - ${AUDIO_DIR:?set AUDIO_DIR}:/audio
+      # Embedding model weights, READ-ONLY (EMBEDDING_PROVIDER=local, ADR
+      # 0010). Set EMBEDDING_MODELS_DIR in .env to the host directory that
+      # holds the model directories; EMBEDDING_MODEL_PATH then names one of
+      # them inside the container, e.g. /models/bge-m3.
+      #
+      # 2.3 GB of weights are data, not image: baking them in would make
+      # every image pull carry them and every image rebuild re-push them,
+      # and they never change. Read-only because nothing in this service
+      # ever writes there — the image also runs with HF_HUB_OFFLINE=1, so a
+      # missing file is a startup error rather than a download.
+      #
+      # The default keeps a Gemini deployment working with no new variable:
+      # the directory is created empty and never read, because
+      # EMBEDDING_PROVIDER=gemini loads no model at all.
+      #
+      # Note for local development: the command below is `fastapi dev`, which
+      # reloads on every edit under ./app — and on EMBEDDING_PROVIDER=local
+      # each reload re-reads 2.3 GB of weights (tens of seconds). That is the
+      # cost of loading them at start-up instead of lazily, and it is the
+      # right trade for production; edit-heavy sessions may prefer the
+      # gemini provider, which loads nothing.
+      - ${EMBEDDING_MODELS_DIR:-./models}:/models:ro
       - ./app:/code/app
     restart: always
     networks:

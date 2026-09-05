@@ -10,10 +10,16 @@ can be rebuilt from `translation_chunks` with one CLI command
 (`python app/index_cli.py rebuild`).
 
 Versioning: every row carries `embedding_version` =
-"c{chunking_version}:{model}@{dims}". A rebuild embeds only chunks that do
+"c{chunking_version}:{model}@{dims}" (today
+`c3:BAAI/bge-m3@1024` — a model id containing a slash is fine, the string is
+only ever compared and never parsed). A rebuild embeds only chunks that do
 not yet have a row with the current version (idempotent, no duplicates —
-enforced by a UNIQUE key as well) and deletes rows whose version is stale or
+enforced by a UNIQUE key as well) and deletes rows of the current version
 whose chunk no longer exists.
+
+Rows of OTHER versions are kept unless `drop_other_versions` is asked for,
+so two index versions can live in the table at once and a model migration
+never leaves the running service without an index (ClickUp 86cbegg2r).
 
 Embedding text: `title + "\n\n" + text` when the chunk has a title (decided
 by the retrieval benchmark, see the ADR: titles improved every metric for
@@ -97,26 +103,41 @@ def unpack_vector(blob: bytes) -> np.ndarray:
 
 def plan_reindex(
     chunk_ids: set[str],
-    existing_versions: dict[str, str],
+    existing_rows: set[tuple[str, str]],
     version: str,
     force: bool = False,
-) -> tuple[set[str], set[str]]:
+    drop_other_versions: bool = False,
+) -> tuple[set[str], set[tuple[str, str]]]:
     """Pure reindex plan for one translation.
 
-    chunk_ids           - canonical ids present in translation_chunks now
-    existing_versions   - canonical id -> embedding_version currently stored
-    returns (to_embed, to_delete) canonical id sets:
-      to_embed  - chunks with no row of the current version (or all with force)
-      to_delete - rows that are stale: version differs, or chunk disappeared
+    chunk_ids     - canonical ids present in translation_chunks now
+    existing_rows - (canonical id, embedding_version) rows currently stored
+    returns (to_embed, to_delete):
+      to_embed  - canonical ids with no row of the CURRENT version (or all
+                  of them with force)
+      to_delete - (canonical id, version) rows to remove: rows of the current
+                  version whose chunk is gone, plus — only with
+                  `drop_other_versions` — every row of another version
+
+    **Rows of another version survive a rebuild by default** (ClickUp
+    86cbegg2r). Until this change a rebuild deleted every row whose version
+    differed from the target one, which made two index versions impossible to
+    hold at once — and holding two is exactly what a model migration needs:
+    the running container keeps reading `…gemini-embedding-001@768` while the
+    new `…BAAI/bge-m3@1024` rows are being written, and the switch is then an
+    `.env` edit plus a restart rather than a two-hour window with no index at
+    all. `--drop-other-versions` performs the cleanup afterwards, explicitly.
+
+    A row of the CURRENT version whose chunk no longer exists is still
+    deleted whatever the flag says: that is not another version's data, it is
+    this index pointing at a passage that is gone.
     """
-    up_to_date = {
-        cid for cid, ver in existing_versions.items()
-        if ver == version and cid in chunk_ids
-    }
-    to_embed = set(chunk_ids) if force else set(chunk_ids) - up_to_date
+    current = {cid for cid, ver in existing_rows if ver == version}
+    to_embed = set(chunk_ids) if force else set(chunk_ids) - current
     to_delete = {
-        cid for cid, ver in existing_versions.items()
-        if ver != version or cid not in chunk_ids
+        (cid, ver) for cid, ver in existing_rows
+        if (ver == version and cid not in chunk_ids)
+        or (ver != version and drop_other_versions)
     }
     return to_embed, to_delete
 
@@ -138,7 +159,8 @@ class SearchHit:
 class InMemoryVectorIndex:
     """Brute-force cosine search over unit vectors with metadata filters.
 
-    Sized for the current corpus (~12k chunks x 768 dims ~ 35 MB): a filtered
+    Sized for the current corpus (~12k chunks x 1024 dims ~ 47 MB, or 35 MB
+    at the 768 of `gemini-embedding-001`): a filtered
     dot product takes single-digit milliseconds, far below the embedding API
     round-trip. Rebuild the instance (reload) after reindexing.
     """
@@ -237,6 +259,7 @@ def reindex_translation(
     version: str | None = None,
     force: bool = False,
     batch_size: int = 50,
+    drop_other_versions: bool = False,
     log=print,
 ) -> dict:
     """Idempotently (re)index one translation's chunks of CHUNKING_VERSION.
@@ -247,10 +270,15 @@ def reindex_translation(
     Guard: when the translation has stored embeddings but NO chunks of the
     current CHUNKING_VERSION (typical after a version bump before the
     rechunk migration), MissingChunksError is raised instead of wiping the
-    index; force=True overrides. Known limitation: on an EMBEDDING_MODEL /
-    dimensions change the stale rows are still deleted (and committed)
-    before the new ones are embedded — an abort mid-way leaves a partial
-    index, which the next rebuild completes (cheap on a billed key).
+    index; force=True overrides.
+
+    Rows of OTHER index versions are left alone unless `drop_other_versions`
+    is set, so a model migration can build the new index beside the live one
+    (see `plan_reindex`). With the flag they are deleted first, and that
+    deletion is committed before the first vector is embedded — an abort
+    mid-way then leaves the old version gone and the new one partial, which
+    is why the flag belongs to a separate, deliberate run *after* the
+    rebuild has finished rather than to the rebuild itself.
     """
     version = version or current_embedding_version()
     cursor.execute(CREATE_TABLE_SQL)
@@ -269,7 +297,13 @@ def reindex_translation(
         "WHERE translation = %s",
         (translation_code,),
     )
-    existing = {row["canonical_id"]: row["embedding_version"] for row in cursor.fetchall()}
+    # A set of ROWS, not a dict keyed by chunk: since two index versions may
+    # coexist, one canonical id legitimately has several rows and a dict
+    # would keep whichever came last — and then delete the other one blind.
+    existing = {
+        (row["canonical_id"], row["embedding_version"])
+        for row in cursor.fetchall()
+    }
 
     if not chunks and existing and not force:
         raise MissingChunksError(
@@ -280,18 +314,28 @@ def reindex_translation(
             f"rebuild); pass --force only to wipe and re-embed from scratch."
         )
 
-    to_embed, to_delete = plan_reindex(set(chunks), existing, version, force=force)
-    # With force, rows of the current version are re-embedded via delete+insert.
-    if force:
-        to_delete = to_delete | (set(existing) & to_embed)
+    to_embed, to_delete = plan_reindex(
+        set(chunks), existing, version, force=force,
+        drop_other_versions=drop_other_versions,
+    )
+    # force needs no deletion: the INSERT below is an upsert on
+    # (translation, canonical_id, embedding_version), so re-embedding an
+    # existing row replaces its vector in place.
 
-    if to_delete:
-        placeholders = ", ".join(["%s"] * len(to_delete))
+    # One statement per version, and the version is part of the predicate:
+    # deleting by canonical id alone would take the other version's row with
+    # it — which is precisely what this rebuild must not do.
+    by_version: dict[str, list[str]] = {}
+    for cid, ver in sorted(to_delete):
+        by_version.setdefault(ver, []).append(cid)
+    for ver, ids in by_version.items():
+        placeholders = ", ".join(["%s"] * len(ids))
         cursor.execute(
             f"DELETE FROM chunk_embeddings WHERE translation = %s "
-            f"AND canonical_id IN ({placeholders})",
-            (translation_code, *sorted(to_delete)),
+            f"AND embedding_version = %s AND canonical_id IN ({placeholders})",
+            (translation_code, ver, *ids),
         )
+    if to_delete:
         connection.commit()
 
     ordered = sorted(to_embed)

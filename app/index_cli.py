@@ -3,10 +3,11 @@ CLI for the scripture-selection vector index (see
 architect/adr/0002-embedding-model-and-vector-store.md).
 
 Embeds `translation_chunks` rows with the configured embedding model
-(EMBEDDING_MODEL / EMBEDDING_DIMENSIONS, Gemini API) and stores the vectors
-in `cep_public.chunk_embeddings`. MySQL remains the canonical store; the
-whole index is rebuilt by one command and the run is idempotent — re-running
-embeds nothing new and never creates duplicates.
+(EMBEDDING_MODEL / EMBEDDING_DIMENSIONS) through the configured provider
+(EMBEDDING_PROVIDER: the Gemini API, or bge-m3 in this process — ADR 0010)
+and stores the vectors in `cep_public.chunk_embeddings`. MySQL remains the
+canonical store; the whole index is rebuilt by one command and the run is
+idempotent — re-running embeds nothing new and never creates duplicates.
 
 Usage (inside the bible-api container):
 
@@ -19,9 +20,16 @@ Usage (inside the bible-api container):
     # index state per translation/version
     python app/index_cli.py status
 
-    # smoke-test search (embeds the query via the API)
+    # smoke-test search (embeds the query through the configured provider)
     python app/index_cli.py search --query "благодарность за ребёнка" \
         --translation syn --top-k 5
+
+A rebuild KEEPS the rows of every other index version, so the migration to
+another embedding model builds its index beside the live one and the switch
+is an `.env` edit plus a restart. Drop the old rows afterwards, deliberately,
+once the new version has been verified:
+
+    python app/index_cli.py rebuild --drop-other-versions
 """
 
 from __future__ import annotations
@@ -30,9 +38,13 @@ import argparse
 import sys
 import time
 
-from config import GEMINI_API_KEY
+from config import (
+    EMBEDDING_PROVIDER,
+    EMBEDDING_PROVIDER_LOCAL,
+    GEMINI_API_KEY,
+)
 from database import create_connection
-from embeddings import EmbeddingUnavailable, GeminiEmbeddingClient
+from embeddings import EmbeddingUnavailable, build_embedding_client
 from vector_index import (
     IndexVersionUnavailable,
     MissingChunksError,
@@ -40,6 +52,19 @@ from vector_index import (
     load_index,
     reindex_translation,
 )
+
+
+# How many chunks are handed to the embedder — and committed — at once.
+#
+# On Gemini every text is its own HTTP call, so this is only the size of the
+# INSERT batch and 50 has always been right. On the local model it is the
+# size of ONE `encode()` call, and sentence-transformers sorts a call's texts
+# by length before batching them: the longer the list, the less padding is
+# computed. Measured on this corpus, same machine, same encode batch:
+# 0.75 chunks/s at 50, **2.8 chunks/s at 512** — a two-hour rebuild instead
+# of a five-hour one, for a list of 512 vectors (2 MB) held in memory.
+DEFAULT_BATCH_SIZE = 50
+LOCAL_DEFAULT_BATCH_SIZE = 512
 
 
 def resolve_translations(cursor, spec: str | None) -> list[dict]:
@@ -72,13 +97,14 @@ def resolve_translations(cursor, spec: str | None) -> list[dict]:
 
 
 def cmd_rebuild(connection, cursor, args) -> int:
-    # Refuse BEFORE any row is touched. A rebuild deletes every embedding
-    # whose version differs from the target one, so an unresolvable target
-    # version (or a key that cannot embed anything) would wipe the index and
-    # only then fail on the first API call.
-    if not GEMINI_API_KEY:
+    # Refuse BEFORE any row is touched. A rebuild can delete rows (a chunk
+    # that disappeared, or every other version with --drop-other-versions),
+    # so an unresolvable target version — or an embedder that cannot produce
+    # a single vector — must stop the run here rather than on the first call.
+    if EMBEDDING_PROVIDER != EMBEDDING_PROVIDER_LOCAL and not GEMINI_API_KEY:
         print(
-            "GEMINI_API_KEY is not configured — a rebuild has to embed every "
+            "GEMINI_API_KEY is not configured — a rebuild on "
+            f"EMBEDDING_PROVIDER={EMBEDDING_PROVIDER} has to embed every "
             "chunk through the Gemini API. Nothing was changed.",
             file=sys.stderr,
         )
@@ -92,9 +118,24 @@ def cmd_rebuild(connection, cursor, args) -> int:
     if not translations:
         print("No chunked translations found — run app/chunk_cli.py first")
         return 1
+    # The local model is loaded here — after resolving the translations
+    # (read-only SELECTs, and a typo in --translations should not cost a
+    # 2.3 GB load first) and before the first write: a missing or unreadable
+    # weights volume is the local provider's "no API key", and it must not
+    # surface half-way through a rebuild.
+    try:
+        client = build_embedding_client()
+    except EmbeddingUnavailable as exc:
+        print(f"REFUSED: {exc}. Nothing was changed.", file=sys.stderr)
+        return 1
     print(f"Index version: {version}")
+    if args.drop_other_versions:
+        print(
+            "Rows of every OTHER index version will be DELETED "
+            "(--drop-other-versions)"
+        )
     totals = {"embedded": 0, "kept": 0, "deleted": 0}
-    with GeminiEmbeddingClient() as client:
+    with client:
         for translation in translations:
             print(f"{translation['alias']} (code {translation['code']}):")
             started = time.time()
@@ -107,6 +148,7 @@ def cmd_rebuild(connection, cursor, args) -> int:
                     version=version,
                     force=args.force,
                     batch_size=args.batch_size,
+                    drop_other_versions=args.drop_other_versions,
                 )
             except MissingChunksError as exc:
                 print(f"  REFUSED: {exc}", file=sys.stderr)
@@ -166,7 +208,7 @@ def cmd_status(connection, cursor, args) -> int:
 
 def cmd_search(connection, cursor, args) -> int:
     try:
-        with GeminiEmbeddingClient() as client:
+        with build_embedding_client() as client:
             query_vector = client.embed_query(args.query)
     except EmbeddingUnavailable as exc:
         print(f"Embedding API unavailable: {exc}", file=sys.stderr)
@@ -195,7 +237,7 @@ def cmd_search(connection, cursor, args) -> int:
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Vector index CLI for scripture-selection RAG"
     )
@@ -207,7 +249,25 @@ def main(argv: list[str] | None = None) -> int:
         help="Comma-separated aliases or codes (default: all chunked)",
     )
     p.add_argument("--force", action="store_true", help="re-embed everything")
-    p.add_argument("--batch-size", type=int, default=50)
+    p.add_argument(
+        "--batch-size",
+        type=int,
+        default=(
+            LOCAL_DEFAULT_BATCH_SIZE
+            if EMBEDDING_PROVIDER == EMBEDDING_PROVIDER_LOCAL
+            else DEFAULT_BATCH_SIZE
+        ),
+        help="chunks per embedder call and per commit (see the constants)",
+    )
+    p.add_argument(
+        "--drop-other-versions",
+        action="store_true",
+        help=(
+            "also DELETE every row of another index version (the cleanup "
+            "after a model migration; without it they are kept, so the old "
+            "index keeps serving while the new one is built)"
+        ),
+    )
     p.set_defaults(func=cmd_rebuild)
 
     p = sub.add_parser("status", help="show index state per translation")
@@ -219,8 +279,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--language", help="language filter, e.g. ru")
     p.add_argument("--top-k", type=int, default=10)
     p.set_defaults(func=cmd_search)
+    return parser
 
-    args = parser.parse_args(argv)
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
 
     connection = create_connection()
     if connection is None:

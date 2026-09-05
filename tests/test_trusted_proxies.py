@@ -194,6 +194,7 @@ def test_both_variables_report_through_the_aggregated_config_error():
                 "DB_NAME": "n",
                 "EMBEDDING_MODEL": "m",
                 "EMBEDDING_DIMENSIONS": "768",
+                "EMBEDDING_PROVIDER": "gemini",
             },
             problems,
         )

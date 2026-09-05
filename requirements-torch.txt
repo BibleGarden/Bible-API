@@ -1,0 +1,7 @@
+# Installed FIRST and from https://download.pytorch.org/whl/cpu (see the
+# Dockerfile). Pinned to the versions the benchmark venv measured bge-m3 with
+# (ClickUp 86cbe4n7e), so the container reproduces the published numbers.
+#
+# The +cpu local version is what keeps the nvidia-* CUDA wheels — ~2.5 GB
+# nothing in this project can use — out of the image.
+torch==2.14.0+cpu

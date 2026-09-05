@@ -31,6 +31,15 @@ docker cp evaluation/. bible-api:/code/evaluation
 docker exec -e API_KEY=test-api-key -e AI_CLIENT_HMAC_KEY=test-hmac-key \
   bible-api pytest -q
 ```
+The suite never loads the embedding model: `conftest` pins
+`EMBEDDING_PROVIDER=gemini` and the local-client tests inject a stand-in
+encoder, so no test imports 2.3 GB of weights. The one test that loads the
+real ones is skipped unless asked for:
+```bash
+docker exec -e EMBEDDING_MODEL_PATH_UNDER_TEST=/models/bge-m3 \
+  bible-api pytest -q tests/test_embeddings.py -k real_model
+```
+
 `tests/conftest.py` supplies the model and DB variables the fail-fast config
 now requires (via `setdefault`, so real values still win), which is why no
 extra `-e` overrides are needed. The two that remain are *not* redundant:
@@ -74,9 +83,9 @@ system prompt is a code constant now, not an environment value.
 - **`chunk_cli.py`** — CLI that materializes chunks into `translation_chunks`
 - **`versification.py`** — Pure Psalm versification mapping to the canonical english-masoretic numbering (see `architect/adr/0003-psalm-versification-canon.md`)
 - **`versification_cli.py`** — CLI: builds/verifies `psalm_verse_mappings`, migrates the chunk corpus to the current CHUNKING_VERSION carrying embeddings over by text (`build`/`verify`/`rechunk`)
-- **`embeddings.py`** — Gemini embedding client for RAG retrieval (see `architect/adr/0002-embedding-model-and-vector-store.md`)
+- **`embeddings.py`** — the embedding clients of the RAG index and the factory that picks one: `GeminiEmbeddingClient` (the API of `architect/adr/0002-embedding-model-and-vector-store.md`) and `LocalEmbeddingClient` (BAAI/bge-m3 on CPU in this process, weights from a read-only volume), chosen by `EMBEDDING_PROVIDER` in `build_embedding_client` — same interface, same `EmbeddingUnavailable` contract, so no caller knows which it holds (`architect/adr/0010-local-embeddings-bge-m3.md`)
 - **`vector_index.py`** — `chunk_embeddings` storage + in-process cosine search with language/translation filters
-- **`index_cli.py`** — CLI that (re)builds the vector index idempotently (`rebuild`/`status`/`search`)
+- **`index_cli.py`** — CLI that (re)builds the vector index idempotently (`rebuild`/`status`/`search`); a rebuild **keeps** the rows of every other index version unless `--drop-other-versions` is given, so a model migration builds the new index beside the live one
 - **`query_rewrite.py`** — LLM rewrite of prayer context into scripture-register query variants (see `architect/adr/0004-retrieval-pipeline.md`); shared prompt v7 and parser, a transport per provider (`GeminiQueryRewriter` / `OpenAICompatQueryRewriter`, chosen by `build_query_rewriter`)
 - **`lexical_index.py`** — in-process BM25 over chunks, the hybrid lexical signal
 - **`retrieval.py`** — retrieval pipeline: interleave fusion, global genre blacklist (`data/genre_blacklist.json`), safe pool (`data/safe_pool.json`), diversity, `ScriptureRetriever` service; `select_final` adds the grounded rerank with top-1 fallback; both entry points accept an optional per-request `Deadline` and can embed query variants concurrently
@@ -117,10 +126,12 @@ those are tuning knobs. Model names never do.
 
 **Enforced always** (startup fails when unset or blank): `API_KEY`,
 `DB_HOST`, `DB_USER`, `DB_NAME`, `EMBEDDING_MODEL`, `EMBEDDING_DIMENSIONS`
-(must be ≥ 1). `DB_PASSWORD` must be *present* but may be empty (`DB_PASSWORD=`
-is an explicit statement; MySQL accepts a passwordless user — both the local
-and the production `.env` set a real password today). `DB_PORT` keeps its
-default 3306; a non-numeric value is an error.
+(must be ≥ 1), `EMBEDDING_PROVIDER` (`gemini` | `local`), plus
+`EMBEDDING_MODEL_PATH` when the provider is `local`. `DB_PASSWORD` must be
+*present* but may be empty (`DB_PASSWORD=` is an explicit statement; MySQL
+accepts a passwordless user — both the local and the production `.env` set a
+real password today). `DB_PORT` keeps its default 3306; a non-numeric value
+is an error.
 
 **Enforced once the AI surface is configured** — that is, `GEMINI_API_KEY`
 is set **or** any provider variable is named (ADR 0009): the three
@@ -192,8 +203,10 @@ Each chat stage names its transport, so moving one to another model is an
   needs `GEMINI_API_KEY` + `AI_TRANSCRIBE_MODEL` for that one endpoint;
   without them `/api/ai/transcribe` answers its documented `502` and nothing
   else is affected.
-- Embeddings are untouched by this switch (step 3, ClickUp 86cbegg2r):
-  `EMBEDDING_MODEL` names the stored index, not only a call.
+- Embeddings have their own provider variable (step 3, ClickUp 86cbegg2r —
+  see the next section): `EMBEDDING_MODEL` names the stored index, not only
+  a call, so its provider is required in every deployment rather than only
+  when the AI surface is configured.
 - `AI_SCRIPTURE_PROVIDER_TIMEOUT_SECONDS` (8) caps ONE call inside a
   selection and `AI_QUESTION_TIMEOUT_SECONDS` (20) the question endpoint's
   single call. Both defaults are the values those stages always ran with;
@@ -202,14 +215,59 @@ Each chat stage names its transport, so moving one to another model is an
   model cannot be given more time by raising `AI_SCRIPTURE_TIMEOUT_SECONDS`
   alone.
 
+### Local embeddings: bge-m3 (ClickUp 86cbegg2r, 2026-09-05)
+
+`EMBEDDING_PROVIDER` chooses who computes the vectors — full rationale in
+`architect/adr/0010-local-embeddings-bge-m3.md`.
+
+| Variable | `local` | `gemini` |
+| --- | --- | --- |
+| `EMBEDDING_PROVIDER` | `local` | `gemini` |
+| `EMBEDDING_MODEL` | `BAAI/bge-m3` | `gemini-embedding-001` |
+| `EMBEDDING_DIMENSIONS` | `1024` | `768` |
+| `EMBEDDING_MODEL_PATH` | required, e.g. `/models/bge-m3` | must NOT be set |
+| index version | `c3:BAAI/bge-m3@1024` | `c3:gemini-embedding-001@768` |
+
+- **Required in every deployment**, with or without any AI key — the same
+  rule as the model/dimensions pair, and for the same reason: the three
+  together name the index this service *reads*. An `.env` predating this
+  change does not start and the error names the variable.
+- **Weights are a read-only volume, never an image layer and never a
+  download.** `docker-compose.yml` mounts `${EMBEDDING_MODELS_DIR:-./models}`
+  at `/models:ro`; the image sets `HF_HUB_OFFLINE=1`, so a missing directory
+  is a loud startup failure. Materialise the directory once with
+  `huggingface-cli download BAAI/bge-m3 --local-dir <dir>/bge-m3` (2.2 GB).
+  On this machine: `/root/models/bge-m3`.
+- **Memory is the constraint.** The weights are loaded once at start-up
+  (`app/main.py`, fatal on failure — never lazily, or a missing volume would
+  look like a provider outage) and stay in the process: **2.13 GiB RSS**
+  after warm-up (`ps`; `docker stats` shows ~1.0 GiB because the mmapped
+  weight pages are file-backed — size the VM by the 2.13). A rebuild peaks
+  at 3.09 GiB. Production must be the 8 GB VM before it switches; the 2-4 GB
+  one cannot run this. Image: 1.4 GB → 2.46 GB (torch from the CPU-only
+  index — from PyPI it drags ~2.5 GB of CUDA wheels; `-c
+  requirements-torch.txt` on the second pip install is what keeps it from
+  doing so).
+- **Two index versions coexist during a migration.** `index_cli rebuild` no
+  longer deletes rows of other versions; `--drop-other-versions` is the
+  explicit cleanup afterwards. So the switch is an `.env` edit plus a
+  restart, and the rollback is the edit back.
+- A rebuild is ~1 h of CPU for 11 960 chunks on 8 cores (3.1 chunks/s) and
+  needs no network and no key at all. Query embedding: median 39 ms.
+- Retrieval quality (86cbe4n7e, full pipeline): hit@10 0.875, recall@10
+  0.688, MRR 0.524 against Gemini's 1.000 / 0.789 / 0.664 — recall passes,
+  ranking is worse and the grounded rerank absorbs it. The **retrieval-stage
+  MRR threshold in `evaluation/thresholds.json` now fails by design**; see
+  ADR 0010's open question 1.
+
 RAG / scripture selection:
 
-- `EMBEDDING_MODEL` (`gemini-embedding-001`) and `EMBEDDING_DIMENSIONS`
-  (768) configure the vector index — required as a pair in every deployment;
-  changing them changes the index version and requires
-  `python app/index_cli.py rebuild`. `index_cli rebuild` also refuses to run
-  without `GEMINI_API_KEY` (it would delete every stale-version row before
-  discovering it cannot embed anything).
+- `EMBEDDING_MODEL` and `EMBEDDING_DIMENSIONS` configure the vector index —
+  required as a pair in every deployment; changing them changes the index
+  version and requires `python app/index_cli.py rebuild`. On the Gemini
+  provider `index_cli rebuild` also refuses to run without `GEMINI_API_KEY`
+  (it could delete rows before discovering it cannot embed anything); on the
+  local provider it refuses just as early if the weights cannot be loaded.
 - `AI_SCRIPTURE_REWRITE_MODEL` (`gemini-3.7-flash`) — LLM query
   reformulation, the dominant quality lever; value pinned by the benchmark,
   deliberately independent of `AI_QUESTION_MODEL`, and required (ADR 0004).

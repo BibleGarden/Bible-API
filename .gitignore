@@ -2,6 +2,9 @@
 __pycache__/
 *.pyc
 .venv/
+# Default host directory of the embedding weights (docker-compose.yml,
+# EMBEDDING_MODELS_DIR): gigabytes of model files, never in git.
+models/
 # evaluation/bench_data: the benchmark results are tracked, the caches are not.
 # Results (results_*.json), generated rewrite variants (*_rewrites_*.json) and
 # generated rerank answers (*_reranks_*.json) cannot be regenerated: answers

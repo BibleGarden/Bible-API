@@ -26,6 +26,7 @@ ALWAYS_REQUIRED = [
     "DB_NAME",
     "EMBEDDING_MODEL",
     "EMBEDDING_DIMENSIONS",
+    "EMBEDDING_PROVIDER",
 ]
 PRESENCE_REQUIRED = ["DB_PASSWORD"]
 AI_REQUIRED = [
@@ -54,7 +55,19 @@ BASE_ENV = {
     "DB_NAME": "cep_public",
     "EMBEDDING_MODEL": "gemini-embedding-001",
     "EMBEDDING_DIMENSIONS": "768",
+    "EMBEDDING_PROVIDER": "gemini",
 }
+
+# The same deployment with the vectors computed in-process (ADR 0010). The
+# model id still names the index version; the path says where the weights
+# are mounted on this machine.
+LOCAL_EMBEDDING_ENV = dict(
+    BASE_ENV,
+    EMBEDDING_PROVIDER="local",
+    EMBEDDING_MODEL="BAAI/bge-m3",
+    EMBEDDING_DIMENSIONS="1024",
+    EMBEDDING_MODEL_PATH="/models/bge-m3",
+)
 
 AI_ENV = dict(
     BASE_ENV,
@@ -209,6 +222,60 @@ def test_non_numeric_dimensions_are_left_to_the_parser():
     assert config.invalid_required_values(
         dict(BASE_ENV, EMBEDDING_DIMENSIONS="many")
     ) == []
+
+
+# --- who computes the embeddings (ADR 0010) --------------------------------
+
+
+def test_embedding_provider_is_required_even_without_a_key():
+    """Same rule as the model/dimensions pair: it describes the index this
+    deployment reads, and the read path runs with no AI configured at all."""
+    env = dict(BASE_ENV)
+    del env["EMBEDDING_PROVIDER"]
+    assert "GEMINI_API_KEY" not in env
+    assert config.missing_required_vars(env) == ["EMBEDDING_PROVIDER"]
+
+
+def test_unknown_embedding_provider_is_rejected_by_name():
+    problems = config.invalid_required_values(
+        dict(BASE_ENV, EMBEDDING_PROVIDER="bge")
+    )
+    assert len(problems) == 1
+    assert "EMBEDDING_PROVIDER" in problems[0]
+    assert "gemini" in problems[0] and "local" in problems[0]
+
+
+def test_local_provider_requires_the_weights_path():
+    env = dict(LOCAL_EMBEDDING_ENV)
+    del env["EMBEDDING_MODEL_PATH"]
+    assert config.missing_required_vars(env) == ["EMBEDDING_MODEL_PATH"]
+
+
+def test_local_embedding_environment_is_complete():
+    assert config.missing_required_vars(LOCAL_EMBEDDING_ENV) == []
+    assert config.invalid_required_values(LOCAL_EMBEDDING_ENV) == []
+
+
+def test_gemini_provider_does_not_want_a_weights_path():
+    """A leftover path with the API provider says one thing while the
+    deployment does another — the gap ADR 0008 exists to close."""
+    problems = config.invalid_required_values(
+        dict(BASE_ENV, EMBEDDING_MODEL_PATH="/models/bge-m3")
+    )
+    assert len(problems) == 1
+    assert "EMBEDDING_MODEL_PATH" in problems[0]
+
+
+def test_gemini_provider_needs_no_weights_path():
+    assert config.missing_required_vars(BASE_ENV) == []
+
+
+def test_local_embeddings_need_no_gemini_key_at_all():
+    """The whole point of the migration: an index built and searched with no
+    Google credentials anywhere in the environment."""
+    env = dict(LOCAL_EMBEDDING_ENV)
+    assert "GEMINI_API_KEY" not in env
+    config._validate(env, [])
 
 
 # --- rewrite API key -------------------------------------------------------
@@ -505,7 +572,8 @@ def _reload_config(monkeypatch, env):
                  "AI_SCRIPTURE_REWRITE_ENDPOINT", "AI_SCRIPTURE_REWRITE_API_KEY",
                  "AI_SCRIPTURE_RERANK_ENDPOINT", "AI_SCRIPTURE_RERANK_API_KEY",
                  "AI_TRANSCRIBE_PROVIDER", "AI_QUESTION_TIMEOUT_SECONDS",
-                 "AI_SCRIPTURE_PROVIDER_TIMEOUT_SECONDS"):
+                 "AI_SCRIPTURE_PROVIDER_TIMEOUT_SECONDS",
+                 "EMBEDDING_MODEL_PATH"):
         monkeypatch.delenv(name, raising=False)
     for name, value in env.items():
         monkeypatch.setenv(name, value)
@@ -532,6 +600,23 @@ def test_import_succeeds_without_gemini_key(monkeypatch):
     # The rest of the API keeps its configuration.
     assert module.API_KEY == "k"
     assert module.DB_NAME == "cep_public"
+
+
+def test_import_reads_the_local_embedding_provider(monkeypatch):
+    module = _reload_config(monkeypatch, LOCAL_EMBEDDING_ENV)
+    assert module.EMBEDDING_PROVIDER == module.EMBEDDING_PROVIDER_LOCAL
+    assert module.EMBEDDING_MODEL_PATH == "/models/bge-m3"
+    # The identity that versions the index is the model id, never the path.
+    assert module.EMBEDDING_MODEL == "BAAI/bge-m3"
+    assert module.EMBEDDING_DIMENSIONS == 1024
+
+
+def test_import_fails_without_an_embedding_provider(monkeypatch):
+    env = dict(BASE_ENV)
+    del env["EMBEDDING_PROVIDER"]
+    with pytest.raises(RuntimeError) as exc:
+        _reload_config(monkeypatch, env)
+    assert "EMBEDDING_PROVIDER" in str(exc.value)
 
 
 def test_import_fails_with_gemini_key_and_no_models(monkeypatch):

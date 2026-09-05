@@ -5,12 +5,12 @@ Three things are pinned here:
 
 1. the transport itself — payload, `<think>` stripping, retries, budget, and
    the rule that no failure message ever carries the key or the URL;
-2. the **tripwire**: with the three CHAT stages on `openai_compat`, not one
-   of their requests leaves for a Gemini host — asserted on the hostname each
-   stage's client actually dials, not on configuration. Scope, deliberately:
-   the chat stages only. Embeddings are still Gemini in this step (ADR 0009,
-   step 3 moves them), so a selection running fully on `openai_compat` chat
-   models still dials `generativelanguage.googleapis.com` for its vectors;
+2. the **tripwire**: with the three CHAT stages on `openai_compat` and
+   `EMBEDDING_PROVIDER=local`, not one request of a whole selection leaves
+   for a Gemini host — asserted on the hostname each stage's client actually
+   dials, not on configuration. Step 3 (ClickUp 86cbegg2r, ADR 0010) widened
+   it from the chat stages to everything: with local embeddings there is no
+   Google host left in the picture at all;
 3. **parity**: the same model answer, delivered through either provider's
    response envelope, produces the same parsed result — and the prompt bytes
    the two transports send are identical.
@@ -29,11 +29,13 @@ import pytest
 os.environ.setdefault("API_KEY", "test-api-key")
 
 import config
+import embeddings
 import llm_client
 import passage_rerank
 import query_rewrite
 import twinkler_ai
 from deadline import Deadline
+from embeddings import build_embedding_client
 from llm_client import (
     AsyncChatClient,
     ChatClient,
@@ -393,8 +395,31 @@ class HostRecorder:
         return httpx.Response(200, json=self.response)
 
 
-def test_no_gemini_host_is_dialled_by_the_chat_stages_on_openai_compat(monkeypatch):
-    """The three CHAT stages only — embeddings stay Gemini until step 3."""
+class FakeEncoder:
+    """Stand-in for bge-m3: the tripwire is about hosts, not vectors.
+
+    Its width follows the configured one, because the client refuses a model
+    that disagrees with `EMBEDDING_DIMENSIONS` (ADR 0010) and this test is
+    not about that check.
+    """
+
+    max_seq_length = 8192
+
+    def get_sentence_embedding_dimension(self) -> int:
+        return config.EMBEDDING_DIMENSIONS
+
+    def encode(self, texts, **kwargs):
+        import numpy as np
+
+        row = np.zeros(config.EMBEDDING_DIMENSIONS, dtype="float32")
+        row[0] = 1.0
+        return np.tile(row, (len(texts), 1))
+
+
+def test_no_gemini_host_is_dialled_by_a_fully_local_selection(monkeypatch):
+    """Every provider call of one selection — rewrite, embeddings, rerank —
+    plus the question endpoint, with the chat stages on `openai_compat` and
+    `EMBEDDING_PROVIDER=local`. Nothing may reach Google."""
     rewrite = HostRecorder(
         "llm.example", chat_response(json.dumps({"queries": ["в1", "в2"]}))
     )
@@ -410,8 +435,15 @@ def test_no_gemini_host_is_dialled_by_the_chat_stages_on_openai_compat(monkeypat
         stage("scripture_rerank"), http_client=mock_client(rerank)
     )
     monkeypatch.setattr(twinkler_ai, "QUESTION_PROVIDER", stage("question"))
+    monkeypatch.setattr(
+        embeddings, "load_embedding_model", lambda: FakeEncoder()
+    )
+    embedder = build_embedding_client(
+        provider=config.EMBEDDING_PROVIDER_LOCAL
+    )
 
     assert rewriter.rewrite("ru", "Тема", ["ответ"]) == ["в1", "в2"]
+    assert len(embedder.embed_query("в1")) == config.EMBEDDING_DIMENSIONS
     assert reranker.choose("Тема", [], ["текст"]).index == 0
     with mock_async(question):
         assert asyncio.run(twinkler_ai.complete("Запрос")) == "Ответ"
@@ -421,11 +453,19 @@ def test_no_gemini_host_is_dialled_by_the_chat_stages_on_openai_compat(monkeypat
     assert GEMINI_HOST not in dialled
 
 
-def test_the_factories_build_no_gemini_client():
-    forbidden = (query_rewrite.GeminiQueryRewriter, passage_rerank.GeminiPassageReranker)
+def test_the_factories_build_no_gemini_client(monkeypatch):
+    monkeypatch.setattr(
+        embeddings, "load_embedding_model", lambda: FakeEncoder()
+    )
+    forbidden = (
+        query_rewrite.GeminiQueryRewriter,
+        passage_rerank.GeminiPassageReranker,
+        embeddings.GeminiEmbeddingClient,
+    )
     built = (
         build_query_rewriter(stage("scripture_rewrite")),
         build_passage_reranker(stage("scripture_rerank")),
+        build_embedding_client(provider=config.EMBEDDING_PROVIDER_LOCAL),
     )
     for client in built:
         assert not isinstance(client, forbidden)

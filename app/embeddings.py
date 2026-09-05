@@ -1,11 +1,20 @@
 """
-Embedding client for the scripture-selection RAG index.
+Embedding clients for the scripture-selection RAG index.
 
-Uses the Gemini embedding API (gemini-embedding-001) — the model selected in
-architect/adr/0002-embedding-model-and-vector-store.md after benchmarking
-local sentence-transformers alternatives on evaluation/scenarios.json.
+Two providers, chosen by `EMBEDDING_PROVIDER` through
+`build_embedding_client()` (ADR 0010):
 
-Key properties:
+- `gemini` — `GeminiEmbeddingClient`, the API of
+  architect/adr/0002-embedding-model-and-vector-store.md;
+- `local` — `LocalEmbeddingClient`, BAAI/bge-m3 on CPU in this process
+  through sentence-transformers, weights from a read-only volume.
+
+Both expose the same three things — `embed_documents(texts)`,
+`embed_query(text, deadline=None)` and the context-manager/`close()` pair —
+and both signal every failure as `EmbeddingUnavailable`, so no caller knows
+which one it holds.
+
+Gemini-specific properties:
 
 - Asymmetric retrieval task types: documents are embedded with
   RETRIEVAL_DOCUMENT, queries with RETRIEVAL_QUERY.
@@ -34,7 +43,9 @@ embedding needs the API at serve time.
 
 from __future__ import annotations
 
+import logging
 import math
+import threading
 import time
 from dataclasses import dataclass
 
@@ -43,6 +54,9 @@ import httpx
 from config import (
     EMBEDDING_DIMENSIONS,
     EMBEDDING_MODEL,
+    EMBEDDING_MODEL_PATH,
+    EMBEDDING_PROVIDER,
+    EMBEDDING_PROVIDER_LOCAL,
     GEMINI_API_KEY,
 )
 from deadline import Deadline
@@ -52,6 +66,8 @@ from gemini_retry import (
     rate_limit_of,
     retry_pause,
 )
+
+logger = logging.getLogger(__name__)
 
 GEMINI_EMBED_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
@@ -228,3 +244,209 @@ class GeminiEmbeddingClient:
         raise EmbeddingUnavailable(
             f"Gemini embedding failed: {last_error}", provider_down=provider_down
         )
+
+
+# ---------------------------------------------------------------------------
+# Local embeddings: BAAI/bge-m3 on CPU (ClickUp 86cbegg2r, ADR 0010)
+# ---------------------------------------------------------------------------
+
+# The window and batch of the measurement (ClickUp 86cbe4n7e), as code
+# constants rather than environment knobs: they are properties of this model
+# on a CPU host, not of a deployment. bge-m3 advertises 8192 tokens, and a
+# batch of 16 of those allocates gigabytes of activations — while the longest
+# chunk of this corpus is far below 512 tokens, so the cap costs nothing and
+# the pair is what the published corpus pass (11 960 chunks) actually ran
+# with; its memory peak is in ADR 0010, which is the one place that number
+# is maintained.
+LOCAL_MAX_SEQ_LENGTH = 512
+LOCAL_DOCUMENT_BATCH_SIZE = 4
+
+_model_lock = threading.Lock()
+_model = None
+# Serialises `encode`. Module-level and not per client on purpose: the
+# weights are ONE process-wide object (`_model`), so two clients built
+# around it — a second `build_embedding_client()` anywhere, a warm-up path,
+# a future in-process rebuild — must queue on the same lock or they would
+# run concurrent encodes on the same model after all.
+_encode_lock = threading.Lock()
+
+
+def load_embedding_model(
+    path: str = EMBEDDING_MODEL_PATH,
+    dimensions: int = EMBEDDING_DIMENSIONS,
+    max_seq_length: int = LOCAL_MAX_SEQ_LENGTH,
+):
+    """The process-wide sentence-transformers model, loaded exactly once.
+
+    2.3 GB of fp32 weights: a second copy does not fit on either the local
+    machine or the production VM, so every client shares this one. The load
+    is idempotent and thread-safe; callers that want the cost paid at
+    start-up rather than inside the first request call it from there (see
+    `app/main.py`).
+
+    The directory is `EMBEDDING_MODEL_PATH`, a read-only volume — never a
+    hub id, so nothing can be downloaded on a machine that has no route to
+    the internet (the image also sets HF_HUB_OFFLINE=1).
+
+    Verified on load: the model's output width must equal
+    `EMBEDDING_DIMENSIONS`. That pair is half of the stored index version,
+    so a directory holding another model would otherwise write vectors of
+    the wrong space under the right version string — silently, and
+    irreversibly for the rows it overwrote.
+    """
+    global _model
+    with _model_lock:
+        if _model is not None:
+            return _model
+        if not path:
+            raise EmbeddingUnavailable(
+                "EMBEDDING_MODEL_PATH is not configured", provider_down=True
+            )
+        # Imported here, not at module import time: torch costs ~1 s and
+        # ~200 MB, and a deployment on `gemini` must not pay either.
+        from sentence_transformers import SentenceTransformer
+
+        started = time.time()
+        try:
+            model = SentenceTransformer(path, device="cpu")
+        except Exception as exc:
+            raise EmbeddingUnavailable(
+                f"cannot load the embedding model from {path!r}: "
+                f"{type(exc).__name__}",
+                provider_down=True,
+            ) from exc
+        model.max_seq_length = min(model.max_seq_length, max_seq_length)
+        # sentence-transformers 6 renamed this; the old name still works but
+        # warns, and the warning would be printed once per rebuild.
+        measure = getattr(
+            model, "get_embedding_dimension", None
+        ) or model.get_sentence_embedding_dimension
+        width = measure()
+        if int(width) != int(dimensions):
+            raise EmbeddingUnavailable(
+                f"the model at {path!r} produces {width}-dimension vectors, "
+                f"but EMBEDDING_DIMENSIONS is {dimensions} — the index "
+                f"version would name a space these vectors are not in",
+                provider_down=True,
+            )
+        logger.info(
+            "Local embedding model loaded from %s (%s dims, max_seq_length=%s)"
+            " in %.1f s",
+            path, width, model.max_seq_length, time.time() - started,
+        )
+        _model = model
+        return _model
+
+
+class LocalEmbeddingClient:
+    """`GeminiEmbeddingClient`'s interface, served by bge-m3 in this process.
+
+    Same three entry points, same `EmbeddingUnavailable` contract, same unit
+    vectors — `normalize_embeddings=True` is what `vector_index` assumes
+    everywhere (cosine similarity is a plain dot product over stored rows),
+    so it is not optional here.
+
+    `encode` is serialised by a PROCESS-WIDE lock (`_encode_lock`), because
+    the weights it runs on are process-wide too. torch already parallelises
+    one encode across the cores, so six concurrent CPU encodes on an 8-core
+    box that also runs MySQL would oversubscribe it and change nothing about
+    the result; the retrieval pipeline therefore runs with `embed_workers=1`
+    on this provider (ADR 0010). The lock is what makes that safe rather than
+    merely intended: any caller that still hands this client — or a second
+    one built around the same model — to a thread pool gets correct vectors,
+    just no speed-up.
+
+    No timeout and no retry ladder: there is no network and no quota. A
+    failed encode is a broken process, not a transient provider — hence
+    `provider_down=True`, which makes the retrieval pipeline stop after the
+    first failed variant instead of retrying five more.
+    """
+
+    def __init__(
+        self,
+        config: EmbeddingConfig | None = None,
+        model=None,
+        batch_size: int = LOCAL_DOCUMENT_BATCH_SIZE,
+    ):
+        self.config = config or EmbeddingConfig()
+        self._model = model if model is not None else load_embedding_model()
+        self._encode_lock = _encode_lock
+        self.batch_size = max(1, batch_size)
+
+    def close(self) -> None:
+        """No-op: the weights are process-wide and outlive every client."""
+
+    def __enter__(self) -> "LocalEmbeddingClient":
+        return self
+
+    def __exit__(self, *exc_info) -> None:
+        self.close()
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        return self._encode(texts, self.batch_size)
+
+    def embed_query(
+        self, text: str, deadline: Deadline | None = None
+    ) -> list[float]:
+        # A local encode cannot be interrupted half-way, so the budget is
+        # checked before it starts — the same answer the Gemini client gives
+        # when `provider_timeout` returns None.
+        if deadline is not None and deadline.expired():
+            raise EmbeddingUnavailable(
+                "embedding budget exhausted", provider_down=True
+            )
+        return self._encode([text], 1)[0]
+
+    def _encode(self, texts: list[str], batch_size: int) -> list[list[float]]:
+        if not texts:
+            return []
+        # An empty string is a degenerate input for a tokenizer; a single
+        # space keeps result positions aligned with the input, exactly as the
+        # Gemini client does for the same reason.
+        prepared = [text if text.strip() else " " for text in texts]
+        try:
+            with self._encode_lock:
+                vectors = self._model.encode(
+                    prepared,
+                    batch_size=batch_size,
+                    show_progress_bar=False,
+                    normalize_embeddings=True,
+                    convert_to_numpy=True,
+                )
+        except Exception as exc:
+            # Type only: the text is a query rewritten from the prayer
+            # context, and an exception message can quote its input (same
+            # policy as the Gemini client and query_rewrite).
+            raise EmbeddingUnavailable(
+                f"local embedding failed: {type(exc).__name__}",
+                provider_down=True,
+            ) from exc
+        if vectors.shape[1] != self.config.dimensions:
+            raise EmbeddingUnavailable(
+                f"unexpected embedding size: {vectors.shape[1]}"
+            )
+        return [row.astype(float).tolist() for row in vectors]
+
+
+def build_embedding_client(
+    provider: str = EMBEDDING_PROVIDER,
+    timeout: float = 60.0,
+    max_retries: int = _MAX_RETRIES,
+    **kwargs,
+):
+    """The embedding client this deployment configured (ADR 0010).
+
+    The one place that maps `EMBEDDING_PROVIDER` onto a class, so the
+    endpoint, both CLIs and the tests all get the same answer. An unknown
+    value cannot reach here — `config._validate` refuses it at start-up.
+
+    `timeout` and `max_retries` describe a network call and are ignored by
+    the local client, which has neither; they stay in the signature so the
+    two call sites that tune the Gemini ladder (serve-time budgets vs the
+    patient offline CLI) do not have to know which provider they got.
+    """
+    if provider == EMBEDDING_PROVIDER_LOCAL:
+        return LocalEmbeddingClient(**kwargs)
+    return GeminiEmbeddingClient(
+        timeout=timeout, max_retries=max_retries, **kwargs
+    )

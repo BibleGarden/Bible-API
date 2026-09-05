@@ -92,6 +92,64 @@ def test_load_index_queries_a_fully_specified_version():
     assert vector_index.EMBEDDING_DIMENSIONS >= 1
 
 
+class TwoVersionCursor:
+    """A `chunk_embeddings` table holding two index versions at once.
+
+    Answers the query the way MySQL would: only the rows whose
+    `embedding_version` equals the parameter. Since ClickUp 86cbegg2r that
+    table legitimately holds a 768-wide and a 1024-wide index side by side,
+    so this is the read path's half of the migration invariant.
+    """
+
+    ROWS = {
+        "c3:old@2": [("a", [1.0, 0.0]), ("b", [0.0, 1.0])],
+        "c3:new@3": [("a", [1.0, 0.0, 0.0]), ("b", [0.0, 1.0, 0.0]),
+                     ("c", [0.0, 0.0, 1.0])],
+    }
+
+    def __init__(self):
+        self.rows: list[dict] = []
+
+    def execute(self, sql, params=None):
+        assert "e.embedding_version = %s" in sql, (
+            "the read path must filter by index version: without it a table "
+            "holding two versions returns vectors of two different widths"
+        )
+        version, = params
+        self.rows = [
+            {
+                "canonical_id": cid, "translation": 1,
+                "vector": pack_vector(vector),
+                "alias": "syn", "language": "ru",
+                "book_number": 19, "chapter_number": 23,
+                "verse_number_start": 1, "verse_number_end": 6, "title": None,
+            }
+            for cid, vector in self.ROWS.get(version, [])
+        ]
+
+    def fetchall(self):
+        return self.rows
+
+
+@pytest.mark.parametrize(
+    "version, expected_ids, width",
+    [("c3:old@2", ["a", "b"], 2), ("c3:new@3", ["a", "b", "c"], 3)],
+)
+def test_load_index_reads_one_version_out_of_a_table_holding_two(
+    version, expected_ids, width
+):
+    """Two index versions coexist during a model migration, and their
+    vectors have different widths — so the loader must return exactly one
+    version's rows. Mixing them would not even build a matrix (`np.vstack`
+    raises), and the value that decides is the version, not the order."""
+    cursor = TwoVersionCursor()
+
+    index = load_index(cursor, version=version)
+
+    assert [meta["canonical_id"] for meta in index.metas] == expected_ids
+    assert index.vectors.shape == (len(expected_ids), width)
+
+
 def test_build_embedding_text_includes_title():
     assert build_embedding_text("Заголовок", "Текст.") == "Заголовок\n\nТекст."
 
@@ -121,35 +179,67 @@ def test_normalize_returns_unit_vector():
 VERSION = "c1:model@768"
 
 
+OTHER_VERSION = "c1:old-model@768"
+
+
 def test_plan_reindex_fresh_index_embeds_everything():
-    to_embed, to_delete = plan_reindex({"a", "b"}, {}, VERSION)
+    to_embed, to_delete = plan_reindex({"a", "b"}, set(), VERSION)
     assert to_embed == {"a", "b"}
     assert to_delete == set()
 
 
 def test_plan_reindex_second_run_is_noop():
-    existing = {"a": VERSION, "b": VERSION}
+    existing = {("a", VERSION), ("b", VERSION)}
     to_embed, to_delete = plan_reindex({"a", "b"}, existing, VERSION)
     assert to_embed == set()
     assert to_delete == set()
 
 
-def test_plan_reindex_stale_version_replaced():
-    existing = {"a": "c1:old-model@768", "b": VERSION}
+def test_plan_reindex_missing_current_version_row_is_embedded():
+    existing = {("a", OTHER_VERSION), ("b", VERSION)}
     to_embed, to_delete = plan_reindex({"a", "b"}, existing, VERSION)
     assert to_embed == {"a"}
-    assert to_delete == {"a"}
+
+
+def test_plan_reindex_keeps_other_versions_by_default():
+    """The migration invariant (ClickUp 86cbegg2r): the running container is
+    still reading the old index while the new one is being written, so a
+    rebuild must not delete a single row of it."""
+    existing = {("a", OTHER_VERSION), ("b", OTHER_VERSION)}
+    to_embed, to_delete = plan_reindex({"a", "b"}, existing, VERSION)
+    assert to_embed == {"a", "b"}
+    assert to_delete == set()
+
+
+def test_plan_reindex_drops_other_versions_only_when_asked():
+    existing = {("a", OTHER_VERSION), ("a", VERSION)}
+    to_embed, to_delete = plan_reindex(
+        {"a"}, existing, VERSION, drop_other_versions=True
+    )
+    assert to_embed == set()
+    # The row of the CURRENT version survives; only the other one goes, and
+    # it is addressed by (id, version) — deleting by id alone would take the
+    # live index with it.
+    assert to_delete == {("a", OTHER_VERSION)}
 
 
 def test_plan_reindex_removed_chunk_deleted():
-    existing = {"a": VERSION, "gone": VERSION}
+    existing = {("a", VERSION), ("gone", VERSION)}
     to_embed, to_delete = plan_reindex({"a"}, existing, VERSION)
     assert to_embed == set()
-    assert to_delete == {"gone"}
+    assert to_delete == {("gone", VERSION)}
+
+
+def test_plan_reindex_removed_chunk_of_another_version_is_kept():
+    """A chunk that vanished is only this index's problem: the other
+    version's row belongs to a corpus that was chunked differently."""
+    existing = {("gone", OTHER_VERSION)}
+    _to_embed, to_delete = plan_reindex({"a"}, existing, VERSION)
+    assert to_delete == set()
 
 
 def test_plan_reindex_force_reembeds_all_without_duplicates():
-    existing = {"a": VERSION}
+    existing = {("a", VERSION)}
     to_embed, to_delete = plan_reindex({"a", "b"}, existing, VERSION, force=True)
     assert to_embed == {"a", "b"}
     assert to_delete == set()  # current-version rows are replaced by upsert
@@ -408,10 +498,27 @@ def test_rebuild_refused_without_current_version_chunks():
     assert not any("DELETE" in sql for sql in cursor.executed)
 
 
-def test_rebuild_force_overrides_the_guard():
+def test_rebuild_force_overrides_the_guard_without_touching_other_versions():
+    """force says "re-embed everything of MY version", not "wipe the table":
+    the stored row belongs to another index version and a container may be
+    serving it right now."""
     cursor = _guard_cursor()
     connection = ScriptedConnection()
     stats = reindex_translation(connection, cursor, lambda texts: [],
                                 translation_code=1, force=True)
+    assert stats == {"embedded": 0, "kept": 0, "deleted": 0}
+    assert not any("DELETE" in sql for sql in cursor.executed)
+
+
+def test_drop_other_versions_deletes_them_naming_the_version():
+    cursor = _guard_cursor()
+    connection = ScriptedConnection()
+    stats = reindex_translation(connection, cursor, lambda texts: [],
+                                translation_code=1, force=True,
+                                drop_other_versions=True)
     assert stats == {"embedded": 0, "kept": 0, "deleted": 1}
-    assert any("DELETE" in sql for sql in cursor.executed)
+    deletes = [sql for sql in cursor.executed if "DELETE" in sql]
+    assert len(deletes) == 1
+    # The version is part of the predicate, so a row of the current version
+    # with the same canonical id cannot be swept up with it.
+    assert "embedding_version = %s" in deletes[0]

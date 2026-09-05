@@ -26,10 +26,16 @@ from auth import RequireAPIKey
 from middleware import RequestStatsMiddleware
 from trusted_proxies import TRUSTED_PROXIES, ensure_visible_handler
 from config import (
+    EMBEDDING_DIMENSIONS,
+    EMBEDDING_MODEL,
+    EMBEDDING_MODEL_PATH,
+    EMBEDDING_PROVIDER,
+    EMBEDDING_PROVIDER_LOCAL,
     QUESTION_PROVIDER,
     SCRIPTURE_REWRITE_PROVIDER,
     SCRIPTURE_RERANK_PROVIDER,
 )
+from embeddings import load_embedding_model
 from llm_client import endpoint_host
 
 logger = logging.getLogger(__name__)
@@ -160,6 +166,42 @@ def log_ai_providers() -> None:
 
 
 log_ai_providers()
+
+
+def log_and_load_embedding_provider() -> None:
+    """Say which vector space this process searches, and load it if local.
+
+    Pays for the 2.3 GB of bge-m3 weights here, not in the first request.
+
+    Deliberately at import time and deliberately fatal (ADR 0010): a weights
+    volume that is missing, unreadable or holding another model is a
+    deployment error of exactly the kind ADR 0008 wants loud. Loading it
+    lazily would answer the first prayer with
+    `fallback_reason=ai_unavailable` and look, from outside, like a provider
+    being briefly down.
+
+    Nothing happens on `EMBEDDING_PROVIDER=gemini`, which is why the test
+    suite — and every deployment that has not migrated — never imports torch
+    at all.
+    """
+    ensure_visible_handler(logger)
+    # Said out loud whichever provider it is, next to the AI-stage banner:
+    # which vector space this process searches in is the first question of
+    # any retrieval-quality report. `grep 'Embeddings:'` after a deploy.
+    logger.info(
+        "Embeddings: provider=%s model=%s dims=%s%s",
+        EMBEDDING_PROVIDER or "<none: unconfigured>",
+        EMBEDDING_MODEL or "<none>",
+        EMBEDDING_DIMENSIONS,
+        f" from {EMBEDDING_MODEL_PATH}"
+        if EMBEDDING_PROVIDER == EMBEDDING_PROVIDER_LOCAL else "",
+    )
+    if EMBEDDING_PROVIDER != EMBEDDING_PROVIDER_LOCAL:
+        return
+    load_embedding_model()
+
+
+log_and_load_embedding_provider()
 
 # Scripture selection answers validation failures with a flat, sanitised
 # {"detail": "..."} body (the default one echoes the prayer text); every

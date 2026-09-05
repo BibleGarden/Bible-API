@@ -66,6 +66,8 @@ from config import (
     AI_SCRIPTURE_REQUESTS_PER_CLIENT_PER_MINUTE,
     AI_SCRIPTURE_REQUESTS_PER_MINUTE,
     AI_SCRIPTURE_TIMEOUT_SECONDS,
+    EMBEDDING_PROVIDER,
+    EMBEDDING_PROVIDER_LOCAL,
 )
 from database import create_connection
 from deadline import Deadline
@@ -79,7 +81,7 @@ from passage_render import (
     render_passage,
 )
 from query_rewrite import REWRITE_VARIANTS, build_query_rewriter
-from embeddings import GeminiEmbeddingClient
+from embeddings import build_embedding_client
 from rate_limit import RateLimiter, RateLimitError
 from retrieval import (
     FinalSelection,
@@ -132,6 +134,18 @@ TOP_K = 10
 # would otherwise stay capped at 8 s however large the request budget is.
 _PROVIDER_TIMEOUT_SECONDS = AI_SCRIPTURE_PROVIDER_TIMEOUT_SECONDS
 _PROVIDER_ATTEMPTS = 2
+
+# How many query variants are embedded at once. On Gemini they are
+# independent round trips and doing them concurrently is the single biggest
+# latency lever of a selection (ADR 0006). On the local model they are CPU
+# work on the same weights: torch already spreads ONE encode across the
+# cores, so six at a time only oversubscribe a box that also runs MySQL —
+# and `LocalEmbeddingClient` serialises them through a lock anyway, which
+# would turn the pool into six threads queueing for one. Hence 1 there:
+# the same vectors, without the thread-pool theatre (ADR 0010).
+_EMBED_WORKERS = (
+    1 if EMBEDDING_PROVIDER == EMBEDDING_PROVIDER_LOCAL else REWRITE_VARIANTS
+)
 
 
 class ScriptureSelectUnavailable(RuntimeError):
@@ -961,8 +975,10 @@ def _provider_clients() -> tuple:
     (`AI_SCRIPTURE_REWRITE_PROVIDER` / `AI_SCRIPTURE_RERANK_PROVIDER` and the
     endpoint/key/model that belong to it — ADR 0009), and each stage's key is
     still its own (`AI_SCRIPTURE_*_API_KEY` when the deployment splits
-    billing, the provider's shared key otherwise). The embedder stays Gemini:
-    embeddings name the stored index, and moving them is a separate step.
+    billing, the provider's shared key otherwise). The embedder is chosen the
+    same way, by `EMBEDDING_PROVIDER` (ADR 0010); on `local` the timeout and
+    retry budget below are meaningless and ignored — there is no call to time
+    out — and the weights are already in memory, loaded at start-up.
     """
     global _clients
     with _clients_lock:
@@ -971,7 +987,7 @@ def _provider_clients() -> tuple:
                 build_query_rewriter(
                     timeout=_PROVIDER_TIMEOUT_SECONDS, attempts=_PROVIDER_ATTEMPTS
                 ),
-                GeminiEmbeddingClient(
+                build_embedding_client(
                     timeout=_PROVIDER_TIMEOUT_SECONDS, max_retries=_PROVIDER_ATTEMPTS
                 ),
                 build_passage_reranker(
@@ -1083,8 +1099,7 @@ def _run_selection(
             load_passages=make_db_passage_loader(cursor),
             load_verses=make_db_verse_loader(cursor),
             lexical_indexes=resources.lexical,
-            # Independent round trips: embed the variants concurrently.
-            embed_workers=REWRITE_VARIANTS,
+            embed_workers=_EMBED_WORKERS,
             allowed_canonical_ids=allowed_canonical_ids,
         )
         return retriever.select_final(selection_request, deadline)

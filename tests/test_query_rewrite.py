@@ -253,6 +253,9 @@ _PROBE_ENV = {
     "API_KEY": "k",
     "DB_HOST": "h", "DB_USER": "u", "DB_PASSWORD": "p", "DB_NAME": "n",
     "EMBEDDING_MODEL": "gemini-embedding-001", "EMBEDDING_DIMENSIONS": "768",
+    # Embeddings on the API too: this probe asks which key each GEMINI client
+    # bills, and the local provider has no key at all (ADR 0010).
+    "EMBEDDING_PROVIDER": "gemini",
     "AI_QUESTION_MODEL": "m", "AI_TRANSCRIBE_MODEL": "m",
     "AI_SCRIPTURE_REWRITE_MODEL": "m", "AI_SCRIPTURE_RERANK_MODEL": "m",
     # Every stage on Gemini: this probe is about which KEY each stage bills,

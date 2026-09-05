@@ -25,7 +25,7 @@ import sys
 
 from chunking import CHUNKING_VERSION
 from database import create_connection
-from embeddings import GeminiEmbeddingClient
+from embeddings import build_embedding_client
 from lexical_index import load_lexical_indexes
 from passage_rerank import build_passage_reranker
 from query_rewrite import build_query_rewriter
@@ -62,10 +62,10 @@ def cmd_select(args) -> int:
         return 1
     lexical = load_lexical_indexes(cursor, CHUNKING_VERSION)
     final = None
-    # The configured providers, not a hard-wired Gemini pair (ADR 0009): a
-    # smoke CLI that talked to another provider than the endpoint does would
-    # be worse than no smoke test.
-    with GeminiEmbeddingClient() as embedder, \
+    # The configured providers, not a hard-wired Gemini trio (ADR 0009/0010):
+    # a smoke CLI that talked to another provider than the endpoint does
+    # would be worse than no smoke test.
+    with build_embedding_client() as embedder, \
             build_query_rewriter() as rewriter, \
             build_passage_reranker() as reranker:
         retriever = ScriptureRetriever(

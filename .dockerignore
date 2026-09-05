@@ -7,3 +7,8 @@
 **/__pycache__
 **/*.pyc
 audio
+# Default host directory of the embedding weights (docker-compose.yml,
+# ${EMBEDDING_MODELS_DIR:-./models}). Same reason as `audio`: `COPY . /code`
+# would otherwise send 2.3 GB of weights as build context and bake them into
+# the image — the very thing ADR 0010 mounts them read-only to avoid.
+models

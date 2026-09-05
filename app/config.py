@@ -67,6 +67,7 @@ ALWAYS_REQUIRED_VARS = (
     "DB_NAME",
     "EMBEDDING_MODEL",
     "EMBEDDING_DIMENSIONS",
+    "EMBEDDING_PROVIDER",
 )
 # Must be PRESENT in the environment, but may be empty: MySQL accepts an empty
 # password (a local server with a passwordless user is a legitimate setup), so
@@ -173,6 +174,42 @@ AI_STAGE_VARS = (
     SCRIPTURE_RERANK_STAGE_VARS,
 )
 AI_PROVIDER_VARS = tuple(stage.provider_var for stage in AI_STAGE_VARS)
+
+# ---------------------------------------------------------------------------
+# Who computes the embeddings (ClickUp 86cbegg2r, ADR 0010)
+#
+# `EMBEDDING_PROVIDER` is `gemini` (the API of ADR 0002) or `local` (bge-m3
+# in this process through sentence-transformers). Unlike the three chat
+# providers it is required ALWAYS, with or without any AI key — for the same
+# reason `EMBEDDING_MODEL` / `EMBEDDING_DIMENSIONS` are: those three name the
+# index this service READS, and the read path runs even in the documented
+# no-AI deployment (`fallback_reason=ai_unavailable` is still resolved
+# through the loaded corpus). There is no correct value to guess: the two
+# providers produce different vector spaces, and picking one silently would
+# search a 1024-dimension index with a 768-dimension query — or, worse,
+# rebuild the index in the other space.
+#
+# This breaks every `.env` written before this change, exactly as the three
+# `AI_*_PROVIDER` variables did in step 2, and for the same reason: the
+# alternative is a default that is invisible in `.env` for as long as it
+# lasts. The startup error names the variable.
+#
+# `EMBEDDING_MODEL_PATH` is required when, and only when, the provider is
+# `local`: the weights are a read-only volume in the container, and nothing
+# is ever resolved through the Hugging Face hub (the image also sets
+# HF_HUB_OFFLINE=1, so a missing directory is a loud startup failure rather
+# than a 2.3 GB download from a machine that may have no route to it).
+# `EMBEDDING_MODEL` keeps naming the model *identity* — it is half of the
+# stored index version — while the path says where its bytes are on THIS
+# machine; conflating the two would put a filesystem path into
+# `chunk_embeddings.embedding_version`.
+# ---------------------------------------------------------------------------
+
+EMBEDDING_PROVIDER_GEMINI = "gemini"
+EMBEDDING_PROVIDER_LOCAL = "local"
+EMBEDDING_PROVIDERS = (EMBEDDING_PROVIDER_GEMINI, EMBEDDING_PROVIDER_LOCAL)
+EMBEDDING_PROVIDER_VAR = "EMBEDDING_PROVIDER"
+EMBEDDING_MODEL_PATH_VAR = "EMBEDDING_MODEL_PATH"
 
 
 @dataclass(frozen=True)
@@ -414,6 +451,11 @@ def missing_required_vars(env: Mapping[str, str]) -> list[str]:
         name for name in ALWAYS_REQUIRED_VARS if not env.get(name, "").strip()
     ]
     missing.extend(name for name in PRESENCE_REQUIRED_VARS if name not in env)
+    if (
+        env.get(EMBEDDING_PROVIDER_VAR, "").strip() == EMBEDDING_PROVIDER_LOCAL
+        and not env.get(EMBEDDING_MODEL_PATH_VAR, "").strip()
+    ):
+        missing.append(EMBEDDING_MODEL_PATH_VAR)
     if not ai_configured(env):
         return missing
     missing.extend(
@@ -494,6 +536,27 @@ def invalid_required_values(env: Mapping[str, str]) -> list[str]:
             problems.append(
                 f"EMBEDDING_DIMENSIONS: expected a positive integer, got {dims}"
             )
+    embedding_provider = env.get(EMBEDDING_PROVIDER_VAR, "").strip()
+    if embedding_provider and embedding_provider not in EMBEDDING_PROVIDERS:
+        problems.append(
+            f"{EMBEDDING_PROVIDER_VAR}: unknown provider "
+            f"{embedding_provider!r}, expected one of "
+            f"{', '.join(EMBEDDING_PROVIDERS)}"
+        )
+    # A path set for the API provider is not a harmless leftover: it reads as
+    # "this deployment serves embeddings locally" while every vector still
+    # comes from Gemini, which is precisely the gap between .env and reality
+    # ADR 0008 exists to close.
+    if (
+        embedding_provider == EMBEDDING_PROVIDER_GEMINI
+        and env.get(EMBEDDING_MODEL_PATH_VAR, "").strip()
+    ):
+        problems.append(
+            f"{EMBEDDING_MODEL_PATH_VAR}: set while {EMBEDDING_PROVIDER_VAR}"
+            f"={EMBEDDING_PROVIDER_GEMINI} — the weights would never be "
+            f"loaded; remove it or switch the provider to "
+            f"{EMBEDDING_PROVIDER_LOCAL}"
+        )
     for stage in AI_STAGE_VARS:
         provider = env.get(stage.provider_var, "").strip()
         if provider and provider not in AI_PROVIDERS:
@@ -555,6 +618,18 @@ def _get_float(name: str, default: float) -> float:
 
 def _required_reason(env: Mapping[str, str], name: str) -> str:
     """"<NAME> is required" plus the rule that made it required."""
+    if name == EMBEDDING_PROVIDER_VAR:
+        return (
+            f"{name} is required in every deployment (it decides who computes "
+            f"the vectors of the index this service reads): one of "
+            f"{', '.join(EMBEDDING_PROVIDERS)}"
+        )
+    if name == EMBEDDING_MODEL_PATH_VAR:
+        return (
+            f"{name} is required when {EMBEDDING_PROVIDER_VAR}="
+            f"{EMBEDDING_PROVIDER_LOCAL}: the directory the model weights are "
+            f"mounted at (nothing is downloaded — the image runs offline)"
+        )
     if name in AI_PROVIDER_VARS:
         return (
             f"{name} is required when the AI surface is configured "
@@ -687,6 +762,14 @@ AI_REQUESTS_PER_CLIENT_PER_MINUTE = min(
 # unreachable: _validate() rejects a missing or non-positive value.
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "")
 EMBEDDING_DIMENSIONS = _get_int("EMBEDDING_DIMENSIONS", 0)
+# Who computes them (ADR 0010): `gemini` (the API — ADR 0002) or `local`
+# (bge-m3 in this process). Required always; `_validate` below has already
+# refused an unknown value, so `build_embedding_client` can dispatch on it
+# without a fallback branch. EMBEDDING_MODEL_PATH is the read-only directory
+# the local weights are mounted at, required only for `local` — the model
+# IDENTITY stays EMBEDDING_MODEL, which is what the index version carries.
+EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "").strip()
+EMBEDDING_MODEL_PATH = os.getenv("EMBEDDING_MODEL_PATH", "").strip()
 # Model for LLM query reformulation in the retrieval pipeline (see
 # architect/adr/0004-retrieval-pipeline.md). Deliberately NOT following
 # AI_QUESTION_MODEL: the benchmark passes the retrieval thresholds only with

@@ -5,6 +5,19 @@ verification of the chosen API model is pending — blocked by the free-tier
 daily quota, see "Benchmark limitations".
 Ticket: ClickUp 86cb8vw14
 
+> **Superseded in part (2026-09-05, ClickUp 86cbegg2r): the MODEL decision
+> below is no longer current.** `architect/adr/0010-local-embeddings-bge-m3.md`
+> moves embeddings to `BAAI/bge-m3@1024` running in the API process, chosen
+> by the new `EMBEDDING_PROVIDER` variable. The reason the "local models fail
+> by an order of magnitude" verdict below no longer holds is that it was
+> measured *without* the query-rewrite stage of ADR 0004, which did not exist
+> yet (re-measured in ClickUp 86cbe4n7e). Everything else in this ADR stands
+> unchanged: the storage decision (`chunk_embeddings` in MySQL + in-process
+> cosine search), the `title + text` document, the index versioning and the
+> `EMBEDDING_MODEL` / `EMBEDDING_DIMENSIONS` contract — with one amendment,
+> that a rebuild no longer deletes rows of other index versions unless
+> `--drop-other-versions` asks it to.
+
 > Note (2026-08-30, ClickUp 86cbbmy8d): the AI environment variables were
 > renamed to mirror the method they configure. This ADR's own pair,
 > `EMBEDDING_MODEL` / `EMBEDDING_DIMENSIONS`, was **not** renamed — it names

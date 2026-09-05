@@ -329,8 +329,27 @@ counterpart outside Gemini is the rerank `responseSchema`; on
 `parse_rerank_response` carries the rest — the half the server ever trusted
 (ADR 0005).
 
-The embedding stage keeps calling Gemini: it names the stored index, and
-moving it is a separate step (ClickUp 86cbegg2r).
+The embedding stage has its own provider variable, `EMBEDDING_PROVIDER`
+(ClickUp 86cbegg2r, ADR 0010): `gemini` (the API) or `local` (BAAI/bge-m3 on
+CPU inside this process, weights from a read-only volume, no network and no
+key). It is separate from the three chat providers, and required in every
+deployment rather than only when AI is configured, because the model and its
+dimensions name the **stored index version** — `c3:BAAI/bge-m3@1024` against
+`c3:gemini-embedding-001@768` — which the read path needs even when nothing
+else is configured. `build_embedding_client` returns the configured client
+and `ScriptureRetriever` cannot tell those apart either.
+
+Two consequences inside a selection. Variant embeddings are **not**
+overlapped on the local provider (`embed_workers=1`): there is no round trip
+to overlap and torch already uses every core for one encode. Measured: 39 ms
+median per query, 334 ms for six variants in sequence and 320 ms for the same
+six through a thread pool — against ~0.31 s of concurrent network on Gemini,
+so the stage costs the same wall time and spends CPU instead of waiting.
+
+And the retrieval
+quality is the one measured in 86cbe4n7e (hit@10 0.875, recall@10 0.688,
+MRR 0.524 against 1.000 / 0.789 / 0.664): the passage is found and ranked
+worse, which is the work the grounded rerank does over the candidate list.
 
 `AI_SCRIPTURE_PROVIDER_TIMEOUT_SECONDS` (default 8, the measured Gemini
 value) is the ceiling of ONE stage call inside the selection budget. It has
@@ -367,7 +386,8 @@ and reaches the provider through the stage's client, so every creation point
 bills the same key without repeating the rule. Since ADR 0009 the two other
 chat stages have the same option (`AI_QUESTION_API_KEY`,
 `AI_SCRIPTURE_RERANK_API_KEY`) and fall back to their provider's shared key.
-`GeminiEmbeddingClient` reads `GEMINI_API_KEY` directly.
+`GeminiEmbeddingClient` reads `GEMINI_API_KEY` directly; on
+`EMBEDDING_PROVIDER=local` the embedding stage bills nothing at all.
 
 A stage key set while that stage runs on Gemini and `GEMINI_API_KEY` is empty
 is a configuration error in the aggregated startup list: it pays for one

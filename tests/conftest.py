@@ -27,6 +27,13 @@ os.environ.setdefault("AI_QUESTION_MODEL", "gemini-3.5-flash-lite")
 os.environ.setdefault("AI_TRANSCRIBE_MODEL", "gemini-3.5-flash-lite")
 os.environ.setdefault("EMBEDDING_MODEL", "gemini-embedding-001")
 os.environ.setdefault("EMBEDDING_DIMENSIONS", "768")
+# Who computes the vectors (ADR 0010). Required in every environment, so the
+# suite must name it. `gemini` for the same reason the models above are the
+# production ones — it keeps every existing test on the client it was written
+# against, and, more importantly, it keeps the suite from importing torch or
+# loading 2.3 GB of bge-m3 weights: the local-client tests inject a stand-in
+# model instead of ever touching the real one.
+os.environ.setdefault("EMBEDDING_PROVIDER", "gemini")
 os.environ.setdefault("AI_SCRIPTURE_REWRITE_MODEL", "gemini-3.7-flash")
 os.environ.setdefault("AI_SCRIPTURE_RERANK_MODEL", "gemini-3.5-flash-lite")
 

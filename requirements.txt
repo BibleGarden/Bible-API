@@ -1,7 +1,7 @@
 annotated-types==0.7.0
 anyio==4.4.0
 certifi==2024.7.4
-click==8.1.7
+click==8.5.0
 dnspython==2.6.1
 email_validator==2.2.0
 fastapi==0.111.1
@@ -24,12 +24,30 @@ Pygments==2.18.0
 python-multipart==0.0.9
 PyYAML==6.0.1
 requests==2.32.4
-rich==13.7.1
-setuptools==70.3.0
+rich==14.3.0
+# Local embeddings (ClickUp 86cbegg2r, ADR 0010). Versions pinned to the
+# benchmark venv that measured bge-m3 (ClickUp 86cbe4n7e). torch itself is
+# NOT here: it is installed from the CPU-only index in the Dockerfile, one
+# layer earlier (see requirements-torch.txt).
+sentence-transformers==6.0.1
+transformers==5.16.1
+tokenizers==0.23.2
+safetensors==0.8.0
+huggingface-hub==1.30.0
+scikit-learn==1.9.0
+scipy==1.18.1
+# Bumped BY the line above, not by choice: huggingface-hub 1.x requires
+# click >= 8.4.2, and typer 0.12 breaks on click >= 8.2 — so click, typer
+# and fastapi-cli move together (8.1.7 / 0.12.3 / 0.0.4 before this).
+# They serve the `fastapi run` command in CMD and nothing else; the
+# application imports none of them.
+# >= 77.0.3 and < 82 is torch 2.14's window (was 70.3.0 before the local
+# embeddings; nothing in the application imports it).
+setuptools==81.0.0
 shellingham==1.5.4
 sniffio==1.3.1
 starlette==0.37.2
-typer==0.12.3
+typer==0.27.2
 typing_extensions==4.12.2
 uvicorn==0.30.3
 uvloop==0.19.0
