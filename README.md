@@ -241,3 +241,11 @@ persistent storage.
 ## License
 
 [GPLv3](LICENSE)
+
+### Application update checks
+
+`GET /api/version-check?app=lampada&app_version=1.0.0` selects Lampada.
+Omitting `app` retains Bible Garden. Responses identify the selected app and
+return `none`, `soft` or `hard`. Numeric versions with one to three components
+are accepted; missing components are zero. Lampada notifications are disabled
+until its App Store listing is public; see ADR 0012 for activation settings.
