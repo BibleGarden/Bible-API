@@ -14,6 +14,12 @@ docker compose up -d --build
 docker logs bible-api -f
 docker compose down
 ```
+Local AI (all five stages on the company server since 2026-09-05) needs
+`AI_OPENAI_COMPAT_API_KEY`, `AI_TRANSCRIBE_API_KEY` and `EMBEDDING_API_KEY`
+exported in the shell before `docker compose up -d` (never written to
+`.env`; see the comment block at the top of the AI section in `.env`) —
+after a host reboot the `restart: always` container comes back with
+`key=none` until the export + `up -d` is repeated.
 
 ### OpenAPI Spec
 ```bash
