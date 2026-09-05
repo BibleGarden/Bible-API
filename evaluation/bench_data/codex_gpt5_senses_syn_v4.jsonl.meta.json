@@ -1,0 +1,29 @@
+{
+  "model": "codex-gpt-5",
+  "mode": "offline",
+  "date": "2026-09-05",
+  "prompt_version": 4,
+  "chunking_version": 3,
+  "corpus": "bench_data/chunks.jsonl",
+  "corpus_size": 3963,
+  "partial": false,
+  "annotated": 3963,
+  "errors": 0,
+  "senses": 7932,
+  "caution": 1105,
+  "batches": 496,
+  "per_translation": {
+    "syn": {
+      "annotated": 3963,
+      "errors": 0,
+      "senses": 7932,
+      "caution": 1105
+    }
+  },
+  "batches_file": "bench_data/desc_batches_syn_v4.jsonl",
+  "answers_file": "bench_data/desc_answers_syn_v4_final.jsonl",
+  "batches_total": 496,
+  "batches_missing": [],
+  "batches_broken": [],
+  "batches_incomplete": []
+}
