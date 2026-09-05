@@ -312,7 +312,16 @@ worse than the gap. Whether bge-m3 can measure the thought is ClickUp
 again with the rejected question appended to `skipped_questions` **for that
 call only** (trimmed to the same ten-entry ceiling, newest kept; it is never
 stored and the person never saw it) and generates once. A third attempt is
-refused by construction: the person is waiting with nothing on screen.
+refused by construction — the handler asks again in a single branch, not in a
+loop, so there is no attempt count to raise: the person is waiting with
+nothing on screen.
+
+At **`reflect`** that block is deliberately not rendered at all (see
+`build_user_message`: the stage looks back at what the *person* said and never
+shows our questions), so a second generation there re-rolls identical bytes at
+temperature 0.7 instead of being told what was rejected. Rendering it there is
+a prompt-design change and belongs to ClickUp 86cbehyf8; the replacement loop
+this filter was built on happens at `next`.
 
 **One budget for the request.** `AI_QUESTION_TIMEOUT_SECONDS` (20) is now a
 single `Deadline` created at the top of the handler and threaded through both

@@ -1291,6 +1291,34 @@ def test_a_rejected_question_joins_the_ones_the_person_declined(monkeypatch):
     assert declined[-1] in retry
 
 
+def test_at_reflect_the_retry_is_a_re_roll_of_the_same_bytes(monkeypatch):
+    """The one stage where the rejected question does not reach the model.
+
+    `build_user_message` deliberately renders no skipped block at `reflect`
+    (ADR 0015: that stage looks back at what the *person* said), so the second
+    generation there is a re-roll at temperature 0.7 rather than an informed
+    retry. Pinned rather than fixed: rendering our questions at `reflect` is a
+    prompt-design change (ClickUp 86cbehyf8). If that changes, this test is
+    the place that says so.
+    """
+    generated = ScriptedComplete(NEAR_REPEAT, NEW_QUESTION)
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+
+    response = post_question(
+        question_body(
+            topic="Понять масштаб целей на завтра",
+            stage="reflect",
+            messages=(("assistant", SHOWN_QUESTION), ("user", PERSON_REPLY)),
+        )
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"text": NEW_QUESTION, "novel": True}
+    assert len(generated.calls) == 2
+    assert generated.calls[1].user == generated.calls[0].user
+    assert NEAR_REPEAT not in generated.calls[1].user
+
+
 def test_both_generations_repeat_and_the_less_similar_one_wins(monkeypatch):
     """`novel: false`, and the answer is still the best text obtained.
 

@@ -64,7 +64,15 @@ sentence with the tail swapped.
 
 On a repeat the handler rebuilds the user message with the rejected question
 appended to `skipped_questions` for that call only — trimmed to the request's
-own ten-entry ceiling, newest kept — and generates once. Never twice.
+own ten-entry ceiling, newest kept — and generates once. Never twice; the
+bound is structural (one `if`, no loop), not a constant to raise.
+
+One honest gap: at `reflect` the skipped block is not rendered at all
+(`build_user_message`, ADR 0015 — that stage looks back at what the *person*
+said), so a second generation there is a re-roll of identical bytes at
+temperature 0.7 rather than an informed retry. Rendering it there is a
+prompt-design change (ClickUp 86cbehyf8); `next` is where the replacement loop
+was measured.
 
 Why not more: the person is waiting with nothing on screen, and the second
 attempt already doubles the worst case. Why not zero (i.e. only report the

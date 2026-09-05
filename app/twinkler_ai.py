@@ -88,16 +88,18 @@ MAX_SKIPPED_QUESTIONS = 10
 MAX_SKIPPED_QUESTION_LENGTH = 300
 _LEGACY_FIELDS = ("user", "last_user_message")
 
-# The novelty retry (ClickUp 86cbehyg0). Two code constants, not variables:
+# The novelty retry (ClickUp 86cbehyg0). A code constant, not a variable:
 # which question the person is shown is product behaviour, and a deployment
-# able to move these quietly would make two installations answer the same
-# prayer differently with identical configuration (ADR 0008).
+# able to move it quietly would make two installations answer the same prayer
+# differently with identical configuration (ADR 0008).
 #
-# ONE extra generation, never two. The person is waiting with nothing on
-# screen, the second attempt already doubles the worst case, and a third would
-# buy a diminishing chance at the cost of the one thing this endpoint promises
-# about itself — its latency.
-MAX_QUESTION_ATTEMPTS = 2
+# ONE extra generation, never two — and that bound is structural rather than a
+# number: the handler asks again in a single `if`, not in a loop, so there is
+# no second retry to configure. The person is waiting with nothing on screen,
+# the second attempt already doubles the worst case, and a third would buy a
+# diminishing chance at the cost of the one thing this endpoint promises about
+# itself — its latency.
+#
 # The smallest slice of the request budget worth spending on that second
 # generation. `gemini_retry.provider_timeout` gives the read phase three
 # quarters of what it is handed, so 3.0 s leaves the model ~2.25 s to answer —
@@ -947,7 +949,19 @@ async def twinkler_complete(
         # The rejected question joins the skipped list for this call only, so
         # the model is told about it the way it is told about the ones the
         # person declined — the person never saw it, and it is never stored.
-        # Trimmed to the request's own ceiling, keeping the newest.
+        # Trimmed to the request's own ceiling, keeping the newest (by count;
+        # the 300-character per-entry limit is a bound on what a CLIENT may
+        # send, and truncating our own generated question mid-sentence would
+        # put a broken one in the prompt).
+        #
+        # At `reflect` the block is deliberately not rendered at all
+        # (`build_user_message`, ADR 0015: that stage looks back at what the
+        # person said and never shows our questions), so there the second
+        # generation is a re-roll of identical bytes at temperature 0.7 rather
+        # than an informed retry. Rendering it there is a prompt-design change
+        # and belongs to ClickUp 86cbehyf8; a wasted call is the cost until
+        # then, and `reflect` answers are not the repeating shape the ticket
+        # was opened on.
         retry_message = build_user_message(
             request.topic,
             request.stage,
