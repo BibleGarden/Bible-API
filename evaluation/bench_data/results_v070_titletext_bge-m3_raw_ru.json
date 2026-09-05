@@ -1,0 +1,882 @@
+{
+ "config": "pipeline rewrite=off variants=6 raw=no fusion=interleave blacklist=on pool=on lexical=k20 fetch_k=50 max_per_book=4 embedder=bge-m3 langs=ru",
+ "embedding_stage": {
+  "embedder": "bge-m3",
+  "model_id": "BAAI/bge-m3",
+  "dims": 1024,
+  "peak_rss_mb": 2275.0,
+  "query_embed_count": 9,
+  "query_embed_ms": {
+   "median": 164.6,
+   "mean": 162.2,
+   "max": 221.5
+  }
+ },
+ "doc_stage": {
+  "doc_text": "title_text",
+  "matrix_variant": "title_text",
+  "rows": 11960,
+  "fragments": 11960,
+  "senses": 0,
+  "missing_descriptions": 0,
+  "missing_by_language": {},
+  "coverage_by_language": {
+   "ru": 1.0
+  },
+  "coverage_min": 1.0,
+  "allow_partial_coverage": false,
+  "languages": [
+   "ru"
+  ],
+  "descriptions_file": "",
+  "descriptions_sha1": "",
+  "descriptions_meta": {}
+ },
+ "aggregate": {
+  "label": "ALL",
+  "n": 10,
+  "hit_rate": 0.4,
+  "recall": 0.18333333333333332,
+  "mrr": 0.15,
+  "unacceptable_share": 0.0
+ },
+ "scenarios": [
+  {
+   "scenario_id": "ru-001",
+   "language": "ru",
+   "category": "regular",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "ru-002",
+   "language": "ru",
+   "category": "regular",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "ru-003",
+   "language": "ru",
+   "category": "sensitive",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "ru-004",
+   "language": "ru",
+   "category": "sensitive",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "ru-005",
+   "language": "ru",
+   "category": "sensitive",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "ru-006",
+   "language": "ru",
+   "category": "ambiguous",
+   "hit": true,
+   "recall": 0.25,
+   "rr": 0.1,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "ru-007",
+   "language": "ru",
+   "category": "ambiguous",
+   "hit": false,
+   "recall": 0.0,
+   "rr": 0.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "ru-008",
+   "language": "ru",
+   "category": "short",
+   "hit": true,
+   "recall": 0.3333333333333333,
+   "rr": 0.2,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "ru-009",
+   "language": "ru",
+   "category": "empty",
+   "hit": true,
+   "recall": 1.0,
+   "rr": 1.0,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  },
+  {
+   "scenario_id": "ru-010",
+   "language": "ru",
+   "category": "regular",
+   "hit": true,
+   "recall": 0.25,
+   "rr": 0.2,
+   "unacceptable_share": 0.0,
+   "query_ms": 0.0
+  }
+ ],
+ "details": [
+  {
+   "scenario_id": "ru-001",
+   "source": "retrieval",
+   "queries": [
+    "Благодарность за рождение дочки\nМы ждали её несколько лет, и вот она родилась здоровой.\nХочу просто сказать Богу спасибо."
+   ],
+   "top": [
+    {
+     "id": "v3:53.001.004-009",
+     "score": 0.6091,
+     "variant": 0
+    },
+    {
+     "id": "v3:01.016.015-016",
+     "score": 0.4853,
+     "variant": 0
+    },
+    {
+     "id": "v3:48.003.001-003",
+     "score": 0.6015,
+     "variant": 0
+    },
+    {
+     "id": "v3:01.025.019-026",
+     "score": 0.4922,
+     "variant": 0
+    },
+    {
+     "id": "v3:49.001.001-003",
+     "score": 0.5958,
+     "variant": 0
+    },
+    {
+     "id": "v3:59.003.009-013",
+     "score": 0.5048,
+     "variant": 0
+    },
+    {
+     "id": "v3:48.004.007-010",
+     "score": 0.5816,
+     "variant": 0
+    },
+    {
+     "id": "v3:08.001.003-005",
+     "score": 0.3329,
+     "variant": 0
+    },
+    {
+     "id": "v3:63.002.011-015",
+     "score": 0.5634,
+     "variant": 0
+    },
+    {
+     "id": "v3:54.004.007-015",
+     "score": 0.449,
+     "variant": 0
+    }
+   ]
+  },
+  {
+   "scenario_id": "ru-002",
+   "source": "retrieval",
+   "queries": [
+    "Переживаю из-за возможного сокращения на работе\nВ компании начались увольнения, и я не знаю, что будет дальше.\nУ нас ипотека и двое детей."
+   ],
+   "top": [
+    {
+     "id": "v3:24.010.017-022",
+     "score": 0.5061,
+     "variant": 0
+    },
+    {
+     "id": "v3:02.021.012-021",
+     "score": 0.4131,
+     "variant": 0
+    },
+    {
+     "id": "v3:55.004.008-020",
+     "score": 0.5031,
+     "variant": 0
+    },
+    {
+     "id": "v3:16.004.015-023",
+     "score": 0.4429,
+     "variant": 0
+    },
+    {
+     "id": "v3:18.030.001-008",
+     "score": 0.5011,
+     "variant": 0
+    },
+    {
+     "id": "v3:40.018.019-020",
+     "score": 0.3926,
+     "variant": 0
+    },
+    {
+     "id": "v3:18.014.018-022",
+     "score": 0.4991,
+     "variant": 0
+    },
+    {
+     "id": "v3:40.020.029-034",
+     "score": 0.4086,
+     "variant": 0
+    },
+    {
+     "id": "v3:23.024.001-003",
+     "score": 0.4959,
+     "variant": 0
+    },
+    {
+     "id": "v3:09.006.019-021",
+     "score": 0.419,
+     "variant": 0
+    }
+   ]
+  },
+  {
+   "scenario_id": "ru-003",
+   "source": "retrieval",
+   "queries": [
+    "Умерла мама\nПрошло девять дней, я до сих пор не могу дышать от боли.\nНе понимаю, как жить дальше."
+   ],
+   "top": [
+    {
+     "id": "v3:18.014.013-017",
+     "score": 0.5451,
+     "variant": 0
+    },
+    {
+     "id": "v3:01.038.012-026",
+     "score": 0.3643,
+     "variant": 0
+    },
+    {
+     "id": "v3:24.014.017-018",
+     "score": 0.5192,
+     "variant": 0
+    },
+    {
+     "id": "v3:40.018.012-014",
+     "score": 0.4312,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.006.000-010",
+     "score": 0.5046,
+     "variant": 0
+    },
+    {
+     "id": "v3:44.025.013-022",
+     "score": 0.3298,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.056.000-013",
+     "score": 0.5046,
+     "variant": 0
+    },
+    {
+     "id": "v3:12.018.001-008",
+     "score": 0.2882,
+     "variant": 0
+    },
+    {
+     "id": "v3:18.006.008-013",
+     "score": 0.5036,
+     "variant": 0
+    },
+    {
+     "id": "v3:44.021.015-019",
+     "score": 0.2589,
+     "variant": 0
+    }
+   ]
+  },
+  {
+   "scenario_id": "ru-004",
+   "source": "retrieval",
+   "queries": [
+    "Мне поставили серьёзный диагноз\nВпереди операция, мне страшно.\nМолюсь о выздоровлении и о силах для семьи."
+   ],
+   "top": [
+    {
+     "id": "v3:18.006.008-013",
+     "score": 0.5912,
+     "variant": 0
+    },
+    {
+     "id": "v3:50.001.001-004",
+     "score": 0.4661,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.056.000-013",
+     "score": 0.5817,
+     "variant": 0
+    },
+    {
+     "id": "v3:01.045.016-020",
+     "score": 0.3447,
+     "variant": 0
+    },
+    {
+     "id": "v3:18.013.014-019",
+     "score": 0.5767,
+     "variant": 0
+    },
+    {
+     "id": "v3:18.003.013-026",
+     "score": 0.4965,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.116.001-008",
+     "score": 0.5763,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.142.001-007",
+     "score": 0.5463,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.006.000-010",
+     "score": 0.5751,
+     "variant": 0
+    },
+    {
+     "id": "v3:57.001.003-011",
+     "score": 0.4872,
+     "variant": 0
+    }
+   ]
+  },
+  {
+   "scenario_id": "ru-005",
+   "source": "retrieval",
+   "queries": [
+    "Постоянная тревога, ночами не сплю\nСердце колотится без причины, страшно оставаться одной.\nХочу успокоиться и довериться Богу."
+   ],
+   "top": [
+    {
+     "id": "v3:19.056.000-013",
+     "score": 0.6494,
+     "variant": 0
+    },
+    {
+     "id": "v3:24.049.023-027",
+     "score": 0.4527,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.006.000-010",
+     "score": 0.6157,
+     "variant": 0
+    },
+    {
+     "id": "v3:25.003.040-054",
+     "score": 0.5438,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.054.000-007",
+     "score": 0.6144,
+     "variant": 0
+    },
+    {
+     "id": "v3:28.003.004-005",
+     "score": 0.4595,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.027.001-014",
+     "score": 0.6143,
+     "variant": 0
+    },
+    {
+     "id": "v3:20.023.029-035",
+     "score": 0.4917,
+     "variant": 0
+    },
+    {
+     "id": "v3:18.007.011-021",
+     "score": 0.6141,
+     "variant": 0
+    },
+    {
+     "id": "v3:20.015.016-033",
+     "score": 0.4753,
+     "variant": 0
+    }
+   ]
+  },
+  {
+   "scenario_id": "ru-006",
+   "source": "retrieval",
+   "queries": [
+    "Молюсь о свете\nВсё как в тумане, хочу увидеть, куда идти."
+   ],
+   "top": [
+    {
+     "id": "v3:19.142.001-007",
+     "score": 0.6395,
+     "variant": 0
+    },
+    {
+     "id": "v3:50.001.013-015",
+     "score": 0.5345,
+     "variant": 0
+    },
+    {
+     "id": "v3:40.006.022-023",
+     "score": 0.621,
+     "variant": 0
+    },
+    {
+     "id": "v3:48.002.007-011",
+     "score": 0.5553,
+     "variant": 0
+    },
+    {
+     "id": "v3:18.010.018-022",
+     "score": 0.613,
+     "variant": 0
+    },
+    {
+     "id": "v3:24.040.001-006",
+     "score": 0.3751,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.017.001-015",
+     "score": 0.6066,
+     "variant": 0
+    },
+    {
+     "id": "v3:52.001.008-015",
+     "score": 0.5526,
+     "variant": 0
+    },
+    {
+     "id": "v3:23.059.009-014",
+     "score": 0.6045,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.027.001-014",
+     "score": 0.6038,
+     "variant": 0
+    }
+   ]
+  },
+  {
+   "scenario_id": "ru-007",
+   "source": "retrieval",
+   "queries": [
+    "Прошу у Бога мира\nВ семье постоянные ссоры, я очень устал.\nХочу тишины внутри."
+   ],
+   "top": [
+    {
+     "id": "v3:19.006.000-010",
+     "score": 0.6135,
+     "variant": 0
+    },
+    {
+     "id": "v3:20.030.007-009",
+     "score": 0.5436,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.056.000-013",
+     "score": 0.6052,
+     "variant": 0
+    },
+    {
+     "id": "v3:52.007.013-025",
+     "score": 0.4365,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.054.000-007",
+     "score": 0.6044,
+     "variant": 0
+    },
+    {
+     "id": "v3:09.028.020-025",
+     "score": 0.3649,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.027.001-014",
+     "score": 0.6036,
+     "variant": 0
+    },
+    {
+     "id": "v3:55.004.008-020",
+     "score": 0.5655,
+     "variant": 0
+    },
+    {
+     "id": "v3:20.023.029-035",
+     "score": 0.4563,
+     "variant": 0
+    },
+    {
+     "id": "v3:43.017.001-019",
+     "score": 0.4818,
+     "variant": 0
+    }
+   ]
+  },
+  {
+   "scenario_id": "ru-008",
+   "source": "retrieval",
+   "queries": [
+    "Помоги"
+   ],
+   "top": [
+    {
+     "id": "v3:19.070.000-005",
+     "score": 0.5357,
+     "variant": 0
+    },
+    {
+     "id": "v3:44.016.006-010",
+     "score": 0.3717,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.054.000-007",
+     "score": 0.5221,
+     "variant": 0
+    },
+    {
+     "id": "v3:10.014.001-010",
+     "score": 0.3311,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.046.000-011",
+     "score": 0.5157,
+     "variant": 0
+    },
+    {
+     "id": "v3:41.009.014-029",
+     "score": 0.3746,
+     "variant": 0
+    },
+    {
+     "id": "v3:40.015.021-028",
+     "score": 0.3282,
+     "variant": 0
+    },
+    {
+     "id": "v3:18.006.008-013",
+     "score": 0.4954,
+     "variant": 0
+    },
+    {
+     "id": "v3:14.014.009-015",
+     "score": 0.3384,
+     "variant": 0
+    },
+    {
+     "id": "v3:19.056.000-013",
+     "score": 0.4922,
+     "variant": 0
+    }
+   ]
+  },
+  {
+   "scenario_id": "ru-009",
+   "source": "safe_pool",
+   "queries": [],
+   "top": [
+    "v3:19.023.001-006",
+    "v3:40.011.027-030",
+    "v3:19.046.000-011",
+    "v3:25.003.021-039",
+    "v3:19.136.001-026",
+    "v3:19.100.001-005",
+    "v3:19.121.001-008",
+    "v3:57.004.001-009",
+    "v3:40.006.025-034"
+   ]
+  },
+  {
+   "scenario_id": "ru-010",
+   "source": "retrieval",
+   "queries": [
+    "Поссорился с братом, не разговариваем полгода\nОбида не отпускает, но я хочу сделать шаг к примирению."
+   ],
+   "top": [
+    {
+     "id": "v3:18.009.025-035",
+     "score": 0.5381,
+     "variant": 0
+    },
+    {
+     "id": "v3:44.018.012-017",
+     "score": 0.3873,
+     "variant": 0
+    },
+    {
+     "id": "v3:18.006.014-023",
+     "score": 0.5328,
+     "variant": 0
+    },
+    {
+     "id": "v3:52.007.013-025",
+     "score": 0.4148,
+     "variant": 0
+    },
+    {
+     "id": "v3:40.005.021-026",
+     "score": 0.5295,
+     "variant": 0
+    },
+    {
+     "id": "v3:03.024.010-023",
+     "score": 0.4212,
+     "variant": 0
+    },
+    {
+     "id": "v3:18.013.014-019",
+     "score": 0.5274,
+     "variant": 0
+    },
+    {
+     "id": "v3:53.005.009-013",
+     "score": 0.4586,
+     "variant": 0
+    },
+    {
+     "id": "v3:64.001.008-022",
+     "score": 0.527,
+     "variant": 0
+    },
+    {
+     "id": "v3:43.021.020-023",
+     "score": 0.428,
+     "variant": 0
+    }
+   ]
+  }
+ ],
+ "final_top1": {
+  "rerank_model": "",
+  "rerank": null,
+  "fallback_rank1": [
+   {
+    "scenario_id": "ru-001",
+    "category": "regular",
+    "grade": "ungraded",
+    "chosen": "v3:53.001.004-009 (canonical 53 1:4-9)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-002",
+    "category": "regular",
+    "grade": "ungraded",
+    "chosen": "v3:24.010.017-022 (canonical 24 10:17-22)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-003",
+    "category": "sensitive",
+    "grade": "ungraded",
+    "chosen": "v3:18.014.013-017 (canonical 18 14:13-17)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-004",
+    "category": "sensitive",
+    "grade": "ungraded",
+    "chosen": "v3:18.006.008-013 (canonical 18 6:8-13)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-005",
+    "category": "sensitive",
+    "grade": "ungraded",
+    "chosen": "v3:19.056.000-013 (canonical 19 56:0-13)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-006",
+    "category": "ambiguous",
+    "grade": "ungraded",
+    "chosen": "v3:19.142.001-007 (canonical 19 142:1-7)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-007",
+    "category": "ambiguous",
+    "grade": "ungraded",
+    "chosen": "v3:19.006.000-010 (canonical 19 6:0-10)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-008",
+    "category": "short",
+    "grade": "ungraded",
+    "chosen": "v3:19.070.000-005 (canonical 19 70:0-5)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-009",
+    "category": "empty",
+    "grade": "relevant",
+    "chosen": "v3:19.023.001-006 (canonical 19 23:1-6)",
+    "method": "safe_pool",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-010",
+    "category": "regular",
+    "grade": "ungraded",
+    "chosen": "v3:18.009.025-035 (canonical 18 9:25-35)",
+    "method": "fallback_rank1",
+    "reason": "",
+    "highlight": null
+   }
+  ],
+  "fallback_max_score": [
+   {
+    "scenario_id": "ru-001",
+    "category": "regular",
+    "grade": "ungraded",
+    "chosen": "v3:53.001.004-009 (canonical 53 1:4-9)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-002",
+    "category": "regular",
+    "grade": "ungraded",
+    "chosen": "v3:24.010.017-022 (canonical 24 10:17-22)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-003",
+    "category": "sensitive",
+    "grade": "ungraded",
+    "chosen": "v3:18.014.013-017 (canonical 18 14:13-17)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-004",
+    "category": "sensitive",
+    "grade": "ungraded",
+    "chosen": "v3:18.006.008-013 (canonical 18 6:8-13)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-005",
+    "category": "sensitive",
+    "grade": "ungraded",
+    "chosen": "v3:19.056.000-013 (canonical 19 56:0-13)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-006",
+    "category": "ambiguous",
+    "grade": "ungraded",
+    "chosen": "v3:19.142.001-007 (canonical 19 142:1-7)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-007",
+    "category": "ambiguous",
+    "grade": "ungraded",
+    "chosen": "v3:19.006.000-010 (canonical 19 6:0-10)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-008",
+    "category": "short",
+    "grade": "ungraded",
+    "chosen": "v3:19.070.000-005 (canonical 19 70:0-5)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-009",
+    "category": "empty",
+    "grade": "relevant",
+    "chosen": "v3:19.023.001-006 (canonical 19 23:1-6)",
+    "method": "safe_pool",
+    "reason": "",
+    "highlight": null
+   },
+   {
+    "scenario_id": "ru-010",
+    "category": "regular",
+    "grade": "ungraded",
+    "chosen": "v3:18.009.025-035 (canonical 18 9:25-35)",
+    "method": "fallback_score",
+    "reason": "",
+    "highlight": null
+   }
+  ]
+ }
+}

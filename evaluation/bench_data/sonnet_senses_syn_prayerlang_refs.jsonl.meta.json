@@ -1,0 +1,28 @@
+{
+  "model": "claude-sonnet-5-offline",
+  "prompt_version": "prayer-language-probe",
+  "date": "2026-09-05",
+  "chunking_version": 3,
+  "alias": "syn",
+  "language": "ru",
+  "corpus_size": 51,
+  "annotated": 51,
+  "errors": 0,
+  "senses": 205,
+  "caution": 18,
+  "description": "Ручной (без API/Ollama) эксперимент по гипотезе регистра: 51 фрагмент syn, пересекающийся с ссылками ru-001..ru-010 в scenarios.json, переписан вручную в регистре молитвы/жалобы (третье лицо, конкретные слова боли/радости вместо богословских терминов) вместо исходного учебникового регистра из codex_gpt5_senses_syn_v4.jsonl. caution/caution_note скопированы без изменений из источника. Источник для калибровки регистра — только topic/user_replies из scenarios.json, без копирования текста сценариев (де-фингерпринтинг).",
+  "source_file": "codex_gpt5_senses_syn_v4.jsonl",
+  "scenarios_file": "scenarios.json",
+  "scenarios_matched": [
+    "ru-001",
+    "ru-002",
+    "ru-003",
+    "ru-004",
+    "ru-005",
+    "ru-006",
+    "ru-007",
+    "ru-008",
+    "ru-009",
+    "ru-010"
+  ]
+}
