@@ -29,10 +29,12 @@ that fits nothing costs nothing.
 
 Why `caution` is a structured field, not a sentence
 ---------------------------------------------------
-`caution` is a boolean and `caution_note` a short phrase: does this fragment
-read as judgement, rebuke, curse or punishment, or carry images of death and
-violence — the tone that must never be handed to someone in the hardest hour
-of their life (README, "Критерии качества", aspect 3).
+`caution` is a boolean and `caution_note` a short phrase: could a person who
+is already suffering hear this fragment as accusation, threat, curse,
+judgement or punishment directed at them, or be harmed by opening images of
+death and violence or by hopeless lament (README, "Критерии качества",
+aspect 3). Historical violence against third parties and ritual sacrifice do
+not meet that reader-danger test by themselves.
 
 It is kept out of the sense texts for a measurable reason: the senses ARE the
 vectors. A sentence such as "звучит как обличение" inside an embedded sense
@@ -65,7 +67,13 @@ import re
 #   2  explicit ban on the first person and on restating one situation in
 #      different words — the two failures the 4B probe of 2026-09-04 showed
 #      ("Когда я чувствую…" everywhere, five senses that were one situation)
-DESCRIPTION_PROMPT_VERSION = 2
+#   3  require at least two present-day prayer situations instead of plot
+#      retellings; caution only for danger to a suffering reader, not any
+#      third-party historical violence, ritual or conditional blessing
+#   4  a ritual or sacrifice alone is still not caution, but a separate direct
+#      threat of death, destruction or punishment, or a direct accusation,
+#      inside its law still is
+DESCRIPTION_PROMPT_VERSION = 4
 
 # Self-contained on purpose (see the module docstring): this prompt is not a
 # variant of a production one, so it does not import `app.query_rewrite` and
@@ -76,10 +84,10 @@ LANGUAGE_NAMES = {
     "uk": "Ukrainian",
 }
 
-# The contract asked of the model. Fewer than MIN is accepted (a fragment may
-# honestly serve one situation) but recorded as a warning; more than MAX is
-# trimmed — a long tail of senses is the model padding, and every extra sense
-# is an extra row in the index.
+# The contract asked of the model. Fewer than MIN is tolerated for a resilient
+# ingest but recorded as a warning; prompt v3 still requires at least two
+# present-day situations. More than MAX is trimmed — a long tail of senses is
+# model padding, and every extra sense is an extra row in the index.
 MIN_SENSES = 2
 MAX_SENSES = 5
 
@@ -114,16 +122,21 @@ A person writes, in their own everyday words, what is happening in their life an
 For each of the {count} numbered fragments below produce two things.
 
 "senses" — a list of {MIN_SENSES} to {MAX_SENSES} strings in {language_name}. Each string is one or two sentences saying WHO this passage can serve and IN WHAT life situation or inner state, as comfort, as instruction, as thanksgiving or as hope.
-- One sense = one situation. Give a separate sense for each genuinely different situation the passage can meet; give fewer when the passage honestly meets fewer. Two senses that describe the same situation in different words are a wrong answer — three sharply different senses are better than five that repeat each other. Before adding a sense, check that it names a circumstance none of the others already names.
+- One sense = one situation. Give a separate sense for each genuinely different situation the passage can meet; use only two when it honestly supports no more. Two senses that describe the same situation in different words are a wrong answer — three sharply different senses are better than five that repeat each other. Before adding a sense, check that it names a circumstance none of the others already names.
+- At least two senses in every list must name a PRESENT-DAY prayer situation or inner state in which a person today could recognise themselves. This is especially important for narrative passages.
 - Write in the THIRD person, about the person the passage can serve: "someone who…", "a person who…". Never write in the first person ("when I feel…", "I know that…") and never address the reader as "you" — these are index entries, not a prayer and not a sermon.
 - Write about the person and the situation. Do not retell the passage, do not summarise what happens in it, do not quote it.
+- Changing the actors in the plot into generic roles is still retelling. "People and animals suffering from an insect plague" and "a young man thrown into a pit and sold into slavery" are plot summaries, not present-day prayers. "A person betrayed by people close to them out of envy", "someone who sees clear signs but remains stubborn", and "a person whom God asks to leave the familiar and go into the unknown" are present-day situations.
 - Never name a book, a chapter or a verse number. Never write "this passage", "the text", "these verses" or any other reference to the fragment itself — each sense must read as the description of a situation.
 - Do not invent a fit that is not in the fragment. A pious formula that would fit any passage at all is a wrong answer.
 - Plain, concrete words, as a person would describe their own life.
 
 "caution" — true or false, with "caution_note" a short phrase in {language_name} when it is true (and "" when it is false).
-- The same index serves people in the hardest hours of their lives, so the tone of a fragment matters as much as its subject. Set "caution" to true when the fragment reads as judgement, rebuke, a curse, a threat, an accusation or a punishment, or carries images of death, violence or destruction, or blames suffering on the one who suffers — even when the fragment ends in consolation, and even when such words are only in its opening line.
-- "caution_note" says in a few words WHAT makes it hard to hear.
+- The same index serves people in the hardest hours of their lives. Set "caution" to true ONLY when a person already suffering through grief, illness, crisis or guilt could reasonably hear the fragment as dangerous words directed at them: an accusation, a threat or curse against the reader, judgement, punishment presented as the explanation of their suffering, images of death or violence in the opening lines, or hopeless lament without consolation.
+- Do NOT set "caution" merely for historical violence involving third parties (such as plagues, wars or a brothers' plot), rituals or sacrifices, or a blessing that conditionally mentions a curse on enemies. These describe history or other people and are not directed at the suffering reader.
+- A ritual or sacrifice by itself is not caution. HOWEVER, if a ritual law separately addresses its participant with a direct threat of death, being destroyed or punished, or directly accuses them, that threat or accusation still requires "caution": true. Do not let the ritual context hide it.
+- A social or historical detail not addressed to the reader is not caution. "Shepherds are despised here" remains false.
+- "caution_note" says in a few words exactly WHAT would sound dangerous to the suffering reader.
 - Never put this warning into "senses": the fields are used for different things.
 
 Output strictly a JSON object: {{"descriptions": [{{"id": 1, "senses": ["...", "..."], "caution": false, "caution_note": ""}}, ...]}} with exactly {count} objects — one per fragment, carrying the id printed with that fragment. No other keys, no text outside the JSON object."""
