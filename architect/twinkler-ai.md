@@ -110,7 +110,10 @@ the change to make — and it is a change, so it needs a version bump.
 With no topic the first line is `Человек начинает молитву без конкретной темы.`
 
 **`next`** — the goal line, the questions already asked, the answers, the
-instruction. A block with nothing in it is omitted, not left empty:
+instruction. A block with nothing in it is omitted, not left empty. The
+instruction line below is the **v4** one (2026-09-06, "v4" further down); the
+three blocks above it are unchanged since 86cbegmzz, and a request carrying
+`skipped_questions` gets one more block between them (the next section):
 
 ```
 Цель молитвы: «{topic}».
@@ -306,7 +309,18 @@ benchmark number and the production filter are one measurement.
 **Lexical only.** Two questions with no shared wording can still be one
 thought; that is not what this catches, and pretending otherwise would be
 worse than the gap. Whether bge-m3 can measure the thought is ClickUp
-86cbehyg8.
+86cbehyg8: **measured, decision pending, nothing in `app/` changed.** On 176
+labelled pairs a cosine of ≥ 0.78-0.80 beside this filter catches 0.83 of the
+repeats against its own 0.30, at ~+0.5-0.6 s on the median answer (and up to
+~2 s on a long prayer unless the compared list is bounded) — the tables are in
+`evaluation/README.md`, «Семантическая проверка повторов через bge-m3», and the
+recommendation is recorded in ADR 0016 for Maria.
+
+**Two answers per call was measured too, and rejected** (ClickUp 86cbehyg4):
+asking the model for `n` candidates and picking one leaves 21% / 13% of steps
+repeating against **3% / 7%** for the second generation above, because the
+retry is sent *different bytes* while N candidates come from one input. Nothing
+in `app/` changed there either; ADR 0016 carries the numbers.
 
 **One more generation, never two.** On a repeat the server builds the message
 again with the rejected question appended to `skipped_questions` **for that
@@ -699,10 +713,18 @@ question novelty: attempts=2 repeat=near score=0.78 novel=false stage=next
 `repeat` is `none`, `exact` or `near` and `score` the similarity to the
 closest question the person had already been shown; the matched question
 itself is deliberately not logged. `INFO` rather than `WARNING` because this
-is ordinary operation rather than a rule firing — it is visible in
-`docker logs` because `app/trusted_proxies.py` installs a handler when nothing
-else has configured logging (see "Trusted proxies" in the repository
-`CLAUDE.md`).
+is ordinary operation rather than a rule firing.
+
+**It reaches `docker logs` only because `app/main.py` asks for it**, and until
+2026-09-06 it did not (ClickUp 86cbehygb, found by looking for the line during
+the live check). `trusted_proxies.ensure_visible_handler` installs a handler on
+the logger it is *given*, never on the root one, and uvicorn leaves the root
+logger bare — so this module's `INFO` record was swallowed while its `WARNING`
+records (both safety tiers, the provider failures) reached the log through
+logging's last-resort handler, which is exactly why the gap was invisible.
+`main.py` now calls `ensure_visible_handler(logging.getLogger("twinkler_ai"))`
+beside the identical call for `transcription`. Verified live: 25 answered
+requests, 25 lines. `docker logs bible-api | grep 'question novelty'`.
 
 ## Provider contract
 

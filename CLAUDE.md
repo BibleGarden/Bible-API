@@ -1159,6 +1159,26 @@ It is a lexical check and **not** a measure of semantic diversity — a reworded
 return to the same thought passes; that is 86cbehyg8
 (`architect/adr/0016-question-novelty-check.md`).
 
+**State on 2026-09-06 (86cbehxm2, bug 86cbehtkh).** What is shipped: prompt
+**v4**, the `skipped_questions` field (ADR 0015), the lexical novelty check
+with one extra generation and the additive `novel` field (ADR 0016), all under
+one request budget. What was measured and deliberately **not** shipped, with
+nothing in `app/` changed by either: N candidates per call (86cbehyg4 — worse,
+because the retry is sent different bytes while N candidates share one input)
+and the bge-m3 semantic check (86cbehyg8 — better than the lexical filter,
++0.5-0.6 s median, threshold 0.78-0.80 recommended, **Maria decides**). Verified
+live on the local 9084 on 2026-09-06 (86cbehygb): 25 answered requests over four
+replacement series, 200 everywhere, 0.3-1.1 s, three `novel: false`, one retry
+that escaped the repeat — and the one finding of that check, that the endpoint's
+`question novelty:` `INFO` line never reached `docker logs` until `main.py` was
+given `ensure_visible_handler(logging.getLogger("twinkler_ai"))`. Protocol:
+`evaluation/bench_data/live_9084_2026-09-06.md`; before/after transcripts for
+Maria: `evaluation/bench_data/before_after_2026-09-06.md`; the measurement
+sections are indexed at the top of `evaluation/README.md`'s question block. The
+**client contract** (accumulate every replaced question, do not duplicate
+`messages`, what to do on `novel: false`) is in `architect/twinkler-ai.md` and
+in the two ADRs.
+
 The request statistics store the path verbatim, so `api_requests` and
 `api_request_daily_stats` carry the old names before the rename and the new
 ones after it; the rows were not rewritten. A report crossing 2026-08-30

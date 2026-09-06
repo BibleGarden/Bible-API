@@ -48,3 +48,9 @@ evaluation/bench_data/*
 # model and carries no key.
 !evaluation/bench_data/question_pairs_scored.jsonl
 !evaluation/bench_data/question_pairs_scored.jsonl.meta.json
+# Human-readable protocols of the question work (86cbehygb): the live check of
+# the running endpoint and the before/after transcripts Maria reads. A few
+# dozen kilobytes of prose, and the least reproducible artifacts of all — they
+# record what one live run of a temperature-0.7 model answered on one day.
+!evaluation/bench_data/live_*.md
+!evaluation/bench_data/before_after_*.md

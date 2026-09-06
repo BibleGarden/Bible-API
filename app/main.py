@@ -204,6 +204,16 @@ load_local_transcription_model()
 # same reason, as the two banners above.
 ensure_visible_handler(logging.getLogger("transcription"))
 
+# Same call, same reason, for the question endpoint's own `INFO` record —
+# `question novelty: attempts=… repeat=… score=… novel=… stage=…`, one line per
+# answered request (ClickUp 86cbehyg0). It is the only observability the
+# novelty check has, `architect/twinkler-ai.md` documents grepping for it, and
+# without a handler of its own it was swallowed exactly like the transcription
+# timings were: the module's WARNING records reached `docker logs` through
+# logging's last-resort handler, so the gap was invisible until the line was
+# looked for. Verified live on 2026-09-06: 25 answered requests, no line.
+ensure_visible_handler(logging.getLogger("twinkler_ai"))
+
 
 def log_and_load_embedding_provider() -> None:
     """Say which vector space this process searches, and load it if local.

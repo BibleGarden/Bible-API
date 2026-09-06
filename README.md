@@ -42,7 +42,7 @@ The API will be available at `http://localhost:9084/api`.
   until its App Store listing is public — see
   `architect/adr/0013-application-version-policies.md` for the activation
   constants.
-- `POST /api/ai/question` — Gemini companion reply (see below)
+- `POST /api/ai/question` — AI companion question (see below)
 - `POST /api/ai/transcribe` — voice recording to text (see below)
 - `POST /api/ai/scripture` — contextual Bible passage selection
   (`architect/scripture-select.md`)
@@ -54,9 +54,9 @@ All endpoints require `X-API-Key` header.
 `POST /api/ai/question` asks one leading question about a prayer. It accepts
 `{ "topic", "stage", "messages" }` — the topic (may be empty), the stage
 (`first`, `next` or `reflect`) and the conversation so far as
-`{ "role": "assistant" | "user", "text" }` turns — and answers `{ "text" }`.
-The instructions for the stage and the system prompt are built server-side and
-the provider key never leaves the server:
+`{ "role": "assistant" | "user", "text" }` turns — and answers
+`{ "text", "novel" }`. The instructions for the stage and the system prompt are
+built server-side and the provider key never leaves the server:
 
 ```json
 {"topic": "Отношения с семьёй", "stage": "next",
@@ -70,9 +70,20 @@ the provider key never leaves the server:
 An optional `skipped_questions` (list of strings, at most 10 of at most 300
 characters, empty by default) carries the questions the person asked to
 replace, so the next one takes another direction. It must be empty with
-`first`, and it counts towards the same 16 000-character total. Details:
-`architect/twinkler-ai.md` and
-`architect/adr/0015-skipped-questions-in-question-request.md`.
+`first`, and it counts towards the same 16 000-character total. Send **every**
+replaced or skipped question of the current prayer, chronologically, and never
+one that is already an `assistant` turn of `messages` — an answered question
+belongs in the history, a replaced one here, and the two lists do not overlap.
+
+`novel` is additive and says whether the returned text repeats a question the
+person has already been shown in this prayer (those `assistant` turns plus
+`skipped_questions`). The server checks it, and on a repeat generates once more
+inside the same request budget; `novel: false` means that second question
+repeated too, was not affordable or failed — the best text obtained is still
+returned, so a client that reads only `text` behaves exactly as before. Details:
+`architect/twinkler-ai.md`,
+`architect/adr/0015-skipped-questions-in-question-request.md` and
+`architect/adr/0016-question-novelty-check.md`.
 
 The whole AI surface is configured by environment variables:
 

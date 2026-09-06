@@ -5553,6 +5553,23 @@ v2, ни в v3; v2 и v3 отправляют вместо него `probe-tired
 этому подмножеству отдельно, поэтому построчное сравнение — только в таблице
 «По входам» этого прогона, не отдельной цифрой.
 
+## Указатель: замеры наводящего вопроса (зонт 86cbehxm2, баг 86cbehtkh)
+
+Пять секций ниже сняты по одному тикету каждая. Что где лежит и чем
+воспроизводится — одной таблицей, чтобы не искать команду по тексту:
+
+| секция | тикет | что показывает | артефакты | воспроизведение |
+|---|---|---|---|---|
+| «Серии замен вопроса, baseline v3» | 86cbehyez | баг воспроизведён на боевом v3 | `bench_data/questions_qwen30b_v3_series{,_accum}.jsonl` | `gen_questions.py --series question_series_inputs.json --samples 6` |
+| «Промпт наводящего вопроса v4» | 86cbehyf8 | выбор промпта замером: b → боевой v4 | `bench_data/questions_qwen30b_v4{a,b,c,c2}*.jsonl` | то же + `--prompt-variant b` (и `--accumulate-skipped`) |
+| «Фильтр повторов на v4» | 86cbehyg0 | пороги `app/question_novelty.py` перепроверены на v4 | те же артефакты v4b | `check_questions.py <файлы> --novelty-sim` |
+| «Несколько кандидатов за вызов…» | 86cbehyg4 | `n=2/3` против второй генерации — **не внедрять** | `bench_data/questions_qwen30b_v4_cand_*.jsonl` | `gen_questions.py --candidates N` / `--retry-on-repeat` |
+| «Семантическая проверка повторов через bge-m3» | 86cbehyg8 | косинус видит мысль, где триграммы видят рамку — **решение за Марией** | `question_pairs_labelled.json`, `bench_data/question_pairs_scored.jsonl` | `question_semantic_bench.py score / report / latency` |
+
+Живая проверка боевого эндпоинта (не бенчмарк, а протокол): 86cbehygb,
+`bench_data/live_9084_2026-09-06.md`; стенограммы «до/после» для Марии —
+`bench_data/before_after_2026-09-06.md`.
+
 ## Серии замен вопроса, baseline v3 (ClickUp 86cbehyez, 2026-09-06)
 
 Подзадача 86cbehxm2, баг 86cbehtkh: человек несколько раз подряд жмёт
