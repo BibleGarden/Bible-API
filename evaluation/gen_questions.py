@@ -587,11 +587,13 @@ def chat_completion(
     prompt, which is the whole point of measuring it: the 872 prompt tokens of
     a series step are paid once instead of twice.
 
-    `sampling` is the fourth lever of ClickUp 86cbehyf8 and is empty in every
-    other run: production sends temperature and max_tokens and nothing else, so
-    the server's own defaults for `top_p`/`top_k` are part of what is being
-    measured. When `--top-p`/`--top-k` are given they are added here and named
-    in the sidecar, so an artifact can never be mistaken for a wording result.
+    `sampling` is the fourth lever of ClickUp 86cbehyf8, widened by 86cbejvra,
+    and is empty in every other run: production sends temperature and
+    max_tokens and nothing else, so the server's own defaults for `top_p`,
+    `top_k`, `min_p` and `presence_penalty` are part of what is being measured.
+    When a sampling flag is given its key is added here — `temperature` last,
+    so it overrides the constant above — and named in the sidecar, so an
+    artifact can never be mistaken for a wording result.
 
     The returned `usage` is the server's own — `completion_tokens` is the SUM
     over the choices, `prompt_tokens` is counted once — and is `{}` when the
@@ -691,13 +693,38 @@ def call_gemini(
 
 
 def sampling(args: argparse.Namespace) -> dict:
-    """The optional sampling overrides, empty unless a flag named one."""
+    """The optional sampling overrides, empty unless a flag named one.
+
+    Every key here is added to the payload **only when its flag was given**, so
+    a run without any of them sends exactly the production request and stays
+    comparable with every artifact produced before these flags existed. That is
+    why `--temperature` is `None` by default rather than `TEMPERATURE`: an
+    explicit flag overrides the constant (the payload builder spreads this dict
+    last), and no flag leaves the constant alone.
+
+    `presence_penalty` and `min_p` are the diversity levers of ClickUp
+    86cbejvra, measured on Qwen3-30B; `top_p`/`top_k` are 86cbehyf8's. All of
+    them are qwen-only — the Gemini path sends `generationConfig` and is
+    refused in `main` when any of these is set.
+    """
     extra: dict = {}
+    if getattr(args, "temperature", None) is not None:
+        extra["temperature"] = args.temperature
     if getattr(args, "top_p", None) is not None:
         extra["top_p"] = args.top_p
     if getattr(args, "top_k", None) is not None:
         extra["top_k"] = args.top_k
+    if getattr(args, "presence_penalty", None) is not None:
+        extra["presence_penalty"] = args.presence_penalty
+    if getattr(args, "min_p", None) is not None:
+        extra["min_p"] = args.min_p
     return extra
+
+
+def effective_temperature(args: argparse.Namespace) -> float:
+    """The temperature this run actually sends — the constant, or the flag."""
+    override = getattr(args, "temperature", None)
+    return TEMPERATURE if override is None else override
 
 
 # ---------------------------------------------------------------------------
@@ -1181,10 +1208,15 @@ def build_meta(
             if entry.get("is_series")
         },
         "sampling": {
-            "temperature": TEMPERATURE,
+            # The temperature actually sent: `TEMPERATURE` unless
+            # `--temperature` named another one (ClickUp 86cbejvra).
+            "temperature": effective_temperature(args),
             "max_output_tokens": MAX_OUTPUT_TOKENS,
-            # Empty = production: the server's own top_p/top_k. Non-empty is
-            # the separate sampling lever of 86cbehyf8 and never a wording run.
+            # Empty = production: temperature 0.7 and the server's own
+            # top_p/top_k/min_p/presence_penalty. Non-empty is the separate
+            # sampling lever (86cbehyf8, 86cbejvra) and never a wording run.
+            # Everything listed here was in the payload verbatim, so the run is
+            # reproducible from the sidecar alone.
             "overrides": sampling(args),
             "samples_per_input": args.samples,
             "timeout_seconds": args.timeout,
@@ -1388,6 +1420,27 @@ def main(argv: list[str] | None = None) -> int:
         help="qwen only: same as --top-p (the model card asks for 20).",
     )
     parser.add_argument(
+        "--temperature", type=float, default=None,
+        help="qwen only (ClickUp 86cbejvra): send this temperature instead of "
+             f"the production {TEMPERATURE}. Unset — the default — leaves the "
+             "constant alone, so a run without this flag is byte for byte the "
+             "production call. The value used is recorded in the sidecar.",
+    )
+    parser.add_argument(
+        "--presence-penalty", type=float, default=None,
+        help="qwen only (ClickUp 86cbejvra): OpenAI-compatible "
+             "`presence_penalty`, the second diversity lever after "
+             "temperature. Omitted from the payload entirely when unset.",
+    )
+    parser.add_argument(
+        "--min-p", type=float, default=None,
+        help="qwen only (ClickUp 86cbejvra): vLLM's `min_p` — cut the tail "
+             "relative to the top token, which is what makes a high "
+             "temperature usable. Omitted from the payload when unset; a "
+             "server that does not know the field answers 400 and the run "
+             "stops rather than silently measuring the default.",
+    )
+    parser.add_argument(
         "--only", default="",
         help="comma-separated input ids — a probe run over a subset",
     )
@@ -1404,6 +1457,16 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--samples must be >= 1")
     if args.candidates < 1:
         parser.error("--candidates must be >= 1")
+    # Ranges of the OpenAI-compatible API. A value outside them is a typo the
+    # server would answer with a 400 after the first call of a long run, so it
+    # is refused here instead — and never clamped, which would measure a
+    # configuration nobody asked for.
+    if args.temperature is not None and not 0.0 <= args.temperature <= 2.0:
+        parser.error("--temperature must be between 0 and 2")
+    if args.presence_penalty is not None and not -2.0 <= args.presence_penalty <= 2.0:
+        parser.error("--presence-penalty must be between -2 and 2")
+    if args.min_p is not None and not 0.0 <= args.min_p <= 1.0:
+        parser.error("--min-p must be between 0 and 1")
     if args.candidates > 1 and args.provider == "gemini":
         parser.error(
             "--candidates is a qwen option: Gemini's analogue is "
@@ -1429,8 +1492,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.provider == "gemini":
         if sampling(args):
             parser.error(
-                "--top-p/--top-k are qwen options: the gemini run must send "
-                "the production generationConfig or it measures something else"
+                "--temperature/--top-p/--top-k/--presence-penalty/--min-p are "
+                "qwen options: the gemini run must send the production "
+                "generationConfig or it measures something else"
             )
         if args.endpoint or args.model or args.api_key:
             parser.error(

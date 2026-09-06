@@ -65,3 +65,13 @@ evaluation/bench_data/*
 !evaluation/bench_data/question_comparison_prompt_v5_ablation/**/*.jsonl
 !evaluation/bench_data/question_comparison_prompt_v5_ablation/**/*.html
 !evaluation/bench_data/question_comparison_prompt_v5_ablation/**/*.md
+# Sampling configurations of the leading question (86cbejvra): four runs of
+# Qwen3-30B on prompt v5, one directory each plus the report over them. Same
+# reason as every artifact above — the answers come from the company server at
+# a given temperature on a given day and cannot be reproduced identically.
+!evaluation/bench_data/question_v6a_sampling/
+!evaluation/bench_data/question_v6a_sampling/*.md
+!evaluation/bench_data/question_v6a_sampling/**/
+!evaluation/bench_data/question_v6a_sampling/**/*.json
+!evaluation/bench_data/question_v6a_sampling/**/*.jsonl
+!evaluation/bench_data/question_v6a_sampling/**/*.md

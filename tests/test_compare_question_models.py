@@ -180,3 +180,64 @@ def test_before_after_checks_inputs_and_keeps_all_variants(tmp_path, monkeypatch
         comparison.write_json(meta_path, meta)
     with pytest.raises(ValueError, match='identical inputs'):
         prompt_comparison.build(directories, tmp_path / 'bad')
+
+
+def test_sampling_overrides_are_recorded_and_force_a_new_directory(tmp_path, monkeypatch):
+    """ClickUp 86cbejvra: what was sent must be readable from the artifacts.
+
+    Three things at once, because they are one guarantee: the flags reach the
+    namespace `gen_questions` builds its payload from, they land in
+    `protocol.json` and in every model's `meta.json`, and a run that changes
+    them cannot be mixed into a directory measured without them.
+    """
+    seen = []
+
+    def generate(*a, **kw):
+        seen.append(a[1])  # the call namespace
+        return fake_generation(*a, **kw)
+
+    monkeypatch.setattr(comparison.gen, 'generate_one', generate)
+    args = setup_run(tmp_path, monkeypatch)
+    args.models = ['a']
+    args.temperature, args.presence_penalty, args.min_p = 1.0, .8, .05
+    assert comparison.run(args) == 0
+
+    assert seen and all(
+        (call.temperature, call.presence_penalty, call.min_p) == (1.0, .8, .05)
+        for call in seen
+    )
+    spec = comparison.read_json(args.out / 'protocol.json')
+    assert spec['temperature'] == 1.0
+    assert spec['sampling_overrides'] == {
+        'temperature': 1.0, 'presence_penalty': .8, 'min_p': .05}
+    meta = comparison.read_json(args.out / 'a.meta.json')
+    assert meta['sampling_overrides'] == spec['sampling_overrides']
+    assert meta['temperature'] == 1.0
+    # The same directory with different sampling is a different comparison.
+    args.min_p = None
+    with pytest.raises(ValueError, match='Protocol changed'):
+        comparison.run(args)
+
+
+def test_a_default_run_hashes_exactly_as_before_the_flags_existed(tmp_path):
+    """No flag = no key in the protocol, so an old directory still accepts a model."""
+    path = inputs(tmp_path)
+    _, plain = comparison.protocol(path, 1)
+    _, also_plain = comparison.protocol(path, 1, overrides={})
+    _, hot = comparison.protocol(path, 1, overrides={'temperature': 1.0})
+    assert 'sampling_overrides' not in plain and plain['temperature'] == comparison.gen.TEMPERATURE
+    assert comparison.digest(plain) == comparison.digest(also_plain)
+    assert comparison.digest(plain) != comparison.digest(hot)
+
+
+def test_sampling_overrides_are_refused_for_gemini_and_out_of_range(tmp_path, monkeypatch):
+    args = setup_run(tmp_path, monkeypatch)
+    monkeypatch.setattr(comparison.gen, 'generate_one',
+                        lambda *a, **k: pytest.fail('Network call'))
+    args.temperature = 1.0
+    # 'b' is the gemini model: its transport ignores this dict entirely.
+    with pytest.raises(ValueError, match='openai_compat-only'):
+        comparison.run(args)
+    args.models, args.temperature, args.min_p = ['a'], None, 5.
+    with pytest.raises(ValueError, match='min_p must be between'):
+        comparison.run(args)

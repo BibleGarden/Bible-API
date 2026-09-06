@@ -64,9 +64,29 @@ def load_models(path):
     return models
 
 
-def protocol(inputs_path, samples, timeout=30, variant="production"):
+def sampling_args(args):
+    """The sampling flags of this run as the namespace `gen.sampling` reads.
+
+    One place builds them, so the payload, `protocol.json` and every model's
+    `meta.json` cannot disagree about what was sent (ClickUp 86cbejvra).
+    """
+    values = argparse.Namespace(
+        temperature=getattr(args, 'temperature', None),
+        top_p=getattr(args, 'top_p', None), top_k=getattr(args, 'top_k', None),
+        presence_penalty=getattr(args, 'presence_penalty', None),
+        min_p=getattr(args, 'min_p', None))
+    for field, low, high in (('temperature', 0., 2.), ('presence_penalty', -2., 2.),
+                             ('min_p', 0., 1.), ('top_p', 0., 1.)):
+        value = getattr(values, field)
+        if value is not None and not low <= value <= high:
+            raise ValueError(f'{field} must be between {low} and {high}')
+    return values
+
+
+def protocol(inputs_path, samples, timeout=30, variant="production", overrides=None):
     if samples < 1 or timeout <= 0:
         raise ValueError("samples and timeout must be positive")
+    overrides = dict(overrides or {})
     entries = gen.load_series(inputs_path)
     if not entries or len({e['id'] for e in entries}) != len(entries):
         raise ValueError("Input ids must be nonempty and unique")
@@ -79,9 +99,17 @@ def protocol(inputs_path, samples, timeout=30, variant="production"):
     builders = {e['id']: [gen.user_message(e, variant=variant), gen.user_message(e, ['EXAMPLE_SKIPPED_QUESTION'], variant)] for e in entries}
     spec = {'version': 1, 'inputs': read_json(inputs_path), 'samples': samples,
             'system_prompts': prompts, 'user_prompts': builders,
-            'temperature': gen.TEMPERATURE, 'max_output_tokens': gen.MAX_OUTPUT_TOKENS,
+            'temperature': overrides.get('temperature', gen.TEMPERATURE),
+            'max_output_tokens': gen.MAX_OUTPUT_TOKENS,
             'mode': 'raw generation, accumulated skips, no novelty retry or safety replacement',
             'transport_attempts': 1, 'timeout_seconds': timeout, 'prompt_variant': variant}
+    # Only a run that overrides sampling carries the key, so a default run
+    # hashes exactly as it did before 86cbejvra and a model can still be added
+    # to a directory measured earlier. A run WITH overrides hashes differently
+    # and is therefore pushed into its own directory by the protocol guard —
+    # which is the point: two sampling configurations are two comparisons.
+    if overrides:
+        spec['sampling_overrides'] = overrides
     return entries, spec
 
 
@@ -101,7 +129,13 @@ def _run(args):
     if len(args.models) != len(set(args.models)):
         raise ValueError('Model aliases must not be repeated')
     variant = getattr(args, 'prompt_variant', 'production')
-    entries, spec = protocol(args.inputs, args.samples, args.timeout, variant)
+    call_defaults = sampling_args(args)
+    overrides = gen.sampling(call_defaults)
+    if overrides and any(models[name]['provider'] == 'gemini' for name in args.models):
+        # `gen.call_gemini` sends the production generationConfig and ignores
+        # this dict, so a mixed run would report an override it never applied.
+        raise ValueError('Sampling overrides are openai_compat-only: run gemini separately')
+    entries, spec = protocol(args.inputs, args.samples, args.timeout, variant, overrides)
     identity = digest(spec)
     expected = sum(e['steps'] for e in entries) * args.samples
     if args.dry_run:
@@ -131,10 +165,15 @@ def _run(args):
             raise ValueError(f"{name}: run already exists; preserve it and use a new directory")
         meta = {'alias': name, 'model_config': model, 'protocol_hash': identity,
                 'started_at': datetime.now(timezone.utc).isoformat(), 'expected': expected,
+                # What was actually in the payload beside the production pair —
+                # empty for every run before 86cbejvra and for every default one.
+                'sampling_overrides': overrides,
+                'temperature': spec['temperature'],
                 'written': 0, 'failed': 0, 'complete': False}
         write_json(meta_path, meta)
         call_args = argparse.Namespace(provider='gemini' if model['provider']=='gemini' else 'qwen',
-            prompt_variant=variant, candidates=1, retry_on_repeat=False, top_p=None, top_k=None)
+            prompt_variant=variant, candidates=1, retry_on_repeat=False,
+            **vars(call_defaults))
         url = (gen.GEMINI_URL_TEMPLATE.format(model=model['model']) if model['provider']=='gemini'
                else model['endpoint'].rstrip('/') + '/chat/completions')
         key = os.environ[model['api_key_env']]
@@ -244,8 +283,11 @@ def report(args):
     prompt_json = json.dumps(prompt_data, ensure_ascii=False).replace('<', '\\u003c')
     (args.out / 'prompts.html').write_text(
         prompt_template.replace('__PROMPT_DATA__', prompt_json), encoding='utf-8')
+    sampling_note = (f" Sampling: temperature {spec['temperature']}"
+                     + (f", overrides {json.dumps(spec['sampling_overrides'], ensure_ascii=False)}."
+                        if spec.get('sampling_overrides') else ' (production payload).'))
     lines = ['# Question model comparison', '', 'Raw generation; exact prompts are in protocol.json. No selection of best samples. '
-             'Formal checks are heuristics, not a judgment of depth or usefulness.', '',
+             'Formal checks are heuristics, not a judgment of depth or usefulness.' + sampling_note, '',
              '| Model | Answers | Median / p90 ms | Answers with heuristic flags | Exact / near repeats against shown |', '|---|---:|---:|---:|---:|']
     for alias, (meta, rows) in runs.items():
         latencies = sorted(r['latency_ms'] for r in rows)
@@ -272,6 +314,15 @@ def main(argv=None):
     parser.add_argument('--samples', type=int, default=3)
     parser.add_argument('--prompt-variant', default='production',
                         choices=('production', *gen.question_prompts.VARIANTS))
+    # Sampling levers (ClickUp 86cbejvra). Unset = the production payload, so
+    # an omitted flag changes neither the request nor the protocol hash.
+    parser.add_argument('--temperature', type=float, default=None,
+                        help=f'override the production temperature ({gen.TEMPERATURE}); '
+                             'openai_compat models only')
+    parser.add_argument('--presence-penalty', type=float, default=None,
+                        help='OpenAI-compatible presence_penalty; openai_compat models only')
+    parser.add_argument('--min-p', type=float, default=None,
+                        help="vLLM's min_p; openai_compat models only")
     parser.add_argument('--timeout', type=float, default=30)
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--seed', type=int, default=86)

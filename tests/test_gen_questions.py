@@ -761,3 +761,85 @@ def test_the_two_mechanisms_are_measured_one_per_run(capsys):
     ):
         with pytest.raises(SystemExit):
             tool.main([*argv, "--out", "x.jsonl"])
+
+
+# --- the sampling flags of ClickUp 86cbejvra --------------------------------
+
+
+def test_sampling_flags_reach_the_payload_and_the_sidecar(monkeypatch, tmp_path):
+    """`--temperature/--presence-penalty/--min-p` are sent and recorded.
+
+    Both halves matter: a payload that carries the value makes the run real,
+    and a sidecar that carries it makes the run reproducible. A flag that is
+    not given must not appear in either — production sends temperature and
+    max_tokens and nothing else.
+    """
+    seen: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(json.loads(request.content))
+        return httpx.Response(200, json=completion_body("Вопрос?"))
+
+    # The whole run over a mock transport: the payload asserted below is the
+    # one the tool would have put on the wire, not one a stub reconstructed.
+    # `tool.httpx` IS the module this test imported, so the real class is
+    # captured before the name is replaced.
+    real_client = httpx.Client
+    monkeypatch.setattr(
+        tool.httpx, "Client",
+        lambda *a, **kw: real_client(transport=httpx.MockTransport(handler)),
+    )
+    out = tmp_path / "run.jsonl"
+    assert tool.main(series_only(
+        "--only", "series-gratitude-ru", "--samples", "1",
+        "--provider", "qwen", "--endpoint", "https://example.invalid/v1",
+        "--model", "test-model", "--temperature", "1.0",
+        "--presence-penalty", "0.8", "--min-p", "0.05", "--out", str(out),
+    )) == 0
+
+    assert seen and all(
+        payload["temperature"] == 1.0
+        and payload["presence_penalty"] == 0.8
+        and payload["min_p"] == 0.05
+        and "top_p" not in payload and "top_k" not in payload
+        for payload in seen
+    )
+    meta = json.loads(
+        (tmp_path / "run.jsonl.meta.json").read_text(encoding="utf-8")
+    )
+    assert meta["sampling"]["temperature"] == 1.0
+    assert meta["sampling"]["overrides"] == {
+        "temperature": 1.0, "presence_penalty": 0.8, "min_p": 0.05
+    }
+
+
+def test_without_the_flags_nothing_is_added_and_the_constant_stands():
+    empty = tool.argparse.Namespace(
+        temperature=None, top_p=None, top_k=None, presence_penalty=None,
+        min_p=None,
+    )
+    assert tool.sampling(empty) == {}
+    assert tool.effective_temperature(empty) == tool.TEMPERATURE
+    named = tool.argparse.Namespace(
+        temperature=0.0, top_p=None, top_k=None, presence_penalty=None,
+        min_p=None,
+    )
+    # 0.0 is a value, not "unset": a greedy run must be possible.
+    assert tool.sampling(named) == {"temperature": 0.0}
+    assert tool.effective_temperature(named) == 0.0
+
+
+def test_the_gemini_run_refuses_every_sampling_flag_and_bad_values():
+    for argv in (
+        ["--provider", "gemini", "--temperature", "1.0"],
+        ["--provider", "gemini", "--presence-penalty", "0.8"],
+        ["--provider", "gemini", "--min-p", "0.05"],
+        ["--provider", "qwen", "--endpoint", "https://example.invalid/v1",
+         "--model", "m", "--temperature", "3.0"],
+        ["--provider", "qwen", "--endpoint", "https://example.invalid/v1",
+         "--model", "m", "--presence-penalty", "9"],
+        ["--provider", "qwen", "--endpoint", "https://example.invalid/v1",
+         "--model", "m", "--min-p", "1.5"],
+    ):
+        with pytest.raises(SystemExit):
+            tool.main([*argv, "--out", "x.jsonl"])

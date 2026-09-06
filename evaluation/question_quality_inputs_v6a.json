@@ -1,0 +1,159 @@
+{
+  "version": 1,
+  "ticket": "86cbejvra",
+  "note": "Subset of question_quality_inputs.json (86cbejhh9), unchanged byte for byte: the four replacement series plus the four single scenarios where the manual assessment found gender errors and menus. Used to measure sampling configurations of Qwen3-30B on prompt v5; no input is edited here, so a v6-A run stays comparable with question_comparison_prompt_v5_final.",
+  "inputs": [
+    {
+      "id": "series-scale-ru",
+      "kind": "series",
+      "language": "ru",
+      "category": "series",
+      "stage": "next",
+      "replacements": 6,
+      "expect_question": true,
+      "topic": "Понять масштаб целей на завтра",
+      "messages": [
+        {
+          "role": "assistant",
+          "text": "Что сейчас внутри тебя, когда ты только начинаешь молитву?"
+        },
+        {
+          "role": "user",
+          "text": "Я рада тому, что сегодня немало сделано. Вчера казалось, что дел еще на неделю, а сейчас выглядит, что уже можно переходить к публикации. Наверное можно было бы собрать сборку для работы на проде и выложить в testflight. Кстати, надо версию апи в приложении выводить, а то путаница."
+        },
+        {
+          "role": "assistant",
+          "text": "А что, если завтра окажется, что всё, что ты сегодня считал готовым, всё ещё не совсем то, что нужно?"
+        },
+        {
+          "role": "user",
+          "text": "Ну буду доделывать. Я все делаю для Господа, стараюсь сделать очень качественно"
+        }
+      ],
+      "note": "The observed case, verbatim from Maria's prayer journal of 2026-09-05 (she gave permission to quote it in the public repository). After the second question she pressed «заменить вопрос» repeatedly and got variations of the SAME thought — «А если завтра окажется, что то, что ты считаешь готовым, на самом деле ещё не то, что нужно Господу?», sometimes near-verbatim, sometimes with a tail «— как ты будешь узнавать это?». Two defects sit in this one input: the loop, and the gender — she wrote «я рада» and the second question addresses her as «ты считал»."
+    },
+    {
+      "id": "series-gratitude-ru",
+      "kind": "series",
+      "language": "ru",
+      "category": "gratitude",
+      "stage": "next",
+      "replacements": 5,
+      "expect_question": true,
+      "topic": "Поблагодарить за сегодняшний день",
+      "messages": [
+        {
+          "role": "assistant",
+          "text": "Что сегодня было таким, за что хочется сказать спасибо?"
+        },
+        {
+          "role": "user",
+          "text": "Успела закончить отчёт, хотя не верила, что смогу. А вечером мы с мужем просто гуляли и ни о чём не говорили."
+        }
+      ],
+      "note": "The same body as gratitude-ru-next, pressed five times. Two things to watch: does the run circle one thought, and does it keep the feminine forms."
+    },
+    {
+      "id": "series-choice-en",
+      "kind": "series",
+      "language": "en",
+      "category": "choice",
+      "stage": "next",
+      "replacements": 5,
+      "expect_question": true,
+      "topic": "Choosing whether to move to another city for work",
+      "messages": [
+        {
+          "role": "assistant",
+          "text": "What weighs most on you in this choice?"
+        },
+        {
+          "role": "user",
+          "text": "The offer pays twice what I earn now, but my mother is here alone and she is seventy nine. I keep putting the answer off."
+        }
+      ],
+      "note": "The English series: the answers must stay English through all five replacements, and must not converge on «what does your mother need»."
+    },
+    {
+      "id": "series-exhaustion-uk",
+      "kind": "series",
+      "language": "uk",
+      "category": "exhaustion",
+      "stage": "next",
+      "replacements": 5,
+      "expect_question": true,
+      "topic": "Немає сил, прошу відпочинку",
+      "messages": [
+        {
+          "role": "assistant",
+          "text": "Що зараз забирає найбільше сил?"
+        },
+        {
+          "role": "user",
+          "text": "Третій місяць працюю без вихідних, бо колега звільнився. Учора заснула просто в одязі, навіть не вимкнула світло."
+        }
+      ],
+      "note": "The Ukrainian series: the language regression across five replacements, and the gender agreement in an inflected language other than Russian."
+    },
+    {
+      "id": "joy-ru",
+      "kind": "single",
+      "language": "ru",
+      "category": "quality",
+      "expect_question": true,
+      "topic": "Радость от встречи",
+      "stage": "next",
+      "messages": [
+        {
+          "role": "user",
+          "text": "Сегодня увиделась с подругой после долгого перерыва. Мы смеялись, я до сих пор улыбаюсь."
+        }
+      ]
+    },
+    {
+      "id": "waiting-ru",
+      "kind": "single",
+      "language": "ru",
+      "category": "quality",
+      "expect_question": true,
+      "topic": "Ожидание решения",
+      "stage": "next",
+      "messages": [
+        {
+          "role": "user",
+          "text": "Отправил заявку на работу и жду ответа. Постоянно проверяю почту вместо того, чтобы заниматься своими делами."
+        }
+      ]
+    },
+    {
+      "id": "conflict-ru",
+      "kind": "single",
+      "language": "ru",
+      "category": "quality",
+      "expect_question": true,
+      "topic": "Разговор с братом",
+      "stage": "next",
+      "messages": [
+        {
+          "role": "user",
+          "text": "Я резко ответила брату, когда он снова попросил помощи. Мне жаль своих слов, но я не хочу соглашаться на всё."
+        }
+      ]
+    },
+    {
+      "id": "choice-uk",
+      "kind": "single",
+      "language": "uk",
+      "category": "quality",
+      "expect_question": true,
+      "topic": "Вибір",
+      "stage": "next",
+      "messages": [
+        {
+          "role": "user",
+          "text": "Мені запропонували вести новий проєкт. Це цікаво, але тоді залишиться менше часу на сім’ю."
+        }
+      ]
+    }
+  ]
+}
