@@ -42,3 +42,9 @@ evaluation/bench_data/*
 # be retired, so neither run can be reproduced identically later.
 !evaluation/bench_data/questions_*.jsonl
 !evaluation/bench_data/questions_*.jsonl.meta.json
+# Semantic repeat detection (86cbehyg8): 176 scored pairs, ~50 kB. Tracked for
+# the same reason — the vectors come from the company server's bge-m3, so the
+# scores cannot be reproduced without it. The sidecar names the host and the
+# model and carries no key.
+!evaluation/bench_data/question_pairs_scored.jsonl
+!evaluation/bench_data/question_pairs_scored.jsonl.meta.json

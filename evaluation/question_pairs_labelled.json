@@ -1,0 +1,1736 @@
+[
+ {
+  "id": "v4b:series-choice-en:s1:1-2",
+  "language": "en",
+  "source": "artifact",
+  "series": "series-choice-en",
+  "artifact": "v4b",
+  "a": "What does staying here with your mother mean to you, beyond the fact that she’s alone?",
+  "b": "What does staying here with your mother mean to you, beyond the fact that she’s alone?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4b:series-choice-en:s2:2-3",
+  "language": "en",
+  "source": "artifact",
+  "series": "series-choice-en",
+  "artifact": "v4b",
+  "a": "What does staying here with your mother mean to you, beyond the fact that she’s alone?",
+  "b": "What does staying here with your mother mean to you, beyond the fact that she’s alone?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4b:series-choice-en:s5:1-5",
+  "language": "en",
+  "source": "artifact",
+  "series": "series-choice-en",
+  "artifact": "v4b",
+  "a": "What feels most real to you when you think about staying close to your mother right now?",
+  "b": "What feels most real to you when you think about staying close to your mom right now?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4b:series-choice-en:s3:2-4",
+  "language": "en",
+  "source": "artifact",
+  "series": "series-choice-en",
+  "artifact": "v4b",
+  "a": "What does staying here with your mother mean to you, beyond the practical choices?",
+  "b": "What does staying here with your mother mean to you, beyond the practical things?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4b:series-choice-en:s3:1-4",
+  "language": "en",
+  "source": "artifact",
+  "series": "series-choice-en",
+  "artifact": "v4b",
+  "a": "What does staying here with your mother mean to you, beyond the practical part of it?",
+  "b": "What does staying here with your mother mean to you, beyond the practical things?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4b:series-choice-en:s6:1-4",
+  "language": "en",
+  "source": "artifact",
+  "series": "series-choice-en",
+  "artifact": "v4b",
+  "a": "What lingers in your mind when you think about her being alone after you’re gone?",
+  "b": "What lingers in your mind when you think about how your mother might feel if you were to leave?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4bA:series-choice-en:s2:4-5",
+  "language": "en",
+  "source": "artifact",
+  "series": "series-choice-en",
+  "artifact": "v4bA",
+  "a": "What does it feel like to keep delaying the answer while knowing both the offer and your mother’s need are still waiting?",
+  "b": "What does it feel like to keep saying yes to the future while knowing she’s still here, waiting for you to say yes to her too?",
+  "label": "repeat",
+  "ambiguous": true
+ },
+ {
+  "id": "v4bA:series-choice-en:s1:2-5",
+  "language": "en",
+  "source": "artifact",
+  "series": "series-choice-en",
+  "artifact": "v4bA",
+  "a": "What does it feel like to hold both the weight of that offer and the image of your mother at the same time?",
+  "b": "What does it feel like to carry the image of your mother’s quiet days at home while knowing the offer is still waiting?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4b:series-choice-en:s1:3-4",
+  "language": "en",
+  "source": "artifact",
+  "series": "series-choice-en",
+  "artifact": "v4b",
+  "a": "What feels hardest about staying when you know your mother is alone and you're torn by the offer?",
+  "b": "What feels most real to you when you think about staying close to your mother right now?",
+  "label": "different"
+ },
+ {
+  "id": "v4bA:series-choice-en:s1:3-5",
+  "language": "en",
+  "source": "artifact",
+  "series": "series-choice-en",
+  "artifact": "v4bA",
+  "a": "What does it feel like to keep saying \"just a little longer\" to yourself while the offer still waits?",
+  "b": "What does it feel like to carry the image of your mother’s quiet days at home while knowing the offer is still waiting?",
+  "label": "different",
+  "ambiguous": true
+ },
+ {
+  "id": "v4bA2:series-choice-en:s1:2-3",
+  "language": "en",
+  "source": "artifact",
+  "series": "series-choice-en",
+  "artifact": "v4bA2",
+  "a": "What does staying here with your mother feel like, day by day, in the quiet moments?",
+  "b": "What does the quiet of your mother’s home feel like when you’re thinking about leaving?",
+  "label": "repeat",
+  "ambiguous": true
+ },
+ {
+  "id": "v4b:series-choice-en:s5:1-3",
+  "language": "en",
+  "source": "artifact",
+  "series": "series-choice-en",
+  "artifact": "v4b",
+  "a": "What feels most real to you when you think about staying close to your mother right now?",
+  "b": "What feels hardest about being torn between this new opportunity and staying close to your mother?",
+  "label": "different"
+ },
+ {
+  "id": "v4b:series-choice-en:s6:2-3",
+  "language": "en",
+  "source": "artifact",
+  "series": "series-choice-en",
+  "artifact": "v4b",
+  "a": "What feels hardest about being the one who has to decide when your mother is counting on you to stay?",
+  "b": "What feels most real to you when you think about staying close to your mother right now?",
+  "label": "different"
+ },
+ {
+  "id": "v4b:series-choice-en:s5:3-5",
+  "language": "en",
+  "source": "artifact",
+  "series": "series-choice-en",
+  "artifact": "v4b",
+  "a": "What feels hardest about being torn between this new opportunity and staying close to your mother?",
+  "b": "What feels most real to you when you think about staying close to your mom right now?",
+  "label": "different"
+ },
+ {
+  "id": "v4bA2:series-choice-en:s1:3-4",
+  "language": "en",
+  "source": "artifact",
+  "series": "series-choice-en",
+  "artifact": "v4bA2",
+  "a": "What does the quiet of your mother’s home feel like when you’re thinking about leaving?",
+  "b": "What does the quiet of knowing you could leave — and still choose to stay — feel like in your chest?",
+  "label": "different"
+ },
+ {
+  "id": "v4b:series-choice-en:s6:2-5",
+  "language": "en",
+  "source": "artifact",
+  "series": "series-choice-en",
+  "artifact": "v4b",
+  "a": "What feels hardest about being the one who has to decide when your mother is counting on you to stay?",
+  "b": "What feels hardest about putting off the answer when you know how much this move could change things for you and your mom?",
+  "label": "different"
+ },
+ {
+  "id": "v4bA:series-choice-en:s5:4-5",
+  "language": "en",
+  "source": "artifact",
+  "series": "series-choice-en",
+  "artifact": "v4bA",
+  "a": "What does it feel like to carry the cost of your own future while knowing she’s counting on you to stay?",
+  "b": "What does it feel like to hold the exact amount of the new salary in your mind, knowing it’s not just money but a life you could step into?",
+  "label": "different"
+ },
+ {
+  "id": "v4bA2:series-choice-en:s1:2-4",
+  "language": "en",
+  "source": "artifact",
+  "series": "series-choice-en",
+  "artifact": "v4bA2",
+  "a": "What does staying here with your mother feel like, day by day, in the quiet moments?",
+  "b": "What does the quiet of knowing you could leave — and still choose to stay — feel like in your chest?",
+  "label": "different"
+ },
+ {
+  "id": "v4bA:series-choice-en:s6:2-4",
+  "language": "en",
+  "source": "artifact",
+  "series": "series-choice-en",
+  "artifact": "v4bA",
+  "a": "What does it feel like to keep delaying the answer, knowing both choices carry weight?",
+  "b": "What does it feel like to hold both the weight of the offer and the quiet worry for her, right here in your chest?",
+  "label": "different",
+  "ambiguous": true
+ },
+ {
+  "id": "v4b:series-choice-en:s6:1-3",
+  "language": "en",
+  "source": "artifact",
+  "series": "series-choice-en",
+  "artifact": "v4b",
+  "a": "What lingers in your mind when you think about her being alone after you’re gone?",
+  "b": "What feels most real to you when you think about staying close to your mother right now?",
+  "label": "different"
+ },
+ {
+  "id": "v4bA:series-choice-en:s4:1-2",
+  "language": "en",
+  "source": "artifact",
+  "series": "series-choice-en",
+  "artifact": "v4bA",
+  "a": "What does staying here with your mother mean to you, beyond the practical part of it?",
+  "b": "What kind of quiet moment with your mother stays with you when you think about staying?",
+  "label": "different"
+ },
+ {
+  "id": "v4b:series-choice-en:s1:1-4",
+  "language": "en",
+  "source": "artifact",
+  "series": "series-choice-en",
+  "artifact": "v4b",
+  "a": "What does staying here with your mother mean to you, beyond the fact that she’s alone?",
+  "b": "What feels most real to you when you think about staying close to your mother right now?",
+  "label": "different"
+ },
+ {
+  "id": "v4bA2:series-choice-en:s6:2-5",
+  "language": "en",
+  "source": "artifact",
+  "series": "series-choice-en",
+  "artifact": "v4bA2",
+  "a": "What does staying here mean to you, not just for your mother, but for the life you’re already building?",
+  "b": "What does it feel like to keep saying \"not yet\" when you know the offer won’t wait forever?",
+  "label": "different"
+ },
+ {
+  "id": "v4bA2:series-choice-en:s5:2-3",
+  "language": "en",
+  "source": "artifact",
+  "series": "series-choice-en",
+  "artifact": "v4bA2",
+  "a": "What does it feel like to keep putting off the decision, knowing both choices carry something you care about?",
+  "b": "What does it feel like to hold both the weight of her loneliness and the promise of a new life in your hands?",
+  "label": "different",
+  "ambiguous": true
+ },
+ {
+  "id": "v4b:series-choice-en:s5:2-5",
+  "language": "en",
+  "source": "artifact",
+  "series": "series-choice-en",
+  "artifact": "v4b",
+  "a": "What feels hardest about delaying the decision, knowing how much the offer means and how alone your mother is?",
+  "b": "What feels most real to you when you think about staying close to your mom right now?",
+  "label": "different"
+ },
+ {
+  "id": "v4b:series-choice-en:s5:2-4",
+  "language": "en",
+  "source": "artifact",
+  "series": "series-choice-en",
+  "artifact": "v4b",
+  "a": "What feels hardest about delaying the decision, knowing how much the offer means and how alone your mother is?",
+  "b": "What does staying here with your mother mean to you, beyond the practical choices?",
+  "label": "different"
+ },
+ {
+  "id": "v4bA:series-choice-en:s5:1-5",
+  "language": "en",
+  "source": "artifact",
+  "series": "series-choice-en",
+  "artifact": "v4bA",
+  "a": "What does staying here with your mother mean to you, beyond the practical choices?",
+  "b": "What does it feel like to hold the exact amount of the new salary in your mind, knowing it’s not just money but a life you could step into?",
+  "label": "different"
+ },
+ {
+  "id": "v4bA2:series-scale-ru:s1:4-6",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v4bA2",
+  "a": "А когда ты говоришь, что всё делаешь для Господа, что в этом самом движении руки — в том, как ты сейчас вводишь строку кода или проверяешь сборку — ощущается, что это не просто работа, а что-то, что ты передаёшь?",
+  "b": "А когда ты говоришь, что всё делаешь для Господа, что в этом самом движении руки — в том, как ты сейчас вводишь строку кода или проверяешь сборку — ощущается, что это не просто работа, а что-то, что ты передаёшь?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4bA:series-gratitude-ru:s1:4-5",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-gratitude-ru",
+  "artifact": "v4bA",
+  "a": "А когда ты шла рядом с мужем и молчала, что именно в этом шаге — не в словах, а в том, как ты чувствовала его рядом — стало самым лёгким?",
+  "b": "А когда ты шла рядом с мужем и молчала, что именно в этом шаге — не в словах, а в том, как ты чувствовала его рядом — стало самым лёгким?",
+  "label": "repeat"
+ },
+ {
+  "id": "v3:series-scale-ru:s4:1-6",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v3",
+  "a": "А если завтра окажется, что то, что ты считаешь готовым, на самом деле ещё не то, что нужно Господу?",
+  "b": "А если завтра окажется, что то, что ты считаешь готовым, на самом деле ещё не то, что нужно Господу?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4bA:series-scale-ru:s3:5-6",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v4bA",
+  "a": "А когда ты говоришь, что всё делаешь для Господа, что именно в этом — самое тихое, самое незаметное, но важное, что ты чувствуешь, когда работа почти готова?",
+  "b": "А когда ты говоришь, что всё делаешь для Господа, что в этом — самое тихое, самое незаметное, но важное, что ты чувствуешь, когда работа почти готова?",
+  "label": "repeat"
+ },
+ {
+  "id": "v3:series-scale-ru:s3:1-5",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v3",
+  "a": "А если завтра окажется, что то, что ты сейчас считаешь готовым, на самом деле ещё не то, что нужно Господу?",
+  "b": "А если завтра окажется, что то, что ты считаешь готовым, на самом деле ещё не то, что нужно Господу?",
+  "label": "repeat"
+ },
+ {
+  "id": "v3:series-scale-ru:s2:1-4",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v3",
+  "a": "А если завтра окажется, что то, что ты считаешь готовым, на самом деле ещё не то, что нужно Господу — как ты будешь узнавать это?",
+  "b": "А если завтра окажется, что то, что ты считаешь готовым, на самом деле ещё не то, что нужно Господу — как ты будешь узнавать разницу?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4bA2:series-scale-ru:s2:2-3",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v4bA2",
+  "a": "А что, если сделать всё для Господа — это не только качество, но и то, как ты оставляешь место в этом деле для Его воли?",
+  "b": "А что, если «сделать всё для Господа» означает не только качество, но и то, как ты оставляешь место в этом деле для Его воли?",
+  "label": "repeat"
+ },
+ {
+  "id": "v3:series-scale-ru:s1:2-3",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v3",
+  "a": "А если завтра окажется, что то, что ты считаешь готовым, на самом деле ещё не то, что нужно — как ты будешь узнавать, что именно нужно?",
+  "b": "А если завтра окажется, что то, что ты считаешь готовым, на самом деле ещё не то, что нужно Господу — как ты будешь узнавать это?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4b:series-scale-ru:s4:5-6",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v4b",
+  "a": "А что значит для тебя «делать всё для Господа» в этом конкретном деле, которое сейчас перед тобой?",
+  "b": "А что значит для тебя «делать всё для Господа» в этом конкретном деле, которое сейчас на столе?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4bA2:series-gratitude-ru:s6:3-5",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-gratitude-ru",
+  "artifact": "v4bA2",
+  "a": "А когда вы шли рядом с мужем и молчали, что вдруг стало ближе, чем слова?",
+  "b": "А когда вы шли рядом с мужем и молчали, что вдруг стало важнее, чем любые слова?",
+  "label": "repeat"
+ },
+ {
+  "id": "v3:series-scale-ru:s1:1-3",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v3",
+  "a": "А если завтра окажется, что всё, что ты сегодня считаешь готовым, на самом деле ещё не то, что нужно — как ты будешь узнавать, что именно нужно?",
+  "b": "А если завтра окажется, что то, что ты считаешь готовым, на самом деле ещё не то, что нужно Господу — как ты будешь узнавать это?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4bA:series-scale-ru:s6:2-3",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v4bA",
+  "a": "А что, если именно в этом — в том, что ты делаешь всё для Господа, — чувствуешь, как будто ты не просто работаешь, а что-то ещё?",
+  "b": "А что, если именно в том, что ты делаешь всё для Господа, — чувствуешь, как будто это не просто работа, а что-то, что живёт внутри тебя?",
+  "label": "repeat"
+ },
+ {
+  "id": "v3:series-scale-ru:s3:2-6",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v3",
+  "a": "А если завтра окажется, что то, что ты сейчас считаешь готовым, на самом деле ещё не то, что нужно Господу — как ты будешь узнавать это?",
+  "b": "А если завтра окажется, что то, что ты считаешь готовым, на самом деле ещё не то, что нужно Господу?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4b:series-gratitude-ru:s4:2-4",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-gratitude-ru",
+  "artifact": "v4b",
+  "a": "А что было в том молчании, когда вы просто гуляли?",
+  "b": "А когда вы просто гуляли и молчали, что было в этом молчании?",
+  "label": "repeat"
+ },
+ {
+  "id": "v3:series-scale-ru:s1:3-4",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v3",
+  "a": "А если завтра окажется, что то, что ты считаешь готовым, на самом деле ещё не то, что нужно Господу — как ты будешь узнавать это?",
+  "b": "А если завтра окажется, что то, что ты считаешь готовым, на самом деле ещё не то, что нужно Господу — как ты тогда поймёшь, что именно Он хочет?",
+  "label": "repeat"
+ },
+ {
+  "id": "v3A:series-scale-ru:s3:2-3",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v3A",
+  "a": "А если завтра окажется, что то, что ты считаешь готовым для Господа, — это всё ещё не то, что Он хочет, — как ты узнаешь, что именно Он ждёт от тебя в этот момент?",
+  "b": "А если завтра окажется, что то, что ты считаешь готовым для Господа, — это всё ещё не то, что Он ждёт от тебя именно сейчас, как ты сможешь услышать Его голос в этом моменте?",
+  "label": "repeat"
+ },
+ {
+  "id": "v3:series-scale-ru:s6:3-6",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v3",
+  "a": "А если завтра окажется, что то, что ты считаешь готовым, на самом деле ещё не то, что нужно — как ты будешь узнавать, что именно нужно?",
+  "b": "А если завтра окажется, что то, что ты считаешь готовым, на самом деле ещё не то, что нужно — как это будет звучать в твоём сердце?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4bA:series-scale-ru:s1:3-4",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v4bA",
+  "a": "А когда ты говоришь, что всё делаешь для Господа, что в этом «всё» — в конкретных шагах, в том, как ты сейчас смотришь на задачу — становится для тебя не просто обязанностью, а чем-то, что ты чувствуешь как близкое?",
+  "b": "А когда ты говоришь, что всё делаешь для Господа, что в этом «всё» — в том, как ты сейчас смотришь на задачу, — что именно в этом взгляде делает её для тебя не просто делом, а чем-то, что ты чувствуешь как близкое?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4b:series-scale-ru:s6:4-5",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v4b",
+  "a": "А когда ты говоришь, что всё делаешь для Господа, что именно в этом делании ощущается ближе всего к Нему?",
+  "b": "А когда ты говоришь, что всё делаешь для Господа, что именно в этом делании чувствуешь, как близость к Нему?",
+  "label": "repeat"
+ },
+ {
+  "id": "v3:series-scale-ru:s4:1-2",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v3",
+  "a": "А если завтра окажется, что то, что ты считаешь готовым, на самом деле ещё не то, что нужно Господу?",
+  "b": "А если завтра окажется, что то, что ты считаешь готовым, на самом деле ещё не то, что нужно Господу — как это изменит твоё понимание того, что значит «сделать хорошо»?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4bA:series-scale-ru:s5:2-3",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v4bA",
+  "a": "А что, если сделать всё для Господа — это не только качество, но и то, как ты себя позволяешь остановиться, когда уже всё, что можно, сделано?",
+  "b": "А что, если делать всё для Господа — это ещё и то, как ты позволяешь себе дышать, когда уже всё, что можно, сделано?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4bA:series-scale-ru:s3:1-3",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v4bA",
+  "a": "А когда ты говоришь, что всё делаешь для Господа, что именно в этом — самое живое для тебя сейчас?",
+  "b": "А когда ты говоришь, что всё делаешь для Господа, что в этом — самое тёплое, самое близкое, что ты чувствуешь сейчас?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4bA2:series-gratitude-ru:s3:3-4",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-gratitude-ru",
+  "artifact": "v4bA2",
+  "a": "А когда вы шли с мужем и молчали, что именно в этом молчании было особенно тихим?",
+  "b": "А когда вы шли с мужем и молчали, что в этом молчании было таким, что не нужно было говорить?",
+  "label": "repeat",
+  "ambiguous": true
+ },
+ {
+  "id": "v4bA:series-scale-ru:s2:2-3",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v4bA",
+  "a": "А что именно в этом деле, которое ты делаешь для Господа, чувствуешь, что особенно важно сделать как можно лучше?",
+  "b": "А что именно в этом деле, которое ты делаешь для Господа, кажется тебе самым важным, чтобы оно было сделано как можно лучше?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4bA:series-scale-ru:s5:4-5",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v4bA",
+  "a": "А что, если делать всё для Господа — это ещё и то, как ты позволяешь себе остановиться, когда уже всё, что можно, сделано?",
+  "b": "А что, если делать всё для Господа — это ещё и то, как ты позволяешь себе почувствовать, что достаточно?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4bA2:series-scale-ru:s4:4-5",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v4bA2",
+  "a": "А когда ты доделываешь последний шаг, чувствуешь ли ты, что именно в этом действии — в том, как ты его делаешь — что-то из того, что ты называешь «для Господа», уже живёт в тебе?",
+  "b": "А когда ты говоришь, что делаешь всё для Господа, что именно в этом «доделывании» — в том, как ты его делаешь — чувствуешь, будто живёт в тебе?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4bA:series-scale-ru:s3:3-6",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v4bA",
+  "a": "А когда ты говоришь, что всё делаешь для Господа, что в этом — самое тёплое, самое близкое, что ты чувствуешь сейчас?",
+  "b": "А когда ты говоришь, что всё делаешь для Господа, что в этом — самое тихое, самое незаметное, но важное, что ты чувствуешь, когда работа почти готова?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4b:series-scale-ru:s2:2-6",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v4b",
+  "a": "А когда ты говоришь, что всё делаешь для Господа, что именно в этом делании ощущается, что это действительно для Него?",
+  "b": "А когда ты говоришь, что всё делаешь для Господа, что именно в этом делании чувствуешь как самое настоящее?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4bA:series-scale-ru:s5:5-6",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v4bA",
+  "a": "А что, если делать всё для Господа — это ещё и то, как ты позволяешь себе почувствовать, что достаточно?",
+  "b": "А что, если делать всё для Господа — это ещё и то, как ты позволяешь себе не торопиться, когда уже всё, что можно, сделано?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4b:series-gratitude-ru:s5:1-4",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-gratitude-ru",
+  "artifact": "v4b",
+  "a": "А что было в тишине, когда вы просто гуляли и ни о чём не говорили?",
+  "b": "А когда вы просто гуляли и ничего не говорили, что было внутри, когда вы шли рядом?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4bA:series-scale-ru:s3:3-5",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v4bA",
+  "a": "А когда ты говоришь, что всё делаешь для Господа, что в этом — самое тёплое, самое близкое, что ты чувствуешь сейчас?",
+  "b": "А когда ты говоришь, что всё делаешь для Господа, что именно в этом — самое тихое, самое незаметное, но важное, что ты чувствуешь, когда работа почти готова?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4b:series-scale-ru:s2:1-2",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v4b",
+  "a": "А когда ты говоришь, что всё делаешь для Господа, что именно в этом деле — в этом доделывании — чувствуешь, что особенно важно для тебя?",
+  "b": "А когда ты говоришь, что всё делаешь для Господа, что именно в этом делании ощущается, что это действительно для Него?",
+  "label": "different",
+  "ambiguous": true
+ },
+ {
+  "id": "v4b:series-gratitude-ru:s3:2-3",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-gratitude-ru",
+  "artifact": "v4b",
+  "a": "А как было внутри, когда вы гуляли и молчали?",
+  "b": "А как было внутри, когда вы шли и молчали — что-то осталось от этого молчания?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4b:series-gratitude-ru:s4:2-5",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-gratitude-ru",
+  "artifact": "v4b",
+  "a": "А что было в том молчании, когда вы просто гуляли?",
+  "b": "А когда вы просто гуляли, что было в тишине между вами?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4bA2:series-scale-ru:s6:3-6",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v4bA2",
+  "a": "А что, если делать всё для Господа — это ещё и то, как ты позволяешь себе остановиться, когда уже сделано достаточно?",
+  "b": "А что, если делать всё для Господа — это ещё и то, как ты чувствуешь себя, когда уже почти всё готово и можно отпустить?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4bA2:series-gratitude-ru:s6:4-5",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-gratitude-ru",
+  "artifact": "v4bA2",
+  "a": "А когда вы шли рядом с мужем и молчали, что вдруг стало тёплее внутри, хотя ничего не было сказано?",
+  "b": "А когда вы шли рядом с мужем и молчали, что вдруг стало важнее, чем любые слова?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4bA2:series-scale-ru:s3:2-3",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v4bA2",
+  "a": "А когда ты говоришь, что всё делаешь для Господа, что именно в этом деле — в тех деталях, что ты сейчас уточняешь — кажется, что это действительно служение?",
+  "b": "А когда ты говоришь, что всё делаешь для Господа, что в этом конкретном моменте — в том, как ты сейчас доделываешь — ощущается, что ты действительно рядом с Ним?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4bA:series-gratitude-ru:s3:3-4",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-gratitude-ru",
+  "artifact": "v4bA",
+  "a": "А что было в тебе, когда ты поняла, что отчёт закончен, и больше не нужно ничего доказывать?",
+  "b": "А что было в тебе, когда ты почувствовала, что больше не нужно ничего доказывать — и просто могла идти рядом с мужем, молча?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4b:series-scale-ru:s6:1-2",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v4b",
+  "a": "А что значит для тебя «делать всё для Господа» в том, как ты сейчас работаешь над приложением?",
+  "b": "А что значит для тебя «делать всё для Господа» в этом конкретном деле, которое сейчас на виду?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4bA:series-gratitude-ru:s4:4-5",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-gratitude-ru",
+  "artifact": "v4bA",
+  "a": "А когда вы шли рядом с мужем и молчали, что именно в этом шаге рядом с ним стало для вас тихим убежищем?",
+  "b": "А когда вы шли рядом с мужем и молчали, что в этом шаге, который вы сделали вместе, осталось внутри вас?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4b:series-scale-ru:s4:2-3",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v4b",
+  "a": "А что значит для тебя «делать всё для Господа» в этом конкретном деле, которое сейчас в руках?",
+  "b": "А что значит для тебя «делать всё для Господа» в том, как ты сейчас работаешь над приложением?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4b:series-scale-ru:s1:1-5",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v4b",
+  "a": "А что значит для тебя «делать всё для Господа» в том, как ты сейчас работаешь над приложением?",
+  "b": "А что значит для тебя «делать всё для Господа» в этом конкретном деле, которое сейчас в руках?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4b:series-scale-ru:s3:2-5",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v4b",
+  "a": "А что значит для тебя «делать всё для Господа» в том, как ты сейчас работаешь над этим приложением?",
+  "b": "А что значит для тебя «делать всё для Господа» в этом конкретном деле, которое сейчас на повестке?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4bA2:series-scale-ru:s3:2-6",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v4bA2",
+  "a": "А когда ты говоришь, что всё делаешь для Господа, что именно в этом деле — в тех деталях, что ты сейчас уточняешь — кажется, что это действительно служение?",
+  "b": "А когда ты говоришь, что делаешь всё для Господа, что именно в этом сейчас — в том, как ты перепроверяешь, как включаешь, как доделываешь — кажется, что это не просто работа, а что-то, что ты делаешь именно сейчас, здесь, для Него?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4bA2:series-scale-ru:s2:2-6",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v4bA2",
+  "a": "А что, если сделать всё для Господа — это не только качество, но и то, как ты оставляешь место в этом деле для Его воли?",
+  "b": "А что, если даже в том, как ты оставляешь место для тишины, уже есть твой ответ на вопрос «делать всё для Господа»?",
+  "label": "repeat",
+  "ambiguous": true
+ },
+ {
+  "id": "v4bA2:series-gratitude-ru:s4:1-2",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-gratitude-ru",
+  "artifact": "v4bA2",
+  "a": "А когда вы просто гуляли и молчали, что было в этом молчании?",
+  "b": "А когда вы шли рядом и молчали, что именно в этом молчании было для вас важнее всего?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4bA2:series-scale-ru:s6:2-3",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v4bA2",
+  "a": "А что, если сделать всё для Господа — это не только качество, но и то, как ты оставляешь это дело, когда отдаёшь его дальше?",
+  "b": "А что, если делать всё для Господа — это ещё и то, как ты позволяешь себе остановиться, когда уже сделано достаточно?",
+  "label": "different"
+ },
+ {
+  "id": "v4bA:series-scale-ru:s6:1-2",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v4bA",
+  "a": "А когда ты говоришь, что всё делаешь для Господа, что именно в этом — самое живое, что чувствуешь?",
+  "b": "А что, если именно в этом — в том, что ты делаешь всё для Господа, — чувствуешь, как будто ты не просто работаешь, а что-то ещё?",
+  "label": "repeat",
+  "ambiguous": true
+ },
+ {
+  "id": "v4bA2:series-gratitude-ru:s3:2-4",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-gratitude-ru",
+  "artifact": "v4bA2",
+  "a": "А когда вы шли с мужем и молчали, что было между вами в той тишине?",
+  "b": "А когда вы шли с мужем и молчали, что в этом молчании было таким, что не нужно было говорить?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4b:series-scale-ru:s2:2-5",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v4b",
+  "a": "А когда ты говоришь, что всё делаешь для Господа, что именно в этом делании ощущается, что это действительно для Него?",
+  "b": "А когда ты говоришь, что всё делаешь для Господа, что именно в этом деле — в деталях, в рутине, в настройке версии API — становится для тебя моментом, когда ты чувствуешь, что служишь?",
+  "label": "repeat",
+  "ambiguous": true
+ },
+ {
+  "id": "v4bA:series-scale-ru:s4:3-4",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v4bA",
+  "a": "А что, если сегодняшнее качество, которое ты стараешься вложить, — это не просто работа, а какая-то часть того, как ты сейчас живёшь рядом с Ним?",
+  "b": "А что, если качество, которое ты вкладываешь в работу, — это не просто способ сделать лучше, а как-то связано с тем, как ты сейчас чувствуешь себя рядом с Ним?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4b:series-gratitude-ru:s4:1-3",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-gratitude-ru",
+  "artifact": "v4b",
+  "a": "А как было, когда вы просто шли рядом, и ни о чём не говорили?",
+  "b": "А как было внутри, когда вы шли рядом и молчали?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4bA2:series-gratitude-ru:s3:2-5",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-gratitude-ru",
+  "artifact": "v4bA2",
+  "a": "А когда вы шли с мужем и молчали, что было между вами в той тишине?",
+  "b": "А когда вы шли с мужем и молчали, что именно в этом молчании было таким, что вы почувствовали себя дома?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4b:series-gratitude-ru:s5:2-5",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-gratitude-ru",
+  "artifact": "v4b",
+  "a": "А как было внутри, когда вы просто гуляли и молчали?",
+  "b": "А когда вы просто гуляли и ни о чём не говорили, что именно в этом молчании осталось внутри?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4bA:series-scale-ru:s6:3-5",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v4bA",
+  "a": "А что, если именно в том, что ты делаешь всё для Господа, — чувствуешь, как будто это не просто работа, а что-то, что живёт внутри тебя?",
+  "b": "А когда ты говоришь, что всё делаешь для Господа, что именно в этом — ощущается как живое движение, а не просто обязанность?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4bA2:series-scale-ru:s5:2-4",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v4bA2",
+  "a": "А что именно в этом «стараться сделать очень качественно» чувствуешь как самое важное сейчас, когда уже почти готово к публикации?",
+  "b": "А что, если в этом «делать всё для Господа» именно сейчас, когда почти готово, чувствуешь, что самое настоящее — это не результат, а то, как ты вхожишь в каждый шаг?",
+  "label": "different",
+  "ambiguous": true
+ },
+ {
+  "id": "v4bA:series-scale-ru:s1:1-6",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v4bA",
+  "a": "А когда ты говоришь, что всё делаешь для Господа, что именно в этом деле — в его качестве, в его деталях — становится для тебя самым настоящим актом служения?",
+  "b": "А когда ты говоришь, что делаешь всё для Господа, что именно в этом «всем» — в том, как ты сейчас смотришь на задачу, — что именно в этом взгляде делает её для тебя не просто делом, а чем-то, что ты чувствуешь как близкое?",
+  "label": "repeat",
+  "ambiguous": true
+ },
+ {
+  "id": "v4b:series-scale-ru:s1:1-3",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v4b",
+  "a": "А что значит для тебя «делать всё для Господа» в том, как ты сейчас работаешь над приложением?",
+  "b": "А когда ты говоришь, что всё делаешь для Господа, что именно в этом — самое живое для тебя сейчас?",
+  "label": "different",
+  "ambiguous": true
+ },
+ {
+  "id": "v4bA:series-gratitude-ru:s5:1-2",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-gratitude-ru",
+  "artifact": "v4bA",
+  "a": "А когда вы просто гуляли и ни о чём не говорили, что именно в этом молчании осталось внутри?",
+  "b": "А когда вы шли рядом с мужем и молчали, что именно в этом молчании было похоже на покой?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4bA2:series-scale-ru:s4:2-4",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v4bA2",
+  "a": "А что, если в этом стремлении сделать всё для Господа именно сейчас, в этом последнем действии, и живёт то, что ты ещё не до конца понял?",
+  "b": "А когда ты доделываешь последний шаг, чувствуешь ли ты, что именно в этом действии — в том, как ты его делаешь — что-то из того, что ты называешь «для Господа», уже живёт в тебе?",
+  "label": "repeat",
+  "ambiguous": true
+ },
+ {
+  "id": "v4b:series-gratitude-ru:s3:3-5",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-gratitude-ru",
+  "artifact": "v4b",
+  "a": "А как было внутри, когда вы шли и молчали — что-то осталось от этого молчания?",
+  "b": "А когда вы просто гуляли, что было особенно тихим и лёгким в этом молчании?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4bA:series-scale-ru:s5:1-2",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v4bA",
+  "a": "А что значит для тебя «делать всё для Господа» в том, как ты сейчас подходишь к этим последним шагам?",
+  "b": "А что, если сделать всё для Господа — это не только качество, но и то, как ты себя позволяешь остановиться, когда уже всё, что можно, сделано?",
+  "label": "different"
+ },
+ {
+  "id": "v4bA:series-gratitude-ru:s3:2-5",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-gratitude-ru",
+  "artifact": "v4bA",
+  "a": "А что было в тишине, когда вы просто шли и не говорили ни о чём?",
+  "b": "А что было в тебе, когда ты почувствовала, что можешь просто быть рядом с мужем, не объясняя ничего?",
+  "label": "different",
+  "ambiguous": true
+ },
+ {
+  "id": "v4b:series-scale-ru:s6:3-4",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v4b",
+  "a": "А что значит для тебя «делать всё для Господа» в этом конкретном деле, которое сейчас в руках?",
+  "b": "А когда ты говоришь, что всё делаешь для Господа, что именно в этом делании ощущается ближе всего к Нему?",
+  "label": "different"
+ },
+ {
+  "id": "v4b:series-scale-ru:s6:2-4",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v4b",
+  "a": "А что значит для тебя «делать всё для Господа» в этом конкретном деле, которое сейчас на виду?",
+  "b": "А когда ты говоришь, что всё делаешь для Господа, что именно в этом делании ощущается ближе всего к Нему?",
+  "label": "different"
+ },
+ {
+  "id": "v4b:series-scale-ru:s2:2-4",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v4b",
+  "a": "А когда ты говоришь, что всё делаешь для Господа, что именно в этом делании ощущается, что это действительно для Него?",
+  "b": "А что значит для тебя «делать всё для Господа» в этом конкретном деле, которое сейчас на руках?",
+  "label": "different"
+ },
+ {
+  "id": "v4b:series-scale-ru:s6:4-6",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-scale-ru",
+  "artifact": "v4b",
+  "a": "А когда ты говоришь, что всё делаешь для Господа, что именно в этом делании ощущается ближе всего к Нему?",
+  "b": "А что значит для тебя «делать всё для Господа» в том, как ты сейчас работаешь над приложением?",
+  "label": "different"
+ },
+ {
+  "id": "v4bA2:series-gratitude-ru:s2:2-5",
+  "language": "ru",
+  "source": "artifact",
+  "series": "series-gratitude-ru",
+  "artifact": "v4bA2",
+  "a": "А какое чувство осталось после того, как вы молча шли рядом и не говорили ни о чём?",
+  "b": "А что было в том, как ты шла рядом с мужем, будто внутри всё стало тише, но не пустым?",
+  "label": "repeat",
+  "ambiguous": true
+ },
+ {
+  "id": "v4bA:series-exhaustion-uk:s6:2-3",
+  "language": "uk",
+  "source": "artifact",
+  "series": "series-exhaustion-uk",
+  "artifact": "v4bA",
+  "a": "Що відчуваєш, коли відчуваєш, що вже не можеш більше?",
+  "b": "Що відчуваєш, коли відчуваєш, що вже не можеш більше?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4b:series-exhaustion-uk:s3:2-4",
+  "language": "uk",
+  "source": "artifact",
+  "series": "series-exhaustion-uk",
+  "artifact": "v4b",
+  "a": "Що відчуваєш, коли думаєш про те, як заснула в одязі, не вимкнувши світла?",
+  "b": "Що відчуваєш, коли думаєш про те, як заснула в одязі, не вимкнувши світла?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4b:series-exhaustion-uk:s4:4-5",
+  "language": "uk",
+  "source": "artifact",
+  "series": "series-exhaustion-uk",
+  "artifact": "v4b",
+  "a": "Що сталося в тобі, коли ти заснула в одязі, навіть не вимкнувши світло?",
+  "b": "Що сталося з тобою вчора, коли ти заснула в одязі, навіть не вимкнувши світло?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4bA2:series-exhaustion-uk:s4:3-5",
+  "language": "uk",
+  "source": "artifact",
+  "series": "series-exhaustion-uk",
+  "artifact": "v4bA2",
+  "a": "Що відчуваєш, коли думаєш, що це вже третій місяць, і ти не можеш зупинитися?",
+  "b": "Що відчуваєш, коли думаєш, що це вже третій місяць, і ти не можеш зупинитися, бо відчуваєш, що ніхто інший не зможе це зробити?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4b:series-exhaustion-uk:s1:1-5",
+  "language": "uk",
+  "source": "artifact",
+  "series": "series-exhaustion-uk",
+  "artifact": "v4b",
+  "a": "Що сталося з тобою вчора, коли ти заснула в одязі, навіть не вимкнувши світло?",
+  "b": "Що сталося з тобою, коли ти нарешті заснула в одязі, не вимкнувши світла?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4b:series-exhaustion-uk:s4:2-5",
+  "language": "uk",
+  "source": "artifact",
+  "series": "series-exhaustion-uk",
+  "artifact": "v4b",
+  "a": "Що сталося з тобою в той момент, коли ти заснула в одязі, не вимкнувши світла?",
+  "b": "Що сталося з тобою вчора, коли ти заснула в одязі, навіть не вимкнувши світло?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4b:series-exhaustion-uk:s3:1-5",
+  "language": "uk",
+  "source": "artifact",
+  "series": "series-exhaustion-uk",
+  "artifact": "v4b",
+  "a": "Що сталося в тобі, коли ти заснула в одязі, навіть не вимкнувши світло?",
+  "b": "Що було в тобі, коли ти врешті заснула в одязі, не вимкнувши світла?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4b:series-exhaustion-uk:s5:1-5",
+  "language": "uk",
+  "source": "artifact",
+  "series": "series-exhaustion-uk",
+  "artifact": "v4b",
+  "a": "Що сталося в твоїй кімнаті, коли ти заснула, не вимкнувши світла?",
+  "b": "Що сталося в тобі, коли ти врешті заснула в одязі, не вимкнувши світла?",
+  "label": "repeat",
+  "ambiguous": true
+ },
+ {
+  "id": "v4bA2:series-exhaustion-uk:s1:2-4",
+  "language": "uk",
+  "source": "artifact",
+  "series": "series-exhaustion-uk",
+  "artifact": "v4bA2",
+  "a": "Що відчула, коли заснула, не вимкнувши світла, але вже не могла більше?",
+  "b": "Що сталося з тобою в той момент, коли заснула, не вимкнувши світла, але вже не могла більше триматися?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4bA:series-exhaustion-uk:s4:1-2",
+  "language": "uk",
+  "source": "artifact",
+  "series": "series-exhaustion-uk",
+  "artifact": "v4bA",
+  "a": "Що відчуваєш, коли думаєш, що заснула в одязі, навіть не вимкнувши світла?",
+  "b": "Що сталося в тобі, коли вчора заснула в одязі, навіть не вимкнувши світла?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4bA:series-exhaustion-uk:s4:1-5",
+  "language": "uk",
+  "source": "artifact",
+  "series": "series-exhaustion-uk",
+  "artifact": "v4bA",
+  "a": "Що відчуваєш, коли думаєш, що заснула в одязі, навіть не вимкнувши світла?",
+  "b": "Що сталося в тобі, коли вчора заснула в одязі, навіть не вимкнувши світла?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4bA:series-exhaustion-uk:s3:3-4",
+  "language": "uk",
+  "source": "artifact",
+  "series": "series-exhaustion-uk",
+  "artifact": "v4bA",
+  "a": "Що відчула, коли зрозуміла, що вже не можеш більше?",
+  "b": "Що сталося з тобою в ту мить, коли зрозуміла, що вже не можеш більше?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4b:series-exhaustion-uk:s6:1-4",
+  "language": "uk",
+  "source": "artifact",
+  "series": "series-exhaustion-uk",
+  "artifact": "v4b",
+  "a": "Що відчуваєш, коли думаєш про те, що заснула в одязі, навіть не вимкнувши світла?",
+  "b": "Що сталося в тобі, коли ти заснула в одязі, навіть не вимкнувши світло?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4b:series-exhaustion-uk:s1:2-4",
+  "language": "uk",
+  "source": "artifact",
+  "series": "series-exhaustion-uk",
+  "artifact": "v4b",
+  "a": "Що було в тобі, коли ти заснула в одязі, навіть не вимкнувши світло?",
+  "b": "Що сталося в твоїй кімнаті, коли ти врешті заснула в одязі, не вимкнувши світла?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4b:series-exhaustion-uk:s2:1-5",
+  "language": "uk",
+  "source": "artifact",
+  "series": "series-exhaustion-uk",
+  "artifact": "v4b",
+  "a": "Що було в тебе в той мить, коли ти просто впала в сон у одязі, не вимкнувши світла?",
+  "b": "Що було в тобі вчора, коли ти заснула в одязі, не вимкнувши світла?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4bA2:series-exhaustion-uk:s5:1-3",
+  "language": "uk",
+  "source": "artifact",
+  "series": "series-exhaustion-uk",
+  "artifact": "v4bA2",
+  "a": "Що сталося в твоєму тілі тієї ночі, коли ти заснула в одязі, навіть не вимкнувши світла?",
+  "b": "Що відчула, коли зрозуміла, що заснула в одязі, навіть не вимкнувши світла?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4b:series-exhaustion-uk:s3:3-4",
+  "language": "uk",
+  "source": "artifact",
+  "series": "series-exhaustion-uk",
+  "artifact": "v4b",
+  "a": "Що відчуваєш, коли думаєш, що заснула в одязі, а світло все ще горить?",
+  "b": "Що відчуваєш, коли думаєш про те, як заснула в одязі, не вимкнувши світла?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4b:series-exhaustion-uk:s3:2-5",
+  "language": "uk",
+  "source": "artifact",
+  "series": "series-exhaustion-uk",
+  "artifact": "v4b",
+  "a": "Що відчуваєш, коли думаєш про те, як заснула в одязі, не вимкнувши світла?",
+  "b": "Що було в тобі, коли ти врешті заснула в одязі, не вимкнувши світла?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4b:series-exhaustion-uk:s4:1-5",
+  "language": "uk",
+  "source": "artifact",
+  "series": "series-exhaustion-uk",
+  "artifact": "v4b",
+  "a": "Що відчуваєш, коли думаєш про те, що заснула в одязі, навіть не вимкнувши світла?",
+  "b": "Що сталося з тобою вчора, коли ти заснула в одязі, навіть не вимкнувши світло?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4b:series-exhaustion-uk:s4:3-4",
+  "language": "uk",
+  "source": "artifact",
+  "series": "series-exhaustion-uk",
+  "artifact": "v4b",
+  "a": "Що відчуваєш, коли думаєш про те, як заснула в одязі, не вимкнувши світла?",
+  "b": "Що сталося в тобі, коли ти заснула в одязі, навіть не вимкнувши світло?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4bA2:series-exhaustion-uk:s2:1-2",
+  "language": "uk",
+  "source": "artifact",
+  "series": "series-exhaustion-uk",
+  "artifact": "v4bA2",
+  "a": "Що було в тебе в той мить, коли ти просто впала в сон у одязі, не вимкнувши світла?",
+  "b": "Що ти відчула в той момент, коли заснула в одязі, навіть не вимкнувши світла?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4b:series-exhaustion-uk:s6:1-3",
+  "language": "uk",
+  "source": "artifact",
+  "series": "series-exhaustion-uk",
+  "artifact": "v4b",
+  "a": "Що відчуваєш, коли думаєш про те, що заснула в одязі, навіть не вимкнувши світла?",
+  "b": "Що сталося з тобою, коли ти врешті заснула в одязі, не вимкнувши світла?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4b:series-exhaustion-uk:s5:2-5",
+  "language": "uk",
+  "source": "artifact",
+  "series": "series-exhaustion-uk",
+  "artifact": "v4b",
+  "a": "Що відчуваєш, коли думаєш про те, що заснула в одязі, навіть не вимкнувши світло?",
+  "b": "Що сталося в тобі, коли ти врешті заснула в одязі, не вимкнувши світла?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4b:series-exhaustion-uk:s4:3-5",
+  "language": "uk",
+  "source": "artifact",
+  "series": "series-exhaustion-uk",
+  "artifact": "v4b",
+  "a": "Що відчуваєш, коли думаєш про те, як заснула в одязі, не вимкнувши світла?",
+  "b": "Що сталося з тобою вчора, коли ти заснула в одязі, навіть не вимкнувши світло?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4b:series-exhaustion-uk:s2:2-5",
+  "language": "uk",
+  "source": "artifact",
+  "series": "series-exhaustion-uk",
+  "artifact": "v4b",
+  "a": "Що сталося в тому моменті, коли ти просто впала в сон у одязі, не вимкнувши світла?",
+  "b": "Що було в тобі вчора, коли ти заснула в одязі, не вимкнувши світла?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4bA2:series-exhaustion-uk:s6:4-5",
+  "language": "uk",
+  "source": "artifact",
+  "series": "series-exhaustion-uk",
+  "artifact": "v4bA2",
+  "a": "Що сталося з тобою в той мить, коли зрозуміла, що вже не можеш нічого змінити?",
+  "b": "Що було в тебе в той мить, коли зрозуміла, що світло все ще горить, а ти вже не можеш піднятися?",
+  "label": "repeat",
+  "ambiguous": true
+ },
+ {
+  "id": "v4b:series-exhaustion-uk:s5:3-5",
+  "language": "uk",
+  "source": "artifact",
+  "series": "series-exhaustion-uk",
+  "artifact": "v4b",
+  "a": "Що сталося з тобою в той момент, коли ти вже не змогла вимкнути світло?",
+  "b": "Що сталося в тобі, коли ти врешті заснула в одязі, не вимкнувши світла?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4b:series-exhaustion-uk:s6:4-5",
+  "language": "uk",
+  "source": "artifact",
+  "series": "series-exhaustion-uk",
+  "artifact": "v4b",
+  "a": "Що сталося в тобі, коли ти заснула в одязі, навіть не вимкнувши світло?",
+  "b": "Що відчуваєш, коли засинаєш у тій самій одежі, навіть не вимкнувши світло?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4bA:series-exhaustion-uk:s6:3-5",
+  "language": "uk",
+  "source": "artifact",
+  "series": "series-exhaustion-uk",
+  "artifact": "v4bA",
+  "a": "Що відчуваєш, коли відчуваєш, що вже не можеш більше?",
+  "b": "Що відчуваєш, коли засинаєш, знаючи, що вже не встигаєш відпочити?",
+  "label": "different",
+  "ambiguous": true
+ },
+ {
+  "id": "v4b:series-exhaustion-uk:s5:1-3",
+  "language": "uk",
+  "source": "artifact",
+  "series": "series-exhaustion-uk",
+  "artifact": "v4b",
+  "a": "Що сталося в твоїй кімнаті, коли ти заснула, не вимкнувши світла?",
+  "b": "Що сталося з тобою в той момент, коли ти вже не змогла вимкнути світло?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4b:series-exhaustion-uk:s5:1-2",
+  "language": "uk",
+  "source": "artifact",
+  "series": "series-exhaustion-uk",
+  "artifact": "v4b",
+  "a": "Що сталося в твоїй кімнаті, коли ти заснула, не вимкнувши світла?",
+  "b": "Що відчуваєш, коли думаєш про те, що заснула в одязі, навіть не вимкнувши світло?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4bA:series-exhaustion-uk:s4:1-3",
+  "language": "uk",
+  "source": "artifact",
+  "series": "series-exhaustion-uk",
+  "artifact": "v4bA",
+  "a": "Що відчуваєш, коли думаєш, що заснула в одязі, навіть не вимкнувши світла?",
+  "b": "Що відчуваєш, коли думаєш, що ця втома — не просто від роботи, а від того, що ти вже не вмієш зупинитися?",
+  "label": "different"
+ },
+ {
+  "id": "v4bA:series-exhaustion-uk:s6:2-4",
+  "language": "uk",
+  "source": "artifact",
+  "series": "series-exhaustion-uk",
+  "artifact": "v4bA",
+  "a": "Що відчуваєш, коли відчуваєш, що вже не можеш більше?",
+  "b": "Що відчуваєш, коли засинаєш, знаючи, що завтра — той самий день, що й сьогодні?",
+  "label": "different"
+ },
+ {
+  "id": "v4bA2:series-exhaustion-uk:s3:2-4",
+  "language": "uk",
+  "source": "artifact",
+  "series": "series-exhaustion-uk",
+  "artifact": "v4bA2",
+  "a": "Що сталося в тобі в той момент, коли ти вже не могла більше триматися, але ще не відчула, що можеш відпустити?",
+  "b": "Що ти відчула, коли заснула, а світло все ще світило, наче чекаючи на тебе?",
+  "label": "different"
+ },
+ {
+  "id": "v4b:series-exhaustion-uk:s2:3-5",
+  "language": "uk",
+  "source": "artifact",
+  "series": "series-exhaustion-uk",
+  "artifact": "v4b",
+  "a": "Що сталося з тобою, коли ти нарешті впала в сон у вдягненому стані?",
+  "b": "Що було в тобі вчора, коли ти заснула в одязі, не вимкнувши світла?",
+  "label": "repeat"
+ },
+ {
+  "id": "v4bA2:series-exhaustion-uk:s6:1-2",
+  "language": "uk",
+  "source": "artifact",
+  "series": "series-exhaustion-uk",
+  "artifact": "v4bA2",
+  "a": "Що було в тобі, коли ти впала в сон у одязі, не вимкнувши світла?",
+  "b": "Що відчула, коли відчула, що вже не можеш більше?",
+  "label": "different"
+ },
+ {
+  "id": "hand-ru-01",
+  "language": "ru",
+  "source": "handwritten",
+  "kind": "reworded",
+  "a": "Что ты почувствовала, когда впервые взяла её на руки?",
+  "b": "Какое чувство поднялось внутри в тот самый первый миг, когда дочка оказалась у тебя в объятиях?",
+  "label": "repeat"
+ },
+ {
+  "id": "hand-ru-02",
+  "language": "ru",
+  "source": "handwritten",
+  "kind": "same-topic",
+  "a": "Что ты почувствовала, когда впервые взяла её на руки?",
+  "b": "О чём ты мечтаешь для неё, когда смотришь, как она спит?",
+  "label": "different"
+ },
+ {
+  "id": "hand-ru-03",
+  "language": "ru",
+  "source": "handwritten",
+  "kind": "shared-opener",
+  "a": "А что значит для тебя прощение в том, как ты сейчас говоришь с отцом?",
+  "b": "А что значит для тебя прощение в том, как ты вспоминаешь мать?",
+  "label": "different"
+ },
+ {
+  "id": "hand-ru-04",
+  "language": "ru",
+  "source": "handwritten",
+  "kind": "reworded",
+  "a": "Где в твоём теле живёт этот страх?",
+  "b": "В каком месте внутри ты ощущаешь эту тревогу физически?",
+  "label": "repeat"
+ },
+ {
+  "id": "hand-ru-05",
+  "language": "ru",
+  "source": "handwritten",
+  "kind": "same-topic",
+  "a": "Где в твоём теле живёт этот страх?",
+  "b": "Когда ты впервые заметила, что этот страх появился?",
+  "label": "different"
+ },
+ {
+  "id": "hand-ru-06",
+  "language": "ru",
+  "source": "handwritten",
+  "kind": "reworded",
+  "a": "Что тебе труднее всего отпустить в этой ситуации?",
+  "b": "От чего в этом тебе тяжелее всего отказаться?",
+  "label": "repeat"
+ },
+ {
+  "id": "hand-ru-07",
+  "language": "ru",
+  "source": "handwritten",
+  "kind": "same-topic",
+  "a": "Что тебе труднее всего отпустить в этой ситуации?",
+  "b": "Что тебе хотелось бы сохранить из этой ситуации?",
+  "label": "different"
+ },
+ {
+  "id": "hand-ru-08",
+  "language": "ru",
+  "source": "handwritten",
+  "kind": "shared-opener",
+  "a": "А когда ты молишься об этом, что поднимается внутри?",
+  "b": "А когда ты молишься об этом, какое чувство приходит первым?",
+  "label": "repeat"
+ },
+ {
+  "id": "hand-ru-09",
+  "language": "ru",
+  "source": "handwritten",
+  "kind": "shared-opener",
+  "a": "А когда ты молишься об этом, что поднимается внутри?",
+  "b": "А когда ты молишься об этом, о чём просишь Бога в первую очередь?",
+  "label": "different"
+ },
+ {
+  "id": "hand-ru-10",
+  "language": "ru",
+  "source": "handwritten",
+  "kind": "reworded",
+  "a": "Что для тебя значит быть услышанной?",
+  "b": "Каково это — чувствовать, что тебя действительно слышат?",
+  "label": "repeat"
+ },
+ {
+  "id": "hand-ru-11",
+  "language": "ru",
+  "source": "handwritten",
+  "kind": "same-topic",
+  "a": "Что для тебя значит быть услышанной?",
+  "b": "Кто в твоей жизни слышит тебя лучше всех?",
+  "label": "different"
+ },
+ {
+  "id": "hand-ru-12",
+  "language": "ru",
+  "source": "handwritten",
+  "kind": "reworded",
+  "a": "Что изменилось в тебе за этот год?",
+  "b": "Каким человеком ты стала за прошедшие двенадцать месяцев по сравнению с собой прежней?",
+  "label": "repeat"
+ },
+ {
+  "id": "hand-ru-13",
+  "language": "ru",
+  "source": "handwritten",
+  "kind": "same-topic",
+  "a": "А что в этом молчании было для тебя самым важным?",
+  "b": "А что ты сказала бы мужу, если бы молчание закончилось?",
+  "label": "different"
+ },
+ {
+  "id": "hand-ru-14",
+  "language": "ru",
+  "source": "handwritten",
+  "kind": "same-topic",
+  "a": "Что значит для тебя делать работу качественно?",
+  "b": "Что произойдёт, если завтра ты сделаешь её кое-как?",
+  "label": "different"
+ },
+ {
+  "id": "hand-ru-15",
+  "language": "ru",
+  "source": "handwritten",
+  "kind": "same-topic",
+  "a": "Где ты чувствуешь усталость сильнее всего?",
+  "b": "Что помогает тебе восстановиться, когда усталость накрывает?",
+  "label": "different"
+ },
+ {
+  "id": "hand-uk-01",
+  "language": "uk",
+  "source": "handwritten",
+  "kind": "reworded",
+  "a": "Що ти відчула, коли вперше взяла її на руки?",
+  "b": "Яке почуття піднялося всередині в ту мить, коли донька опинилася у твоїх обіймах?",
+  "label": "repeat"
+ },
+ {
+  "id": "hand-uk-02",
+  "language": "uk",
+  "source": "handwritten",
+  "kind": "same-topic",
+  "a": "Що ти відчула, коли вперше взяла її на руки?",
+  "b": "Про що ти мрієш для неї, коли дивишся, як вона спить?",
+  "label": "different"
+ },
+ {
+  "id": "hand-uk-03",
+  "language": "uk",
+  "source": "handwritten",
+  "kind": "shared-opener",
+  "a": "А що б ти зробив, якби міг відпочити хоч на годину?",
+  "b": "А що б ти зробив, якби міг не працювати ці вихідні?",
+  "label": "different"
+ },
+ {
+  "id": "hand-uk-04",
+  "language": "uk",
+  "source": "handwritten",
+  "kind": "shared-opener",
+  "a": "А що б ти зробив, якби міг відпочити хоч на годину?",
+  "b": "А що б ти зробив, якби мав вільну годину лише для себе?",
+  "label": "repeat"
+ },
+ {
+  "id": "hand-uk-05",
+  "language": "uk",
+  "source": "handwritten",
+  "kind": "reworded",
+  "a": "Де в тілі ти відчуваєш цю втому?",
+  "b": "У якому місці всередині ця знемога дається взнаки фізично?",
+  "label": "repeat"
+ },
+ {
+  "id": "hand-uk-06",
+  "language": "uk",
+  "source": "handwritten",
+  "kind": "same-topic",
+  "a": "Де в тілі ти відчуваєш цю втому?",
+  "b": "Коли ти востаннє відчувала себе відпочилою?",
+  "label": "different"
+ },
+ {
+  "id": "hand-uk-07",
+  "language": "uk",
+  "source": "handwritten",
+  "kind": "reworded",
+  "a": "Що тобі найважче відпустити зараз?",
+  "b": "Від чого в цьому тобі найтяжче відмовитися?",
+  "label": "repeat"
+ },
+ {
+  "id": "hand-uk-08",
+  "language": "uk",
+  "source": "handwritten",
+  "kind": "same-topic",
+  "a": "Що тобі найважче відпустити зараз?",
+  "b": "Що ти хотіла б зберегти з цього?",
+  "label": "different"
+ },
+ {
+  "id": "hand-uk-09",
+  "language": "uk",
+  "source": "handwritten",
+  "kind": "reworded",
+  "a": "Що для тебе означає бути почутою?",
+  "b": "Як це — відчувати, що тебе справді чують?",
+  "label": "repeat"
+ },
+ {
+  "id": "hand-uk-10",
+  "language": "uk",
+  "source": "handwritten",
+  "kind": "same-topic",
+  "a": "Що для тебе означає бути почутою?",
+  "b": "Хто в твоєму житті чує тебе найкраще?",
+  "label": "different"
+ },
+ {
+  "id": "hand-uk-11",
+  "language": "uk",
+  "source": "handwritten",
+  "kind": "reworded",
+  "a": "Що змінилося в тобі за цей рік?",
+  "b": "Якою людиною ти стала за останні дванадцять місяців порівняно з собою колишньою?",
+  "label": "repeat"
+ },
+ {
+  "id": "hand-uk-12",
+  "language": "uk",
+  "source": "handwritten",
+  "kind": "same-topic",
+  "a": "Що змінилося в тобі за цей рік?",
+  "b": "Чого ти чекаєш від наступного року?",
+  "label": "different"
+ },
+ {
+  "id": "hand-uk-13",
+  "language": "uk",
+  "source": "handwritten",
+  "kind": "same-topic",
+  "a": "Що в тій тиші було для тебе найважливішим?",
+  "b": "Що б ти сказала чоловікові, якби тиша скінчилася?",
+  "label": "different"
+ },
+ {
+  "id": "hand-uk-14",
+  "language": "uk",
+  "source": "handwritten",
+  "kind": "same-topic",
+  "a": "Що означає для тебе робити роботу якісно?",
+  "b": "Що станеться, якщо завтра ти зробиш її абияк?",
+  "label": "different"
+ },
+ {
+  "id": "hand-uk-15",
+  "language": "uk",
+  "source": "handwritten",
+  "kind": "same-topic",
+  "a": "Де ти відчуваєш утому найсильніше?",
+  "b": "Що допомагає тобі відновитися, коли втома накриває?",
+  "label": "different"
+ },
+ {
+  "id": "hand-en-01",
+  "language": "en",
+  "source": "handwritten",
+  "kind": "reworded",
+  "a": "What did you feel when you first held her?",
+  "b": "What rose up inside you in that first moment your daughter was in your arms?",
+  "label": "repeat"
+ },
+ {
+  "id": "hand-en-02",
+  "language": "en",
+  "source": "handwritten",
+  "kind": "same-topic",
+  "a": "What did you feel when you first held her?",
+  "b": "What do you hope for her when you watch her sleep?",
+  "label": "different"
+ },
+ {
+  "id": "hand-en-03",
+  "language": "en",
+  "source": "handwritten",
+  "kind": "shared-opener",
+  "a": "What would it feel like to say yes, knowing your mother would be alone?",
+  "b": "What would it feel like to say yes, knowing the money would change everything?",
+  "label": "different"
+ },
+ {
+  "id": "hand-en-04",
+  "language": "en",
+  "source": "handwritten",
+  "kind": "shared-opener",
+  "a": "What would it feel like to say yes, knowing your mother would be alone?",
+  "b": "What would it feel like to accept, knowing she would be left on her own?",
+  "label": "repeat"
+ },
+ {
+  "id": "hand-en-05",
+  "language": "en",
+  "source": "handwritten",
+  "kind": "reworded",
+  "a": "Where in your body do you feel this fear?",
+  "b": "Which part of you carries that dread physically?",
+  "label": "repeat"
+ },
+ {
+  "id": "hand-en-06",
+  "language": "en",
+  "source": "handwritten",
+  "kind": "same-topic",
+  "a": "Where in your body do you feel this fear?",
+  "b": "When did you first notice this fear appearing?",
+  "label": "different"
+ },
+ {
+  "id": "hand-en-07",
+  "language": "en",
+  "source": "handwritten",
+  "kind": "reworded",
+  "a": "What is hardest for you to let go of here?",
+  "b": "What are you finding most difficult to give up in this?",
+  "label": "repeat"
+ },
+ {
+  "id": "hand-en-08",
+  "language": "en",
+  "source": "handwritten",
+  "kind": "same-topic",
+  "a": "What is hardest for you to let go of here?",
+  "b": "What would you most want to keep from this?",
+  "label": "different"
+ },
+ {
+  "id": "hand-en-09",
+  "language": "en",
+  "source": "handwritten",
+  "kind": "reworded",
+  "a": "What does being heard mean to you?",
+  "b": "What is it like to feel that someone truly hears you?",
+  "label": "repeat"
+ },
+ {
+  "id": "hand-en-10",
+  "language": "en",
+  "source": "handwritten",
+  "kind": "same-topic",
+  "a": "What does being heard mean to you?",
+  "b": "Who in your life hears you best?",
+  "label": "different"
+ },
+ {
+  "id": "hand-en-11",
+  "language": "en",
+  "source": "handwritten",
+  "kind": "reworded",
+  "a": "What has changed in you this year?",
+  "b": "Who have you become over the last twelve months compared with who you were?",
+  "label": "repeat"
+ },
+ {
+  "id": "hand-en-12",
+  "language": "en",
+  "source": "handwritten",
+  "kind": "same-topic",
+  "a": "What has changed in you this year?",
+  "b": "What are you hoping for in the year ahead?",
+  "label": "different"
+ },
+ {
+  "id": "hand-en-13",
+  "language": "en",
+  "source": "handwritten",
+  "kind": "same-topic",
+  "a": "What mattered most to you in that silence?",
+  "b": "What would you say to him if the silence ended?",
+  "label": "different"
+ },
+ {
+  "id": "hand-en-14",
+  "language": "en",
+  "source": "handwritten",
+  "kind": "same-topic",
+  "a": "What does doing your work well mean to you?",
+  "b": "What would happen if tomorrow you did it carelessly?",
+  "label": "different"
+ },
+ {
+  "id": "hand-en-15",
+  "language": "en",
+  "source": "handwritten",
+  "kind": "same-topic",
+  "a": "Where do you feel the tiredness most?",
+  "b": "What helps you recover when the tiredness takes over?",
+  "label": "different"
+ }
+]

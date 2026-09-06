@@ -219,3 +219,79 @@ as a *reinforcement* of the retry (the second call asking for `n=2`), or once a
 semantic filter (ClickUp 86cbehyg8) gives the selection something real to
 choose on. The numbers and the transcripts are in `evaluation/README.md`,
 «Несколько кандидатов за вызов против повторной генерации».
+## Semantic check: measured, decision pending (ClickUp 86cbehyg8, 2026-09-06)
+
+The question this ADR left open has been measured and **not** implemented:
+nothing in `app/` changed, and `POST /api/ai/question` still answers exactly as
+it did. What exists is the evidence for a decision — the labelled set
+`evaluation/question_pairs_labelled.json` (176 pairs, ru 83 / uk 51 / en 42,
+116 `repeat` / 60 `different`), the tool `evaluation/question_semantic_bench.py`
+that scores each pair three ways, and the table in `evaluation/README.md`,
+«Семантическая проверка повторов через bge-m3».
+
+**bge-m3 cosine sees the thought where the trigram score sees the frame.** On
+the same pairs, the classes overlap by 0.525 on trigrams and by 0.179 on
+cosine (0.109 with the arguable pairs removed) — so neither signal separates
+them perfectly, but only one of them is usable. Against the 0.97 precision /
+0.30 recall of the filter as it stands, cosine ≥ 0.80 gives **0.96 / 0.83**,
+and its best F1 (0.92, at 0.76) is twice the filter's 0.46. The 52 repeats
+whose trigram score is below 0.45 — the band the filter never reads — include
+36 that cosine ≥ 0.80 catches.
+
+The one class it does not catch is a repeat rewritten with no shared words at
+all: on the artifact pairs 0.80 recalls 0.89, on the hand-written ones 0.50.
+That is the honest ceiling of the number, and it is the right way round — the
+repeats a model actually produces are the ones being filtered.
+
+**It would be a second signal, never a replacement.** The rule to implement,
+if it is implemented, is `is_repeat(candidate, shown) or cosine >= 0.80`. The
+OR adds one catch over cosine alone on this set, which is not why it is there:
+the lexical branch costs nothing, needs no network, and is the whole check
+when the embedding provider is down — and an `EmbeddingUnavailable` must
+degrade to today's behaviour, never to a `502` for someone waiting on a
+question. The threshold would be a code constant for the same reason 0.60 is
+(ADR 0008), and this table would have to be redone under another prompt
+version or another embedding model, exactly as the lexical one was.
+
+**The cost is latency, and it is the real argument against.** One batched
+call to `https://llm.ai2.ru/v1/embeddings` carrying the candidate plus the
+questions already shown is 549 ms median / 708 ms p90 for a batch of twelve,
+measured from this machine (904 / 1008 back to back), with no cold start — the
+API process holds no weights. Sequentially after the generation, the whole path
+measures 1002 ms median against 397 ms for the question alone: **the check
+roughly doubles a median answer**, while using 3–5% of the 20 s budget. The
+worst case, a repeat plus its one retry, is ~1.5 s.
+
+Twelve is the typical prayer and **not** the ceiling (review of this ticket):
+`shown` is the `assistant` turns of `messages` plus `skipped_questions`, and
+`MAX_MESSAGES` is 40 against `MAX_SKIPPED_QUESTIONS` 10 — a long prayer sends
+~30 texts, which at the measured 60–80 ms per text is 1.5–2.4 s, not 0.55.
+Whoever implements this should bound the list (the last N shown) rather than
+let the people who pray longest pay for it. Two further notes for that
+implementation: the numbers are measured from this machine, not from the
+production VM, so the ratio transfers and the absolute milliseconds do not;
+and `RemoteEmbeddingClient` is synchronous, so it has to be called through
+`run_in_threadpool` the way `scripture_select` calls it, or half a second
+parks the whole event loop rather than one request.
+
+**The review of this ticket argues for 0.78 rather than 0.80**, and the
+disagreement is about the cost model rather than the data. A false positive is
+invisible to the person — the handler generates a second question and shows
+that one, which is a legitimate new question — so it costs one generation plus
+one embedding, ~540 ms and no harm to meaning; a miss is the bug this ADR was
+opened on. F1 weighs the two equally and therefore over-values precision here.
+On the same rows, `is_repeat OR cosine`: 0.80 lets 19 of 116 repeats through
+at a 0.07 false-positive rate (+36 ms expected), 0.78 lets 12 through at 0.13
+(+72 ms), 0.76 lets 8 through at 0.20 (+108 ms). Halving the misses costs tens
+of milliseconds against a ~1 s answer. Against that: below ~0.78 the false
+positives start landing on pairs a reader would call plainly different, so
+which threshold is right is exactly the "same topic / same thought" judgement
+below.
+
+Open for Maria, and the reason this is "pending" rather than "accepted": 19 of
+the 176 labels are marked `ambiguous` (12 of them sit on the "same topic /
+same thought" line the threshold is drawn through), the labels are one
+reader's proposal, the 176 rows are not 176 independent judgements (the 45
+hand-written pairs are 15 items translated into three languages, and seven
+rows are byte-identical questions), and doubling the median latency of a
+companion's reply is a product decision rather than a technical one.
