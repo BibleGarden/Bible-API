@@ -428,3 +428,331 @@ def test_the_dry_run_says_which_bytes_a_replacement_repeats(capsys):
     assert "series of 6 replacements" in printed
     assert "every replacement sends exactly these bytes again" in printed
     assert "Уже прозвучали вопросы:" in printed
+
+
+# ---------------------------------------------------------------------------
+# Several candidates per call, or one more call (ClickUp 86cbehyg4)
+# ---------------------------------------------------------------------------
+# The pure halves of the experiment: how N answers are parsed out of one
+# response, and which of them is shown to the person. Nothing here contacts a
+# provider — the transport is `httpx.MockTransport` and the retry replay runs
+# against a stubbed `chat_completion`.
+
+import httpx  # noqa: E402
+
+# A weak despair signal (`app/safety.py` tier 2): a question-shaped answer to
+# it is replaced by the fixed reply, so a candidate carrying one is not an
+# answer this endpoint may show.
+WEAK_DESPAIR = "Я так устала жить"
+
+
+def mock_client(handler) -> httpx.Client:
+    return httpx.Client(transport=httpx.MockTransport(handler))
+
+
+def completion_body(*texts: str, usage: dict | None = None) -> dict:
+    return {
+        "choices": [
+            {"index": index, "message": {"role": "assistant", "content": text}}
+            for index, text in enumerate(texts)
+        ],
+        "usage": usage
+        or {"prompt_tokens": 872, "completion_tokens": 57, "total_tokens": 929},
+    }
+
+
+def test_one_candidate_sends_the_request_it_always_sent():
+    """`n` is omitted at 1, so an ordinary run is byte for byte the old one."""
+    seen: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(json.loads(request.content))
+        return httpx.Response(200, json=completion_body("Вопрос?"))
+
+    with mock_client(handler) as client:
+        texts, usage = tool.chat_completion(
+            client, "https://example.invalid/v1/chat/completions", "k", "m",
+            "user", "prompt",
+        )
+
+    assert texts == ["Вопрос?"]
+    assert usage == {
+        "prompt_tokens": 872, "completion_tokens": 57, "total_tokens": 929
+    }
+    assert "n" not in seen[0]
+    assert seen[0]["temperature"] == tool.TEMPERATURE
+    assert seen[0]["max_tokens"] == tool.MAX_OUTPUT_TOKENS
+    # And the historical single-answer entry point is the same call.
+    with mock_client(handler) as client:
+        assert tool.call_qwen(
+            client, "https://example.invalid/v1/chat/completions", "k", "m",
+            "user", "prompt",
+        ) == "Вопрос?"
+
+
+def test_n_candidates_are_asked_for_and_all_of_them_come_back():
+    seen: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(json.loads(request.content))
+        return httpx.Response(
+            200, json=completion_body("Первый?", "  ", "Третий?")
+        )
+
+    with mock_client(handler) as client:
+        texts, _usage = tool.chat_completion(
+            client, "https://example.invalid/v1/chat/completions", "", "m",
+            "user", "prompt", None, 3,
+        )
+
+    assert seen[0]["n"] == 3
+    # A blank choice is not an answer and never reaches the selection rule.
+    assert texts == ["Первый?", "Третий?"]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"choices": []},
+        {"object": "list"},
+        {"choices": [{"index": 0, "message": {"content": "   "}}]},
+    ],
+)
+def test_a_response_without_a_usable_answer_is_a_value_error(body):
+    """The transport ladder retries on `ValueError`, exactly as it always did."""
+    with mock_client(lambda request: httpx.Response(200, json=body)) as client:
+        with pytest.raises(ValueError):
+            tool.chat_completion(
+                client, "https://example.invalid/v1/chat/completions", "", "m",
+                "user", "prompt", None, 2,
+            )
+
+
+def test_shown_is_the_journal_plus_every_earlier_step():
+    entry = {"avoid_question": ["Что сейчас внутри тебя?"]}
+
+    assert tool.shown_questions(entry, ["Шаг один?", "  ", "Шаг два?"]) == [
+        "Что сейчас внутри тебя?", "Шаг один?", "Шаг два?",
+    ]
+    assert tool.shown_questions({}, []) == []
+
+
+def test_the_first_survivor_wins_and_the_disagreement_is_recorded():
+    """The rule, and the one number that says what it cost.
+
+    Candidate 0 repeats nothing and is taken. Candidate 2 is further from
+    everything shown — that is exactly the choice this rule declines to make,
+    so it is reported (`least_similar_index`, `disagreement`) instead.
+    """
+    shown = ["Что сейчас внутри тебя, когда ты начинаешь молитву?"]
+    choice = tool.choose_candidate(
+        [
+            "Что тебе сейчас хочется сказать про сегодняшний день?",
+            "Что сейчас внутри тебя, когда ты начинаешь молитву?",
+            "Where did the day feel lightest?",
+        ],
+        shown,
+        None,
+    )
+
+    assert choice["chosen_index"] == 0
+    assert choice["selection"] == "first_survivor"
+    assert choice["novel"] is True
+    assert choice["least_similar_index"] == 2
+    assert choice["disagreement"] is True
+    # Candidate 1 is the shown question verbatim, so the filter flagged it.
+    assert choice["candidate_kinds"][1] == "exact"
+    assert choice["candidate_scores"][1] == 1.0
+
+
+def test_when_every_candidate_repeats_the_least_similar_is_returned():
+    """Production never withholds an answer (ADR 0016), and neither does this."""
+    shown = ["А что значит для тебя «делать всё для Господа» в этой работе?"]
+    choice = tool.choose_candidate(
+        [
+            "А что значит для тебя «делать всё для Господа» в этой работе?",
+            "А что значит для тебя «делать всё для Господа» в этом деле?",
+        ],
+        shown,
+        None,
+    )
+
+    assert choice["selection"] == "least_similar"
+    assert choice["novel"] is False
+    assert choice["chosen_index"] == 1
+    assert choice["least_similar_index"] == 1
+    # "Disagreement" is only meaningful while something survives.
+    assert choice["disagreement"] is False
+
+
+def test_a_candidate_the_despair_rule_would_replace_is_dropped():
+    """Tier 2 runs on every answer, whichever mechanism produced it."""
+    assert tool.tier2_replaces(WEAK_DESPAIR, "Что ты чувствуешь сейчас?")
+    assert not tool.tier2_replaces(WEAK_DESPAIR, "Ты не одна в этом.")
+
+    choice = tool.choose_candidate(
+        ["Что ты чувствуешь сейчас?", "Ты не одна в этом."], [], WEAK_DESPAIR
+    )
+
+    assert choice["safety_dropped"] == [0]
+    assert choice["chosen_index"] == 1
+    assert choice["candidate_kinds"] == ["safety", "none"]
+
+
+def test_when_the_despair_rule_would_replace_all_of_them_there_is_no_answer():
+    choice = tool.choose_candidate(
+        ["Что ты чувствуешь?", "А что было сегодня?"], [], WEAK_DESPAIR
+    )
+
+    assert choice["selection"] == "safety"
+    assert choice["chosen_index"] is None
+    assert choice["novel"] is True
+
+
+def test_no_candidate_at_all_is_not_reported_as_a_safety_replacement():
+    """`generate_one` never calls this with nothing, and the label says so."""
+    choice = tool.choose_candidate([], [], None)
+
+    assert choice["chosen_index"] is None
+    assert choice["selection"] == "none"
+    assert choice["candidate_scores"] == []
+    assert choice["safety_dropped"] == []
+
+
+def test_nothing_shown_means_the_model_s_own_first_answer():
+    choice = tool.choose_candidate(["Первый?", "Второй?"], [], None)
+
+    assert choice["chosen_index"] == 0
+    assert choice["selection"] == "first_survivor"
+    assert choice["disagreement"] is False
+
+
+def _run_candidates(monkeypatch, tmp_path, answers, *extra: str):
+    """Run one series with `chat_completion` stubbed: no provider, no key."""
+    sent: list[str] = []
+    served = list(answers)
+
+    def fake(client, url, api_key, model, user, prompt, sampling=None, candidates=1):
+        sent.append(user)
+        texts = served.pop(0) if served else ["Запасной вопрос?"]
+        return list(texts)[:candidates] or ["Запасной вопрос?"], {
+            "prompt_tokens": 800, "completion_tokens": 30 * candidates,
+        }
+
+    monkeypatch.setattr(tool, "chat_completion", fake)
+    monkeypatch.setattr(
+        tool, "call_gemini",
+        lambda *a, **k: pytest.fail("the gemini path must not be used here"),
+    )
+    out = tmp_path / "run.jsonl"
+    argv = series_only(
+        "--only", "series-gratitude-ru", "--samples", "1",
+        "--provider", "qwen", "--endpoint", "https://example.invalid/v1",
+        "--model", "test-model", "--out", str(out), *extra,
+    )
+    assert tool.main(argv) == 0
+    records = [
+        json.loads(line)
+        for line in out.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    meta = json.loads(
+        (tmp_path / "run.jsonl.meta.json").read_text(encoding="utf-8")
+    )
+    return sent, records, meta
+
+
+def test_a_candidates_run_records_every_candidate_and_the_chosen_one(
+    monkeypatch, tmp_path
+):
+    repeated = "Что сегодня было таким, за что хочется сказать спасибо?"
+    sent, records, meta = _run_candidates(
+        monkeypatch,
+        tmp_path,
+        # Step 1: the first candidate repeats the journal question verbatim.
+        [[repeated, "А что из сегодняшнего хочется унести с собой?"]],
+        "--candidates", "2",
+    )
+
+    assert len(sent) == 5  # one call per step, five steps
+    first = records[0]
+    assert first["mode"] == "candidates"
+    assert first["candidates"] == [
+        repeated, "А что из сегодняшнего хочется унести с собой?"
+    ]
+    assert first["chosen_index"] == 1
+    assert first["text"] == "А что из сегодняшнего хочется унести с собой?"
+    assert first["novel"] is True
+    assert first["prompt_tokens"] == 800
+    assert first["completion_tokens"] == 60
+    assert [call["n"] for call in first["calls"]] == [2]
+    assert meta["candidates"] == 2
+    assert meta["retry_on_repeat"] is False
+    assert meta["selection_rule"]
+    # Step 2 sees step 1 as well: the person has read it.
+    assert records[1]["shown_count"] == first["shown_count"] + 1
+
+
+def test_the_retry_replay_makes_a_second_call_with_the_rejected_question(
+    monkeypatch, tmp_path
+):
+    """Production (ADR 0016) replayed: the second call, and its cost."""
+    repeated = "Что сегодня было таким, за что хочется сказать спасибо?"
+    sent, records, meta = _run_candidates(
+        monkeypatch,
+        tmp_path,
+        [[repeated], ["А что из сегодняшнего хочется унести с собой?"]],
+        "--retry-on-repeat",
+    )
+
+    first = records[0]
+    assert first["mode"] == "retry"
+    assert first["selection"] == "retry_took_second"
+    assert first["text"] == "А что из сегодняшнего хочется унести с собой?"
+    assert first["novel"] is True
+    assert len(first["calls"]) == 2
+    # The rejected question reaches the model in the SECOND request only, and
+    # in the skipped block — never in the "already asked" one, which means a
+    # question that was asked AND answered. (The text itself also appears in
+    # the journal history of this input, which is why the block is what is
+    # asserted rather than the string.)
+    assert "Человек попросил другой вопрос" not in sent[0]
+    _asked, _, skipped_block = sent[1].partition("Человек попросил другой вопрос")
+    assert repeated in skipped_block
+    # A step that did not repeat costs one call and says so.
+    assert records[1]["selection"] == "no_repeat"
+    assert len(records[1]["calls"]) == 1
+    assert meta["retry_on_repeat"] is True
+    assert meta["candidates"] == 1
+
+
+def test_the_retry_keeps_the_first_answer_when_the_second_repeats_too(
+    monkeypatch, tmp_path
+):
+    """The other half of ADR 0016: the answer is never withheld.
+
+    Production keeps the first text unless the second is novel or strictly less
+    similar, and reports `novel: false`. This branch fired 10 times across the
+    two measured retry runs, so it is not a hypothetical.
+    """
+    repeated = "Что сегодня было таким, за что хочется сказать спасибо?"
+    _sent, records, _meta = _run_candidates(
+        monkeypatch, tmp_path, [[repeated], [repeated]], "--retry-on-repeat",
+    )
+
+    first = records[0]
+    assert first["selection"] == "retry_kept_first"
+    assert first["chosen_index"] == 0
+    assert first["text"] == repeated
+    assert first["novel"] is False
+    assert len(first["calls"]) == 2
+
+
+def test_the_two_mechanisms_are_measured_one_per_run(capsys):
+    for argv in (
+        ["--candidates", "0"],
+        ["--candidates", "2", "--retry-on-repeat"],
+        ["--candidates", "2", "--provider", "gemini"],
+    ):
+        with pytest.raises(SystemExit):
+            tool.main([*argv, "--out", "x.jsonl"])

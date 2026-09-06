@@ -55,6 +55,24 @@ request now, not a string:
   `--prompt-variant` runs any of them on a candidate wording of ClickUp
   86cbehyf8 (`question_prompts.py`) instead of the shipped text.
 
+**Several candidates per call, or one more call (ClickUp 86cbehyg4).** Two
+ways to answer a repeat, measured against each other rather than argued about:
+
+* `--retry-on-repeat` replays **production** (ADR 0016): one generation, and
+  when `app/question_novelty.is_repeat` flags it, one more with the rejected
+  text appended to `skipped_questions` for that call only. Unlike
+  `check_questions.py --novelty-sim`, which can only count how often the retry
+  *would* fire, this one actually makes the second call — so the artifact
+  carries its real latency and its real tokens.
+* `--candidates N` asks the model for N answers in ONE call (`n` of the
+  OpenAI-compatible API; vLLM shares the prefill across them) and picks one
+  server-side with `choose_candidate` below. Qwen only — Gemini's analogue is
+  `generationConfig.candidateCount`, which is **not** implemented here.
+
+Neither is wired into `app/twinkler_ai.py`: this tool produces the numbers the
+decision is taken on, and the endpoint keeps doing exactly what ADR 0016 says
+until that decision is made.
+
 Artifacts: one JSONL row per (input, sample) — and per **step** for a series,
 carrying `series_id` and `step` — plus a `<out>.meta.json` sidecar. Neither
 ever carries a key: transport failures are recorded as a category and, for an
@@ -93,6 +111,7 @@ import json
 import os
 import sys
 import time
+from collections.abc import Sequence
 from datetime import date
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -109,7 +128,12 @@ sys.path.insert(0, str(HERE.parent / "app"))
 # of them from `app/`, for the same reason: the language the prompt names is
 # resolved by THE production detector, never by a copy of it living here.
 from question_prompt import QUESTION_PROMPT_VERSION  # noqa: E402
-from safety import check_input, detect_language  # noqa: E402
+from safety import check_input, check_reply, detect_language  # noqa: E402
+
+# The production repeat filter itself (ClickUp 86cbehyg0), imported for the
+# same reason the prompt is: the selection rule of 86cbehyg4 must drop exactly
+# what the endpoint would call a repeat, not what a copy of it would.
+from question_novelty import KIND_NONE, is_repeat  # noqa: E402
 
 # The candidate wordings of ClickUp 86cbehyf8 (v4). `PRODUCTION` — the default
 # — returns `build_question_prompt` / `build_user_message` themselves, so a run
@@ -541,7 +565,7 @@ def load_inputs(
     return inputs, skipped
 
 
-def call_qwen(
+def chat_completion(
     client: httpx.Client,
     url: str,
     api_key: str,
@@ -549,14 +573,26 @@ def call_qwen(
     user: str,
     prompt: str,
     sampling: dict | None = None,
-) -> str:
-    """One OpenAI-compatible chat completion with the production pair.
+    candidates: int = 1,
+) -> tuple[list[str], dict]:
+    """N OpenAI-compatible chat completions of the production pair, and `usage`.
+
+    `candidates` becomes the `n` of the chat-completions API (ClickUp
+    86cbehyg4) and is **omitted entirely** when it is 1, so a single-candidate
+    call is byte for byte the request every artifact before that ticket was
+    produced by. vLLM answers `n` choices from one prefill of the shared
+    prompt, which is the whole point of measuring it: the 872 prompt tokens of
+    a series step are paid once instead of twice.
 
     `sampling` is the fourth lever of ClickUp 86cbehyf8 and is empty in every
     other run: production sends temperature and max_tokens and nothing else, so
     the server's own defaults for `top_p`/`top_k` are part of what is being
     measured. When `--top-p`/`--top-k` are given they are added here and named
     in the sidecar, so an artifact can never be mistaken for a wording result.
+
+    The returned `usage` is the server's own — `completion_tokens` is the SUM
+    over the choices, `prompt_tokens` is counted once — and is `{}` when the
+    server sends none.
     """
     headers = {"Content-Type": "application/json"}
     if api_key:
@@ -569,19 +605,53 @@ def call_qwen(
         ],
         "temperature": TEMPERATURE,
         "max_tokens": MAX_OUTPUT_TOKENS,
+        **({"n": candidates} if candidates > 1 else {}),
         **(sampling or {}),
     }
     response = client.post(url, json=payload, headers=headers)
     response.raise_for_status()
     data = response.json()
     try:
-        message = data["choices"][0]["message"]
+        choices = data["choices"]
+        messages = [choice["message"] for choice in choices]
     except (KeyError, IndexError, TypeError) as exc:
         raise ValueError("response has no choices") from exc
-    text = message.get("content") or ""
-    if not isinstance(text, str) or not text.strip():
+    texts = [
+        message.get("content").strip()
+        for message in messages
+        if isinstance(message.get("content"), str) and message["content"].strip()
+    ]
+    if not texts:
         raise ValueError("response content is empty")
-    return text.strip()
+    usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
+    return texts, {
+        key: usage.get(key)
+        for key in ("prompt_tokens", "completion_tokens", "total_tokens")
+        if isinstance(usage.get(key), int)
+    }
+
+
+def call_qwen(
+    client: httpx.Client,
+    url: str,
+    api_key: str,
+    model: str,
+    user: str,
+    prompt: str,
+    sampling: dict | None = None,
+) -> str:
+    """One answer — the historical single-candidate path, unchanged.
+
+    Kept as the entry point of every run that does not ask for candidates or
+    for the production retry: it is the call the v1..v4 artifacts were produced
+    by and the one `tests/test_gen_questions.py` stands in for. A partial
+    answer is a `ValueError` here exactly as before, so the transport ladder
+    around it behaves identically.
+    """
+    texts, _usage = chat_completion(
+        client, url, api_key, model, user, prompt, sampling, 1
+    )
+    return texts[0]
 
 
 def call_gemini(
@@ -627,6 +697,298 @@ def sampling(args: argparse.Namespace) -> dict:
     return extra
 
 
+# ---------------------------------------------------------------------------
+# Several candidates per call, or one more call (ClickUp 86cbehyg4)
+# ---------------------------------------------------------------------------
+# `shown` below is what the PERSON has read in this prayer: the questions
+# already in the journal (`avoid_question` — the `assistant` turns of the
+# request) plus every earlier step of this series. That is deliberately the
+# same list `check_questions.py --novelty-sim` builds, in BOTH client modes:
+# with the accumulating client of ADR 0015 it is literally the request's
+# `skipped_questions`, and with today's identical-body client the person has
+# read those questions all the same, even though the request no longer carries
+# them. Two different lists for the two modes would make the two halves of the
+# result table incomparable — and would measure, in the identical-body half, a
+# filter that is blind by construction rather than the loop the ticket is
+# about.
+
+
+def shown_questions(entry: dict, produced: Sequence[str]) -> list[str]:
+    """Every question this person has already been shown in this prayer."""
+    return list(entry.get("avoid_question") or []) + [
+        text for text in produced if text.strip()
+    ]
+
+
+def tier2_replaces(checked: str | None, text: str) -> bool:
+    """Would tier 2 of the despair rule replace this answer with a fixed text?
+
+    `twinkler_ai._safety_guarded_reply` on one candidate. It runs on EVERY
+    reply a provider returns — including the second generation of ADR 0016 —
+    so a candidate it would replace is not an answer this endpoint can offer
+    at all, whichever mechanism produced it.
+    """
+    return check_reply(checked or "", text).matched
+
+
+def choose_candidate(
+    candidates: Sequence[str], shown: Sequence[str], checked: str | None
+) -> dict:
+    """Pick one of the N answers of a single call — the rule of 86cbehyg4.
+
+    1. Drop the blanks and everything **tier 2 of the despair rule** would
+       replace (`tier2_replaces`): those are not answers this endpoint may
+       show, and the mechanism that produced them changes nothing about that.
+    2. Score what is left with the production filter, `is_repeat`, against
+       `shown`.
+    3. Among the candidates it did **not** flag, take the **first in the
+       model's own order**. Not the most distant one: the order is the model's
+       own preference, and the most distant candidate is frequently the one
+       that fits the conversation least — it is distant because it changed the
+       subject. Distance decides nothing while anything survives; where the
+       two rules WOULD disagree is recorded (`least_similar_index`,
+       `disagreement`) so the difference can be read rather than assumed.
+    4. If nothing survives, take the **least similar** of them (lowest
+       `is_repeat` score, first on a tie) and mark the step `novel: false` —
+       exactly what production returns when its second generation repeats too
+       (ADR 0016: the answer is never withheld).
+    5. If tier 2 would replace **every** candidate there is no model answer at
+       all, and production sends the fixed safety text: `selection: "safety"`,
+       no chosen index.
+
+    Returns the fields the artifact records; the caller adds the texts.
+    """
+    texts = [text for text in candidates if text and text.strip()]
+    safety_dropped = [
+        index for index, text in enumerate(texts) if tier2_replaces(checked, text)
+    ]
+    kept = [index for index in range(len(texts)) if index not in set(safety_dropped)]
+    verdicts = {index: is_repeat(texts[index], list(shown)) for index in kept}
+    result = {
+        "candidate_scores": [
+            round(verdicts[index].score, 4) if index in verdicts else None
+            for index in range(len(texts))
+        ],
+        "candidate_kinds": [
+            verdicts[index].kind if index in verdicts else "safety"
+            for index in range(len(texts))
+        ],
+        "safety_dropped": safety_dropped,
+    }
+    if not kept:
+        return {
+            **result,
+            "chosen_index": None,
+            "least_similar_index": None,
+            "novel": True,
+            # "safety" is a claim about WHY there is no answer, so an empty
+            # candidate list — which the caller never produces, it only calls
+            # this with a non-empty response — must not borrow it.
+            "selection": "safety" if texts else "none",
+            "disagreement": False,
+        }
+    survivors = [index for index in kept if not verdicts[index].repeat]
+    pool = survivors or kept
+    least_similar = min(pool, key=lambda index: (verdicts[index].score, index))
+    # The model's order while anything survives; distance only when nothing
+    # does, and then it is the least bad repeat rather than a preference.
+    chosen = pool[0] if survivors else least_similar
+    return {
+        **result,
+        "chosen_index": chosen,
+        "least_similar_index": least_similar,
+        "novel": bool(survivors),
+        "selection": "first_survivor" if survivors else "least_similar",
+        "disagreement": bool(survivors) and least_similar != chosen,
+    }
+
+
+def _call_row(
+    latency_ms: int, usage: dict, asked: int, attempts: int, error: str
+) -> dict:
+    """One provider call as the artifact records it — no text, just the cost."""
+    return {
+        "latency_ms": latency_ms,
+        "n": asked,
+        "attempts": attempts,
+        "prompt_tokens": usage.get("prompt_tokens"),
+        "completion_tokens": usage.get("completion_tokens"),
+        "error": error or None,
+    }
+
+
+def experiment(args: argparse.Namespace) -> bool:
+    """Is this a run of ClickUp 86cbehyg4 (candidates, or the replayed retry)?"""
+    return (
+        getattr(args, "candidates", 1) > 1
+        or bool(getattr(args, "retry_on_repeat", False))
+    )
+
+
+def _provider_call(
+    client: httpx.Client,
+    args: argparse.Namespace,
+    url: str,
+    api_key: str,
+    model: str,
+    sent: str,
+    prompt: str,
+    candidates: int,
+) -> tuple[list[str], dict, int, str, int]:
+    """ONE provider call behind the transport ladder.
+
+    `(texts, usage, attempts, error, latency_ms)`; `texts` is empty when every
+    attempt failed. The ladder — three attempts, a longer pause on a 429 — is
+    the one every run before this ticket used, moved out of `generate_one`
+    unchanged, so that a step made of two calls retries each of them the way
+    one call was always retried.
+    """
+    started = time.monotonic()
+    attempts = 0
+    last_error = ""
+    texts: list[str] = []
+    usage: dict = {}
+    while attempts < TRANSPORT_ATTEMPTS:
+        attempts += 1
+        try:
+            if args.provider == "gemini":
+                texts = [call_gemini(client, url, api_key, sent, prompt)]
+            elif experiment(args):
+                # The only path that asks for `n` and reads `usage` (ClickUp
+                # 86cbehyg4). Every other run keeps going through `call_qwen`
+                # — the same bytes, one answer — because that is the call the
+                # v1..v4 artifacts were produced by.
+                texts, usage = chat_completion(
+                    client, url, api_key, model, sent, prompt,
+                    sampling(args), candidates,
+                )
+            else:
+                texts = [
+                    call_qwen(
+                        client, url, api_key, model, sent, prompt, sampling(args)
+                    )
+                ]
+            break
+        except (httpx.HTTPError, ValueError) as exc:
+            last_error = transport_error(exc) if isinstance(exc, httpx.HTTPError) \
+                else f"empty: {exc}"
+            if attempts >= TRANSPORT_ATTEMPTS:
+                break
+            time.sleep(
+                RATE_LIMIT_PAUSE_SECONDS if is_rate_limited(exc) else 2.0 * attempts
+            )
+    return (
+        texts, usage, attempts, last_error,
+        int((time.monotonic() - started) * 1000),
+    )
+
+
+def _replay_production_retry(
+    client: httpx.Client,
+    args: argparse.Namespace,
+    url: str,
+    api_key: str,
+    model: str,
+    entry: dict,
+    variant: str,
+    prompt: str,
+    skipped_questions: list[str] | None,
+    first: str,
+    shown: Sequence[str],
+    checked: str | None,
+) -> tuple[list[str], dict, list[dict]]:
+    """`twinkler_ai.twinkler_complete` on one step: one answer, maybe a second.
+
+    The handler, line for line, minus the parts a benchmark has no business
+    imitating (the rate limiter, the HTTP status codes) and minus the request
+    budget, which cannot be replayed honestly here: this tool's timeout is 180 s
+    against the endpoint's 20 s, so `MIN_SECOND_ATTEMPT_SECONDS` would never
+    bind and pretending it did would fake a degradation. Every measured second
+    call is therefore one production would also have made, provided the first
+    one left 3 s of the budget — which the measured latencies say it does.
+
+    Returns `(texts, selection, extra_calls)`: `texts[0]` is the first answer
+    and `texts[1]`, when present, the second generation.
+    """
+    if tier2_replaces(checked, first):
+        # Production returns the fixed reply here and never retries.
+        return [first], choose_candidate([first], shown, checked), []
+    verdict = is_repeat(first, list(shown))
+    if not verdict.repeat:
+        return [first], {
+            "candidate_scores": [round(verdict.score, 4)],
+            "candidate_kinds": [verdict.kind],
+            "safety_dropped": [],
+            "chosen_index": 0,
+            "least_similar_index": 0,
+            "novel": True,
+            "selection": "no_repeat",
+            "disagreement": False,
+        }, []
+    # The rejected question joins the skipped list for this call only, newest
+    # kept — `twinkler_ai` trims by count, never by characters.
+    retry_message = user_message(
+        entry,
+        (list(skipped_questions or []) + [first])[-MAX_SKIPPED_QUESTIONS:],
+        variant,
+    )
+    texts, usage, attempts, error, latency = _provider_call(
+        client, args, url, api_key, model, retry_message, prompt, 1
+    )
+    extra = [_call_row(latency, usage, 1, attempts, error)]
+    if not texts:
+        # A failing SECOND generation is never an error for the person: the
+        # first answer stands, repeat and all.
+        return [first], {
+            "candidate_scores": [round(verdict.score, 4)],
+            "candidate_kinds": [verdict.kind],
+            "safety_dropped": [],
+            "chosen_index": 0,
+            "least_similar_index": 0,
+            "novel": False,
+            "selection": "retry_failed",
+            "disagreement": False,
+        }, extra
+    second = texts[0]
+    if tier2_replaces(checked, second):
+        return [first, second], {
+            "candidate_scores": [round(verdict.score, 4), None],
+            "candidate_kinds": [verdict.kind, "safety"],
+            "safety_dropped": [1],
+            "chosen_index": None,
+            "least_similar_index": None,
+            "novel": True,
+            "selection": "safety",
+            "disagreement": False,
+        }, extra
+    # Both verdicts against the SAME `shown`, never against each other.
+    second_verdict = is_repeat(second, list(shown))
+    take_second = (
+        not second_verdict.repeat or second_verdict.score < verdict.score
+    )
+    chosen = 1 if take_second else 0
+    return [first, second], {
+        "candidate_scores": [
+            round(verdict.score, 4), round(second_verdict.score, 4)
+        ],
+        "candidate_kinds": [verdict.kind, second_verdict.kind],
+        "safety_dropped": [],
+        "chosen_index": chosen,
+        "least_similar_index": min(
+            (0, 1), key=lambda index: (
+                (verdict, second_verdict)[index].score, index
+            )
+        ),
+        "novel": (
+            (second_verdict.kind == KIND_NONE)
+            if take_second
+            else (verdict.kind == KIND_NONE)
+        ),
+        "selection": "retry_took_second" if take_second else "retry_kept_first",
+        "disagreement": False,
+    }, extra
+
+
 def generate_one(
     client: httpx.Client,
     args: argparse.Namespace,
@@ -637,8 +999,9 @@ def generate_one(
     sample: int,
     step: int = 1,
     skipped_questions: list[str] | None = None,
+    shown: Sequence[str] = (),
 ) -> dict:
-    """One call for one input, with the transport ladder and wall time.
+    """One STEP of one input: one provider call, or two (ClickUp 86cbehyg4).
 
     The prompt is built per input, exactly as `twinkler_ai.complete` builds
     it: since v2 it names the language the detector resolved for THIS message
@@ -648,10 +1011,14 @@ def generate_one(
     `step` and `skipped_questions` belong to a series (86cbehyez). In the
     default mode `skipped_questions` is empty at every step, because that is
     what the client sends: the same body, again.
+
+    `shown` is what the person has already read (`shown_questions`) and is
+    read only by the two experiment modes: `--candidates N` picks among the N
+    answers of one call (`choose_candidate`) and `--retry-on-repeat` replays
+    production. Without either flag this is the single call it always was, and
+    the record carries exactly the fields it always carried.
     """
     started = time.monotonic()
-    attempts = 0
-    last_error = ""
     text = ""
     source = language_source(entry)
     # `twinkler_ai.question_prompt_for`: an empty source (no topic, no
@@ -661,25 +1028,36 @@ def generate_one(
     variant = getattr(args, "prompt_variant", question_prompts.PRODUCTION)
     prompt = question_prompts.system_prompt(variant, prompt_language)
     sent = user_message(entry, skipped_questions, variant)
+    wanted = max(1, getattr(args, "candidates", 1))
 
-    while attempts < TRANSPORT_ATTEMPTS:
-        attempts += 1
-        try:
-            if args.provider == "gemini":
-                text = call_gemini(client, url, api_key, sent, prompt)
-            else:
-                text = call_qwen(
-                    client, url, api_key, model, sent, prompt, sampling(args)
-                )
-            break
-        except (httpx.HTTPError, ValueError) as exc:
-            last_error = transport_error(exc) if isinstance(exc, httpx.HTTPError) \
-                else f"empty: {exc}"
-            if attempts >= TRANSPORT_ATTEMPTS:
-                break
-            time.sleep(
-                RATE_LIMIT_PAUSE_SECONDS if is_rate_limited(exc) else 2.0 * attempts
+    texts, usage, attempts, last_error, latency = _provider_call(
+        client, args, url, api_key, model, sent, prompt, wanted
+    )
+    calls = [_call_row(latency, usage, wanted, attempts, last_error)]
+    if texts:
+        text = texts[0]
+
+    selection: dict = {}
+    if texts and experiment(args):
+        checked = safety_input(entry)
+        if getattr(args, "retry_on_repeat", False):
+            texts, selection, extra = _replay_production_retry(
+                client, args, url, api_key, model, entry, variant, prompt,
+                skipped_questions, texts[0], shown, checked,
             )
+            attempts += sum(call["attempts"] for call in extra)
+            calls += extra
+        else:
+            selection = choose_candidate(texts, shown, checked)
+        index = selection["chosen_index"]
+        # A step whose every candidate tier 2 would replace has no model answer
+        # to record: production sends the fixed text of `app/safety.py`, which
+        # is a constant, so the artifact records the fact and not the reply.
+        # `error` then says so rather than "no text", which reads as a
+        # transport failure and would be counted as one in the sidecar.
+        text = texts[index] if index is not None else ""
+        if index is None:
+            last_error = "safety: tier 2 would replace every candidate"
 
     record = {
         "id": entry["id"],
@@ -719,6 +1097,32 @@ def generate_one(
         record["skipped_questions"] = list(skipped_questions or [])
     if entry.get("person_words"):
         record["person_words"] = entry["person_words"]
+    if experiment(args):
+        # ClickUp 86cbehyg4, and ONLY in a run of it: a default run writes the
+        # row it always wrote, so the v1..v4 artifacts and this one are read by
+        # the same code. `latency_ms` above is the whole step either way — what
+        # the person waits — and `calls` is where the two of a retry show up
+        # separately.
+        record["mode"] = (
+            "retry" if getattr(args, "retry_on_repeat", False) else "candidates"
+        )
+        record["candidates"] = list(texts)
+        record["calls"] = calls
+        record["prompt_tokens"] = sum(
+            call["prompt_tokens"] or 0 for call in calls
+        )
+        record["completion_tokens"] = sum(
+            call["completion_tokens"] or 0 for call in calls
+        )
+        record["shown_count"] = len(list(shown))
+        record.update({
+            key: selection.get(key)
+            for key in (
+                "chosen_index", "least_similar_index", "novel", "selection",
+                "disagreement", "candidate_scores", "candidate_kinds",
+                "safety_dropped",
+            )
+        })
     return record
 
 
@@ -737,7 +1141,8 @@ def build_meta(
         "endpoint": url_host,
         "date": date.today().isoformat(),
         "ticket": (
-            "ClickUp 86cbegctz, 86cbegg3f, 86cbegmzz, 86cbehyez, 86cbehyf8"
+            "ClickUp 86cbegctz, 86cbegg3f, 86cbegmzz, 86cbehyez, 86cbehyf8, "
+            "86cbehyg4"
         ),
         "prompt": (
             "app/question_prompt.build_question_prompt(detect_language(last "
@@ -754,6 +1159,19 @@ def build_meta(
         # On = the client of ADR 0015, which accumulates them, so an artifact
         # says which of the two it measured (see `user_message`).
         "accumulate_skipped": bool(args.accumulate_skipped),
+        # ClickUp 86cbehyg4. `candidates` > 1 = N answers from ONE call, picked
+        # by `choose_candidate`; `retry_on_repeat` = production replayed (ADR
+        # 0016). Both off = every run before that ticket.
+        "candidates": getattr(args, "candidates", 1),
+        "retry_on_repeat": bool(getattr(args, "retry_on_repeat", False)),
+        "selection_rule": (
+            "drop what despair tier 2 would replace, drop what "
+            "question_novelty.is_repeat flags against the questions already "
+            "shown, take the first survivor in the model's order; if none "
+            "survives take the least similar and mark the step novel=false"
+            if getattr(args, "candidates", 1) > 1
+            else None
+        ),
         "series": {
             entry["id"]: entry["steps"]
             for entry in inputs
@@ -931,6 +1349,24 @@ def main(argv: list[str] | None = None) -> int:
              "that accumulates them rather than the one that ships.",
     )
     parser.add_argument(
+        "--candidates", type=int, default=1,
+        help="qwen only (ClickUp 86cbehyg4): ask for N answers in ONE call "
+             "(`n` of the chat-completions API — vLLM shares the prefill) and "
+             "pick one with the rule in `choose_candidate`. 1 — the default — "
+             "is the single call every earlier run made, byte for byte. "
+             "Gemini's analogue is generationConfig.candidateCount and is NOT "
+             "implemented.",
+    )
+    parser.add_argument(
+        "--retry-on-repeat", action="store_true",
+        help="replay PRODUCTION (ADR 0016): when the answer repeats one the "
+             "person has already been shown, generate once more with the "
+             "rejected text appended to `skipped_questions` for that call. "
+             "Unlike `check_questions.py --novelty-sim`, this makes the second "
+             "call, so its latency and its tokens are measured rather than "
+             "guessed. ClickUp 86cbehyg4.",
+    )
+    parser.add_argument(
         "--prompt-variant", default=question_prompts.PRODUCTION,
         choices=(*question_prompts.VARIANTS, question_prompts.PRODUCTION),
         help="candidate wording of ClickUp 86cbehyf8 "
@@ -963,6 +1399,21 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.samples < 1:
         parser.error("--samples must be >= 1")
+    if args.candidates < 1:
+        parser.error("--candidates must be >= 1")
+    if args.candidates > 1 and args.provider == "gemini":
+        parser.error(
+            "--candidates is a qwen option: Gemini's analogue is "
+            "generationConfig.candidateCount and is not implemented here"
+        )
+    if args.candidates > 1 and args.retry_on_repeat:
+        # The two mechanisms this ticket compares. Running both at once would
+        # measure a third thing nobody proposed, and would make the token and
+        # latency columns of the result table unreadable.
+        parser.error(
+            "--candidates and --retry-on-repeat are the two alternatives of "
+            "ClickUp 86cbehyg4 — measure one per run"
+        )
 
     if args.dry_run:
         return dry_run(args, parser)
@@ -1011,7 +1462,11 @@ def main(argv: list[str] | None = None) -> int:
         f"skipped, {question_prompts.describe(args.prompt_variant)}"
         + (f", sampling overrides {sampling(args)}" if sampling(args) else "")
         + (" — --accumulate-skipped IS ON (the client of ADR 0015)"
-           if args.accumulate_skipped else ""),
+           if args.accumulate_skipped else "")
+        + (f" — {args.candidates} candidates per call, one picked"
+           if args.candidates > 1 else "")
+        + (" — --retry-on-repeat IS ON (production replayed, ADR 0016)"
+           if args.retry_on_repeat else ""),
         flush=True,
     )
 
@@ -1031,6 +1486,9 @@ def main(argv: list[str] | None = None) -> int:
                             skipped_questions=(
                                 list(replaced) if args.accumulate_skipped else None
                             ),
+                            # What the person has READ by now, which is the
+                            # same list in both client modes (86cbehyg4).
+                            shown=shown_questions(entry, replaced),
                         )
                         if record["text"]:
                             replaced.append(record["text"])

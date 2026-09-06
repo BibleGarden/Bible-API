@@ -1,0 +1,38 @@
+{
+  "provider": "qwen",
+  "model": "qwen3-30b-a3b-instruct-2507",
+  "endpoint": "https://llm.ai2.ru",
+  "date": "2026-09-06",
+  "ticket": "ClickUp 86cbegctz, 86cbegg3f, 86cbegmzz, 86cbehyez, 86cbehyf8, 86cbehyg4",
+  "prompt": "app/question_prompt.build_question_prompt(detect_language(last words of the person)) over app/question_prompt.build_user_message(topic, stage, messages)",
+  "prompt_version": 4,
+  "prompt_variant": "production",
+  "prompt_variant_note": "production wording (app/question_prompt.py v4)",
+  "scenarios_file": "",
+  "probes_file": "",
+  "series_file": "question_series_inputs.json",
+  "accumulate_skipped": false,
+  "candidates": 2,
+  "retry_on_repeat": false,
+  "selection_rule": "drop what despair tier 2 would replace, drop what question_novelty.is_repeat flags against the questions already shown, take the first survivor in the model's order; if none survives take the least similar and mark the step novel=false",
+  "series": {
+    "series-scale-ru": 6,
+    "series-gratitude-ru": 5,
+    "series-choice-en": 5,
+    "series-exhaustion-uk": 5
+  },
+  "sampling": {
+    "temperature": 0.7,
+    "max_output_tokens": 1024,
+    "overrides": {},
+    "samples_per_input": 6,
+    "timeout_seconds": 180.0,
+    "sleep_between_calls_seconds": 0.0
+  },
+  "inputs_sent": 10,
+  "inputs_skipped": [],
+  "records_expected": 162,
+  "records_written": 162,
+  "records_failed": 0,
+  "partial": false
+}
