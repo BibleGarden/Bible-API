@@ -75,3 +75,17 @@ evaluation/bench_data/*
 !evaluation/bench_data/question_v6a_sampling/**/*.json
 !evaluation/bench_data/question_v6a_sampling/**/*.jsonl
 !evaluation/bench_data/question_v6a_sampling/**/*.md
+# Парное судейство вопросов v6 против v5 (86cbejvtd): пары с промптами,
+# вердикты судей и отчёт над ними, плюс вложенные каталоги самих прогонов
+# `compare_question_models.py`. Причина та же, что у всех артефактов выше:
+# ответы модели и вердикты судьи получены на конкретный день и не
+# воспроизводятся идентично.
+!evaluation/bench_data/question_v6_vs_v5/
+!evaluation/bench_data/question_v6_vs_v5/*.json
+!evaluation/bench_data/question_v6_vs_v5/*.jsonl
+!evaluation/bench_data/question_v6_vs_v5/*.md
+!evaluation/bench_data/question_v6_vs_v5/**/
+!evaluation/bench_data/question_v6_vs_v5/**/*.json
+!evaluation/bench_data/question_v6_vs_v5/**/*.jsonl
+!evaluation/bench_data/question_v6_vs_v5/**/*.md
+!evaluation/bench_data/question_v6_vs_v5/**/*.html
