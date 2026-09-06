@@ -30,6 +30,8 @@ from config import (
 from deadline import Deadline
 from gemini_retry import provider_timeout
 from llm_client import AsyncChatClient, LLMError
+from person_gender import detect_gender
+from question_format import SubjectMemory, parse_question, subject_excerpt
 from question_novelty import NOT_A_REPEAT, Verdict, is_repeat
 from question_prompt import build_question_prompt, build_user_message
 from rate_limit import RateLimiter, RateLimitError
@@ -110,6 +112,35 @@ _LEGACY_FIELDS = ("user", "last_user_message")
 # the first call succeeded, so the trade is not "an answer or none" but "a
 # repeat now or a chance at a new question in three seconds".
 MIN_SECOND_ATTEMPT_SECONDS = 3.0
+
+# The two labels of the one extra generation prompt v6 may ask for when the
+# model's answer cannot be read as the JSON object the format section requires
+# (ClickUp 86cbejvt2). Neither is a parse rung of `question_format` — those
+# describe ONE answer — they are the two outcomes of asking again:
+# `retry_ok` (the second answer parsed and is what the person gets) and
+# `retry_failed` (it did not parse, or the call failed, and the first answer
+# stands). Distinguished on the review of this ticket: one label for both said
+# "a retry happened" and hid which half of the pair actually helps.
+#
+# Its budget guard is `MIN_SECOND_ATTEMPT_SECONDS`, the same slice the novelty
+# retry uses and for the same reason. The two retries are independent: a
+# request may in the worst case make three calls (unreadable answer, then a
+# repeated one), and that is bounded not by a count but by the single request
+# `Deadline` every call is carved out of — the endpoint's promise is its
+# latency, not its number of provider calls. Merging the two into one shared
+# "extra generation" was the alternative and it would have made `novel`
+# dishonest: a request that spent the retry on the format would report
+# `novel: false` for a repeat it never asked to have replaced.
+FORMAT_RETRY_OK = "retry_ok"
+FORMAT_RETRY_FAILED = "retry_failed"
+
+# What each question we have shown was about (prompt v6, ClickUp 86cbejvt2).
+# Process-local, like the rate limiters and for the same reason — production
+# runs a single API worker — and, unlike them, entirely optional: a miss costs
+# the next prompt an excerpt of the question instead of its subject, never an
+# error and never a different answer to the person. Nothing in it is persisted
+# or logged.
+_subjects = SubjectMemory()
 
 
 class QuestionMessage(BaseModel):
@@ -286,6 +317,17 @@ class QuestionResponse(CompleteResponse):
     unchanged, and a client that ignores `novel` behaves exactly as before.
     """
 
+    subject: str | None = Field(
+        default=None,
+        description=(
+            "The 2-4 words the model named as the subject of reflection of "
+            "this question (prompt v6, ClickUp 86cbejvt2), or `null` when the "
+            "answer could not be read as the structured object — the question "
+            "itself is always returned either way. Additive and advisory: the "
+            "person is shown `text` and nothing else, and a client that "
+            "ignores this field behaves exactly as before"
+        ),
+    )
     novel: bool = Field(
         default=True,
         description=(
@@ -360,6 +402,52 @@ def person_language_candidates(request: CompleteRequest) -> list[str]:
         replies[-1:] + [request.topic] + list(reversed(replies[:-1]))
     )
     return [text for text in ordered if text.strip()]
+
+
+def person_gender_texts(request: CompleteRequest) -> list[str]:
+    """The person's own words, for the grammatical gender (v6, 86cbejvt2).
+
+    Their `user` turns and the topic — the same "only what the person wrote"
+    rule `person_language_candidates` follows, and for a sharper reason: a
+    Twinkler question may carry the WRONG gender (that is the defect this
+    computes its way around), so letting one vote would launder the error into
+    the instruction. `skipped_questions` is excluded for the same reason.
+
+    Order does not matter here — `detect_gender` answers `None` on a
+    contradiction whichever text carried which form — so the topic is simply
+    appended rather than ranked. At `first` it is the only text there is.
+    """
+    return [
+        message.text for message in request.messages if message.role == "user"
+    ] + [request.topic]
+
+
+def used_subjects(
+    request: CompleteRequest, extra_subject: str | None = None
+) -> list[str]:
+    """What this prayer has already asked about, best name first available.
+
+    One entry per question the person has been shown — the `assistant` turns
+    and then `skipped_questions`, the same two lists `shown` is built from —
+    named by the subject the model committed to when we generated it
+    (`question_format.SubjectMemory`), or by an excerpt of the question when
+    this process no longer remembers it (ADR 0017).
+
+    `extra_subject` is the subject of the question a novelty retry has just
+    rejected. It is passed in already named rather than looked up: that
+    question was never shown, so it is deliberately never written to the
+    memory, and its subject is still in the caller's hand.
+
+    Deduplication belongs to `build_user_message`, so this list is simply
+    chronological.
+    """
+    questions = [
+        message.text for message in request.messages if message.role == "assistant"
+    ] + list(request.skipped_questions)
+    subjects = [_subjects.subject_of(question) for question in questions]
+    if extra_subject:
+        subjects.append(extra_subject)
+    return subjects
 
 
 def language_source(request: CompleteRequest) -> str:
@@ -496,6 +584,20 @@ def _log_novelty(
     )
 
 
+def _log_format(kind: str) -> None:
+    """One line per request that reached the model: how its answer parsed.
+
+    The subject of this line is the **first** model answer of the request,
+    after the format regeneration has been resolved — that is the answer that
+    says whether the model honours the v6 contract at all, which is the only
+    question this line exists to answer. A later generation asked for by the
+    novelty check is not reported here; `question novelty:` is its line.
+
+    No text, ever — the same rule `_log_novelty` follows.
+    """
+    logger.info("question format: parsed=%s", kind)
+
+
 def _reserve_rate_limit(client_key: str) -> None:
     """Book one Twinkler AI slot; limits are read at call time."""
     _limiter.reserve(
@@ -545,8 +647,18 @@ async def _complete_openai_compat(
     bytes), same generation settings (temperature
     0.7, 1024 output tokens) and the same public failure — `AIError`, which
     the handler turns into `502 AI service unavailable` without provider
-    detail. `json_object` is deliberately off: this answer is prose for a
-    person, not a parsed contract.
+    detail.
+
+    **`json_object` is ON since prompt v6** (ClickUp 86cbejvt2). It used to be
+    off with the comment "this answer is prose for a person, not a parsed
+    contract" — true until v6, and false now: the answer IS a parsed contract
+    (`{"subject": …, "question": …}`, `app/question_format.py`), and the
+    server-side grammar of vLLM is a stronger guarantee than the prompt's
+    format section. `app/question_format.py` still handles every malformation
+    below it, because this switch reaches ONE of the two transports: the
+    Gemini branch is left exactly as it was (its `responseMimeType` is a
+    different knob on a provider this stage is not measured on any more), and
+    a person must never be shown a brace whichever answered.
 
     One attempt per call, like the Gemini path: a retry ladder inside one
     generation would double the worst-case latency a person waits with no
@@ -579,7 +691,7 @@ async def _complete_openai_compat(
             prompt,
             user,
             deadline=deadline or Deadline(AI_QUESTION_TIMEOUT_SECONDS),
-            json_object=False,
+            json_object=True,
             temperature=0.7,
         )
     except LLMError as error:
@@ -848,7 +960,10 @@ async def _transcribe_gemini(
         "model is called. Questions the person asked to replace are sent in "
         "`skipped_questions` so the next one takes another direction, and a "
         "question that repeats one already shown is generated once more; "
-        "`novel: false` says the text returned still repeats one. `422` "
+        "`novel: false` says the text returned still repeats one. `subject` "
+        "carries the 2-4 words the model named as the subject of this "
+        "question, or `null` when its answer could not be read as the "
+        "structured object; `text` is the question either way. `422` "
         "also covers the shape rules: `first` takes neither history nor "
         "skipped questions, and a non-empty history must end with a `user` "
         "turn."
@@ -912,6 +1027,11 @@ async def twinkler_complete(
     deadline = Deadline(AI_QUESTION_TIMEOUT_SECONDS)
     language = language_source(request)
     prompt_language = detect_language(language) if language.strip() else DEFAULT_LANGUAGE
+    # Prompt v6: the grammatical gender is decided here and STATED in the
+    # message, never asked of the model (ClickUp 86cbejvt2). `None` — nothing
+    # matched, or the words contradict each other — is itself an instruction:
+    # word the question so that it needs no gendered forms.
+    gender = detect_gender(person_gender_texts(request))
     # What the person has already SEEN in this prayer: the questions they
     # answered and the ones they asked to replace. Their own replies are not
     # here — a question is never a repeat of an answer.
@@ -931,18 +1051,63 @@ async def twinkler_complete(
         request.turns(),
         request.skipped_questions,
         prompt_language,
+        gender,
+        used_subjects(request),
     )
     try:
-        text = await complete(user_message, language, deadline)
+        raw = await complete(user_message, language, deadline)
     except GeminiError as error:
         # Log the failure category, but never the prayer text or provider key.
         logger.warning("Twinkler AI request failed: %s", error)
         raise HTTPException(status_code=502, detail="AI service unavailable") from error
 
+    # Prompt v6 asks for `{"subject": …, "question": …}`; `parse_question`
+    # reads it, repairs the bounded JSON breakage small models produce, falls
+    # back to a regex and finally to the answer's first line. An answer that
+    # got no further than that last rung is worth ONE more generation with the
+    # same input — the same bytes at temperature 0.7 are a fresh sample, and
+    # the format is exactly the kind of failure a re-roll fixes — but only
+    # while the request budget can pay for it. When it cannot, the raw first
+    # line is answered as it is: an unreadable envelope is never a reason to
+    # withhold a question the model already wrote.
+    answer = parse_question(raw)
+    format_kind = answer.kind
+    if not answer.parsed and deadline.remaining() >= MIN_SECOND_ATTEMPT_SECONDS:
+        try:
+            regenerated = await complete(user_message, language, deadline)
+        except GeminiError as error:
+            # NOT a 502, for the reason above: a question is already in hand.
+            logger.warning("Twinkler AI format regeneration failed: %s", error)
+            regenerated = None
+        format_kind = FORMAT_RETRY_FAILED
+        if regenerated is not None:
+            retried = parse_question(regenerated)
+            if retried.parsed:
+                answer, format_kind = retried, FORMAT_RETRY_OK
+    _log_format(format_kind)
+    text = answer.question
+    subject = answer.subject
+    if not text:
+        # The answer carried no question at all — `{"question": ""}` and
+        # `{"question": null}` are both real shapes (review of 86cbejvt2), and
+        # so is an envelope with nothing salvageable in it. There is nothing to
+        # show, which is the same situation as a provider that answered
+        # nothing, so it gets the same public error rather than a blank line on
+        # a person's screen.
+        logger.warning(
+            "Twinkler AI answer carried no question: format=%s", format_kind
+        )
+        raise HTTPException(status_code=502, detail="AI service unavailable")
+
+    # Both safety tiers and the novelty check read the QUESTION, never the
+    # envelope around it: `subject` is our own field, and a despair phrase or a
+    # repeat can only reach the person through the text they are shown.
     guarded = _safety_guarded_reply(request, checked, language, text)
     if guarded is not None:
         # Tier 2 replaced the answer: the fixed text repeats nothing the
-        # person was shown, so it is novel by construction.
+        # person was shown, so it is novel by construction. Its subject is
+        # dropped with the question it belonged to — the text returned is not
+        # the model's any more.
         _log_novelty(request, attempts=1, verdict=NOT_A_REPEAT, novel=True)
         return QuestionResponse(text=guarded, novel=True)
 
@@ -974,15 +1139,24 @@ async def twinkler_complete(
             request.turns(),
             (list(request.skipped_questions) + [text])[-MAX_SKIPPED_QUESTIONS:],
             prompt_language,
+            gender,
+            used_subjects(request, subject or subject_excerpt(text)),
         )
         try:
-            second = await complete(retry_message, language, deadline)
+            second_raw = await complete(retry_message, language, deadline)
         except GeminiError as error:
             # NOT a 502: an answer is already in hand, and the person is
             # better served by a repeated question than by an error.
             logger.warning("Twinkler AI second generation failed: %s", error)
-            second = None
-        if second is not None:
+            second_answer = None
+        else:
+            # Read with the same parser and NO second format retry: this call
+            # already is the extra one the budget allowed, and an unreadable
+            # answer here simply loses to the question already in hand unless
+            # its own first line is the less similar of the two.
+            second_answer = parse_question(second_raw)
+        if second_answer is not None:
+            second = second_answer.question
             guarded = _safety_guarded_reply(request, checked, language, second)
             if guarded is not None:
                 _log_novelty(request, attempts=2, verdict=NOT_A_REPEAT, novel=True)
@@ -993,11 +1167,17 @@ async def twinkler_complete(
             # similarity the person will never see.
             second_verdict = is_repeat(second, shown)
             if not second_verdict.repeat or second_verdict.score < verdict.score:
-                text, verdict = second, second_verdict
+                # The subject travels with the question it describes.
+                text, verdict, subject = second, second_verdict, second_answer.subject
             novel = not verdict.repeat
 
+    # The one write to the subject memory, and the only place a question is
+    # about to be SHOWN: the next request will carry this text back as an
+    # `assistant` turn or in `skipped_questions`, and this is how it will then
+    # be named (ADR 0017). A `None` subject records nothing.
+    _subjects.remember(text, subject)
     _log_novelty(request, attempts=attempts, verdict=verdict, novel=novel)
-    return QuestionResponse(text=text, novel=novel)
+    return QuestionResponse(text=text, novel=novel, subject=subject)
 
 
 @router.post(

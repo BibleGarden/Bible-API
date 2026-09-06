@@ -74,9 +74,12 @@ The endpoint requires the common `X-API-Key` header. Unknown JSON fields are
 rejected, and the two removed ones (`user`, `last_user_message`) are rejected
 with a `422` that names them and says what to send instead — "extra inputs are
 not permitted" would send whoever reads the log to the wrong place. The
-response is `{ "text": "...", "novel": true }` on success — `novel` is
-additive (ClickUp 86cbehyg0, "The question must be new" below) and a client
-that reads only `text` behaves exactly as before. Documented errors are `403`,
+response is `{ "text": "...", "novel": true, "subject": "..." }` on success —
+both `novel` (ClickUp 86cbehyg0, "The question must be new" below) and
+`subject` (prompt v6, "v6" below: the 2-4 words the model named as the subject
+of this question, `null` when its answer could not be read as the structured
+object) are additive, and a client that reads only `text` behaves exactly as
+before. Documented errors are `403`,
 `429` with `Retry-After`, `502`, and `503`; validation errors use `422`.
 
 A **reply** showing despair or self-harm is answered with a fixed warm text
@@ -391,7 +394,7 @@ reason it is not a `413` is that `413` is this endpoint's promise about the
 
 The system prompt of `POST /api/ai/question` lives in
 `app/question_prompt.py`, versioned by `QUESTION_PROMPT_VERSION` (currently
-`5`) in the same way as `query_rewrite.REWRITE_PROMPT_VERSION` and
+`6`) in the same way as `query_rewrite.REWRITE_PROMPT_VERSION` and
 `passage_rerank.RERANK_PROMPT_VERSION`. Changing the wording means editing
 that file and bumping the version.
 
@@ -399,6 +402,80 @@ that file and bumping the version.
 production languages are Russian, Ukrainian and English; an undetermined
 language receives the universal English instruction to infer the answer
 language from the person's latest substantive words.
+
+### v6: a structured answer, the angle and the gender from code (ClickUp 86cbejvt2, 2026-09-06)
+
+Implemented on the branch of 86cbejvt2 and **not measured yet** — whether it is
+better than v5 on Qwen3-30B is the next step of the umbrella (86cbejvq1).
+The decision record is
+`architect/adr/0017-structured-question-response.md`.
+
+v6 is the first revision that changes the *contract* rather than the wording,
+because the wording levers are spent. The independent assessment of v5
+(86cbejtt2, `FABLE_ASSESSMENT.md`, 396 answers read by hand) measured on Qwen:
+the masculine addressed to a woman in **15 answers of 99**, six verbatim
+duplicates inside one Ukrainian replacement series, one subject reworded
+through a whole series, «X или Y» menus in five scenarios and advice worded as
+a question. v5 already forbids each of those in words.
+
+**The criterion is depth** (Maria, 2026-09-06): a question worth stopping over.
+One bullet of "how to choose" and both worked examples say what that means —
+take the tension between two things the person named themselves, ask about a
+choice or about something they are about to do rather than about a feeling,
+hold on to a concrete detail of their words. Nothing in the handler rejects an
+answer for its gender, its menus or its dashes.
+
+1. **The answer is an object.** `{"subject": "<2-4 words>", "question": "<one
+   open question>"}` on one line; the prompt carries a "response format"
+   section with one example *of the format*. `app/question_format.py` reads it
+   — `json.loads`, then `json_repair.repair_json_object` (the rewrite stage's
+   own bounded repair, imported rather than copied), then a regex for the
+   `question` field, then the answer's first line as it is. On that last rung
+   the handler asks for **one** more generation with the same input, inside the
+   same request `Deadline` and only with `MIN_SECOND_ATTEMPT_SECONDS` left;
+   never a second one. The person is shown `question` alone, and
+   `QuestionResponse.subject` carries the rest.
+2. **The angle of the step.** At `next` one line names which of the goal's five
+   angles this question is about — what matters to them, what they want, what
+   they are choosing between, what they accept, what they want to bring to God
+   — chosen by `clarification_angle(len(skipped_questions), language)` and
+   rotating after five. `first` and `reflect` get none.
+3. **The gender is stated, not asked for.** `person_gender.detect_gender` reads
+   a reviewed list of first-person forms from the person's own words (their
+   `user` turns and the topic, never a Twinkler question — that is where the
+   error lives); a contradiction and an unknown are both `None`, which the
+   message renders as "word the question so that it needs no gendered forms".
+   The ru/uk paragraph listing «рада»/«рад» is gone from the prompt.
+4. **The subjects already used are listed**, and the server is what remembers
+   them: `question_format.SubjectMemory` maps each question we have shown to
+   the subject the model named for it (two hours, 2000 entries, oldest evicted)
+   and `build_user_message` renders one block at `next`. A miss degrades to an
+   excerpt of the question itself — no worse than v5 — so a restart costs
+   precision and nothing else. The client contract is untouched; ADR 0017
+   weighs the three ways to get this list and why this is the one.
+5. **Two shapes are forbidden by name**, the way v2's rules had to be: no tail
+   after a dash explaining the motive, and no choice between two options the
+   model itself named.
+
+Unchanged: both despair tiers (`app/safety.py`, still the person's last reply,
+now applied to the parsed question), the meaning of `novel`, the request
+contract, the limits, and the reference data of `evaluation/`. Nothing was
+added to make the companion warmer (Maria, 2026-09-05).
+
+One line per answered request says how the answer parsed and carries no text:
+`question format: parsed=json|repaired|regex|retry_ok|retry_failed|raw`.
+`retry_ok` — the first answer was unreadable, a second was asked for and it
+parsed; `retry_failed` — that second answer was no better (or its call failed)
+and the first one stands; `raw` — unreadable and no retry was affordable inside
+the budget. An answer holding no question at all (`{"question": ""}`,
+`{"question": null}`) is the one shape that is not shown in any form: it
+answers the same `502` a provider that returned nothing already produces.
+
+On the `openai_compat` transport this stage now sends
+`response_format: {"type": "json_object"}` — the server-side grammar is a
+stronger guarantee than the format section, and the parser stays because the
+Gemini branch is unchanged and because a grammar does not stop a model from
+naming the key `quesiton`.
 
 ### v5: meaningful questions and localized instructions (ClickUp 86cbejq55, 2026-09-06)
 

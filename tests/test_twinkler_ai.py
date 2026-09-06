@@ -7,6 +7,7 @@ import inspect
 import json
 import logging
 import os
+import re
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -31,6 +32,7 @@ from embeddings import build_embedding_client
 from passage_rerank import build_passage_reranker
 from query_rewrite import build_query_rewriter
 import middleware
+import question_format
 import question_prompt
 import rate_limit
 import safety
@@ -80,6 +82,35 @@ def question_body(
     return body
 
 
+# The subject every scripted answer carries, so an assertion can name it once.
+# Its content means nothing: what the tests pin is that it reaches the response
+# and that the person is still shown `question` alone (prompt v6, 86cbejvt2).
+ANSWER_SUBJECT = "предмет размышления"
+
+
+def model_answer(question: str, subject: str | None = ANSWER_SUBJECT) -> str:
+    """One provider answer in the v6 contract: `{"subject": …, "question": …}`.
+
+    Every stand-in below answers through this, because the endpoint parses the
+    provider's text now (`app/question_format.py`) and a bare line would make
+    each of these tests measure the format fallback instead of what it is
+    about. `Raw` is how a test scripts a bare line on purpose.
+    """
+    payload = {"question": question}
+    if subject is not None:
+        payload["subject"] = subject
+    return json.dumps(payload, ensure_ascii=False)
+
+
+class Raw(str):
+    """A provider answer scripted verbatim — never wrapped in the envelope."""
+
+
+def answered(text: str, novel: bool = True, subject: str | None = ANSWER_SUBJECT):
+    """The whole response body of one answered question."""
+    return {"text": text, "novel": novel, "subject": subject}
+
+
 def _assert_called_with(generated, message: str, language_source_text: str) -> None:
     """One generation, with the assembled message and the language source.
 
@@ -97,6 +128,11 @@ def _assert_called_with(generated, message: str, language_source_text: str) -> N
 @pytest.fixture(autouse=True)
 def allow_ai_requests(monkeypatch):
     twinkler_ai._limiter.reset()
+    # The subject memory of prompt v6 is process-local and outlives a request
+    # on purpose (ClickUp 86cbejvt2), so it also outlives a test. Cleared here
+    # for the same reason the limiter is: one test must never be answered
+    # differently because of what another one asked.
+    twinkler_ai._subjects = question_format.SubjectMemory()
     reservation = Mock()
     monkeypatch.setattr(twinkler_ai, "_reserve_rate_limit", reservation)
     monkeypatch.setattr(middleware, "_insert_request_log", Mock())
@@ -120,14 +156,18 @@ def test_question_prompt_is_a_usable_constant():
         prompt = question_prompt.build_question_prompt(language)
         assert prompt.strip() == prompt != ""
         assert len(prompt) <= 8000
-        assert "{" not in prompt and "}" not in prompt
+        # No unfilled placeholder survives into what is sent. Literal braces
+        # DO appear since v6 — the response-format section shows the JSON
+        # object the model must return (ClickUp 86cbejvt2) — so the check is
+        # on `{name}` shapes rather than on the character.
+        assert re.search(r"\{[a-z_]+\}", prompt) is None
     assert len({question_prompt.build_question_prompt(code) for code in ("ru", "uk", "en")}) == 3
 
 
 def test_question_prompt_is_versioned():
     version = question_prompt.QUESTION_PROMPT_VERSION
     assert isinstance(version, int) and version >= 1
-    assert version == 5
+    assert version == 6
 
 
 def test_v5_system_prompt_has_named_sections_and_data_rules():
@@ -194,22 +234,87 @@ def test_the_prompt_bans_interpreting_and_rhetorical_questions():
         assert softener not in template.lower()
 
 
-def test_v5_localizes_gender_rules_only_where_the_language_needs_them():
-    """The second half of the bug of 86cbehtkh, in the prompt (86cbehyf8).
+def test_v6_takes_the_gender_out_of_the_prompt_and_into_the_message():
+    """The example forms left the prompt when code started deciding (86cbejvt2).
 
-    A woman wrote «я рада» / «заснула» and was addressed as «ты считал» /
-    «зробив» — 30 answers of 30 on the Ukrainian series. The rule sits beside
-    the sentence about inflected languages, names the forms rather than
-    describing them (that is what made v2's rules hold), and says what to do
-    when the words do not say: ask something that needs no gender.
+    v4 and v5 asked the model to read the gender off «рада»/«сделала» and
+    Qwen3-30B still answered a woman in the masculine 15 times in 99
+    (`FABLE_ASSESSMENT.md`). `person_gender.detect_gender` decides it now and
+    `build_user_message` states it, so the prompt must say exactly one thing
+    about gender: it is given, do not infer it — least of all from a Twinkler
+    question, which may carry the very error this replaces.
     """
     russian = question_prompt.build_question_prompt("ru")
     ukrainian = question_prompt.build_question_prompt("uk")
     english = question_prompt.build_question_prompt("en")
 
-    assert "«рада», «сделала» — женщина" in russian
-    assert "«рада», «заснула», «втомилася» — жінка" in ukrainian
-    assert "«рада»" not in english and "«заснула»" not in english
+    assert "Род обращения указан в сообщении" in russian
+    assert "Рід звертання вказано в повідомленні" in ukrainian
+    for prompt in (russian, ukrainian, english):
+        for form in ("«рада»", "«сделала»", "«заснула»", "«втомилася»"):
+            assert form not in prompt
+    # English second-person address carries no gender at all: the rule is
+    # absent there rather than translated.
+    assert "gender" not in english.lower()
+
+
+def test_v6_asks_for_the_structured_answer_in_every_language():
+    """One JSON object, and the same two fields whatever the prompt language."""
+    for language in ("ru", "uk", "en", None):
+        prompt = question_prompt.build_question_prompt(language)
+        assert '"subject"' in prompt and '"question"' in prompt
+        assert "JSON" in prompt
+
+
+def test_v6_forbids_the_dash_tail_and_the_menu_it_names_itself():
+    """The two shapes `FABLE_ASSESSMENT.md` counted, banned by name (86cbejvt2)."""
+    russian = question_prompt.build_question_prompt("ru")
+
+    assert "хвост после тире" in russian
+    assert "из двух вариантов, названных тобой самим" in russian
+    template = question_prompt.QUESTION_PROMPT_TEMPLATE
+    assert "dash and a tail" in template
+    assert "two options you named yourself" in template
+
+
+def test_v6_examples_are_from_a_domain_the_app_never_sees():
+    """Worked examples must not be answers the benchmark could grade.
+
+    The same de-fingerprinting rule `query_rewrite`'s examples follow: an
+    example that touches an evaluation input teaches the model the answer to
+    a case it will be measured on.
+    """
+    inputs = json.loads(
+        (EVALUATION / "question_quality_inputs.json").read_text(encoding="utf-8")
+    )["inputs"]
+    # Whole topics, and only the ones that are a phrase: a one-word topic like
+    # «Вибір» is an ordinary word of the language, and forbidding it would ban
+    # the word "choice" from an example about choosing rather than catch a
+    # fingerprint.
+    topics = [
+        entry["topic"].casefold()
+        for entry in inputs
+        if len(entry["topic"].split()) > 1
+    ]
+    blocks = {
+        "ru": ("# Примеры хорошего вопроса", "# Чего избегать"),
+        "uk": ("# Приклади доброго запитання", "# Чого уникати"),
+        "en": ("# Examples of a good question", "# Avoid"),
+        None: ("# Examples of a good question", "# Avoid"),
+    }
+
+    for language, (opening, closing) in blocks.items():
+        prompt = question_prompt.build_question_prompt(language)
+        assert opening in prompt and closing in prompt
+        block = prompt.split(opening)[1].split(closing)[0].casefold()
+        # Two examples, each on its own bullet.
+        assert block.count("\n- ") == 2
+        for topic in topics:
+            assert topic not in block
+        # And no prayer at all: the examples are deliberately secular, so the
+        # model cannot copy one back as an answer.
+        for word in ("молитв", "prayer", "бог", "god", "молитов"):
+            assert word not in block
 
 
 def test_the_prompt_is_built_from_whatever_text_it_is_given():
@@ -334,7 +439,7 @@ def test_requires_api_key():
 
 
 def test_returns_generated_text(monkeypatch):
-    generated = AsyncMock(return_value="Ответ")
+    generated = AsyncMock(return_value=model_answer("Ответ"))
     monkeypatch.setattr(twinkler_ai, "complete", generated)
 
     response = client.post(
@@ -344,7 +449,7 @@ def test_returns_generated_text(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json() == {"text": "Ответ", "novel": True}
+    assert response.json() == answered("Ответ", True)
     _assert_called_with(
         generated,
         question_prompt.build_user_message("Запрос", "first", [], language=None),
@@ -383,7 +488,7 @@ def test_returns_generated_text(monkeypatch):
 def test_the_model_gets_the_assembled_message_and_the_language_of_the_person(
     monkeypatch, body, expected_language_source
 ):
-    generated = AsyncMock(return_value="Ответ")
+    generated = AsyncMock(return_value=model_answer("Ответ"))
     monkeypatch.setattr(twinkler_ai, "complete", generated)
 
     response = client.post(
@@ -402,6 +507,14 @@ def test_the_model_gets_the_assembled_message_and_the_language_of_the_person(
             if expected_language_source
             else "en"
         ),
+        # Nothing was generated in this process before the call, so every
+        # question already in the history is named by an excerpt of itself
+        # (prompt v6 — `question_format.SubjectMemory` is empty).
+        used_subjects=[
+            question_format.subject_excerpt(message["text"])
+            for message in body["messages"]
+            if message["role"] == "assistant"
+        ],
     )
     _assert_called_with(generated, expected_message, expected_language_source)
 
@@ -561,7 +674,7 @@ SKIPPED_TWO = "А что, если завтра всё окажется не т�
 
 def _model_message(monkeypatch, body) -> str:
     """Post `body` and return the message the model was handed."""
-    generated = AsyncMock(return_value="Ответ")
+    generated = AsyncMock(return_value=model_answer("Ответ"))
     monkeypatch.setattr(twinkler_ai, "complete", generated)
 
     response = client.post(
@@ -590,7 +703,11 @@ def test_a_request_without_the_field_is_answered_exactly_as_before(monkeypatch):
 
     assert without == empty
     assert without == question_prompt.build_user_message(
-        "Тема", "next", list(messages), language=None
+        "Тема",
+        "next",
+        list(messages),
+        language=None,
+        used_subjects=[question_format.subject_excerpt(messages[0][1])],
     )
     assert "попросил другой вопрос" not in without
 
@@ -606,12 +723,21 @@ def test_the_skipped_questions_reach_the_model_at_next(monkeypatch):
         ),
     )
 
+    # «рада» — `person_gender.detect_gender` says `f`, and the endpoint states
+    # it in the message instead of asking the model to work it out (v6).
     assert message == question_prompt.build_user_message(
         "Понять масштаб целей на завтра",
         "next",
         [("user", "Я рада тому, что сегодня немало сделано.")],
         [SKIPPED_ONE, SKIPPED_TWO],
         "ru",
+        "f",
+        # Neither skipped question was generated in this process, so each is
+        # named by an excerpt of itself (prompt v6).
+        [
+            question_format.subject_excerpt(SKIPPED_ONE),
+            question_format.subject_excerpt(SKIPPED_TWO),
+        ],
     )
     assert json.dumps(SKIPPED_ONE, ensure_ascii=False) in message
     assert json.dumps(SKIPPED_TWO, ensure_ascii=False) in message
@@ -670,7 +796,7 @@ def test_the_skipped_questions_have_their_own_limits(skipped, why):
 
 def test_the_skipped_questions_count_towards_the_total(monkeypatch):
     """16 000 characters is the ceiling for the whole request, not per field."""
-    monkeypatch.setattr(twinkler_ai, "complete", AsyncMock(return_value="Ответ"))
+    monkeypatch.setattr(twinkler_ai, "complete", AsyncMock(return_value=model_answer("Ответ")))
     body = question_body(
         topic="т" * 2000,
         stage="next",
@@ -717,7 +843,9 @@ def test_a_blank_entry_is_dropped_rather_than_refused(monkeypatch):
 
     assert json.dumps(SKIPPED_ONE, ensure_ascii=False) in message
     assert '- ""\n' not in message
-    assert message.count("\n- ") == 2  # the surviving question and the answer
+    # The surviving skipped question, the answer, and the one line of the
+    # used-subjects block that names that same question (prompt v6).
+    assert message.count("\n- ") == 3
 
     # An all-blank list is the same request as no list at all — including at
     # `first`, where a non-empty one is a 422.
@@ -778,7 +906,7 @@ def test_the_skipped_questions_never_decide_the_language(monkeypatch):
 def test_a_despair_phrase_in_a_skipped_question_never_fires_the_rule(monkeypatch):
     """The person did not write it — we did, and the model was already
     answered for by tier 2 on its own reply."""
-    generated = AsyncMock(return_value="Что помогло тебе сегодня?")
+    generated = AsyncMock(return_value=model_answer("Что помогло тебе сегодня?"))
     monkeypatch.setattr(twinkler_ai, "complete", generated)
     despair = _probe_topic("probe-despair")
 
@@ -795,7 +923,7 @@ def test_a_despair_phrase_in_a_skipped_question_never_fires_the_rule(monkeypatch
 
     assert response.status_code == 200
     generated.assert_awaited_once()
-    assert response.json() == {"text": "Что помогло тебе сегодня?", "novel": True}
+    assert response.json() == answered("Что помогло тебе сегодня?", True)
     assert twinkler_ai.safety_input_text(
         twinkler_ai.CompleteRequest(**question_body(
             topic="Развод",
@@ -836,7 +964,7 @@ def test_a_despair_phrase_in_a_skipped_question_never_fires_the_rule(monkeypatch
     ],
 )
 def test_an_explicit_despair_message_never_reaches_the_model(monkeypatch, body):
-    generated = AsyncMock(return_value="Ты сейчас очень одинок?")
+    generated = AsyncMock(return_value=model_answer("Ты сейчас очень одинок?"))
     monkeypatch.setattr(twinkler_ai, "complete", generated)
 
     response = client.post(
@@ -846,7 +974,7 @@ def test_an_explicit_despair_message_never_reaches_the_model(monkeypatch, body):
     )
 
     assert response.status_code == 200
-    assert response.json() == {"text": safety.SAFETY_REPLIES["ru"], "novel": True}
+    assert response.json() == answered(safety.SAFETY_REPLIES["ru"], True, subject=None)
     generated.assert_not_awaited()
     assert "?" not in response.json()["text"]
 
@@ -862,7 +990,7 @@ def test_despair_in_an_older_reply_lets_the_conversation_go_on(monkeypatch):
     turn now, and the companion must be able to keep asking for the rest of
     the prayer.
     """
-    generated = AsyncMock(return_value="Что помогло тебе сегодня?")
+    generated = AsyncMock(return_value=model_answer("Что помогло тебе сегодня?"))
     monkeypatch.setattr(twinkler_ai, "complete", generated)
     body = question_body(
         topic="Развод",
@@ -885,13 +1013,13 @@ def test_despair_in_an_older_reply_lets_the_conversation_go_on(monkeypatch):
     generated.assert_awaited_once()
     # The last reply carries no despair signal of its own, so the model's
     # real question is kept — the fixed reply does not answer for it.
-    assert response.json() == {"text": "Что помогло тебе сегодня?", "novel": True}
+    assert response.json() == answered("Что помогло тебе сегодня?", True)
 
 
 def test_an_older_despair_reply_keeps_a_warm_answer(monkeypatch):
     """Tier 2 is a floor, not a mute button: a non-question answer stands."""
     warm = "Хорошо, что ты позвонила сестре — ты не одна в этом."
-    monkeypatch.setattr(twinkler_ai, "complete", AsyncMock(return_value=warm))
+    monkeypatch.setattr(twinkler_ai, "complete", AsyncMock(return_value=model_answer(warm)))
 
     response = client.post(
         "/api/ai/question",
@@ -908,7 +1036,7 @@ def test_an_older_despair_reply_keeps_a_warm_answer(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json() == {"text": warm, "novel": True}
+    assert response.json() == answered(warm, True)
 
 
 def test_a_topic_is_never_read_as_a_reply_the_person_did_not_send(monkeypatch):
@@ -918,7 +1046,7 @@ def test_a_topic_is_never_read_as_a_reply_the_person_did_not_send(monkeypatch):
     with the fixed reply — the same forever-loop as above, wearing a topic.
     The model is called normally and tier 2 still guards the answer.
     """
-    generated = AsyncMock(return_value="Ты не один с этим.")
+    generated = AsyncMock(return_value=model_answer("Ты не один с этим."))
     monkeypatch.setattr(twinkler_ai, "complete", generated)
 
     response = client.post(
@@ -929,12 +1057,12 @@ def test_a_topic_is_never_read_as_a_reply_the_person_did_not_send(monkeypatch):
 
     assert response.status_code == 200
     generated.assert_awaited_once()
-    assert response.json() == {"text": "Ты не один с этим.", "novel": True}
+    assert response.json() == answered("Ты не один с этим.", True)
 
 
 def test_the_same_topic_on_the_first_question_is_answered_in_code(monkeypatch):
     """…but at `first` the topic IS the newest thing the person wrote."""
-    generated = AsyncMock(return_value="unused")
+    generated = AsyncMock(return_value=model_answer("unused"))
     monkeypatch.setattr(twinkler_ai, "complete", generated)
 
     response = client.post(
@@ -944,7 +1072,7 @@ def test_the_same_topic_on_the_first_question_is_answered_in_code(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json() == {"text": safety.SAFETY_REPLIES["ru"], "novel": True}
+    assert response.json() == answered(safety.SAFETY_REPLIES["ru"], True, subject=None)
     generated.assert_not_awaited()
 
 
@@ -959,7 +1087,7 @@ def test_the_fixed_reply_is_in_the_language_of_the_person_not_of_the_blocks(
     monkeypatch.setattr(
         twinkler_ai,
         "complete",
-        AsyncMock(return_value="What would you like to tell God?"),
+        AsyncMock(return_value=model_answer("What would you like to tell God?")),
     )
 
     response = client.post(
@@ -976,7 +1104,7 @@ def test_the_fixed_reply_is_in_the_language_of_the_person_not_of_the_blocks(
     )
 
     assert response.status_code == 200
-    assert response.json() == {"text": safety.SAFETY_REPLIES["en"], "novel": True}
+    assert response.json() == answered(safety.SAFETY_REPLIES["en"], True, subject=None)
 
 
 def test_the_last_reply_now_outvotes_a_long_russian_topic(monkeypatch):
@@ -992,7 +1120,7 @@ def test_the_last_reply_now_outvotes_a_long_russian_topic(monkeypatch):
     used — so the two halves of one request can no longer disagree.
     """
     monkeypatch.setattr(
-        twinkler_ai, "complete", AsyncMock(return_value="Что тебя сейчас держит?")
+        twinkler_ai, "complete", AsyncMock(return_value=model_answer("Что тебя сейчас держит?"))
     )
 
     response = client.post(
@@ -1009,7 +1137,7 @@ def test_the_last_reply_now_outvotes_a_long_russian_topic(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json() == {"text": safety.SAFETY_REPLIES["en"], "novel": True}
+    assert response.json() == answered(safety.SAFETY_REPLIES["en"], True, subject=None)
     # The person's last words are English, and that is what the prompt and
     # tier 1 already used — tier 2's reply language now agrees with them.
     assert safety.detect_language("I'm a burden") == "en"
@@ -1022,7 +1150,7 @@ def test_the_fixed_reply_still_costs_a_request_slot(monkeypatch, allow_ai_reques
     counts replies, not provider calls, and one code path cannot be used to
     probe the endpoint for free.
     """
-    monkeypatch.setattr(twinkler_ai, "complete", AsyncMock(return_value="unused"))
+    monkeypatch.setattr(twinkler_ai, "complete", AsyncMock(return_value=model_answer("unused")))
 
     response = client.post(
         "/api/ai/question",
@@ -1036,7 +1164,7 @@ def test_the_fixed_reply_still_costs_a_request_slot(monkeypatch, allow_ai_reques
 
 def test_a_weak_signal_answered_with_a_question_is_replaced(monkeypatch):
     """Tier 2: the model was asked, and answered the wrong way."""
-    generated = AsyncMock(return_value="What would you like to tell God?")
+    generated = AsyncMock(return_value=model_answer("What would you like to tell God?"))
     monkeypatch.setattr(twinkler_ai, "complete", generated)
     # en-005 of the approved scenarios, as the app sends it now.
     body = question_body(
@@ -1052,14 +1180,14 @@ def test_a_weak_signal_answered_with_a_question_is_replaced(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json() == {"text": safety.SAFETY_REPLIES["en"], "novel": True}
+    assert response.json() == answered(safety.SAFETY_REPLIES["en"], True, subject=None)
     generated.assert_awaited_once()
 
 
 def test_a_weak_signal_answered_warmly_keeps_the_model_answer(monkeypatch):
     """Tier 2 is a floor under the answer, not a replacement for a good one."""
     warm = "You are not alone in this, and it matters that you are still here."
-    monkeypatch.setattr(twinkler_ai, "complete", AsyncMock(return_value=warm))
+    monkeypatch.setattr(twinkler_ai, "complete", AsyncMock(return_value=model_answer(warm)))
 
     response = client.post(
         "/api/ai/question",
@@ -1068,11 +1196,11 @@ def test_a_weak_signal_answered_warmly_keeps_the_model_answer(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json() == {"text": warm, "novel": True}
+    assert response.json() == answered(warm, True)
 
 
 def test_an_ordinary_message_is_untouched_by_either_tier(monkeypatch):
-    generated = AsyncMock(return_value="Что тебе сейчас труднее всего?")
+    generated = AsyncMock(return_value=model_answer("Что тебе сейчас труднее всего?"))
     monkeypatch.setattr(twinkler_ai, "complete", generated)
     topic = _probe_topic("probe-tech")
 
@@ -1083,7 +1211,7 @@ def test_an_ordinary_message_is_untouched_by_either_tier(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json() == {"text": "Что тебе сейчас труднее всего?", "novel": True}
+    assert response.json() == answered("Что тебе сейчас труднее всего?", True)
     _assert_called_with(
         generated,
         question_prompt.build_user_message(topic, "first", [], language=None),
@@ -1115,7 +1243,7 @@ def test_an_ordinary_message_is_untouched_by_either_tier(monkeypatch):
 def test_the_safety_log_records_the_rule_and_not_the_message(
     monkeypatch, caplog, body, reply, expected, private_words
 ):
-    monkeypatch.setattr(twinkler_ai, "complete", AsyncMock(return_value=reply))
+    monkeypatch.setattr(twinkler_ai, "complete", AsyncMock(return_value=model_answer(reply)))
 
     with caplog.at_level("WARNING", logger="twinkler_ai"):
         response = client.post(
@@ -1180,7 +1308,15 @@ class ScriptedComplete:
     """
 
     def __init__(self, *replies):
-        self.replies = list(replies)
+        # A plain string is a question and is wrapped in the v6 envelope the
+        # model is asked for; `Raw` scripts an answer verbatim, which is how
+        # the format tests script one the parser cannot read.
+        self.replies = [
+            reply
+            if isinstance(reply, (Exception, Raw))
+            else model_answer(reply)
+            for reply in replies
+        ]
         self.calls = []
 
     async def __call__(self, user, language_source_text=None, deadline=None):
@@ -1214,7 +1350,7 @@ def test_a_question_that_repeats_nothing_is_answered_with_one_call(monkeypatch):
     response = post_question(body)
 
     assert response.status_code == 200
-    assert response.json() == {"text": NEW_QUESTION, "novel": True}
+    assert response.json() == answered(NEW_QUESTION, True)
     assert len(generated.calls) == 1
     assert generated.calls[0].user == question_prompt.build_user_message(
         body["topic"],
@@ -1222,6 +1358,12 @@ def test_a_question_that_repeats_nothing_is_answered_with_one_call(monkeypatch):
         [(m["role"], m["text"]) for m in body["messages"]],
         body["skipped_questions"],
         "ru",
+        # PERSON_REPLY is «Я рада …», so the message states the feminine.
+        "f",
+        [
+            question_format.subject_excerpt(SHOWN_QUESTION),
+            question_format.subject_excerpt(body["skipped_questions"][0]),
+        ],
     )
 
 
@@ -1239,7 +1381,7 @@ def test_a_repeated_question_is_generated_once_more(monkeypatch):
     response = post_question(body)
 
     assert response.status_code == 200
-    assert response.json() == {"text": NEW_QUESTION, "novel": True}
+    assert response.json() == answered(NEW_QUESTION, True)
     assert len(generated.calls) == 2
     assert generated.calls[1].user == question_prompt.build_user_message(
         body["topic"],
@@ -1247,6 +1389,11 @@ def test_a_repeated_question_is_generated_once_more(monkeypatch):
         [(m["role"], m["text"]) for m in body["messages"]],
         [NEAR_REPEAT],
         "ru",
+        "f",
+        # The question already shown, plus the SUBJECT of the one just
+        # rejected — the person never saw that question, so the retry is told
+        # what it was about rather than being handed the text twice.
+        [question_format.subject_excerpt(SHOWN_QUESTION), ANSWER_SUBJECT],
     )
     assert "попросил заменить" in generated.calls[1].user
     # One budget object for the whole request, not one per call.
@@ -1266,14 +1413,21 @@ def test_a_rejected_question_joins_the_ones_the_person_declined(monkeypatch):
 
     assert response.status_code == 200
     retry = generated.calls[1].user
-    block = retry.split("Вопросы, которые человек попросил заменить:")[1]
+    block = retry.split("Вопросы, которые человек попросил заменить:")[1].split(
+        "Предметы, о которых уже спрашивали:"
+    )[0]
     bullets = [line for line in block.splitlines() if line.startswith("- ")]
     # Ten is the request's own ceiling, so the oldest declined question makes
     # room for the rejected one instead of the block growing past it.
     assert len(bullets) == twinkler_ai.MAX_SKIPPED_QUESTIONS == 10
     assert bullets[-1] == f"- {json.dumps(NEAR_REPEAT, ensure_ascii=False)}"
-    assert declined[0] not in retry
-    assert declined[-1] in retry
+    assert declined[0] not in block
+    assert declined[-1] in block
+    # The subjects block is not bounded by that ceiling — it is not the API
+    # field, it is what this prayer has already been about — so the question
+    # that left the block above is still named there (prompt v6).
+    subjects = retry.split("Предметы, о которых уже спрашивали:")[1]
+    assert declined[0] in subjects
 
 
 def test_at_reflect_the_retry_is_a_re_roll_of_the_same_bytes(monkeypatch):
@@ -1298,7 +1452,7 @@ def test_at_reflect_the_retry_is_a_re_roll_of_the_same_bytes(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json() == {"text": NEW_QUESTION, "novel": True}
+    assert response.json() == answered(NEW_QUESTION, True)
     assert len(generated.calls) == 2
     assert generated.calls[1].user == generated.calls[0].user
     assert NEAR_REPEAT not in generated.calls[1].user
@@ -1316,7 +1470,7 @@ def test_both_generations_repeat_and_the_less_similar_one_wins(monkeypatch):
     response = post_question(novelty_body())
 
     assert response.status_code == 200
-    assert response.json() == {"text": FAR_REPEAT, "novel": False}
+    assert response.json() == answered(FAR_REPEAT, False)
     assert len(generated.calls) == 2
 
 
@@ -1327,7 +1481,7 @@ def test_a_second_repeat_that_is_no_better_keeps_the_first_text(monkeypatch):
     response = post_question(novelty_body())
 
     assert response.status_code == 200
-    assert response.json() == {"text": FAR_REPEAT, "novel": False}
+    assert response.json() == answered(FAR_REPEAT, False)
     assert len(generated.calls) == 2
 
 
@@ -1344,7 +1498,7 @@ def test_a_failed_second_generation_still_answers_with_the_first_text(
         response = post_question(novelty_body())
 
     assert response.status_code == 200
-    assert response.json() == {"text": NEAR_REPEAT, "novel": False}
+    assert response.json() == answered(NEAR_REPEAT, False)
     assert len(generated.calls) == 2
     assert "second generation failed" in caplog.text
     assert PERSON_REPLY not in caplog.text
@@ -1382,7 +1536,7 @@ def test_no_second_generation_without_the_budget_for_it(monkeypatch):
     async def burn_the_budget(user, language_source_text=None, deadline=None):
         clock.advance(twinkler_ai.AI_QUESTION_TIMEOUT_SECONDS - 2.0)
         calls.append(user)
-        return NEAR_REPEAT
+        return model_answer(NEAR_REPEAT)
 
     calls: list[str] = []
     monkeypatch.setattr(twinkler_ai, "complete", burn_the_budget)
@@ -1390,7 +1544,7 @@ def test_no_second_generation_without_the_budget_for_it(monkeypatch):
     response = post_question(novelty_body())
 
     assert response.status_code == 200
-    assert response.json() == {"text": NEAR_REPEAT, "novel": False}
+    assert response.json() == answered(NEAR_REPEAT, False)
     assert len(calls) == 1
     assert 2.0 < twinkler_ai.MIN_SECOND_ATTEMPT_SECONDS
 
@@ -1408,7 +1562,7 @@ def test_a_skipped_question_counts_as_shown(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json() == {"text": NEW_QUESTION, "novel": True}
+    assert response.json() == answered(NEW_QUESTION, True)
     assert len(generated.calls) == 2
 
 
@@ -1426,7 +1580,7 @@ def test_the_persons_own_replies_are_not_questions_they_were_shown(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json() == {"text": NEAR_REPEAT, "novel": True}
+    assert response.json() == answered(NEAR_REPEAT, True)
     assert len(generated.calls) == 1
 
 
@@ -1447,9 +1601,9 @@ def test_tier_two_runs_on_the_second_reply_as_well(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json() == {
-        "text": safety.SAFETY_REPLIES["ru"], "novel": True
-    }
+    assert response.json() == answered(
+        safety.SAFETY_REPLIES["ru"], True, subject=None
+    )
     assert len(generated.calls) == 2
 
 
@@ -1463,9 +1617,9 @@ def test_an_explicit_despair_message_needs_no_novelty_check(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json() == {
-        "text": safety.SAFETY_REPLIES["ru"], "novel": True
-    }
+    assert response.json() == answered(
+        safety.SAFETY_REPLIES["ru"], True, subject=None
+    )
     assert generated.calls == []
 
 
@@ -1535,6 +1689,400 @@ def test_the_novelty_line_is_visible_under_uvicorn():
         twinkler_ai.logger.setLevel(level)
 
 
+# --- the structured answer of prompt v6 (ClickUp 86cbejvt2) ----------------
+#
+# The model returns `{"subject": …, "question": …}` now. What is pinned here is
+# the endpoint's behaviour around that parse — which text the person is shown,
+# what `subject` carries, how many calls an unreadable answer costs, and that
+# both safety tiers and the novelty check read the QUESTION and not the
+# envelope. The parse itself is `tests/test_question_format.py`.
+
+
+def test_the_answer_is_the_question_field_and_the_subject_travels_with_it(
+    monkeypatch,
+):
+    generated = ScriptedComplete()
+    generated.replies = [
+        model_answer(NEW_QUESTION, subject="завтрашние дела")
+    ]
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+
+    response = post_question(novelty_body())
+
+    assert response.status_code == 200
+    assert response.json() == answered(
+        NEW_QUESTION, True, subject="завтрашние дела"
+    )
+    assert len(generated.calls) == 1
+
+
+def test_an_answer_without_a_subject_still_answers(monkeypatch):
+    """`subject` is advisory: a missing one is `null`, never an error."""
+    generated = ScriptedComplete()
+    generated.replies = [model_answer(NEW_QUESTION, subject=None)]
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+
+    response = post_question(novelty_body())
+
+    assert response.status_code == 200
+    assert response.json() == answered(NEW_QUESTION, True, subject=None)
+
+
+def test_an_unreadable_answer_is_generated_exactly_once_more(monkeypatch):
+    """The format retry: one more call with the SAME input, never two."""
+    generated = ScriptedComplete(Raw("Что для тебя главное завтра?"), NEW_QUESTION)
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+
+    response = post_question(novelty_body())
+
+    assert response.status_code == 200
+    assert response.json() == answered(NEW_QUESTION, True)
+    assert len(generated.calls) == 2
+    # The same bytes: the format is the model's failure, not the request's.
+    assert generated.calls[0].user == generated.calls[1].user
+    # And one budget for both, as with the novelty retry.
+    assert generated.calls[0].deadline is generated.calls[1].deadline
+
+
+def test_a_second_unreadable_answer_is_accepted_as_it_is(monkeypatch):
+    """Never a third call: the first line of the answer is shown instead."""
+    generated = ScriptedComplete(
+        Raw("Что для тебя главное завтра?"),
+        Raw("Ещё раз то же самое?\nи пояснение, которого никто не просил"),
+    )
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+
+    response = post_question(novelty_body())
+
+    assert response.status_code == 200
+    # The FIRST answer stands — the regeneration did not honour the contract
+    # either, and re-rolling again would only cost the person time.
+    assert response.json() == answered(
+        "Что для тебя главное завтра?", True, subject=None
+    )
+    assert len(generated.calls) == 2
+
+
+def test_a_failed_format_regeneration_is_not_a_502(monkeypatch):
+    """A question is already in hand; an envelope is not worth an error."""
+    generated = ScriptedComplete(
+        Raw("Что для тебя главное завтра?"),
+        twinkler_ai.GeminiError("second call exploded"),
+    )
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+
+    response = post_question(novelty_body())
+
+    assert response.status_code == 200
+    assert response.json() == answered(
+        "Что для тебя главное завтра?", True, subject=None
+    )
+    assert len(generated.calls) == 2
+
+
+def test_no_format_regeneration_without_the_budget_for_it(monkeypatch):
+    """The same floor the novelty retry respects, on the same clock."""
+    from test_gemini_retry import FakeClock
+
+    clock = FakeClock()
+    real_deadline = twinkler_ai.Deadline
+    monkeypatch.setattr(
+        twinkler_ai,
+        "Deadline",
+        lambda seconds: real_deadline(seconds, clock=clock),
+    )
+    calls: list[str] = []
+
+    async def burn_the_budget(user, language_source_text=None, deadline=None):
+        clock.advance(twinkler_ai.AI_QUESTION_TIMEOUT_SECONDS - 2.0)
+        calls.append(user)
+        return "Что для тебя главное завтра?"
+
+    monkeypatch.setattr(twinkler_ai, "complete", burn_the_budget)
+
+    response = post_question(novelty_body())
+
+    assert response.status_code == 200
+    assert response.json() == answered(
+        "Что для тебя главное завтра?", True, subject=None
+    )
+    assert len(calls) == 1
+
+
+def test_the_novelty_check_reads_the_question_not_the_envelope(monkeypatch):
+    """A repeat wrapped in a different subject is still a repeat."""
+    generated = ScriptedComplete()
+    generated.replies = [
+        model_answer(NEAR_REPEAT, subject="одна тема"),
+        model_answer(NEW_QUESTION, subject="другая тема"),
+    ]
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+
+    response = post_question(novelty_body())
+
+    assert response.status_code == 200
+    assert response.json() == answered(NEW_QUESTION, True, subject="другая тема")
+    assert len(generated.calls) == 2
+
+
+def test_tier_two_reads_the_question_not_the_envelope(monkeypatch):
+    """A despair-shaped question inside the object is still replaced."""
+    generated = ScriptedComplete()
+    generated.replies = [model_answer("Что тебе сейчас труднее всего?")]
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+
+    response = post_question(
+        novelty_body(reply="Я не могу больше так жить.")
+    )
+
+    assert response.status_code == 200
+    assert response.json() == answered(
+        safety.SAFETY_REPLIES["ru"], True, subject=None
+    )
+
+
+@pytest.mark.parametrize(
+    ("reply", "expected"),
+    [
+        (model_answer(NEW_QUESTION), "json"),
+        # A trailing comma: repaired by the shared repairer.
+        (
+            '{"subject": "тема", "question": '
+            f'"{NEW_QUESTION}",}}',
+            "repaired",
+        ),
+        # No object at all, but the field is there.
+        (f'"question": "{NEW_QUESTION}" — вот такой ответ', "regex"),
+    ],
+)
+def test_the_format_line_names_the_rung_that_read_the_answer(
+    monkeypatch, caplog, reply, expected
+):
+    generated = ScriptedComplete()
+    generated.replies = [reply]
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+
+    with caplog.at_level("INFO", logger="twinkler_ai"):
+        response = post_question(novelty_body())
+
+    assert response.status_code == 200
+    lines = [
+        record.getMessage()
+        for record in caplog.records
+        if record.getMessage().startswith("question format:")
+    ]
+    assert lines == [f"question format: parsed={expected}"]
+    # The line never carries a word of the answer.
+    assert NEW_QUESTION not in lines[0]
+
+
+def test_the_format_line_says_retry_when_a_regeneration_read_it(
+    monkeypatch, caplog
+):
+    generated = ScriptedComplete(Raw("Что для тебя главное завтра?"), NEW_QUESTION)
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+
+    with caplog.at_level("INFO", logger="twinkler_ai"):
+        response = post_question(novelty_body())
+
+    assert response.status_code == 200
+    assert "question format: parsed=retry_ok" in [
+        record.getMessage() for record in caplog.records
+    ]
+
+
+def test_the_format_line_says_retry_failed_when_the_second_answer_is_no_better(
+    monkeypatch, caplog
+):
+    """`retry_ok` and `retry_failed` are separate on purpose (review of this
+    ticket): one label for both hid which half of the pair actually helps."""
+    generated = ScriptedComplete(
+        Raw("Что для тебя главное завтра?"), Raw("И снова без объекта?")
+    )
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+
+    with caplog.at_level("INFO", logger="twinkler_ai"):
+        response = post_question(novelty_body())
+
+    assert response.status_code == 200
+    assert "question format: parsed=retry_failed" in [
+        record.getMessage() for record in caplog.records
+    ]
+
+
+def test_the_format_line_says_raw_when_no_retry_was_affordable(
+    monkeypatch, caplog
+):
+    """No budget for a second call: the label stays the rung that read it."""
+    from test_gemini_retry import FakeClock
+
+    clock = FakeClock()
+    real_deadline = twinkler_ai.Deadline
+    monkeypatch.setattr(
+        twinkler_ai,
+        "Deadline",
+        lambda seconds: real_deadline(seconds, clock=clock),
+    )
+
+    async def burn_the_budget(user, language_source_text=None, deadline=None):
+        clock.advance(twinkler_ai.AI_QUESTION_TIMEOUT_SECONDS - 2.0)
+        return "Что для тебя главное завтра?"
+
+    monkeypatch.setattr(twinkler_ai, "complete", burn_the_budget)
+
+    with caplog.at_level("INFO", logger="twinkler_ai"):
+        response = post_question(novelty_body())
+
+    assert response.status_code == 200
+    assert "question format: parsed=raw" in [
+        record.getMessage() for record in caplog.records
+    ]
+
+
+def test_the_subject_of_a_shown_question_is_remembered_for_the_next_request(
+    monkeypatch,
+):
+    """The server remembers what it asked about; the client sends only texts.
+
+    Two requests, the way the app makes them: the first is answered with a
+    question whose subject the model named, and the second carries that very
+    question back as an `assistant` turn. The subject block of the second
+    message must name the SUBJECT, not an excerpt of the question.
+    """
+    first = ScriptedComplete()
+    first.replies = [model_answer(NEW_QUESTION, subject="завтрашние дела")]
+    monkeypatch.setattr(twinkler_ai, "complete", first)
+    assert post_question(
+        question_body(topic="Понять масштаб целей на завтра", stage="first")
+    ).status_code == 200
+
+    second = ScriptedComplete("Что ещё?")
+    monkeypatch.setattr(twinkler_ai, "complete", second)
+    response = post_question(
+        question_body(
+            topic="Понять масштаб целей на завтра",
+            stage="next",
+            messages=(("assistant", NEW_QUESTION), ("user", PERSON_REPLY)),
+        )
+    )
+
+    assert response.status_code == 200
+    message = second.calls[0].user
+    assert "Предметы, о которых уже спрашивали:" in message
+    assert '- "завтрашние дела"' in message
+
+
+def test_a_question_this_process_never_generated_is_named_by_an_excerpt(
+    monkeypatch,
+):
+    """A restart, an expiry, another deployment: the block degrades, not fails.
+
+    This is the whole reason the memory may be lossy — the list is still
+    useful, it just names the question instead of its subject (ADR 0017).
+    """
+    generated = ScriptedComplete("Что ещё?")
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+
+    response = post_question(
+        question_body(
+            topic="Тема",
+            stage="next",
+            messages=(("assistant", NEW_QUESTION), ("user", "Ответ.")),
+        )
+    )
+
+    assert response.status_code == 200
+    message = generated.calls[0].user
+    assert question_format.subject_excerpt(NEW_QUESTION) in message
+
+
+def test_no_subject_block_when_nothing_has_been_shown(monkeypatch):
+    """The opening question of a prayer has no ground to avoid yet."""
+    generated = ScriptedComplete(NEW_QUESTION)
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+
+    response = post_question(question_body(topic="Тема", stage="first"))
+
+    assert response.status_code == 200
+    assert "Предметы, о которых уже спрашивали" not in generated.calls[0].user
+
+
+def test_a_reply_the_despair_rule_replaced_is_never_remembered(monkeypatch):
+    """Tier 2 discarded the model's question, so its subject describes nothing.
+
+    Remembering it would name a later block after a question nobody was ever
+    shown — and the text the person got is `app/safety.py`'s constant, which
+    has no subject at all.
+    """
+    generated = ScriptedComplete()
+    generated.replies = [
+        model_answer("Что тебе сейчас труднее всего?", subject="усталость")
+    ]
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+
+    response = post_question(novelty_body(reply="Я не могу больше так жить."))
+
+    assert response.status_code == 200
+    assert response.json() == answered(
+        safety.SAFETY_REPLIES["ru"], True, subject=None
+    )
+    assert len(twinkler_ai._subjects) == 0
+
+
+def test_an_unreadable_answer_leaves_the_memory_untouched(monkeypatch):
+    """Nothing to remember: a `raw` answer names no subject, and a guess here
+    would enter the next prompt as something the model committed to."""
+    generated = ScriptedComplete(Raw("Что для тебя главное завтра?"), Raw("И ещё?"))
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+
+    assert post_question(novelty_body()).status_code == 200
+    assert len(twinkler_ai._subjects) == 0
+
+
+def test_the_gender_reaches_the_message_from_the_persons_own_words(monkeypatch):
+    """The endpoint decides it (86cbejvt2), and only from what the person wrote.
+
+    The assistant turn deliberately carries the WRONG gender — that is the
+    defect of 86cbehtkh — and must not vote.
+    """
+    generated = ScriptedComplete(NEW_QUESTION)
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+
+    response = post_question(
+        question_body(
+            topic="Понять масштаб целей на завтра",
+            stage="next",
+            messages=(
+                ("assistant", "А что, если завтра окажется, что ты считал готовым?"),
+                ("user", "Я рада тому, что сегодня немало сделано."),
+            ),
+        )
+    )
+
+    assert response.status_code == 200
+    assert (
+        "Человек говорит о себе в женском роде" in generated.calls[0].user
+    )
+
+
+def test_a_prayer_that_says_nothing_about_gender_asks_for_no_gendered_forms(
+    monkeypatch,
+):
+    generated = ScriptedComplete(NEW_QUESTION)
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+
+    response = post_question(
+        question_body(
+            topic="Благодарность",
+            stage="next",
+            messages=(("user", "Сегодня всё было спокойно и обычно."),),
+        )
+    )
+
+    assert response.status_code == 200
+    assert "Род человека неизвестен" in generated.calls[0].user
+
+
 def test_the_openai_compat_provider_generates_twice_too(monkeypatch):
     """The retry lives in the handler, so both transports get it (ADR 0009).
 
@@ -1542,7 +2090,7 @@ def test_the_openai_compat_provider_generates_twice_too(monkeypatch):
     client is replaced, so the two calls are two real trips through the
     provider branch — and they share one `Deadline`.
     """
-    replies = [NEAR_REPEAT, NEW_QUESTION]
+    replies = [model_answer(NEAR_REPEAT), model_answer(NEW_QUESTION)]
     seen = []
 
     class RecordingChatClient:
@@ -1566,7 +2114,7 @@ def test_the_openai_compat_provider_generates_twice_too(monkeypatch):
     response = post_question(novelty_body())
 
     assert response.status_code == 200
-    assert response.json() == {"text": NEW_QUESTION, "novel": True}
+    assert response.json() == answered(NEW_QUESTION, True)
     assert len(seen) == 2
     assert seen[0] is seen[1] is not None
 
@@ -1584,7 +2132,7 @@ def test_the_gemini_call_is_bounded_by_the_request_budget(monkeypatch):
 
     def handler(request: httpx.Request) -> httpx.Response:
         timeouts.append(dict(request.extensions.get("timeout", {})))
-        text = NEAR_REPEAT if len(timeouts) == 1 else NEW_QUESTION
+        text = model_answer(NEAR_REPEAT if len(timeouts) == 1 else NEW_QUESTION)
         return httpx.Response(
             200, json={"candidates": [{"content": {"parts": [{"text": text}]}}]}
         )
@@ -1603,7 +2151,7 @@ def test_the_gemini_call_is_bounded_by_the_request_budget(monkeypatch):
     response = post_question(novelty_body())
 
     assert response.status_code == 200
-    assert response.json() == {"text": NEW_QUESTION, "novel": True}
+    assert response.json() == answered(NEW_QUESTION, True)
     assert len(timeouts) == 2
     for phases in timeouts:
         assert sum(phases.values()) <= twinkler_ai.AI_QUESTION_TIMEOUT_SECONDS
@@ -1611,7 +2159,7 @@ def test_the_gemini_call_is_bounded_by_the_request_budget(monkeypatch):
 
 
 def test_ignores_forwarded_for_from_untrusted_peer(monkeypatch, allow_ai_requests):
-    generated = AsyncMock(return_value="Ответ")
+    generated = AsyncMock(return_value=model_answer("Ответ"))
     monkeypatch.setattr(twinkler_ai, "complete", generated)
 
     response = client.post(
@@ -1628,7 +2176,7 @@ def test_ignores_forwarded_for_from_untrusted_peer(monkeypatch, allow_ai_request
 
 
 def test_uses_forwarded_for_from_trusted_peer(monkeypatch, allow_ai_requests):
-    generated = AsyncMock(return_value="Ответ")
+    generated = AsyncMock(return_value=model_answer("Ответ"))
     monkeypatch.setattr(twinkler_ai, "complete", generated)
     monkeypatch.setattr(
         client_ip, "TRUSTED_PROXIES", TrustedProxies(addresses={"testclient"})
@@ -1764,7 +2312,7 @@ def test_the_422_says_what_is_wrong(payload, expected):
 
 def test_the_limits_are_the_ones_the_client_enforces(monkeypatch):
     """40 turns and 16 000 characters together are accepted, one more is not."""
-    monkeypatch.setattr(twinkler_ai, "complete", AsyncMock(return_value="Ответ"))
+    monkeypatch.setattr(twinkler_ai, "complete", AsyncMock(return_value=model_answer("Ответ")))
     body = question_body(
         topic="т" * 2000,
         stage="next",
@@ -1847,7 +2395,7 @@ def test_missing_hmac_key_is_503(monkeypatch):
 
 
 def test_rate_limits_requests(monkeypatch):
-    generated = AsyncMock(return_value="Ответ")
+    generated = AsyncMock(return_value=model_answer("Ответ"))
     limiter = AsyncMock()
     monkeypatch.setattr(twinkler_ai, "complete", generated)
     monkeypatch.setattr(twinkler_ai, "_enforce_rate_limit", limiter)
@@ -2559,14 +3107,18 @@ def test_no_google_host_is_dialled_on_any_of_the_five_stages(monkeypatch):
                 200,
                 json={"data": [{"index": 0, "embedding": [0.6, 0.8]}]},
             )
-        # One body both stage parsers accept: `queries` for the rewrite,
-        # `candidate` for the rerank (its parser reads the whole object).
+        # One body all three chat parsers accept: `queries` for the rewrite,
+        # `candidate` for the rerank (its parser reads the whole object), and
+        # `question`/`subject` for the question stage since prompt v6 — each
+        # ignores the fields it does not own.
         return httpx.Response(
             200,
             json={"choices": [{"message": {"content": json.dumps({
                 "queries": [{"ref": "Ps 23", "query": "Господь Пастырь мой"}],
                 "candidate": 1,
                 "reason": "ok",
+                "subject": "предстоящий разговор",
+                "question": "Что для тебя важнее всего сказать в этом разговоре?",
             })}}]},
         )
 

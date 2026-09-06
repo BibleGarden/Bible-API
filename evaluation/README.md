@@ -5567,6 +5567,27 @@ v2, ни в v3; v2 и v3 отправляют вместо него `probe-tired
 | «Семантическая проверка повторов через bge-m3» | 86cbehyg8 | косинус видит мысль, где триграммы видят рамку — **решение за Марией** | `question_pairs_labelled.json`, `bench_data/question_pairs_scored.jsonl` | `question_semantic_bench.py score / report / latency` |
 | «Промпт наводящего вопроса v6-A: сэмплирование и постфильтры» (в конце файла) | 86cbejvra (зонт 86cbejvq1) | `min_p` сдвигает дословные повторы (0–2 против 4–10 у базы), род сэмплированием не чинится (15–22 везде); детекторы `app/question_filters.py` сверены с ручным подсчётом | `bench_data/question_v6a_sampling/{t07,t07_rerun,pp08,t10,t10_minp,t10_minp_rerun}/` + `REPORT.md` | `compare_question_models.py run --temperature/--presence-penalty/--min-p`, затем `question_v6a_report.py` |
 
+**Вариант стенда `v6` (ClickUp 86cbejvt2, 2026-09-06) — результатов здесь
+пока нет.** Промпт v6 добавлен в `question_prompts.py` как имя живого текста
+(не замороженная копия): `system_prompt("v6", …)` и `user_message("v6", …)`
+собирают ровно те байты, что `app/question_prompt.py`, и это закреплено
+побайтовым тестом в `tests/test_question_prompt.py`; `candidate()` откажется
+работать под именем `v6`, как только боевой промпт станет седьмым — тогда его
+надо заморозить так же, как заморожен v4. Запуск: `gen_questions.py
+--prompt-variant v6` (или по умолчанию, пока прод на v6).
+
+Что меняется в артефакте на v6: модель отвечает объектом
+`{"subject": …, "question": …}`, поэтому строка записи несёт `text` = сам
+вопрос (то, что видит человек), плюс `subject`, `raw_text` (ответ модели
+дословно) и `format_parse` — какая ступень парсера его прочла
+(`json` / `repaired` / `regex` / `raw`). Разбор — тем же кодом, что в проде
+(`app/question_format.parse_question`), а не копией. Стенд также передаёт то,
+что передаёт эндпоинт: род из кода (`app/person_gender.detect_gender`), угол
+шага и список уже занятых предметов; в сериях subject'ы предыдущих шагов
+берутся из собственных записей прогона — так же, как прод берёт их из своей
+`SubjectMemory`. Мерить v6 против v5 — отдельный шаг зонта 86cbejvq1 (v6-C);
+пороги `thresholds.json` и `scenarios.json` этим тикетом не тронуты.
+
 Живая проверка боевого эндпоинта (не бенчмарк, а протокол): 86cbehygb,
 `bench_data/live_9084_2026-09-06.md`; стенограммы «до/после» для Марии —
 `bench_data/before_after_2026-09-06.md`.

@@ -49,6 +49,15 @@ the companion warmer, more supportive or more encouraging. The despair rule
 stays out of the prompt (`app/safety.py`). The stage blocks stay Russian in
 every language, for the reason `app/question_prompt.py` gives.
 
+**Since prompt v6 (ClickUp 86cbejvt2)** the file also carries the name `v6`,
+which is not a frozen copy but a label for the live wording: `system_prompt`
+and `user_message` delegate to `app/question_prompt.py` for it exactly as they
+do for `production`, `tests/test_question_prompt.py` pins the two byte for
+byte, and `candidate()` refuses the name the moment the module stops being v6
+(freeze it then, the way v4 is frozen here). `structured_answer(variant)` says
+whether a run must read the answer as v6's JSON object
+(`app/question_format.py`) or as the bare line every earlier artifact holds.
+
 The v3 texts below are **frozen copies**, not imports: once the winner is
 promoted the production module renders v4, and a baseline that moved with it
 would stop being a baseline. The copies are pinned by the sha256 of the v3
@@ -269,7 +278,15 @@ V4_REFLECT_INSTRUCTION = (
 
 V4 = "v4"
 V5_STRUCTURED = "v5-structured"
-VARIANTS = (*tuple(CANDIDATES), V4, V5_STRUCTURED)
+# The shipped prompt of ClickUp 86cbejvt2, addressable by name. It is NOT a
+# frozen copy: `v6` and `production` build the same bytes today, and a test
+# (`tests/test_question_prompt.py`) pins that byte for byte in both directions.
+# The name exists so a run of THIS version can be recorded as such in an
+# artifact sidecar — `production` means "whatever the module says today", which
+# stops being readable the moment v7 lands. When that happens, v6 is the entry
+# to freeze here, the way v4 is frozen above.
+V6 = "v6"
+VARIANTS = (*tuple(CANDIDATES), V4, V5_STRUCTURED, V6)
 # The one name that always means "whatever `app/question_prompt.py` says right
 # now" — it is what a run of the shipped prompt is called after the winner is
 # promoted, and it is the only entry that must never be frozen here.
@@ -278,7 +295,18 @@ PRODUCTION = "production"
 
 def candidate(variant: str) -> Candidate | None:
     """The frozen candidate, or `None` for the live production wording."""
-    if variant in (PRODUCTION, V4, V5_STRUCTURED):
+    if variant == V6 and question_prompt.QUESTION_PROMPT_VERSION != 6:
+        # `v6` is a NAME for the live module while the live module is v6. Once
+        # production moves on, a run asking for `v6` would silently measure the
+        # newer text under the older label — the one failure this file exists
+        # to prevent (see the `user_message` docstring). Freeze v6 here the way
+        # v4 is frozen above, then delete this guard.
+        raise SystemExit(
+            "question_prompts: --prompt-variant v6 names the live wording, but "
+            f"app/question_prompt.py is v{question_prompt.QUESTION_PROMPT_VERSION} "
+            "now — freeze v6 as a Candidate before measuring it again"
+        )
+    if variant in (PRODUCTION, V4, V5_STRUCTURED, V6):
         return None
     try:
         return CANDIDATES[variant]
@@ -364,6 +392,8 @@ def user_message(
     messages: Sequence[tuple[str, str]],
     skipped_questions: Sequence[str] = (),
     language: str | None = None,
+    gender: str | None = None,
+    used_subjects: Sequence[str] = (),
 ) -> str:
     """The user content of one call, in this variant.
 
@@ -372,6 +402,12 @@ def user_message(
     bullets, the headers, the stage rules, the whitespace). Each edit must
     apply where its string is present, or the run stops: a candidate that
     silently measured the production wording is the worst outcome here.
+
+    `gender` and `used_subjects` are prompt v6's own
+    (`app/person_gender.detect_gender` and `app/question_format.SubjectMemory`,
+    ClickUp 86cbejvt2). Both reach the production assembly and nothing else:
+    the frozen v4 message never had either line, and the `v5-structured`
+    ablation is kept exactly as it was measured.
     """
     if variant == V4:
         return _v4_user_message(topic, stage, messages, skipped_questions)
@@ -382,7 +418,8 @@ def user_message(
     item = candidate(variant)
     if item is None:
         return question_prompt.build_user_message(
-            topic, stage, messages, skipped_questions, language
+            topic, stage, messages, skipped_questions, language, gender,
+            used_subjects,
         )
     message = _v4_user_message(topic, stage, messages, skipped_questions)
     for live, replacement in (
@@ -409,12 +446,33 @@ def user_message(
     return message
 
 
+def structured_answer(variant: str) -> bool:
+    """Does this variant ask the model for the v6 JSON object?
+
+    `v6` by name, and `production` while production is v6 or later — so a
+    default run parses whatever the shipped prompt asks for, and a run of a
+    frozen pre-v6 wording keeps reading the answer as a bare line, which is
+    what those artifacts contain.
+    """
+    if variant == V6:
+        return True
+    if variant == PRODUCTION:
+        return question_prompt.QUESTION_PROMPT_VERSION >= 6
+    return False
+
+
 def describe(variant: str) -> str:
     """One line for the run banner and the artifact sidecar."""
     if variant == V4:
         return "frozen production prompt v4"
     if variant == V5_STRUCTURED:
         return "structured prompt v5 with English instructions"
+    if variant == V6:
+        candidate(variant)  # refuse to run under a newer production wording
+        return (
+            "prompt v6 (the live wording): structured JSON answer, per-step "
+            "angle, gender stated by code"
+        )
     item = candidate(variant)
     if item is None:
         return (
@@ -431,6 +489,8 @@ def prompt_version(variant: str) -> int:
         return 3
     if variant in ("a", "b", "c", "c2", V4):
         return 4
+    if variant == V6:
+        return 6
     return question_prompt.QUESTION_PROMPT_VERSION
 
 

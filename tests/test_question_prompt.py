@@ -1,4 +1,4 @@
-"""Contract of the localized v5 prompt and the frozen v4 baseline."""
+"""Contract of the localized v6 prompt and the frozen v4 baseline."""
 
 import json
 from pathlib import Path
@@ -157,6 +157,234 @@ def test_structured_ablation_names_target_language_explicitly():
     assert 'Write in Ukrainian, and in no other language.' in prompt
     assert 'Detect the language from' not in prompt
     assert '# Goal' in prompt
+
+
+# ---------------------------------------------------------------------------
+# v6: the structured answer, the angle of the step, the gender from code
+# (ClickUp 86cbejvt2)
+# ---------------------------------------------------------------------------
+
+
+def test_the_version_moved_to_six():
+    assert question_prompt.QUESTION_PROMPT_VERSION == 6
+
+
+@pytest.mark.parametrize(
+    ("language", "expected"),
+    [
+        ("ru", "Угол этого вопроса: что для человека важно."),
+        ("uk", "Кут цього запитання: що для людини важливо."),
+        ("en", "The angle of this question: what matters to the person."),
+        (None, "The angle of this question: what matters to the person."),
+    ],
+)
+def test_the_angle_is_localized(language, expected):
+    assert question_prompt.clarification_angle(0, language) == expected
+
+
+def test_the_five_angles_are_the_five_the_goal_names_and_they_rotate():
+    """One angle per replacement, deterministic, wrapping after five.
+
+    `step` is `len(skipped_questions)`, so the question after an answer gets
+    the first angle and each press of "replace" moves on by one. The point is
+    that a replacement asks for a different KIND of clarification rather than
+    for "something else" — the phrasing v5 answered with the same subject
+    reworded.
+    """
+    angles = [question_prompt.clarification_angle(step, "ru") for step in range(5)]
+
+    assert len(set(angles)) == 5
+    assert question_prompt.ANGLE_COUNT == 5
+    for step in range(5):
+        assert question_prompt.clarification_angle(step + 5, "ru") == angles[step]
+        assert question_prompt.clarification_angle(step + 10, "ru") == angles[step]
+    # The order of the goal: what matters, what they want, what they choose
+    # between, what they accept, what they bring to God.
+    assert "важно" in angles[0]
+    assert "хочет" in angles[1]
+    assert "выбирает" in angles[2]
+    assert "принимает" in angles[3]
+    assert "Богу" in angles[4]
+
+
+def test_the_angle_follows_the_number_of_replacements_in_the_message():
+    skipped = ["Первый?", "Второй?"]
+    message = question_prompt.build_user_message(
+        "Тема", "next", [("user", "Ответ")], skipped, "ru"
+    )
+
+    assert question_prompt.clarification_angle(2, "ru") in message
+    assert question_prompt.clarification_angle(0, "ru") not in message
+
+
+@pytest.mark.parametrize("stage", ["first", "reflect"])
+def test_no_angle_outside_next(stage):
+    """`first` has nothing to rotate from and `reflect` looks at the whole prayer."""
+    message = question_prompt.build_user_message(
+        "Тема",
+        stage,
+        [] if stage == "first" else [("user", "Ответ")],
+        language="ru",
+    )
+
+    for step in range(question_prompt.ANGLE_COUNT):
+        assert question_prompt.clarification_angle(step, "ru") not in message
+
+
+@pytest.mark.parametrize("stage", ["first", "next", "reflect"])
+@pytest.mark.parametrize(
+    ("gender", "expected"),
+    [
+        ("f", "Человек говорит о себе в женском роде: обращайся в женском роде."),
+        ("m", "Человек говорит о себе в мужском роде: обращайся в мужском роде."),
+        (None, "Род человека неизвестен: строй вопрос без родовых форм."),
+    ],
+)
+def test_the_gender_is_stated_at_every_stage(stage, gender, expected):
+    message = question_prompt.build_user_message(
+        "Тема",
+        stage,
+        [] if stage == "first" else [("user", "Ответ")],
+        language="ru",
+        gender=gender,
+    )
+
+    assert expected in message
+
+
+def test_an_unknown_gender_value_is_read_as_undecided():
+    """A caller handing us something else must not silently get the masculine."""
+    message = question_prompt.build_user_message(
+        "Тема", "first", [], language="ru", gender="masculine"
+    )
+
+    assert "Род человека неизвестен" in message
+
+
+def test_ukrainian_states_the_gender_in_ukrainian():
+    message = question_prompt.build_user_message(
+        "Тема", "first", [], language="uk", gender="f"
+    )
+
+    assert "Людина говорить про себе в жіночому роді" in message
+
+
+def test_english_states_no_gender_at_all():
+    """English second-person address carries none, so the line would be noise."""
+    for gender in ("f", "m", None):
+        message = question_prompt.build_user_message(
+            "Topic", "first", [], language="en", gender=gender
+        )
+        assert "gender" not in message.lower()
+        assert "feminine" not in message and "masculine" not in message
+
+
+def test_the_universal_message_states_it_because_the_language_is_unknown():
+    """`None` language may well be an inflected one — the rule has to be there."""
+    message = question_prompt.build_user_message(
+        "Topic", "first", [], language=None, gender="f"
+    )
+
+    assert "feminine" in message
+    unknown = question_prompt.build_user_message(
+        "Topic", "first", [], language=None, gender=None
+    )
+    assert "needs no gendered forms" in unknown
+
+
+def test_no_gender_line_when_the_person_wrote_nothing_at_all():
+    """A legal request with no topic and no replies: there is nobody to address."""
+    message = question_prompt.build_user_message("", "next", [], language="ru")
+
+    assert "Род человека" not in message
+    assert "женском роде" not in message
+
+
+def test_a_history_of_our_questions_alone_is_not_the_person_speaking():
+    message = question_prompt.build_user_message(
+        "", "reflect", [("assistant", "Что важно?")], language="ru"
+    )
+
+    assert "Род человека" not in message
+
+
+def test_the_evaluation_stand_builds_the_production_bytes_for_v6():
+    """`--prompt-variant v6` must be the endpoint, byte for byte.
+
+    The whole point of the stand is that a measured answer was produced by the
+    prompt that ships. `v6` is a NAME for the live wording (it is not frozen
+    yet), so this check is what keeps the name honest.
+    """
+    import question_prompts
+
+    cases = [
+        ("Тема", "first", [], [], "ru", "f"),
+        ("Понять масштаб целей на завтра", "next",
+         [("assistant", "Что важно?"), ("user", "Я рада.")],
+         ["Первый?", "Второй?"], "ru", "f"),
+        ("Мета", "next", [("user", "Я втомилася.")], [], "uk", "f"),
+        ("Topic", "reflect", [("user", "I am tired.")], [], "en", None),
+        ("Тема", "next", [("user", "Ответ")], [], None, "m"),
+    ]
+    for topic, stage, messages, skipped, language, gender in cases:
+        assert question_prompts.user_message(
+            "v6", topic, stage, messages, skipped, language, gender
+        ) == question_prompt.build_user_message(
+            topic, stage, messages, skipped, language, gender
+        )
+        assert question_prompts.system_prompt(
+            "v6", language
+        ) == question_prompt.build_question_prompt(language)
+        # And `production` is the same thing while production is v6.
+        assert question_prompts.user_message(
+            question_prompts.PRODUCTION, topic, stage, messages, skipped,
+            language, gender,
+        ) == question_prompt.build_user_message(
+            topic, stage, messages, skipped, language, gender
+        )
+
+
+def test_the_stand_builds_the_production_bytes_with_used_subjects_too():
+    """The block the server fills from its own memory must survive the mirror.
+
+    An empty `used_subjects` would have passed the check above by accident —
+    the block is not rendered at all when the list is empty — so the one case
+    that actually exercises it is pinned separately.
+    """
+    import question_prompts
+
+    subjects = ["завтрашние дела", "качество работы", "Что ты хочешь успеть?"]
+    messages = [("assistant", "Что важно?"), ("user", "Я рада.")]
+    for language in ("ru", "uk", "en", None):
+        assert question_prompts.user_message(
+            "v6", "Тема", "next", messages, ["Первый?"], language, "f", subjects
+        ) == question_prompt.build_user_message(
+            "Тема", "next", messages, ["Первый?"], language, "f", subjects
+        )
+    rendered = question_prompts.user_message(
+        "v6", "Тема", "next", messages, ["Первый?"], "ru", "f", subjects
+    )
+    assert "Предметы, о которых уже спрашивали:" in rendered
+    for subject in subjects:
+        assert json.dumps(subject, ensure_ascii=False) in rendered
+
+
+def test_the_stand_knows_which_variants_expect_the_structured_answer():
+    import question_prompts
+
+    assert question_prompts.structured_answer("v6")
+    assert question_prompts.structured_answer(question_prompts.PRODUCTION)
+    assert not question_prompts.structured_answer("v4")
+    assert not question_prompts.structured_answer("v5-structured")
+    assert question_prompts.prompt_version("v6") == 6
+
+
+def test_the_gender_codes_are_the_ones_person_gender_returns():
+    """Re-typed constants, pinned rather than trusted."""
+    import person_gender
+
+    assert question_prompt.GENDER_FEMININE == person_gender.FEMININE
+    assert question_prompt.GENDER_MASCULINE == person_gender.MASCULINE
 
 
 def test_json_quoting_preserves_multiline_history_without_forged_role_lines():

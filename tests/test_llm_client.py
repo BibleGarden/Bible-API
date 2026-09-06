@@ -714,9 +714,14 @@ def test_the_language_named_in_the_prompt_is_the_same_on_both_providers(
     assert captured["gemini"]["system"] == build_question_prompt(language)
 
 
-def test_the_question_stage_asks_for_prose_not_json(monkeypatch):
-    """`/api/ai/question` answers a person; a JSON contract there would make
-    the model wrap the reply in an object."""
+def test_the_question_stage_asks_for_the_v6_object(monkeypatch):
+    """Since prompt v6 this stage IS a parsed contract (ClickUp 86cbejvt2).
+
+    It asked for prose until 2026-09-06, and the comment said so; v6 makes the
+    answer `{"subject": …, "question": …}`, and the server-side grammar of the
+    endpoint is a stronger guarantee than the prompt's format section. The
+    person is still shown one question — `app/question_format.py` unwraps it.
+    """
     captured = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -727,7 +732,7 @@ def test_the_question_stage_asks_for_prose_not_json(monkeypatch):
     with mock_async(handler):
         asyncio.run(twinkler_ai.complete("Запрос"))
 
-    assert "response_format" not in captured
+    assert captured["response_format"] == {"type": "json_object"}
     assert captured["temperature"] == 0.7
     assert captured["max_tokens"] == llm_client.DEFAULT_MAX_TOKENS
 
