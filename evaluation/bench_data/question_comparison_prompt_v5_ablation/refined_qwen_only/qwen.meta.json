@@ -1,0 +1,48 @@
+{
+  "alias": "qwen",
+  "model_config": {
+    "provider": "openai_compat",
+    "model": "qwen3-30b-a3b-instruct-2507",
+    "endpoint": "https://llm.ai2.ru/v1",
+    "api_key_env": "AI_OPENAI_COMPAT_API_KEY",
+    "pause_seconds": 0.2
+  },
+  "protocol_hash": "b5d7292751bf44d03028a57c0c3d8a329be6583b155cc3df38e0994e52e85044",
+  "started_at": "2026-09-06T08:21:37.523330+00:00",
+  "expected": 18,
+  "written": 18,
+  "failed": 0,
+  "complete": true,
+  "warmup": {
+    "id": "series-scale-ru",
+    "sample": 0,
+    "source": "series",
+    "language": "ru",
+    "category": "series",
+    "stage": "next",
+    "expect_question": true,
+    "provider": "qwen",
+    "model": "qwen3-30b-a3b-instruct-2507",
+    "prompt_language": "ru",
+    "prompt_version": 5,
+    "prompt_variant": "production",
+    "text": "Что именно в завтрашних задачах для тебя важнее всего — завершить всё, как задумано, или быть уверенной, что сделано по-настоящему?",
+    "latency_ms": 635,
+    "attempts": 1,
+    "error": null,
+    "avoid_question": [
+      "Что сейчас внутри тебя, когда ты только начинаешь молитву?",
+      "А что, если завтра окажется, что всё, что ты сегодня считал готовым, всё ещё не совсем то, что нужно?"
+    ],
+    "series_id": "series-scale-ru",
+    "step": 1,
+    "series_steps": 3,
+    "skipped_questions": [],
+    "person_words": [
+      "Понять масштаб целей на завтра",
+      "Я рада тому, что сегодня немало сделано. Вчера казалось, что дел еще на неделю, а сейчас выглядит, что уже можно переходить к публикации. Наверное можно было бы собрать сборку для работы на проде и выложить в testflight. Кстати, надо версию апи в приложении выводить, а то путаница.",
+      "Ну буду доделывать. Я все делаю для Господа, стараюсь сделать очень качественно"
+    ]
+  },
+  "finished_at": "2026-09-06T08:21:48.210381+00:00"
+}

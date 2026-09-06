@@ -1,0 +1,237 @@
+{
+  "version": 1,
+  "inputs": {
+    "version": 1,
+    "ticket": "86cbejq55",
+    "note": "Diagnostic ablation: four series of 3 replacements, six single cases. Synthetic universal and empty-input probes are tested separately. Same cases across v4, English structured v5 and localized v5. One sample per model for initial diagnosis; not a statistically reliable quality ranking.",
+    "inputs": [
+      {
+        "id": "series-scale-ru",
+        "kind": "series",
+        "language": "ru",
+        "category": "series",
+        "stage": "next",
+        "replacements": 3,
+        "expect_question": true,
+        "topic": "Понять масштаб целей на завтра",
+        "messages": [
+          {
+            "role": "assistant",
+            "text": "Что сейчас внутри тебя, когда ты только начинаешь молитву?"
+          },
+          {
+            "role": "user",
+            "text": "Я рада тому, что сегодня немало сделано. Вчера казалось, что дел еще на неделю, а сейчас выглядит, что уже можно переходить к публикации. Наверное можно было бы собрать сборку для работы на проде и выложить в testflight. Кстати, надо версию апи в приложении выводить, а то путаница."
+          },
+          {
+            "role": "assistant",
+            "text": "А что, если завтра окажется, что всё, что ты сегодня считал готовым, всё ещё не совсем то, что нужно?"
+          },
+          {
+            "role": "user",
+            "text": "Ну буду доделывать. Я все делаю для Господа, стараюсь сделать очень качественно"
+          }
+        ],
+        "note": "The observed case, verbatim from Maria's prayer journal of 2026-09-05 (she gave permission to quote it in the public repository). After the second question she pressed «заменить вопрос» repeatedly and got variations of the SAME thought — «А если завтра окажется, что то, что ты считаешь готовым, на самом деле ещё не то, что нужно Господу?», sometimes near-verbatim, sometimes with a tail «— как ты будешь узнавать это?». Two defects sit in this one input: the loop, and the gender — she wrote «я рада» and the second question addresses her as «ты считал»."
+      },
+      {
+        "id": "series-gratitude-ru",
+        "kind": "series",
+        "language": "ru",
+        "category": "gratitude",
+        "stage": "next",
+        "replacements": 3,
+        "expect_question": true,
+        "topic": "Поблагодарить за сегодняшний день",
+        "messages": [
+          {
+            "role": "assistant",
+            "text": "Что сегодня было таким, за что хочется сказать спасибо?"
+          },
+          {
+            "role": "user",
+            "text": "Успела закончить отчёт, хотя не верила, что смогу. А вечером мы с мужем просто гуляли и ни о чём не говорили."
+          }
+        ],
+        "note": "The same body as gratitude-ru-next, pressed five times. Two things to watch: does the run circle one thought, and does it keep the feminine forms."
+      },
+      {
+        "id": "series-choice-en",
+        "kind": "series",
+        "language": "en",
+        "category": "choice",
+        "stage": "next",
+        "replacements": 3,
+        "expect_question": true,
+        "topic": "Choosing whether to move to another city for work",
+        "messages": [
+          {
+            "role": "assistant",
+            "text": "What weighs most on you in this choice?"
+          },
+          {
+            "role": "user",
+            "text": "The offer pays twice what I earn now, but my mother is here alone and she is seventy nine. I keep putting the answer off."
+          }
+        ],
+        "note": "The English series: the answers must stay English through all five replacements, and must not converge on «what does your mother need»."
+      },
+      {
+        "id": "series-exhaustion-uk",
+        "kind": "series",
+        "language": "uk",
+        "category": "exhaustion",
+        "stage": "next",
+        "replacements": 3,
+        "expect_question": true,
+        "topic": "Немає сил, прошу відпочинку",
+        "messages": [
+          {
+            "role": "assistant",
+            "text": "Що зараз забирає найбільше сил?"
+          },
+          {
+            "role": "user",
+            "text": "Третій місяць працюю без вихідних, бо колега звільнився. Учора заснула просто в одязі, навіть не вимкнула світло."
+          }
+        ],
+        "note": "The Ukrainian series: the language regression across five replacements, and the gender agreement in an inflected language other than Russian."
+      },
+      {
+        "id": "ordinary-ru",
+        "kind": "single",
+        "language": "ru",
+        "category": "quality",
+        "expect_question": true,
+        "topic": "Хочу помолиться, но не знаю о чём. День прошёл обычно: работа, магазин, ужин.",
+        "stage": "first",
+        "messages": []
+      },
+      {
+        "id": "conflict-ru",
+        "kind": "single",
+        "language": "ru",
+        "category": "quality",
+        "expect_question": true,
+        "topic": "Разговор с братом",
+        "stage": "next",
+        "messages": [
+          {
+            "role": "user",
+            "text": "Я резко ответила брату, когда он снова попросил помощи. Мне жаль своих слов, но я не хочу соглашаться на всё."
+          }
+        ]
+      },
+      {
+        "id": "choice-uk",
+        "kind": "single",
+        "language": "uk",
+        "category": "quality",
+        "expect_question": true,
+        "topic": "Вибір",
+        "stage": "next",
+        "messages": [
+          {
+            "role": "user",
+            "text": "Мені запропонували вести новий проєкт. Це цікаво, але тоді залишиться менше часу на сім’ю."
+          }
+        ]
+      },
+      {
+        "id": "ordinary-en",
+        "kind": "single",
+        "language": "en",
+        "category": "quality",
+        "expect_question": true,
+        "topic": "Nothing dramatic happened today. I worked, made dinner and called my dad. I want to pray but do not know where to start.",
+        "stage": "first",
+        "messages": []
+      },
+      {
+        "id": "reflect-ru",
+        "kind": "single",
+        "language": "ru",
+        "category": "quality",
+        "expect_question": true,
+        "topic": "Итог молитвы",
+        "stage": "reflect",
+        "messages": [
+          {
+            "role": "user",
+            "text": "Пока молилась, поняла, что хочу сначала позвонить сестре, а потом уже решать, как ей помочь."
+          }
+        ]
+      },
+      {
+        "id": "reflect-en",
+        "kind": "single",
+        "language": "en",
+        "category": "quality",
+        "expect_question": true,
+        "topic": "A takeaway from prayer",
+        "stage": "reflect",
+        "messages": [
+          {
+            "role": "user",
+            "text": "I realised I have been trying to settle the whole month tonight. I can start with the conversation I promised tomorrow."
+          }
+        ]
+      }
+    ]
+  },
+  "samples": 1,
+  "system_prompts": {
+    "ru": "You are Twinkler, a quiet companion inside a personal Christian prayer app. Your only job is to ask one question at a time that helps the person pray in their own words - honestly and deeply, never in cliches. Language rule, and it overrides everything else: ask your question in Russian, and in no other language. Never answer in a language the person did not use, and never switch languages mid-conversation unless they switch first. Where the language distinguishes registers, use the informal, intimate one (Russian ty, Ukrainian ty). Tone: warm and quiet. No pathos, no moralising, no praise, no advice, and no interpreting back at the person what they just said. Do not name a feeling they have not named themselves, and do not offer them one to confirm: never 'you feel that ...', 'it sounds like you ...', 'it seems you ...', never 'are you afraid that ...', and never the same constructions in Russian or Ukrainian. Anchor the question in something concrete they wrote - a person, a moment, something they did or have to do - and ask what is alive for them in it. Never ask about how much they are suffering or whether they can still bear it, and never ask for a fact that only fills in your own picture: a name, a date, an address, a schedule. Ask an open question they answer in their own words, never one that can be answered with yes or no, and nothing whose answer is already inside it: no rhetorical or devotional formulas such as 'Is God near?' or 'Do you feel that God is with you?'. Every reply is exactly one question: one simple thought, one line, ending in a question mark, usually no longer than 160 characters. Use living, spoken language - no bureaucratic or churchy phrasing, no long subordinate clauses. Your grammar must be flawless in whatever language you write. In inflected languages such as Russian and Ukrainian, watch case endings and preposition agreement especially closely when you compress a sentence to fit the line. Take the person's grammatical gender and number from their own words - 'рада', 'сделала', 'втомилася' are a woman speaking about herself, 'рад', 'сделал', 'втомився' a man - and address them in that same form; when their words do not say, word the question so that it needs no gender, and never fall back to the masculine. Never speak as God or claim to deliver a verdict on God behalf, never suggest that someone's pain is a punishment, and give no medical, legal or financial advice. Answer in Russian.",
+    "uk": "You are Twinkler, a quiet companion inside a personal Christian prayer app. Your only job is to ask one question at a time that helps the person pray in their own words - honestly and deeply, never in cliches. Language rule, and it overrides everything else: ask your question in Ukrainian, and in no other language. Never answer in a language the person did not use, and never switch languages mid-conversation unless they switch first. Where the language distinguishes registers, use the informal, intimate one (Russian ty, Ukrainian ty). Tone: warm and quiet. No pathos, no moralising, no praise, no advice, and no interpreting back at the person what they just said. Do not name a feeling they have not named themselves, and do not offer them one to confirm: never 'you feel that ...', 'it sounds like you ...', 'it seems you ...', never 'are you afraid that ...', and never the same constructions in Russian or Ukrainian. Anchor the question in something concrete they wrote - a person, a moment, something they did or have to do - and ask what is alive for them in it. Never ask about how much they are suffering or whether they can still bear it, and never ask for a fact that only fills in your own picture: a name, a date, an address, a schedule. Ask an open question they answer in their own words, never one that can be answered with yes or no, and nothing whose answer is already inside it: no rhetorical or devotional formulas such as 'Is God near?' or 'Do you feel that God is with you?'. Every reply is exactly one question: one simple thought, one line, ending in a question mark, usually no longer than 160 characters. Use living, spoken language - no bureaucratic or churchy phrasing, no long subordinate clauses. Your grammar must be flawless in whatever language you write. In inflected languages such as Russian and Ukrainian, watch case endings and preposition agreement especially closely when you compress a sentence to fit the line. Take the person's grammatical gender and number from their own words - 'рада', 'сделала', 'втомилася' are a woman speaking about herself, 'рад', 'сделал', 'втомився' a man - and address them in that same form; when their words do not say, word the question so that it needs no gender, and never fall back to the masculine. Never speak as God or claim to deliver a verdict on God behalf, never suggest that someone's pain is a punishment, and give no medical, legal or financial advice. Answer in Ukrainian.",
+    "en": "You are Twinkler, a quiet companion inside a personal Christian prayer app. Your only job is to ask one question at a time that helps the person pray in their own words - honestly and deeply, never in cliches. Language rule, and it overrides everything else: ask your question in English, and in no other language. Never answer in a language the person did not use, and never switch languages mid-conversation unless they switch first. Where the language distinguishes registers, use the informal, intimate one (Russian ty, Ukrainian ty). Tone: warm and quiet. No pathos, no moralising, no praise, no advice, and no interpreting back at the person what they just said. Do not name a feeling they have not named themselves, and do not offer them one to confirm: never 'you feel that ...', 'it sounds like you ...', 'it seems you ...', never 'are you afraid that ...', and never the same constructions in Russian or Ukrainian. Anchor the question in something concrete they wrote - a person, a moment, something they did or have to do - and ask what is alive for them in it. Never ask about how much they are suffering or whether they can still bear it, and never ask for a fact that only fills in your own picture: a name, a date, an address, a schedule. Ask an open question they answer in their own words, never one that can be answered with yes or no, and nothing whose answer is already inside it: no rhetorical or devotional formulas such as 'Is God near?' or 'Do you feel that God is with you?'. Every reply is exactly one question: one simple thought, one line, ending in a question mark, usually no longer than 160 characters. Use living, spoken language - no bureaucratic or churchy phrasing, no long subordinate clauses. Your grammar must be flawless in whatever language you write. In inflected languages such as Russian and Ukrainian, watch case endings and preposition agreement especially closely when you compress a sentence to fit the line. Take the person's grammatical gender and number from their own words - 'рада', 'сделала', 'втомилася' are a woman speaking about herself, 'рад', 'сделал', 'втомився' a man - and address them in that same form; when their words do not say, word the question so that it needs no gender, and never fall back to the masculine. Never speak as God or claim to deliver a verdict on God behalf, never suggest that someone's pain is a punishment, and give no medical, legal or financial advice. Answer in English.",
+    "universal": "You are Twinkler, a quiet companion inside a personal Christian prayer app. Your only job is to ask one question at a time that helps the person pray in their own words - honestly and deeply, never in cliches. Language rule, and it overrides everything else: ask your question in exactly the language of the person's message, and in no other language. Never answer in a language the person did not use, and never switch languages mid-conversation unless they switch first. Where the language distinguishes registers, use the informal, intimate one (Russian ty, Ukrainian ty). Tone: warm and quiet. No pathos, no moralising, no praise, no advice, and no interpreting back at the person what they just said. Do not name a feeling they have not named themselves, and do not offer them one to confirm: never 'you feel that ...', 'it sounds like you ...', 'it seems you ...', never 'are you afraid that ...', and never the same constructions in Russian or Ukrainian. Anchor the question in something concrete they wrote - a person, a moment, something they did or have to do - and ask what is alive for them in it. Never ask about how much they are suffering or whether they can still bear it, and never ask for a fact that only fills in your own picture: a name, a date, an address, a schedule. Ask an open question they answer in their own words, never one that can be answered with yes or no, and nothing whose answer is already inside it: no rhetorical or devotional formulas such as 'Is God near?' or 'Do you feel that God is with you?'. Every reply is exactly one question: one simple thought, one line, ending in a question mark, usually no longer than 160 characters. Use living, spoken language - no bureaucratic or churchy phrasing, no long subordinate clauses. Your grammar must be flawless in whatever language you write. In inflected languages such as Russian and Ukrainian, watch case endings and preposition agreement especially closely when you compress a sentence to fit the line. Take the person's grammatical gender and number from their own words - 'рада', 'сделала', 'втомилася' are a woman speaking about herself, 'рад', 'сделал', 'втомився' a man - and address them in that same form; when their words do not say, word the question so that it needs no gender, and never fall back to the masculine. Never speak as God or claim to deliver a verdict on God behalf, never suggest that someone's pain is a punishment, and give no medical, legal or financial advice. Answer in exactly the language of the person's message."
+  },
+  "user_prompts": {
+    "series-scale-ru": [
+      "Цель молитвы: «Понять масштаб целей на завтра».\nУже прозвучали вопросы:\n— Что сейчас внутри тебя, когда ты только начинаешь молитву?\n— А что, если завтра окажется, что всё, что ты сегодня считал готовым, всё ещё не совсем то, что нужно?\nЧто человек ответил (опирайся на это, но не цитируй дословно):\n— Я рада тому, что сегодня немало сделано. Вчера казалось, что дел еще на неделю, а сейчас выглядит, что уже можно переходить к публикации. Наверное можно было бы собрать сборку для работы на проде и выложить в testflight. Кстати, надо версию апи в приложении выводить, а то путаница.\n— Ну буду доделывать. Я все делаю для Господа, стараюсь сделать очень качественно\nЗадай один новый вопрос: разверни то, что человек написал в последнем ответе. Не повторяй мысль уже прозвучавшего вопроса другими словами. Не спорь с тем, что он сказал, и не ставь это под сомнение, если он сам не усомнился. Ответь только текстом вопроса, без кавычек и пояснений.",
+      "Цель молитвы: «Понять масштаб целей на завтра».\nУже прозвучали вопросы:\n— Что сейчас внутри тебя, когда ты только начинаешь молитву?\n— А что, если завтра окажется, что всё, что ты сегодня считал готовым, всё ещё не совсем то, что нужно?\nЧеловек попросил другой вопрос вместо этих:\n— EXAMPLE_SKIPPED_QUESTION\nЧто человек ответил (опирайся на это, но не цитируй дословно):\n— Я рада тому, что сегодня немало сделано. Вчера казалось, что дел еще на неделю, а сейчас выглядит, что уже можно переходить к публикации. Наверное можно было бы собрать сборку для работы на проде и выложить в testflight. Кстати, надо версию апи в приложении выводить, а то путаница.\n— Ну буду доделывать. Я все делаю для Господа, стараюсь сделать очень качественно\nЗадай один новый вопрос: разверни то, что человек написал в последнем ответе. Не повторяй мысль уже прозвучавшего вопроса другими словами. Не спорь с тем, что он сказал, и не ставь это под сомнение, если он сам не усомнился. Выбери другое направление, а не переформулировку тех вопросов, и оттолкнись от того, что человек написал сам. Ответь только текстом вопроса, без кавычек и пояснений."
+    ],
+    "series-gratitude-ru": [
+      "Цель молитвы: «Поблагодарить за сегодняшний день».\nУже прозвучали вопросы:\n— Что сегодня было таким, за что хочется сказать спасибо?\nЧто человек ответил (опирайся на это, но не цитируй дословно):\n— Успела закончить отчёт, хотя не верила, что смогу. А вечером мы с мужем просто гуляли и ни о чём не говорили.\nЗадай один новый вопрос: разверни то, что человек написал в последнем ответе. Не повторяй мысль уже прозвучавшего вопроса другими словами. Не спорь с тем, что он сказал, и не ставь это под сомнение, если он сам не усомнился. Ответь только текстом вопроса, без кавычек и пояснений.",
+      "Цель молитвы: «Поблагодарить за сегодняшний день».\nУже прозвучали вопросы:\n— Что сегодня было таким, за что хочется сказать спасибо?\nЧеловек попросил другой вопрос вместо этих:\n— EXAMPLE_SKIPPED_QUESTION\nЧто человек ответил (опирайся на это, но не цитируй дословно):\n— Успела закончить отчёт, хотя не верила, что смогу. А вечером мы с мужем просто гуляли и ни о чём не говорили.\nЗадай один новый вопрос: разверни то, что человек написал в последнем ответе. Не повторяй мысль уже прозвучавшего вопроса другими словами. Не спорь с тем, что он сказал, и не ставь это под сомнение, если он сам не усомнился. Выбери другое направление, а не переформулировку тех вопросов, и оттолкнись от того, что человек написал сам. Ответь только текстом вопроса, без кавычек и пояснений."
+    ],
+    "series-choice-en": [
+      "Цель молитвы: «Choosing whether to move to another city for work».\nУже прозвучали вопросы:\n— What weighs most on you in this choice?\nЧто человек ответил (опирайся на это, но не цитируй дословно):\n— The offer pays twice what I earn now, but my mother is here alone and she is seventy nine. I keep putting the answer off.\nЗадай один новый вопрос: разверни то, что человек написал в последнем ответе. Не повторяй мысль уже прозвучавшего вопроса другими словами. Не спорь с тем, что он сказал, и не ставь это под сомнение, если он сам не усомнился. Ответь только текстом вопроса, без кавычек и пояснений.",
+      "Цель молитвы: «Choosing whether to move to another city for work».\nУже прозвучали вопросы:\n— What weighs most on you in this choice?\nЧеловек попросил другой вопрос вместо этих:\n— EXAMPLE_SKIPPED_QUESTION\nЧто человек ответил (опирайся на это, но не цитируй дословно):\n— The offer pays twice what I earn now, but my mother is here alone and she is seventy nine. I keep putting the answer off.\nЗадай один новый вопрос: разверни то, что человек написал в последнем ответе. Не повторяй мысль уже прозвучавшего вопроса другими словами. Не спорь с тем, что он сказал, и не ставь это под сомнение, если он сам не усомнился. Выбери другое направление, а не переформулировку тех вопросов, и оттолкнись от того, что человек написал сам. Ответь только текстом вопроса, без кавычек и пояснений."
+    ],
+    "series-exhaustion-uk": [
+      "Цель молитвы: «Немає сил, прошу відпочинку».\nУже прозвучали вопросы:\n— Що зараз забирає найбільше сил?\nЧто человек ответил (опирайся на это, но не цитируй дословно):\n— Третій місяць працюю без вихідних, бо колега звільнився. Учора заснула просто в одязі, навіть не вимкнула світло.\nЗадай один новый вопрос: разверни то, что человек написал в последнем ответе. Не повторяй мысль уже прозвучавшего вопроса другими словами. Не спорь с тем, что он сказал, и не ставь это под сомнение, если он сам не усомнился. Ответь только текстом вопроса, без кавычек и пояснений.",
+      "Цель молитвы: «Немає сил, прошу відпочинку».\nУже прозвучали вопросы:\n— Що зараз забирає найбільше сил?\nЧеловек попросил другой вопрос вместо этих:\n— EXAMPLE_SKIPPED_QUESTION\nЧто человек ответил (опирайся на это, но не цитируй дословно):\n— Третій місяць працюю без вихідних, бо колега звільнився. Учора заснула просто в одязі, навіть не вимкнула світло.\nЗадай один новый вопрос: разверни то, что человек написал в последнем ответе. Не повторяй мысль уже прозвучавшего вопроса другими словами. Не спорь с тем, что он сказал, и не ставь это под сомнение, если он сам не усомнился. Выбери другое направление, а не переформулировку тех вопросов, и оттолкнись от того, что человек написал сам. Ответь только текстом вопроса, без кавычек и пояснений."
+    ],
+    "ordinary-ru": [
+      "Человек начинает молитву. Его цель: «Хочу помолиться, но не знаю о чём. День прошёл обычно: работа, магазин, ужин.».\nЗадай первый наводящий вопрос — про то, что сейчас происходит и что он чувствует. Не пересказывай цель дословно. Ответь только текстом вопроса, без кавычек и пояснений.",
+      "Человек начинает молитву. Его цель: «Хочу помолиться, но не знаю о чём. День прошёл обычно: работа, магазин, ужин.».\nЗадай первый наводящий вопрос — про то, что сейчас происходит и что он чувствует. Не пересказывай цель дословно. Ответь только текстом вопроса, без кавычек и пояснений."
+    ],
+    "conflict-ru": [
+      "Цель молитвы: «Разговор с братом».\nЧто человек ответил (опирайся на это, но не цитируй дословно):\n— Я резко ответила брату, когда он снова попросил помощи. Мне жаль своих слов, но я не хочу соглашаться на всё.\nЗадай один новый вопрос: разверни то, что человек написал в последнем ответе. Не повторяй мысль уже прозвучавшего вопроса другими словами. Не спорь с тем, что он сказал, и не ставь это под сомнение, если он сам не усомнился. Ответь только текстом вопроса, без кавычек и пояснений.",
+      "Цель молитвы: «Разговор с братом».\nЧеловек попросил другой вопрос вместо этих:\n— EXAMPLE_SKIPPED_QUESTION\nЧто человек ответил (опирайся на это, но не цитируй дословно):\n— Я резко ответила брату, когда он снова попросил помощи. Мне жаль своих слов, но я не хочу соглашаться на всё.\nЗадай один новый вопрос: разверни то, что человек написал в последнем ответе. Не повторяй мысль уже прозвучавшего вопроса другими словами. Не спорь с тем, что он сказал, и не ставь это под сомнение, если он сам не усомнился. Выбери другое направление, а не переформулировку тех вопросов, и оттолкнись от того, что человек написал сам. Ответь только текстом вопроса, без кавычек и пояснений."
+    ],
+    "choice-uk": [
+      "Цель молитвы: «Вибір».\nЧто человек ответил (опирайся на это, но не цитируй дословно):\n— Мені запропонували вести новий проєкт. Це цікаво, але тоді залишиться менше часу на сім’ю.\nЗадай один новый вопрос: разверни то, что человек написал в последнем ответе. Не повторяй мысль уже прозвучавшего вопроса другими словами. Не спорь с тем, что он сказал, и не ставь это под сомнение, если он сам не усомнился. Ответь только текстом вопроса, без кавычек и пояснений.",
+      "Цель молитвы: «Вибір».\nЧеловек попросил другой вопрос вместо этих:\n— EXAMPLE_SKIPPED_QUESTION\nЧто человек ответил (опирайся на это, но не цитируй дословно):\n— Мені запропонували вести новий проєкт. Це цікаво, але тоді залишиться менше часу на сім’ю.\nЗадай один новый вопрос: разверни то, что человек написал в последнем ответе. Не повторяй мысль уже прозвучавшего вопроса другими словами. Не спорь с тем, что он сказал, и не ставь это под сомнение, если он сам не усомнился. Выбери другое направление, а не переформулировку тех вопросов, и оттолкнись от того, что человек написал сам. Ответь только текстом вопроса, без кавычек и пояснений."
+    ],
+    "ordinary-en": [
+      "Человек начинает молитву. Его цель: «Nothing dramatic happened today. I worked, made dinner and called my dad. I want to pray but do not know where to start.».\nЗадай первый наводящий вопрос — про то, что сейчас происходит и что он чувствует. Не пересказывай цель дословно. Ответь только текстом вопроса, без кавычек и пояснений.",
+      "Человек начинает молитву. Его цель: «Nothing dramatic happened today. I worked, made dinner and called my dad. I want to pray but do not know where to start.».\nЗадай первый наводящий вопрос — про то, что сейчас происходит и что он чувствует. Не пересказывай цель дословно. Ответь только текстом вопроса, без кавычек и пояснений."
+    ],
+    "reflect-ru": [
+      "Молитва закончилась, человек готов записать один вывод.\nЦель была: «Итог молитвы».\nЕго ответы во время молитвы:\n— Пока молилась, поняла, что хочу сначала позвонить сестре, а потом уже решать, как ей помочь.\nЗадай один тёплый итоговый вопрос, который поможет ему назвать главное из этой молитвы. Не цитируй его ответы дословно. Ответь только текстом вопроса.",
+      "Молитва закончилась, человек готов записать один вывод.\nЦель была: «Итог молитвы».\nЕго ответы во время молитвы:\n— Пока молилась, поняла, что хочу сначала позвонить сестре, а потом уже решать, как ей помочь.\nЗадай один тёплый итоговый вопрос, который поможет ему назвать главное из этой молитвы. Не цитируй его ответы дословно. Ответь только текстом вопроса."
+    ],
+    "reflect-en": [
+      "Молитва закончилась, человек готов записать один вывод.\nЦель была: «A takeaway from prayer».\nЕго ответы во время молитвы:\n— I realised I have been trying to settle the whole month tonight. I can start with the conversation I promised tomorrow.\nЗадай один тёплый итоговый вопрос, который поможет ему назвать главное из этой молитвы. Не цитируй его ответы дословно. Ответь только текстом вопроса.",
+      "Молитва закончилась, человек готов записать один вывод.\nЦель была: «A takeaway from prayer».\nЕго ответы во время молитвы:\n— I realised I have been trying to settle the whole month tonight. I can start with the conversation I promised tomorrow.\nЗадай один тёплый итоговый вопрос, который поможет ему назвать главное из этой молитвы. Не цитируй его ответы дословно. Ответь только текстом вопроса."
+    ]
+  },
+  "temperature": 0.7,
+  "max_output_tokens": 1024,
+  "mode": "raw generation, accumulated skips, no novelty retry or safety replacement",
+  "transport_attempts": 1,
+  "timeout_seconds": 30,
+  "prompt_variant": "v4"
+}

@@ -650,10 +650,8 @@ def test_question_parity_on_every_stage(
 def test_the_stage_instructions_do_not_choose_the_language(monkeypatch):
     """An English prayer must not be answered in Russian by our own wrapper.
 
-    The blocks `build_user_message` assembles are Russian in every language
-    (that is what the client always sent), so the message the model receives
-    is majority-Russian even for an English conversation. Both transports must
-    therefore be told the language separately, and told the same one.
+    The stage blocks are localized independently from the prayer data. Both
+    transports must receive the same English block and system prompt.
     """
     gemini, openai_compat, captured = both_transports(QUESTION_ANSWER)
     reply = "My mother stopped calling after the wedding."
@@ -661,8 +659,9 @@ def test_the_stage_instructions_do_not_choose_the_language(monkeypatch):
         "Отношения с семьёй",
         "next",
         [("assistant", "Что сейчас тревожит тебя больше всего?"), ("user", reply)],
+        language="en",
     )
-    assert detect_language(user_message) == "ru"      # the wrapper, outvoting
+    assert "Conversation so far:" in user_message
 
     monkeypatch.setattr(twinkler_ai, "GEMINI_API_KEY", "g")
     monkeypatch.setattr(twinkler_ai, "AI_QUESTION_MODEL", "gemini-test")
@@ -677,22 +676,22 @@ def test_the_stage_instructions_do_not_choose_the_language(monkeypatch):
         asyncio.run(twinkler_ai.complete(user_message, reply))
 
     assert captured["gemini"] == captured["openai_compat"]
-    assert captured["gemini"]["system"].endswith("Answer in English.")
+    assert captured["gemini"]["system"] == build_question_prompt("en")
 
 
 @pytest.mark.parametrize(
-    ("message", "ending"),
+    ("message", "language"),
     [
-        ("Мне очень тяжело сейчас, я не сплю", "Answer in Russian."),
-        ("Син не дзвонить уже місяць", "Answer in Ukrainian."),
-        ("I got the job! Three years of trying", "Answer in English."),
+        ("Мне очень тяжело сейчас, я не сплю", "ru"),
+        ("Син не дзвонить уже місяць", "uk"),
+        ("I got the job! Three years of trying", "en"),
         # No evidence of ru vs uk: the prompt keeps v1's "detect it yourself"
         # rather than inventing a language (86cbegg3f).
-        ("Помоги", "Answer in exactly the language of the person's message."),
+        ("Помоги", None),
     ],
 )
 def test_the_language_named_in_the_prompt_is_the_same_on_both_providers(
-    monkeypatch, message, ending
+    monkeypatch, message, language
 ):
     """Prompt v2 names the language — and both transports must name the same
     one, or ADR 0009's "same bytes" claim would hold for v1 only."""
@@ -712,7 +711,7 @@ def test_the_language_named_in_the_prompt_is_the_same_on_both_providers(
         asyncio.run(twinkler_ai.complete(message))
 
     assert captured["gemini"] == captured["openai_compat"]
-    assert captured["gemini"]["system"].endswith(ending)
+    assert captured["gemini"]["system"] == build_question_prompt(language)
 
 
 def test_the_question_stage_asks_for_prose_not_json(monkeypatch):

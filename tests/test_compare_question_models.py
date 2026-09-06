@@ -142,3 +142,41 @@ def test_html_cannot_execute_model_output(tmp_path,monkeypatch):
     html=(args.out/'review.html').read_text()
     assert '</script><script>alert(1)' not in html
     assert '\\u003c/script>' in html
+
+
+def test_prompt_variant_is_part_of_protocol(tmp_path):
+    path = inputs(tmp_path)
+    _, baseline = comparison.protocol(path, 1, variant='v4')
+    _, localized = comparison.protocol(path, 1, variant='production')
+    assert baseline['prompt_variant'] == 'v4'
+    assert baseline['system_prompts']['ru'] != localized['system_prompts']['ru']
+    assert 'universal' in localized['system_prompts']
+    assert comparison.digest(baseline) != comparison.digest(localized)
+
+
+def test_before_after_checks_inputs_and_keeps_all_variants(tmp_path, monkeypatch):
+    import compare_question_prompts as prompt_comparison
+    args = setup_run(tmp_path, monkeypatch)
+    monkeypatch.setattr(comparison.gen, 'generate_one', fake_generation)
+    directories = []
+    for variant in ('v4', 'production'):
+        args.out = tmp_path / variant
+        args.prompt_variant = variant
+        assert comparison.run(args) == 0
+        directories.append(args.out)
+    prompt_comparison.build(directories, tmp_path / 'review')
+    html = (tmp_path / 'review' / 'review.html').read_text()
+    assert 'production' in html and 'v4' in html
+    assert 'Вопрос model-a' in html
+    # Change protocol consistently so load_runs passes but comparison refuses.
+    spec_path = directories[-1] / 'protocol.json'
+    spec = comparison.read_json(spec_path)
+    spec['temperature'] = .1
+    comparison.write_json(spec_path, spec)
+    for model in ('a', 'b'):
+        meta_path = directories[-1] / f'{model}.meta.json'
+        meta = comparison.read_json(meta_path)
+        meta['protocol_hash'] = comparison.digest(spec)
+        comparison.write_json(meta_path, meta)
+    with pytest.raises(ValueError, match='identical inputs'):
+        prompt_comparison.build(directories, tmp_path / 'bad')

@@ -139,3 +139,26 @@ to see its saved system prompt, full sent user message (including skips),
 answer and generation parameters. The URL updates to link that exact record.
 Changing the model retains the selected scenario/sample/step. This view reveals
 model names and is separate from blind review; it makes no provider calls.
+
+## Compare prompt variants (86cbejq55)
+
+Pass `--prompt-variant v4`, `--prompt-variant v5-structured`, or the default
+`production` to select frozen v4, the structured English-instruction ablation,
+or the current localized prompt. Each variant needs its own output directory.
+The protocol records that name, localized and universal system prompts, and
+all actual sent system/user texts. Old v4 artifacts remain untouched.
+
+After both models finish for each variant, use:
+
+```bash
+python compare_question_prompts.py /tmp/prompts-v4 /tmp/prompts-structured /tmp/prompts-localized \
+  --out /tmp/prompts-before-after
+```
+
+This deliberately permits different prompts but requires the same scenarios,
+sample count, models and generation settings. Each blind card compares prompt
+variants within one model, not different models at once. Model-generated skips
+accumulate independently for each option. The resulting `prompts.html` shows
+exact saved prompts for every variant, including the universal prompt when the
+language detector abstained. Do not mistake one sample per scenario in a
+short diagnostic ablation for a robust multi-sample quality evaluation.

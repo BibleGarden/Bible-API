@@ -243,7 +243,33 @@ CANDIDATES: dict[str, Candidate] = {
         note="c's header with v3's sentence — which half of c did the damage",
     ),
 }
-VARIANTS = tuple(CANDIDATES)
+V4_SYSTEM_TEMPLATE = _with_gender_sentence(V3_SYSTEM_TEMPLATE)
+V4_NEXT_OPENING = A_NEXT_OPENING
+V4_FIRST_TOPIC = "Человек начинает молитву. Его цель: «{topic}».\n"
+V4_FIRST_NO_TOPIC = "Человек начинает молитву без конкретной темы.\n"
+V4_FIRST_INSTRUCTION = (
+    "Задай первый наводящий вопрос — про то, что сейчас происходит и что он "
+    "чувствует. Не пересказывай цель дословно. Ответь только текстом вопроса, "
+    "без кавычек и пояснений."
+)
+V4_NEXT_TOPIC = "Цель молитвы: «{topic}».\n"
+V4_NEXT_NO_TOPIC = "Молитва без конкретной темы.\n"
+V4_ASKED = "Уже прозвучали вопросы:\n"
+V4_ANSWERED = "Что человек ответил (опирайся на это, но не цитируй дословно):\n"
+V4_NEXT_CLOSING = " Ответь только текстом вопроса, без кавычек и пояснений."
+V4_REFLECT_OPENING = "Молитва закончилась, человек готов записать один вывод.\n"
+V4_REFLECT_TOPIC = "Цель была: «{topic}».\n"
+V4_REFLECT_ANSWERS = "Его ответы во время молитвы:\n"
+V4_REFLECT_SILENT = "Он молился молча, письменных ответов нет.\n"
+V4_REFLECT_INSTRUCTION = (
+    "Задай один тёплый итоговый вопрос, который поможет ему назвать главное "
+    "из этой молитвы. Не цитируй его ответы дословно. Ответь только текстом "
+    "вопроса."
+)
+
+V4 = "v4"
+V5_STRUCTURED = "v5-structured"
+VARIANTS = (*tuple(CANDIDATES), V4, V5_STRUCTURED)
 # The one name that always means "whatever `app/question_prompt.py` says right
 # now" — it is what a run of the shipped prompt is called after the winner is
 # promoted, and it is the only entry that must never be frozen here.
@@ -252,7 +278,7 @@ PRODUCTION = "production"
 
 def candidate(variant: str) -> Candidate | None:
     """The frozen candidate, or `None` for the live production wording."""
-    if variant == PRODUCTION:
+    if variant in (PRODUCTION, V4, V5_STRUCTURED):
         return None
     try:
         return CANDIDATES[variant]
@@ -265,6 +291,24 @@ def candidate(variant: str) -> Candidate | None:
 
 def system_prompt(variant: str, language: str | None) -> str:
     """The system instruction of one call, in this variant."""
+    if variant == V4:
+        return V4_SYSTEM_TEMPLATE.format(
+            language=question_prompt.LANGUAGE_NAMES.get(
+                language or "", question_prompt.UNDETERMINED_LANGUAGE
+            )
+        )
+    if variant == V5_STRUCTURED:
+        prompt = question_prompt.build_question_prompt(None)
+        language_name = question_prompt.LANGUAGE_NAMES.get(language or "")
+        if language_name:
+            anchor = (
+                "Detect the language from the person's own words and write in "
+                "exactly that language."
+            )
+            if prompt.count(anchor) != 1:
+                raise ValueError("Universal language rule changed: rebuild the structured ablation explicitly")
+            prompt = prompt.replace(anchor, f"Write in {language_name}, and in no other language.")
+        return prompt
     item = candidate(variant)
     if item is None:
         return question_prompt.build_question_prompt(language)
@@ -275,12 +319,51 @@ def system_prompt(variant: str, language: str | None) -> str:
     )
 
 
+def _v4_user_message(
+    topic: str,
+    stage: str,
+    messages: Sequence[tuple[str, str]],
+    skipped_questions: Sequence[str],
+) -> str:
+    """Frozen assembly of the user message sent with prompt v4."""
+    if stage not in question_prompt.STAGES:
+        raise ValueError(f"unknown stage: {stage!r}")
+    topic = topic.strip()
+    asked = [text.strip() for role, text in messages if role == "assistant" and text.strip()]
+    answered = [text.strip() for role, text in messages if role == "user" and text.strip()]
+    skipped = [text.strip() for text in skipped_questions if text.strip()]
+    def bullets(values: Sequence[str]) -> str:
+        return "".join(f"— {value}\n" for value in values)
+    if stage == "first":
+        return (V4_FIRST_TOPIC.format(topic=topic) if topic else V4_FIRST_NO_TOPIC) + V4_FIRST_INSTRUCTION
+    if stage == "next":
+        parts = [V4_NEXT_TOPIC.format(topic=topic) if topic else V4_NEXT_NO_TOPIC]
+        if asked:
+            parts.append(V4_ASKED + bullets(asked))
+        if skipped:
+            parts.append(V3_SKIPPED_HEADER + bullets(skipped))
+        if answered:
+            parts.append(V4_ANSWERED + bullets(answered))
+        instruction = V4_NEXT_OPENING
+        if skipped:
+            instruction += V3_SKIPPED_SENTENCE
+        parts.append(instruction + V4_NEXT_CLOSING)
+        return "".join(parts)
+    parts = [V4_REFLECT_OPENING]
+    if topic:
+        parts.append(V4_REFLECT_TOPIC.format(topic=topic))
+    parts.append(V4_REFLECT_ANSWERS + bullets(answered) if answered else V4_REFLECT_SILENT)
+    parts.append(V4_REFLECT_INSTRUCTION)
+    return "".join(parts)
+
+
 def user_message(
     variant: str,
     topic: str,
     stage: str,
     messages: Sequence[tuple[str, str]],
     skipped_questions: Sequence[str] = (),
+    language: str | None = None,
 ) -> str:
     """The user content of one call, in this variant.
 
@@ -290,23 +373,29 @@ def user_message(
     apply where its string is present, or the run stops: a candidate that
     silently measured the production wording is the worst outcome here.
     """
-    message = question_prompt.build_user_message(
-        topic, stage, messages, skipped_questions
-    )
+    if variant == V4:
+        return _v4_user_message(topic, stage, messages, skipped_questions)
+    if variant == V5_STRUCTURED:
+        return question_prompt.build_user_message(
+            topic, stage, messages, skipped_questions, "en"
+        )
     item = candidate(variant)
     if item is None:
-        return message
+        return question_prompt.build_user_message(
+            topic, stage, messages, skipped_questions, language
+        )
+    message = _v4_user_message(topic, stage, messages, skipped_questions)
     for live, replacement in (
-        (question_prompt.NEXT_INSTRUCTION_OPENING, item.next_opening),
-        (question_prompt.SKIPPED_HEADER, item.skipped_header),
-        (question_prompt.NEXT_SKIPPED_SENTENCE, item.skipped_sentence),
+        (V4_NEXT_OPENING, item.next_opening),
+        (V3_SKIPPED_HEADER, item.skipped_header),
+        (V3_SKIPPED_SENTENCE, item.skipped_sentence),
     ):
         if live in message:
             message = message.replace(live, replacement)
     for live in (
-        question_prompt.NEXT_INSTRUCTION_OPENING,
-        question_prompt.SKIPPED_HEADER,
-        question_prompt.NEXT_SKIPPED_SENTENCE,
+        V4_NEXT_OPENING,
+        V3_SKIPPED_HEADER,
+        V3_SKIPPED_SENTENCE,
     ):
         if live in message and live not in (
             item.next_opening,
@@ -322,6 +411,10 @@ def user_message(
 
 def describe(variant: str) -> str:
     """One line for the run banner and the artifact sidecar."""
+    if variant == V4:
+        return "frozen production prompt v4"
+    if variant == V5_STRUCTURED:
+        return "structured prompt v5 with English instructions"
     item = candidate(variant)
     if item is None:
         return (
@@ -329,6 +422,16 @@ def describe(variant: str) -> str:
             f"{question_prompt.QUESTION_PROMPT_VERSION})"
         )
     return f"candidate {item.name}: {item.note}"
+
+
+def prompt_version(variant: str) -> int:
+    """Version represented by an artifact row, including frozen variants."""
+    candidate(variant)  # validate before returning metadata
+    if variant == "v3":
+        return 3
+    if variant in ("a", "b", "c", "c2", V4):
+        return 4
+    return question_prompt.QUESTION_PROMPT_VERSION
 
 
 if __name__ == "__main__":  # a human check of what each candidate sends

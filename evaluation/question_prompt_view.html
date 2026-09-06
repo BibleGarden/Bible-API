@@ -23,7 +23,7 @@ function option(value,label){const o=document.createElement('option');o.value=va
 for(const [alias,run] of Object.entries(data.runs))$('model').append(option(alias,run.model));
 if(data.runs[params.get('model')])$('model').value=params.get('model');
 function render(){const alias=$('model').value,r=data.runs[alias].records.find(r=>rowKey(r)===$('record').value);
- $('answer').textContent=r.text;$('system').textContent=data.system_prompts[r.prompt_language];$('user').textContent=r.sent_user_message;
+ $('answer').textContent=r.text;$('system').textContent=r.sent_system_prompt || data.system_prompts[r.prompt_language || 'universal'];$('user').textContent=r.sent_user_message;
  $('meta').textContent='Температура: '+data.temperature+' · Лимит выходных токенов: '+data.max_output_tokens+' · Задержка: '+r.latency_ms+' мс';
  const query=new URLSearchParams({model:alias,id:r.id,sample:r.sample,step:r.step});history.replaceState(null,'',location.pathname+'?'+query);
 }
