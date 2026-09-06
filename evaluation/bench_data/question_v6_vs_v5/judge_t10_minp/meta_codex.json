@@ -1,0 +1,23 @@
+{
+  "judge": "codex",
+  "a": "bench_data/question_comparison_prompt_v5_final/qwen.jsonl",
+  "b": "bench_data/question_v6_vs_v5/qwen_v6_t10_minp/qwen.jsonl",
+  "model_a": "qwen3-30b-a3b-instruct-2507",
+  "model_b": "qwen3-30b-a3b-instruct-2507",
+  "seed": 86,
+  "limit": null,
+  "control_fraction": 0.1,
+  "pairs": 109,
+  "control_pairs": 10,
+  "judgements": 218,
+  "started_at": "2026-09-06T10:56:47.966261+00:00",
+  "judge_model": "gpt-6-astra",
+  "configured_model": "gpt-6-astra",
+  "workers": 3,
+  "timeout_seconds": 120,
+  "written": 218,
+  "errors": {},
+  "failed": [],
+  "finished_at": "2026-09-06T11:07:00.449739+00:00",
+  "complete": true
+}

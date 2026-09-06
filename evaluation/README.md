@@ -5566,9 +5566,10 @@ v2, ни в v3; v2 и v3 отправляют вместо него `probe-tired
 | «Несколько кандидатов за вызов…» | 86cbehyg4 | `n=2/3` против второй генерации — **не внедрять** | `bench_data/questions_qwen30b_v4_cand_*.jsonl` | `gen_questions.py --candidates N` / `--retry-on-repeat` |
 | «Семантическая проверка повторов через bge-m3» | 86cbehyg8 | косинус видит мысль, где триграммы видят рамку — **решение за Марией** | `question_pairs_labelled.json`, `bench_data/question_pairs_scored.jsonl` | `question_semantic_bench.py score / report / latency` |
 | «Промпт наводящего вопроса v6-A: сэмплирование и постфильтры» (в конце файла) | 86cbejvra (зонт 86cbejvq1) | `min_p` сдвигает дословные повторы (0–2 против 4–10 у базы), род сэмплированием не чинится (15–22 везде); детекторы `app/question_filters.py` сверены с ручным подсчётом | `bench_data/question_v6a_sampling/{t07,t07_rerun,pp08,t10,t10_minp,t10_minp_rerun}/` + `REPORT.md` | `compare_question_models.py run --temperature/--presence-penalty/--min-p`, затем `question_v6a_report.py` |
+| v6 против v5 на Qwen: дефекты и парное судейство (`bench_data/question_v6_vs_v5/REPORT.md`) | 86cbejvtd (зонт 86cbejvq1) | v6 по дефектам строго лучше (повторы 6→0–1, род 15→0–2, длина 99→82, меню на уровне), по глубине при согласии двух судей (Astra + Fable) **33–34 против 19–20 из 99** на двух прогонах v6; контроль v5/v5 решается судьями почти всегда — абсолютные доли одного судьи не читать; рекомендация — включить v6 при t=0.7 | `bench_data/question_v6_vs_v5/{qwen_v6_t07,qwen_v6_t10_minp,judge_t07,judge_t10_minp}/` | `compare_question_models.py run --prompt-variant v6`, затем `judge_questions.py run/report` (см. «Парное судейство вопросов») |
 
-**Вариант стенда `v6` (ClickUp 86cbejvt2, 2026-09-06) — результатов здесь
-пока нет.** Промпт v6 добавлен в `question_prompts.py` как имя живого текста
+**Вариант стенда `v6` (ClickUp 86cbejvt2, 2026-09-06) — результаты в строке
+выше и в `bench_data/question_v6_vs_v5/REPORT.md`.** Промпт v6 добавлен в `question_prompts.py` как имя живого текста
 (не замороженная копия): `system_prompt("v6", …)` и `user_message("v6", …)`
 собирают ровно те байты, что `app/question_prompt.py`, и это закреплено
 побайтовым тестом в `tests/test_question_prompt.py`; `candidate()` откажется

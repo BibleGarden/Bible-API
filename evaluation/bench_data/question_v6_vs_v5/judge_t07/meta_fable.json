@@ -1,0 +1,6 @@
+{
+ "judge": "fable",
+ "judge_model": "claude-fable-5-1",
+ "how": "6 blind subagent batches in Claude Code, each pair in both orientations in different batches",
+ "written": 218
+}
