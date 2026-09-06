@@ -609,6 +609,16 @@ def test_when_the_despair_rule_would_replace_all_of_them_there_is_no_answer():
     assert choice["novel"] is True
 
 
+def test_no_candidate_at_all_is_not_reported_as_a_safety_replacement():
+    """`generate_one` never calls this with nothing, and the label says so."""
+    choice = tool.choose_candidate([], [], None)
+
+    assert choice["chosen_index"] is None
+    assert choice["selection"] == "none"
+    assert choice["candidate_scores"] == []
+    assert choice["safety_dropped"] == []
+
+
 def test_nothing_shown_means_the_model_s_own_first_answer():
     choice = tool.choose_candidate(["Первый?", "Второй?"], [], None)
 
@@ -714,6 +724,28 @@ def test_the_retry_replay_makes_a_second_call_with_the_rejected_question(
     assert len(records[1]["calls"]) == 1
     assert meta["retry_on_repeat"] is True
     assert meta["candidates"] == 1
+
+
+def test_the_retry_keeps_the_first_answer_when_the_second_repeats_too(
+    monkeypatch, tmp_path
+):
+    """The other half of ADR 0016: the answer is never withheld.
+
+    Production keeps the first text unless the second is novel or strictly less
+    similar, and reports `novel: false`. This branch fired 10 times across the
+    two measured retry runs, so it is not a hypothetical.
+    """
+    repeated = "Что сегодня было таким, за что хочется сказать спасибо?"
+    _sent, records, _meta = _run_candidates(
+        monkeypatch, tmp_path, [[repeated], [repeated]], "--retry-on-repeat",
+    )
+
+    first = records[0]
+    assert first["selection"] == "retry_kept_first"
+    assert first["chosen_index"] == 0
+    assert first["text"] == repeated
+    assert first["novel"] is False
+    assert len(first["calls"]) == 2
 
 
 def test_the_two_mechanisms_are_measured_one_per_run(capsys):

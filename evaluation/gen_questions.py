@@ -781,7 +781,10 @@ def choose_candidate(
             "chosen_index": None,
             "least_similar_index": None,
             "novel": True,
-            "selection": "safety",
+            # "safety" is a claim about WHY there is no answer, so an empty
+            # candidate list — which the caller never produces, it only calls
+            # this with a non-empty response — must not borrow it.
+            "selection": "safety" if texts else "none",
             "disagreement": False,
         }
     survivors = [index for index in kept if not verdicts[index].repeat]

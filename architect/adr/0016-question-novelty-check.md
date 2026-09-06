@@ -184,9 +184,21 @@ steps where the first answer *was* flagged, the retry escapes the repeat in
 
 **Why, and it is not a tuning matter.** The second generation is sent
 *different bytes* — the rejected question is in `skipped_questions` — while N
-candidates come from one input and one prefill, so a model that has settled
-into a loop returns the loop N times. The `n=3` transcript of the journal
+candidates come from one and the same input, so a model that has settled into a
+loop on that input returns the loop N times. The `n=3` transcript of the journal
 series has steps 2-6 differing by a single word.
+
+It is the input, **not** the shared prefill (measured on review): sampling per
+choice is independent, and in the identical-body mode every sample of a series
+step sends the same bytes, so answers from *separate* calls are the control for
+candidates of one call. Mean (median) pairwise similarity within a call 0.417
+(0.383) at `n=2` and 0.405 (0.350) at `n=3`; between calls on the same bytes
+0.405 (0.349) and 0.407 (0.350) — indistinguishable. All N come back
+byte-identical on only 6.2% / 1.2% of the steps (7.4% / 6.2% accumulating), so
+`n` does deliver genuinely different samples. That sharpens the conclusion
+rather than softening it: what buys novelty is a changed input, not more draws
+from the same one — and it is also the case FOR the reinforcement below, whose
+extra draws would sit behind a changed input.
 
 Latency decides nothing: the worst step of all six runs is **1.17 s** against
 the 20 s budget. Tokens favour candidates on the total (a repeat costs the
