@@ -131,3 +131,11 @@ python3 tests/browser_question_review.py
 The browser check uses clearly synthetic options, exercises both narrow and
 wide layouts, persistence/export/import/reveal, and verifies model text cannot
 execute HTML. It writes diagnostic screenshots and rating files to `/tmp`.
+
+## Inspect an exact prompt and answer
+
+`report` also writes `prompts.html`. Select a model, input, sample and step
+to see its saved system prompt, full sent user message (including skips),
+answer and generation parameters. The URL updates to link that exact record.
+Changing the model retains the selected scenario/sample/step. This view reveals
+model names and is separate from blind review; it makes no provider calls.

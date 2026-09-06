@@ -40,7 +40,7 @@ def setup_run(tmp_path, monkeypatch):
 
 def fake_generation(client, args, url, key, model, entry, sample, step=1, skipped_questions=None):
     return {'id':entry['id'],'sample':sample,'text':f'Вопрос {model} {sample} {step}?',
-            'latency_ms':50,'error':None,'language':'ru','model':model}
+            'latency_ms':50,'error':None,'language':'ru','prompt_language':'ru','model':model}
 
 
 def test_run_uses_same_protocol_and_keeps_all_samples(tmp_path, monkeypatch):

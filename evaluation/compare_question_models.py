@@ -225,6 +225,20 @@ def report(args):
     # Escape script termination and JS line separators in untrusted model text.
     payload = json.dumps(data, ensure_ascii=False).replace('<','\\u003c').replace('\u2028','\\u2028').replace('\u2029','\\u2029')
     (args.out / 'review.html').write_text(template.replace('__REVIEW_DATA__', payload), encoding='utf-8')
+    spec = read_json(args.out / 'protocol.json')
+    prompt_data = {
+        'system_prompts': spec['system_prompts'],
+        'temperature': spec['temperature'],
+        'max_output_tokens': spec['max_output_tokens'],
+        'runs': {alias: {'model': meta['model_config']['model'], 'records': [
+            {key: row[key] for key in ('id', 'sample', 'step', 'text', 'prompt_language',
+                                      'sent_user_message', 'latency_ms')} | {'topic': row['input']['topic']}
+            for row in rows]} for alias, (meta, rows) in runs.items()},
+    }
+    prompt_template = (HERE / 'question_prompt_view.html').read_text(encoding='utf-8')
+    prompt_json = json.dumps(prompt_data, ensure_ascii=False).replace('<', '\\u003c')
+    (args.out / 'prompts.html').write_text(
+        prompt_template.replace('__PROMPT_DATA__', prompt_json), encoding='utf-8')
     lines = ['# Question model comparison', '', 'Raw generation; exact prompts are in protocol.json. No selection of best samples. '
              'Formal checks are heuristics, not a judgment of depth or usefulness.', '',
              '| Model | Answers | Median / p90 ms | Answers with heuristic flags | Exact / near repeats against shown |', '|---|---:|---:|---:|---:|']
@@ -240,7 +254,7 @@ def report(args):
         for row in rows:
             lines.extend([f"### {row['id']} · sample {row['sample']} · step {row['step']}", '', row['text'], ''])
     (args.out / 'report.md').write_text('\n'.join(lines), encoding='utf-8')
-    print(f"Written {args.out / 'review.html'} and report.md ({len(data['cards'])} blind cards)")
+    print(f"Written {args.out / 'review.html'} and report.md / prompts.html ({len(data['cards'])} blind cards)")
     return 0
 
 

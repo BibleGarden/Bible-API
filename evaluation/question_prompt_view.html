@@ -1,0 +1,33 @@
+<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Промпт и ответ модели</title>
+<style>body{font:17px/1.55 system-ui,sans-serif;color:#24332b;background:#f5f6f2;margin:0}main{max-width:1080px;margin:auto;padding:25px 20px 60px}h1{font-size:1.8rem}a{color:#245841}label{display:block;margin:16px 0 5px}select{font:inherit;max-width:100%;padding:8px;border:1px solid #9baea0;border-radius:6px;background:white}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:15px/1.6 ui-monospace,monospace;margin:0}section,details{background:white;border:1px solid #d0d9d2;border-radius:10px;padding:20px;margin:18px 0}summary{cursor:pointer;font-weight:600}details pre{margin-top:18px}#answer{font-size:1.2rem;white-space:pre-wrap}.muted{color:#52645b;font-size:.9rem}h2{font-size:1.15rem}</style>
+<main>
+<nav><a href="review.html">Оценить вопросы</a> · <a href="./">Все файлы</a></nav>
+<h1>Промпт и ответ модели</h1>
+<p>Выбери модель и конкретный вопрос. Ниже — сохранённые тексты именно этого вызова, включая ранее заменённые вопросы. Это не повторная генерация.</p>
+<label for="model">Модель</label><select id="model"></select>
+<label for="record">Сценарий, образец и шаг</label><select id="record"></select>
+<p id="meta" class="muted"></p>
+<section><h2>Ответ модели</h2><div id="answer"></div></section>
+<details open><summary>Системный промпт — общие инструкции модели</summary><pre id="system"></pre></details>
+<details open><summary>Сообщение с контекстом — тема, история и заменённые вопросы</summary><pre id="user"></pre></details>
+<p class="muted">Адрес страницы обновляется при выборе: его можно скопировать, чтобы показать конкретный пример. Названия моделей здесь открыты.</p>
+</main>
+<script id="data" type="application/json">__PROMPT_DATA__</script>
+<script>
+'use strict';
+const data=JSON.parse(document.getElementById('data').textContent),$=id=>document.getElementById(id);
+const params=new URLSearchParams(location.search);
+function rowKey(r){return [r.id,r.sample,r.step].join(':');}
+function option(value,label){const o=document.createElement('option');o.value=value;o.textContent=label;return o;}
+for(const [alias,run] of Object.entries(data.runs))$('model').append(option(alias,run.model));
+if(data.runs[params.get('model')])$('model').value=params.get('model');
+function render(){const alias=$('model').value,r=data.runs[alias].records.find(r=>rowKey(r)===$('record').value);
+ $('answer').textContent=r.text;$('system').textContent=data.system_prompts[r.prompt_language];$('user').textContent=r.sent_user_message;
+ $('meta').textContent='Температура: '+data.temperature+' · Лимит выходных токенов: '+data.max_output_tokens+' · Задержка: '+r.latency_ms+' мс';
+ const query=new URLSearchParams({model:alias,id:r.id,sample:r.sample,step:r.step});history.replaceState(null,'',location.pathname+'?'+query);
+}
+function records(wanted){$('record').replaceChildren();for(const r of data.runs[$('model').value].records){$('record').append(option(rowKey(r),r.id+' · образец '+r.sample+' · шаг '+r.step+' — '+r.topic.slice(0,70)));}if([...$('record').options].some(o=>o.value===wanted))$('record').value=wanted;render();}
+$('model').onchange=()=>records($('record').value);$('record').onchange=render;
+records([params.get('id'),params.get('sample'),params.get('step')].join(':'));
+</script></html>
