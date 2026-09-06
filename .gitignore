@@ -54,3 +54,9 @@ evaluation/bench_data/*
 # record what one live run of a temperature-0.7 model answered on one day.
 !evaluation/bench_data/live_*.md
 !evaluation/bench_data/before_after_*.md
+# Raw model comparison and offline review package (86cbejhh9).
+!evaluation/bench_data/question_comparison_*/
+!evaluation/bench_data/question_comparison_*/*.json
+!evaluation/bench_data/question_comparison_*/*.jsonl
+!evaluation/bench_data/question_comparison_*/*.md
+!evaluation/bench_data/question_comparison_*/*.html

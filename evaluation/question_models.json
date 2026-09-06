@@ -1,0 +1,15 @@
+{
+  "qwen": {
+    "provider": "openai_compat",
+    "model": "qwen3-30b-a3b-instruct-2507",
+    "endpoint": "https://llm.ai2.ru/v1",
+    "api_key_env": "AI_OPENAI_COMPAT_API_KEY",
+    "pause_seconds": 0.2
+  },
+  "gemini": {
+    "provider": "gemini",
+    "model": "gemini-3.5-flash-lite",
+    "api_key_env": "GEMINI_API_KEY",
+    "pause_seconds": 4.5
+  }
+}
