@@ -114,6 +114,11 @@ def test_the_tool_assembles_the_production_message(probe):
         probe["topic"],
         probe["stage"],
         [(message["role"], message["text"]) for message in probe["messages"]],
+        language=(
+            tool.detect_language(tool.language_source(probe))
+            if tool.language_source(probe).strip()
+            else "en"
+        ),
     )
 
 
@@ -194,8 +199,8 @@ def test_dry_run_contacts_nothing_and_writes_nothing(monkeypatch, capsys, tmp_pa
 
     printed = capsys.readouterr().out
     assert "no provider contacted" in printed
-    assert "Задай первый наводящий вопрос" in printed
-    assert "Молитва закончилась" in printed
+    assert "Задай первый вопрос" in printed
+    assert "Задай итоговый вопрос" in printed
     assert list(tmp_path.iterdir()) == []
 
 
@@ -358,10 +363,10 @@ def test_accumulate_skipped_sends_them_in_the_request_field(monkeypatch, tmp_pat
     assert "Ответ номер 4?" in sent[4]
     # Their own block, not the "already asked" one: that list means a question
     # that was asked AND answered, and the two must stay distinguishable.
-    asked, _, skipped = sent[4].partition("Человек попросил другой вопрос")
-    assert "Уже прозвучали вопросы:" in asked
+    asked, _, skipped = sent[4].partition("попросил заменить")
+    assert "Разговор до этого:" in asked
     assert "Ответ номер 4?" in skipped and "Ответ номер 4?" not in asked
-    assert "Выбери другое направление" in skipped
+    assert "другой предмет размышления" in skipped
     assert records[4]["skipped_questions"] == [f"Ответ номер {n}?" for n in (1, 2, 3, 4)]
     assert meta["accumulate_skipped"] is True
 
@@ -427,7 +432,7 @@ def test_the_dry_run_says_which_bytes_a_replacement_repeats(capsys):
     printed = capsys.readouterr().out
     assert "series of 6 replacements" in printed
     assert "every replacement sends exactly these bytes again" in printed
-    assert "Уже прозвучали вопросы:" in printed
+    assert "Разговор до этого:" in printed
 
 
 # ---------------------------------------------------------------------------
@@ -716,8 +721,8 @@ def test_the_retry_replay_makes_a_second_call_with_the_rejected_question(
     # question that was asked AND answered. (The text itself also appears in
     # the journal history of this input, which is why the block is what is
     # asserted rather than the string.)
-    assert "Человек попросил другой вопрос" not in sent[0]
-    _asked, _, skipped_block = sent[1].partition("Человек попросил другой вопрос")
+    assert "попросил заменить" not in sent[0]
+    _asked, _, skipped_block = sent[1].partition("попросил заменить")
     assert repeated in skipped_block
     # A step that did not repeat costs one call and says so.
     assert records[1]["selection"] == "no_repeat"

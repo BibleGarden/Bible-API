@@ -309,12 +309,15 @@ def user_message(
     `variant` names a candidate wording of 86cbehyf8; the default is the live
     production text.
     """
+    source = language_source(entry)
+    language = detect_language(source) if source.strip() else "en"
     return question_prompts.user_message(
         variant,
         entry["topic"],
         entry["stage"],
         turns(entry),
         list(skipped_questions or ()),
+        language,
     )
 
 
@@ -1075,7 +1078,7 @@ def generate_one(
         # no evidence — the one number that says whether a language violation
         # is the model's or the detector's.
         "prompt_language": prompt_language,
-        "prompt_version": QUESTION_PROMPT_VERSION,
+        "prompt_version": question_prompts.prompt_version(variant),
         # Which wording produced this answer. `production` is the shipped text
         # of `app/question_prompt.py`; a candidate name belongs to 86cbehyf8.
         "prompt_variant": variant,
@@ -1149,7 +1152,7 @@ def build_meta(
             "words of the person)) over "
             "app/question_prompt.build_user_message(topic, stage, messages)"
         ),
-        "prompt_version": QUESTION_PROMPT_VERSION,
+        "prompt_version": question_prompts.prompt_version(args.prompt_variant),
         "prompt_variant": args.prompt_variant,
         "prompt_variant_note": question_prompts.describe(args.prompt_variant),
         "scenarios_file": args.scenarios,
@@ -1247,7 +1250,7 @@ def dry_run(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     inputs, skipped = select_inputs(args, parser)
     print(
         f"dry run — {len(inputs)} inputs, {len(skipped)} skipped, "
-        f"prompt v{QUESTION_PROMPT_VERSION}, "
+        f"prompt v{question_prompts.prompt_version(args.prompt_variant)}, "
         f"{question_prompts.describe(args.prompt_variant)}, "
         "no provider contacted\n"
     )

@@ -36,6 +36,7 @@
 const data=JSON.parse(document.getElementById('review-data').textContent);
 const $=id=>document.getElementById(id);
 const key='lampada-review-'+data.id;
+if(data.kind==='prompts'){document.querySelector('h1').textContent='Какой промпт даёт более полезные вопросы?';document.querySelector('main > p.muted').textContent='В каждой карточке одна модель отвечает с разными промптами. Их названия скрыты, порядок вариантов перемешан. Все образцы включены. В серии каждый вопрос заменяет предыдущий без нового ответа человека.';}
 const flags=[['thoughtful','Хочется обдумать'],['shallow','Поверхностно / общие слова'],['invented','Приписывает лишнее'],['repeat','Повторяет мысль'],['awkward','Неестественно / трудно понять']];
 let index=0,revealed=false,everRevealed=false,ratings={};
 const labels=data.cards.length?data.cards[0].options.map((_,i)=>String.fromCharCode(65+i)):[];
@@ -64,6 +65,7 @@ function progress(){const count=Object.values(ratings).filter(r=>r.best).length;
 function render(){
  const card=data.cards[index],r=state();$('jump').value=String(index);$('prev').disabled=index===0;$('next').disabled=index===data.cards.length-1;
  $('context').replaceChildren(element('h2',card.context.topic));
+ if(card.model)$('context').append(element('p','Модель: '+card.model,'muted'));
  $('context').append(element('p','Этап: '+({first:'начало',next:'продолжение',reflect:'итог'}[card.context.stage]||card.context.stage),'muted'));
  for(const turn of card.context.messages){const p=element('div',undefined,'history');p.append(element('strong',turn.role==='user'?'Человек: ':'Предыдущий вопрос: '),document.createTextNode(turn.text));$('context').append(p);}
  $('options').replaceChildren();$('choices').replaceChildren();

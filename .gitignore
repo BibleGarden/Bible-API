@@ -60,3 +60,8 @@ evaluation/bench_data/*
 !evaluation/bench_data/question_comparison_*/*.jsonl
 !evaluation/bench_data/question_comparison_*/*.md
 !evaluation/bench_data/question_comparison_*/*.html
+!evaluation/bench_data/question_comparison_prompt_v5_ablation/**/
+!evaluation/bench_data/question_comparison_prompt_v5_ablation/**/*.json
+!evaluation/bench_data/question_comparison_prompt_v5_ablation/**/*.jsonl
+!evaluation/bench_data/question_comparison_prompt_v5_ablation/**/*.html
+!evaluation/bench_data/question_comparison_prompt_v5_ablation/**/*.md

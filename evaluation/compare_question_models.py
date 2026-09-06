@@ -64,7 +64,7 @@ def load_models(path):
     return models
 
 
-def protocol(inputs_path, samples, timeout=30):
+def protocol(inputs_path, samples, timeout=30, variant="production"):
     if samples < 1 or timeout <= 0:
         raise ValueError("samples and timeout must be positive")
     entries = gen.load_series(inputs_path)
@@ -74,13 +74,14 @@ def protocol(inputs_path, samples, timeout=30):
         raise ValueError("Series exceeds skipped_questions capacity")
     # Capture exact prompts, including skipped-block wording, so an added model
     # cannot silently be compared against old answers after a prompt edit.
-    prompts = {lang: gen.question_prompts.system_prompt('production', lang) for lang in ('ru', 'uk', 'en')}
-    builders = {e['id']: [gen.user_message(e), gen.user_message(e, ['EXAMPLE_SKIPPED_QUESTION'])] for e in entries}
+    prompts = {lang: gen.question_prompts.system_prompt(variant, lang) for lang in ('ru', 'uk', 'en')}
+    prompts['universal'] = gen.question_prompts.system_prompt(variant, None)
+    builders = {e['id']: [gen.user_message(e, variant=variant), gen.user_message(e, ['EXAMPLE_SKIPPED_QUESTION'], variant)] for e in entries}
     spec = {'version': 1, 'inputs': read_json(inputs_path), 'samples': samples,
             'system_prompts': prompts, 'user_prompts': builders,
             'temperature': gen.TEMPERATURE, 'max_output_tokens': gen.MAX_OUTPUT_TOKENS,
             'mode': 'raw generation, accumulated skips, no novelty retry or safety replacement',
-            'transport_attempts': 1, 'timeout_seconds': timeout}
+            'transport_attempts': 1, 'timeout_seconds': timeout, 'prompt_variant': variant}
     return entries, spec
 
 
@@ -99,7 +100,8 @@ def _run(args):
         raise ValueError(f"Unknown aliases: {sorted(unknown)}")
     if len(args.models) != len(set(args.models)):
         raise ValueError('Model aliases must not be repeated')
-    entries, spec = protocol(args.inputs, args.samples, args.timeout)
+    variant = getattr(args, 'prompt_variant', 'production')
+    entries, spec = protocol(args.inputs, args.samples, args.timeout, variant)
     identity = digest(spec)
     expected = sum(e['steps'] for e in entries) * args.samples
     if args.dry_run:
@@ -132,7 +134,7 @@ def _run(args):
                 'written': 0, 'failed': 0, 'complete': False}
         write_json(meta_path, meta)
         call_args = argparse.Namespace(provider='gemini' if model['provider']=='gemini' else 'qwen',
-            prompt_variant='production', candidates=1, retry_on_repeat=False, top_p=None, top_k=None)
+            prompt_variant=variant, candidates=1, retry_on_repeat=False, top_p=None, top_k=None)
         url = (gen.GEMINI_URL_TEMPLATE.format(model=model['model']) if model['provider']=='gemini'
                else model['endpoint'].rstrip('/') + '/chat/completions')
         key = os.environ[model['api_key_env']]
@@ -154,7 +156,8 @@ def _run(args):
                                                   step=step, skipped_questions=list(skipped))
                         record['step'] = step
                         record['input'] = {k:entry[k] for k in ('topic','stage','messages')}
-                        record['sent_user_message'] = gen.user_message(entry, skipped)
+                        record['sent_user_message'] = gen.user_message(entry, skipped, variant)
+                        record['sent_system_prompt'] = gen.question_prompts.system_prompt(variant, record.get('prompt_language'))
                         record['automatic_violations'] = violations(check(record))
                         record['skipped_questions'] = list(skipped)
                         gen.append_record(path, record)
@@ -232,7 +235,9 @@ def report(args):
         'max_output_tokens': spec['max_output_tokens'],
         'runs': {alias: {'model': meta['model_config']['model'], 'records': [
             {key: row[key] for key in ('id', 'sample', 'step', 'text', 'prompt_language',
-                                      'sent_user_message', 'latency_ms')} | {'topic': row['input']['topic']}
+                                      'sent_user_message', 'latency_ms')} | {
+                'topic': row['input']['topic'],
+                'sent_system_prompt': row.get('sent_system_prompt', spec['system_prompts'].get(row['prompt_language'] or 'universal', ''))}
             for row in rows]} for alias, (meta, rows) in runs.items()},
     }
     prompt_template = (HERE / 'question_prompt_view.html').read_text(encoding='utf-8')
@@ -265,6 +270,8 @@ def main(argv=None):
     parser.add_argument('--inputs', type=Path, default=HERE/'question_quality_inputs.json')
     parser.add_argument('--models', nargs='+', default=['qwen','gemini'])
     parser.add_argument('--samples', type=int, default=3)
+    parser.add_argument('--prompt-variant', default='production',
+                        choices=('production', *gen.question_prompts.VARIANTS))
     parser.add_argument('--timeout', type=float, default=30)
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--seed', type=int, default=86)

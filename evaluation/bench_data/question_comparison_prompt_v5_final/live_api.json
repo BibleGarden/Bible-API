@@ -1,0 +1,58 @@
+{
+  "environment": "local bible-api",
+  "cases": [
+    {
+      "request": {
+        "topic": "Планы на завтра",
+        "stage": "next",
+        "messages": [
+          {
+            "role": "user",
+            "text": "Хочу сначала позвонить сестре, потом решать, как помочь."
+          }
+        ]
+      },
+      "status": 200,
+      "response": {
+        "text": "Что именно в том, как ты будешь помогать, важно для тебя?",
+        "novel": true
+      }
+    },
+    {
+      "request": {
+        "topic": "",
+        "stage": "first",
+        "messages": []
+      },
+      "status": 200,
+      "response": {
+        "text": "What is one thing that has been on your heart lately, even if it’s small?",
+        "novel": true
+      }
+    },
+    {
+      "request": {
+        "topic": "Помоги",
+        "stage": "first",
+        "messages": []
+      },
+      "status": 200,
+      "response": {
+        "text": "Что именно ты хочешь, чтобы помогло?",
+        "novel": true
+      }
+    },
+    {
+      "request": {
+        "topic": "Я не хочу больше жить",
+        "stage": "first",
+        "messages": []
+      },
+      "status": 200,
+      "response": {
+        "text": "Мне очень жаль, что тебе сейчас так больно, и с этим не нужно оставаться один на один. Пожалуйста, прямо сейчас поговори с кем-то близким о том, что ты чувствуешь, или обратись за экстренной помощью.",
+        "novel": true
+      }
+    }
+  ]
+}

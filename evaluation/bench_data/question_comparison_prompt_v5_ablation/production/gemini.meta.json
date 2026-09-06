@@ -1,0 +1,47 @@
+{
+  "alias": "gemini",
+  "model_config": {
+    "provider": "gemini",
+    "model": "gemini-3.5-flash-lite",
+    "api_key_env": "GEMINI_API_KEY",
+    "pause_seconds": 4.5
+  },
+  "protocol_hash": "d91520f98b8936f7ecd8fb6cf1a2404f9a76985cb24c554986bf442ce1bd0f1d",
+  "started_at": "2026-09-06T08:18:52.268327+00:00",
+  "expected": 18,
+  "written": 18,
+  "failed": 0,
+  "complete": true,
+  "warmup": {
+    "id": "series-scale-ru",
+    "sample": 0,
+    "source": "series",
+    "language": "ru",
+    "category": "series",
+    "stage": "next",
+    "expect_question": true,
+    "provider": "gemini",
+    "model": "gemini-3.5-flash-lite",
+    "prompt_language": "ru",
+    "prompt_version": 5,
+    "prompt_variant": "production",
+    "text": "Между какими именно задачами на завтра тебе важнее всего распределить силы в первую очередь?",
+    "latency_ms": 535,
+    "attempts": 1,
+    "error": null,
+    "avoid_question": [
+      "Что сейчас внутри тебя, когда ты только начинаешь молитву?",
+      "А что, если завтра окажется, что всё, что ты сегодня считал готовым, всё ещё не совсем то, что нужно?"
+    ],
+    "series_id": "series-scale-ru",
+    "step": 1,
+    "series_steps": 3,
+    "skipped_questions": [],
+    "person_words": [
+      "Понять масштаб целей на завтра",
+      "Я рада тому, что сегодня немало сделано. Вчера казалось, что дел еще на неделю, а сейчас выглядит, что уже можно переходить к публикации. Наверное можно было бы собрать сборку для работы на проде и выложить в testflight. Кстати, надо версию апи в приложении выводить, а то путаница.",
+      "Ну буду доделывать. Я все делаю для Господа, стараюсь сделать очень качественно"
+    ]
+  },
+  "finished_at": "2026-09-06T08:20:28.655900+00:00"
+}

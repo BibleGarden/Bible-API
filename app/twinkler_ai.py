@@ -911,6 +911,7 @@ async def twinkler_complete(
     # call without moving it).
     deadline = Deadline(AI_QUESTION_TIMEOUT_SECONDS)
     language = language_source(request)
+    prompt_language = detect_language(language) if language.strip() else DEFAULT_LANGUAGE
     # What the person has already SEEN in this prayer: the questions they
     # answered and the ones they asked to replace. Their own replies are not
     # here — a question is never a repeat of an answer.
@@ -925,7 +926,11 @@ async def twinkler_complete(
     # (`language_source`, above) nor the despair rule (`safety_input_text`,
     # above) — see architect/adr/0015-skipped-questions-in-question-request.md.
     user_message = build_user_message(
-        request.topic, request.stage, request.turns(), request.skipped_questions
+        request.topic,
+        request.stage,
+        request.turns(),
+        request.skipped_questions,
+        prompt_language,
     )
     try:
         text = await complete(user_message, language, deadline)
@@ -968,6 +973,7 @@ async def twinkler_complete(
             request.stage,
             request.turns(),
             (list(request.skipped_questions) + [text])[-MAX_SKIPPED_QUESTIONS:],
+            prompt_language,
         )
         try:
             second = await complete(retry_message, language, deadline)

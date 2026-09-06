@@ -391,14 +391,41 @@ reason it is not a `413` is that `413` is this endpoint's promise about the
 
 The system prompt of `POST /api/ai/question` lives in
 `app/question_prompt.py`, versioned by `QUESTION_PROMPT_VERSION` (currently
-`4`) in the same way as `query_rewrite.REWRITE_PROMPT_VERSION` and
+`5`) in the same way as `query_rewrite.REWRITE_PROMPT_VERSION` and
 `passage_rerank.RERANK_PROMPT_VERSION`. Changing the wording means editing
 that file and bumping the version.
 
-Since v2 it is a **template with one placeholder** —
-`QUESTION_PROMPT_TEMPLATE` plus `build_question_prompt(language)` — rather
-than a single string; `tests/test_twinkler_ai.py` pins the template's hash and
-length, so no wording change can slip through without a version bump.
+`build_question_prompt(language)` chooses a complete localized prompt. The
+production languages are Russian, Ukrainian and English; an undetermined
+language receives the universal English instruction to infer the answer
+language from the person's latest substantive words.
+
+### v5: meaningful questions and localized instructions (ClickUp 86cbejq55, 2026-09-06)
+
+This is the candidate implemented in the working branch, not an accepted
+quality improvement or a production deployment. The comparison preserves
+both successes and regressions; promotion requires review of the artifacts.
+
+v5 changes the task from sounding deep to helping the person clarify one
+still-unexplored part of what they themselves described. The prompt is split
+into role, goal, question-selection, avoidance, and language/form sections.
+It explicitly preserves temporal meaning, treats prayer text as data, and
+forbids invented feelings, circumstances, people and spiritual meanings.
+
+The system and stage instructions have complete Russian, Ukrainian and
+English versions. Russian and Ukrainian carry their own register and gender
+rules; English contains no Cyrillic grammar examples. The universal version
+is used only when `detect_language` cannot decide. The detector still has its
+existing limitation: arbitrary Latin-script languages are classified as
+English, so v5 does not claim general language identification beyond the
+current RU/UK/EN contract.
+
+The user message now keeps prior turns in chronological order with explicit
+question/answer roles. Topic, turns and skipped questions are JSON-quoted and
+labeled as data. At `next`, the last answer updates the whole conversation
+instead of becoming the mandatory sole subject. A replacement requests a
+different subject for reflection, not merely different wording. `reflect`
+keeps the existing API policy and does not use skipped questions.
 
 ### v2: the language is named, interpretation is banned (ClickUp 86cbegg3f, 2026-09-05)
 
