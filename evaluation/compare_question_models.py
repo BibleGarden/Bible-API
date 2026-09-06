@@ -177,6 +177,10 @@ def _run(args):
 def load_runs(directory):
     spec = read_json(directory / 'protocol.json')
     runs = {}
+    artifacts = {path.stem for path in directory.glob('*.jsonl')}
+    metadata = {path.name.removesuffix('.meta.json') for path in directory.glob('*.meta.json')}
+    if artifacts != metadata:
+        raise ValueError('Incomplete run: each model needs both metadata and an answer artifact')
     expected_keys = {(e['id'], sample, step)
                      for e in spec['inputs']['inputs']
                      for sample in range(1, spec['samples'] + 1)
@@ -198,7 +202,7 @@ def review_data(directory, seed):
     spec, runs = load_runs(directory)
     grouped = {}
     for alias, (meta, rows) in runs.items():
-        for row in rows:
+        for row in sorted(rows, key=lambda r: (r['id'], r['sample'], r['step'])):
             key = (row['id'], row['sample'])
             card = grouped.setdefault(key, {'id': f'{key[0]}:{key[1]}', 'context': row['input'], 'options': {}})
             card['options'].setdefault(alias, []).append(row['text'])

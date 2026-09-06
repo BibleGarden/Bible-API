@@ -102,6 +102,15 @@ def test_missing_key_fails_before_any_calls(tmp_path,monkeypatch):
     assert not args.out.exists()
 
 
+def test_report_cannot_hide_third_model_with_failed_warmup(tmp_path, monkeypatch):
+    args = setup_run(tmp_path, monkeypatch)
+    monkeypatch.setattr(comparison.gen, 'generate_one', fake_generation)
+    assert comparison.run(args) == 0
+    comparison.write_json(args.out / 'third.meta.json', {'complete': False})
+    with pytest.raises(ValueError, match='Incomplete run'):
+        comparison.load_runs(args.out)
+
+
 def test_failed_provider_does_not_produce_successful_comparison(tmp_path,monkeypatch):
     args=setup_run(tmp_path,monkeypatch)
     def fail(*a,**kw):
