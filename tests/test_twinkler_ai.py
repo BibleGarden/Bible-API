@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import inspect
 import json
+import logging
 import os
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -1537,6 +1538,44 @@ def test_one_call_is_logged_as_one_attempt(monkeypatch, caplog):
     assert response.status_code == 200
     assert "question novelty: attempts=1 repeat=none" in caplog.text
     assert "novel=true" in caplog.text
+
+
+def test_the_novelty_line_is_visible_under_uvicorn():
+    """A line nothing handles is not a line (ClickUp 86cbehygb).
+
+    The two tests above pass through `caplog`, which attaches a handler of
+    its own — so they held while `docker logs` carried **no**
+    `question novelty:` line at all: uvicorn leaves the ROOT logger bare, and
+    `main.py` asked `ensure_visible_handler` for `main` and `transcription`
+    but not for this module, whose `WARNING` records reached the log through
+    logging's last-resort handler and hid the gap.
+
+    What is pinned is therefore the ask itself, and that the name asked for
+    is the name the module actually emits on: renaming a module would
+    otherwise silence its INFO records again, exactly as silently. Both
+    modules that log an `INFO` fact per request are checked together.
+    """
+    import main
+
+    source = inspect.getsource(main)
+    for module in (twinkler_ai, transcription):
+        assert (
+            f'ensure_visible_handler(logging.getLogger("{module.logger.name}"))'
+            in source
+        ), f"main.py leaves {module.logger.name}'s INFO records invisible"
+
+    root = logging.getLogger()
+    saved = (root.handlers, twinkler_ai.logger.handlers, twinkler_ai.logger.level)
+    try:
+        root.handlers = []
+        twinkler_ai.logger.handlers = []
+        twinkler_ai.logger.setLevel(logging.NOTSET)
+        main.ensure_visible_handler(logging.getLogger(twinkler_ai.logger.name))
+        assert twinkler_ai.logger.handlers, "the novelty line is invisible"
+        assert twinkler_ai.logger.isEnabledFor(logging.INFO)
+    finally:
+        root.handlers, twinkler_ai.logger.handlers, level = saved
+        twinkler_ai.logger.setLevel(level)
 
 
 def test_the_openai_compat_provider_generates_twice_too(monkeypatch):

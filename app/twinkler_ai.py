@@ -959,9 +959,10 @@ async def twinkler_complete(
         # person said and never shows our questions), so there the second
         # generation is a re-roll of identical bytes at temperature 0.7 rather
         # than an informed retry. Rendering it there is a prompt-design change
-        # and belongs to ClickUp 86cbehyf8; a wasted call is the cost until
-        # then, and `reflect` answers are not the repeating shape the ticket
-        # was opened on.
+        # that 86cbehyf8 (prompt v4) did not make — it measured no candidate
+        # that renders the block at `reflect` — so it is still open; a wasted
+        # call is the cost, and `reflect` answers are not the repeating shape
+        # the ticket was opened on.
         retry_message = build_user_message(
             request.topic,
             request.stage,

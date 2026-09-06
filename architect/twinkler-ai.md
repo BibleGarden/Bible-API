@@ -334,8 +334,11 @@ At **`reflect`** that block is deliberately not rendered at all (see
 `build_user_message`: the stage looks back at what the *person* said and never
 shows our questions), so a second generation there re-rolls identical bytes at
 temperature 0.7 instead of being told what was rejected. Rendering it there is
-a prompt-design change and belongs to ClickUp 86cbehyf8; the replacement loop
-this filter was built on happens at `next`.
+a prompt-design change, and the prompt work that followed (86cbehyf8, v4) left
+it that way — it revised the `next` instruction and the system prompt and
+measured no candidate that renders the block at `reflect`, so this stays open
+rather than done. The replacement loop this filter was built on happens at
+`next`.
 
 **One budget for the request.** `AI_QUESTION_TIMEOUT_SECONDS` (20) is now a
 single `Deadline` created at the top of the handler and threaded through both
@@ -685,8 +688,11 @@ the endpoint for free.
 
 Both tiers log one `WARNING` line — the tier, the pattern id, the resolved
 language, the reply version and (since 86cbegmzz) the stage, and nothing else.
-`WARNING` rather than `INFO` because uvicorn leaves the root logger without
-handlers, so an `INFO` record would never reach `docker logs`:
+`WARNING` rather than `INFO` because a rule firing is not ordinary operation —
+and, when these lines were written, because uvicorn leaves the root logger
+without handlers and nothing yet made this module's `INFO` records visible.
+That second half stopped being true on 2026-09-06 (the novelty line below);
+the level is kept, because the first half is the reason that lasts:
 
 ```
 Safety rule fired on the request: tier=1 pattern=ru.no-wish-to-live language=ru reply_version=2 stage=first
@@ -725,6 +731,11 @@ logging's last-resort handler, which is exactly why the gap was invisible.
 `main.py` now calls `ensure_visible_handler(logging.getLogger("twinkler_ai"))`
 beside the identical call for `transcription`. Verified live: 25 answered
 requests, 25 lines. `docker logs bible-api | grep 'question novelty'`.
+
+Pinned by `test_the_novelty_line_is_visible_under_uvicorn`, which asserts that
+`main.py` asks for **both** names and that each is the name its module emits
+on. The two novelty-log tests above could not catch this: `caplog` attaches a
+handler of its own, so they pass whether or not anything else does.
 
 ## Provider contract
 
