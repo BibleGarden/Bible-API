@@ -543,9 +543,13 @@ def run_latency(args) -> int:
     """What one novelty check would add to `POST /api/ai/question`.
 
     The shape measured is the one the handler would use: ONE call carrying the
-    candidate plus every question already shown, which is at most 12 texts
-    (ten `skipped_questions` plus the assistant turns the client sends) and
-    therefore always one batch of the client's 64.
+    candidate plus every question already shown — `twinkler_ai`'s own `shown`
+    list, i.e. the `assistant` turns of `messages` plus `skipped_questions`.
+
+    `--batch 12` is the TYPICAL prayer, not the ceiling (review of 86cbehyg8):
+    `MAX_SKIPPED_QUESTIONS` is 10 and `MAX_MESSAGES` is 40, so a long prayer
+    reaches ~30 texts — still one batch of the client's 64, but three times
+    the work. Measure that case with `--batch 30` before quoting a cost.
     """
     pairs = load_pairs(args.pairs)
     texts = [pair.a for pair in pairs][: args.batch]
