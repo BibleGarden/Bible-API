@@ -17,6 +17,7 @@ from excerpt import check_audio_file_exists
 from audio import router as audio_router
 from about import router as about_router
 from version_check import router as version_check_router
+from health import router as health_router
 from import_data import router as import_data_router
 from twinkler_ai import router as twinkler_ai_router
 from scripture_select import router as scripture_select_router
@@ -74,6 +75,10 @@ def timed_cache(seconds: int = 3600):
 
 # Tags metadata for controlling order in Swagger UI
 tags_metadata = [
+    {
+        "name": "Health",
+        "description": "Production readiness",
+    },
     {
         "name": "Languages",
         "description": "",
@@ -274,6 +279,7 @@ api_router.include_router(excerpt_router)
 api_router.include_router(audio_router)
 api_router.include_router(about_router)
 api_router.include_router(version_check_router)
+api_router.include_router(health_router)
 api_router.include_router(import_data_router)
 api_router.include_router(twinkler_ai_router)
 api_router.include_router(scripture_select_router)

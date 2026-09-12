@@ -38,6 +38,8 @@ docker cp tests/. bible-api:/code/tests
 docker exec -e API_KEY=test-api-key -e AI_CLIENT_HMAC_KEY=test-hmac-key \
   bible-api pytest -q
 ```
+Pull requests and pushes to `main` run the same offline suite in GitHub
+Actions after building the repository's production Dockerfile from scratch.
 Evaluation tools and their own tests run from the sibling
 [`AI-Evaluation`](https://github.com/BibleGarden/AI-Evaluation) repository.
 The suite never loads a model: `conftest` pins `EMBEDDING_PROVIDER=gemini`
@@ -69,6 +71,7 @@ system prompt is a code constant now, not an environment value.
 ### Application Structure (`app/`)
 
 - **`main.py`** — FastAPI app entry point, languages/translations/books endpoints, `timed_cache` decorator
+- **`health.py`** — Authenticated `GET /api/health` production readiness probe. It returns `{"status":"ok"}` only after a minimal read finds at least one row in `languages`; database errors and an empty table return a generic 503. The probe is read-only, does not invoke AI, and is excluded from request statistics so minute-by-minute monitoring does not inflate user traffic.
 - **`excerpt.py`** — Core content endpoint: `excerpt_with_alignment`. No COALESCE, no voice_manual_fixes (manual fixes already applied during import). Also owns `prev_excerpt`/`next_excerpt` navigation, which walks the books of *this* translation and steps over the ones it ships no text for (see "Navigation across books without text" below). The `excerpt` value is `<book alias> <chapter>[:<verse>[-<verse>]]`; the book is the **catalogue alias** of `GET /api/translations/{code}/books` (`bible_books.code1..code5`), Latin, **case-insensitive** — `EXCERPT_PATTERN` takes the whole token and casefolds it, so `Gen 1:1` no longer matches the substring `en`, an unparseable value is a `422` naming the format and an unknown alias a `404`. `short_name_en`/`short_name_ru` are display names and are **not** matched by the lookup (ClickUp 86cbehfqx, Maria's decision of 2026-09-05; `architect/adding-a-language.md` 3.5)
 - **`canon.py`** — chapter structure of the 66-book canon (`CANONICAL_BOOKS`, 1189 chapters) plus the per-translation exceptions; the single source of "how many chapters a book is expected to have" for `/translations/{code}/books` and for excerpt navigation (see "Chapter coverage" below)
 - **`audio.py`** — MP3 file serving with HTTP Range request support
