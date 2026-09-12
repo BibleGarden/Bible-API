@@ -75,8 +75,12 @@ docker run --rm --network none --read-only \
   pytest -q -p no:cacheprovider
 ```
 
-Exit `0`: **1,638 passed, 44 skipped**. The skipped tests are the repository's
-existing opt-in real model checks. No provider or database connection was used.
+Exit `0`: **1,638 passed, 44 skipped**. Source inspection accounts for every
+skip: 42 existing live-`cep_public` integration cases (20 in
+`test_passage_render.py`, 21 in `test_scripture_select.py`, one in
+`test_translation_books.py`) and two existing opt-in real-weight checks (one
+bge-m3 embedding and one Whisper transcription). No provider or database
+connection was used by the tests that ran.
 
 ## Footprint
 
