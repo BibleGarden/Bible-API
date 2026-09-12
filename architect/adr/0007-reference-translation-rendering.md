@@ -359,8 +359,9 @@ a catalogue field before it is worth doing.
 
 ### Measured effect on quality (npu simulation, 2026-08-27)
 
-`evaluation/retrieval_benchmark.py pipeline --rerank --coverage-translation
-21` — the uk candidates restricted to what `npu` renders, ru/en untouched
+Run `python evaluation/retrieval_benchmark.py pipeline --rerank
+--coverage-translation 21` from the sibling
+[AI-Evaluation repository](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/retrieval_benchmark.py) — the uk candidates restricted to what `npu` renders, ru/en untouched
 (their cached rewrites, embeddings and rerank answers stay valid; the run
 cost 6 fresh rerank calls, results in
 `bench_data/results_adr0007_npu_coverage.json`):
@@ -380,7 +381,7 @@ cost 6 fresh rerank calls, results in
 
 The RETRIEVAL rows of the baseline come from the saved runs
 `bench_data/results_v050_flashlite_p6/p9.json`, which were scored against
-`scenarios.json` 0.5.0 — the version BEFORE the fourth grading package that
+[scenarios.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/scenarios.json) 0.5.0 — the version BEFORE the fourth grading package that
 is in HEAD (0.6.0). There is no baseline run scored on the current
 reference. The size of that alone is visible inside the npu run itself: its
 ru and en entries in `details` (queries and top-10) are **byte-for-byte
@@ -390,14 +391,14 @@ is the reference set gaining references, not this ADR. (The earlier line
 "ru, en: every metric identical" claimed the opposite and was wrong.)
 
 The FINAL TOP-1 rows of both columns are now recounted against the current
-reference (`scenarios.json` 0.7.0) over the same set: version 0.7.0 grades
+reference ([scenarios.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/scenarios.json) 0.7.0) over the same set: version 0.7.0 grades
 the two previously-ungraded npu top-1 choices — uk-005 (John 14:15-31, the
 promise of the Comforter, "I will not leave you as orphans") and uk-007
 (Psalm 128:1-6, the blessing of family and children) — both `relevant`. All
 24 baseline and all 24 npu top-1 are now graded; the earlier
 22-graded-of-24 denominator mismatch no longer applies.
 
-Thresholds on the npu simulation, evaluated against `thresholds.json` 0.3.0's
+Thresholds on the npu simulation, evaluated against [thresholds.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/thresholds.json) 0.3.0's
 new `final_top1_coverage_restricted` section (approved by Мария, 2026-08-28,
 delegated to the orchestrator — same zero-unacceptable and
 `sensitive_relevant_or_acceptable_share_min = 1.0` as the main section, but

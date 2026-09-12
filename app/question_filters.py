@@ -1,7 +1,7 @@
 """Post-filters for the leading question: gender, menus, tails.
 
 ClickUp 86cbejvra (umbrella 86cbejvq1), from the independent assessment in
-`evaluation/bench_data/question_comparison_prompt_v5_before_after/FABLE_ASSESSMENT.md`:
+`AI-Evaluation/evaluation/bench_data/question_comparison_prompt_v5_before_after/FABLE_ASSESSMENT.md`:
 prompt wording did not fix three defects of Qwen3-30B, and the assessment's own
 recommendation was to stop asking the model and to decide them in code.
 
@@ -60,7 +60,7 @@ meant for counting a corpus, not for rejecting one answer on their own:
 * `is_menu` cannot tell «X или Y?» from «пять или шесть минут» or from a
   Ukrainian «чи» meaning "whether". Measured on the 396 benchmark answers it
   agrees with the manual count where the manual count exists; the disagreements
-  are listed in `evaluation/README.md`, section «Промпт наводящего вопроса
+  are listed in `AI-Evaluation/evaluation/README.md`, section «Промпт наводящего вопроса
   v6-A».
 * `has_tail` counts every dash with a clause after it, including the ones that
   carry the whole point of the question («что именно — в деталях, в ритме —

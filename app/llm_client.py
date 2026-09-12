@@ -62,7 +62,7 @@ from gemini_retry import (
 # parsers extract JSON greedily (`\{.*\}` with DOTALL), so a brace inside the
 # reasoning would swallow the real object; and for the question endpoint the
 # block would simply be shown to the person. Strip it in the transport, once,
-# for every stage (evaluation/gen_rewrites.py and the verified trace-stand
+# for every stage (AI-Evaluation/evaluation/gen_rewrites.py and the verified trace-stand
 # adapters do exactly this).
 _THINK_BLOCK = re.compile(r"<think>.*?</think>", flags=re.DOTALL | re.IGNORECASE)
 
@@ -71,7 +71,7 @@ _THINK_BLOCK = re.compile(r"<think>.*?</think>", flags=re.DOTALL | re.IGNORECASE
 # the same cap, while the instruct-tuned local models need ~250 tokens for
 # six rewrite queries — and on a server with context shifting an unreachable
 # ceiling turns a degenerate repetition into an endless one
-# (evaluation/gen_rewrites.DEFAULT_MAX_TOKENS says the same).
+# (AI-Evaluation/evaluation/gen_rewrites.DEFAULT_MAX_TOKENS says the same).
 DEFAULT_MAX_TOKENS = 1024
 
 # Linear backoff of the retry ladder, identical to the Gemini stages: 2 s
@@ -180,7 +180,7 @@ def transport_error(exc: Exception) -> str:
 
     An httpx error message quotes the request URL, and a rewrite/rerank
     request body is derived from the prayer context — the same policy the
-    Gemini stages and `evaluation/gen_rewrites.py` follow.
+    Gemini stages and `AI-Evaluation/evaluation/gen_rewrites.py` follow.
     """
     if isinstance(exc, httpx.HTTPStatusError):
         return f"HTTPStatusError (HTTP {exc.response.status_code})"

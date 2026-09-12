@@ -13,7 +13,7 @@
 
 **Серверная половина пройдена.** Тесты зелёные (643 passed, ровно база); полный
 эталон 0.7.0 прогнан на текущем коде с релизной моделью rewrite `gemini-3.7-flash`
-через кэш и прошёл **все** пороги `thresholds.json` 0.3.0 — и основные
+через кэш и прошёл **все** пороги [thresholds.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/thresholds.json) 0.3.0 — и основные
 (recall@10 0.789, MRR 0.664, hit@10 1.000, top-1 relevant 0.917, unacceptable 0.000,
 sensitive relevant 1.000), и суженного пула npu; ценой **нуля** вызовов Gemini
 (tripwire подтвердил). Все двенадцать живых сценариев дали ожидаемый контракт:
@@ -57,8 +57,8 @@ Gemini — 200 + `safe_pool`/`ai_unavailable` вместо 5xx, превышен
 
 | Артефакт | Версия |
 |---|---|
-| `evaluation/scenarios.json` | 0.7.0 (24 сценария, approved Мария) |
-| `evaluation/thresholds.json` | 0.3.0 (approved Мария 2026-08-24) |
+| [scenarios.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/scenarios.json) | 0.7.0 (24 сценария, approved Мария) |
+| [thresholds.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/thresholds.json) | 0.3.0 (approved Мария 2026-08-24) |
 | Векторный индекс | `c3:gemini-embedding-001@768`, 11960 чанков (не трогался) |
 
 ---
@@ -67,7 +67,7 @@ Gemini — 200 + `safe_pool`/`ai_unavailable` вместо 5xx, превышен
 
 ```bash
 docker cp tests/. bible-api:/code/tests
-docker cp evaluation/. bible-api:/code/evaluation
+docker cp ../AI-Evaluation/evaluation/. bible-api:/code/evaluation
 docker exec -e API_KEY=test-api-key -e AI_CLIENT_HMAC_KEY=test-hmac-key \
   bible-api pytest -q
 ```
@@ -81,7 +81,7 @@ docker exec -e API_KEY=test-api-key -e AI_CLIENT_HMAC_KEY=test-hmac-key \
 
 ### Можно ли было прогнать на релизной модели без живых вызовов — да
 
-Разбор кэшей `evaluation/bench_data/`:
+Разбор кэшей [bench_data/](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/bench_data/):
 
 * `pipeline_cache.json` — три раздела: `rewrites` (274 ключа),
   `query_embeddings` (1693), `reranks` (457).
@@ -160,7 +160,7 @@ reranks: 0}`**, в логе `rerank: fresh_calls=0 failures=0`. То есть п
 
 В логе прогона `sensitive relevant` помечен FAIL — `_final_top1_report` печатает
 строгий раздел `final_top1` (порог 1.0), а не смягчённый. Это известное и
-задокументированное поведение инструмента (`evaluation/README.md`, раздел
+задокументированное поведение инструмента ([README.md](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/README.md), раздел
 «Финальный top-1 при суженном пуле npu»), пороги суженного пула считаются
 вручную. Дефектом не считаю, но см. пункт D-4.
 
@@ -171,7 +171,7 @@ sensitive relevant 0.500 FAIL (9 из 24 top-1 неразмечены).
 `fallback max-score`: r-o-a 0.923 FAIL, unacceptable 0.042 FAIL.
 Ожидаемо: обе политики — деградация, качество держит именно grounded rerank.
 
-**Вывод по пункту 3: все пороги `thresholds.json` 0.3.0 пройдены на текущем коде
+**Вывод по пункту 3: все пороги [thresholds.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/thresholds.json) 0.3.0 пройдены на текущем коде
 с релизной моделью rewrite, ценой нуля вызовов провайдера.**
 
 ---
@@ -344,7 +344,7 @@ user_agent, created_at`. **Колонки для тела запроса нет 
 **Почему это дефект.** Rewrite — доминирующий рычаг качества (ADR 0004), и
 значение модели «прибито бенчмарком». На `gemini-3.5-flash-lite` эталон
 проваливает `retrieval_top_k`: recall@10 **0.554** при пороге ≥ 0.60 и MRR 0.529
-при пороге ≥ 0.60 (пакет 2026-08-29, `evaluation/README.md`). Прод сейчас отдаёт
+при пороге ≥ 0.60 (пакет 2026-08-29, [README.md](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/README.md)). Прод сейчас отдаёт
 пользователям подбор того качества, которое приёмку не проходит. Локально то же
 самое, но локально это осознанное решение Марии ради экономии на период
 разработки; для прода такого решения в документации нет — `Deploy/env-checklist.md`
@@ -394,7 +394,7 @@ retry-лестница провайдера съедает бюджет. На п
 
 ### D-4. `_final_top1_report` печатает строгий раздел порогов для coverage-прогонов — **cosmetic**
 
-Известно и задокументировано (`evaluation/README.md`), пороги
+Известно и задокументировано ([README.md](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/README.md)), пороги
 `final_top1_coverage_restricted` считаются вручную. В логе coverage-прогона
 `sensitive relevant 0.857 >= 1.0 -> FAIL` — это ложная тревога инструмента, а не
 провал. Стоит когда-нибудь научить `_final_top1_report` выбирать раздел по
@@ -441,7 +441,7 @@ retry-лестница провайдера съедает бюджет. На п
   `app/` смонтирован read-only). Контейнер удалён после проверки; штатный
   `bible-api` не пересоздавался и не перенастраивался.
 * Временный `tripwire_run.py` удалён из контейнера, в репозиторий не попадал.
-* Артефакты бенчмарка оставлены в `evaluation/bench_data/` (каталог в `.gitignore`):
+* Артефакты бенчмарка оставлены в [bench_data/](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/bench_data/) (каталог в `.gitignore`):
   `results_e2e_20260830_flash37.json`, `results_e2e_20260830_flash37_npu_coverage.json`.
 * Векторный индекс не пересобирался, `index_cli rebuild` не запускался.
 * Коммитов и push нет.

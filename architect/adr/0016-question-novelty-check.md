@@ -11,7 +11,7 @@ constants here are code.
 Pressing "replace question" now sends `skipped_questions` (ADR 0015), so the
 model is *told* what was declined. Telling it is not making it obey. The
 replacement-series baseline measured immediately afterwards
-(`evaluation/bench_data/questions_qwen30b_v3_series.jsonl`, ClickUp 86cbehyez)
+([bench_data/questions_qwen30b_v3_series.jsonl](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/bench_data/questions_qwen30b_v3_series.jsonl), ClickUp 86cbehyez)
 shows Qwen3-30B answering six replacements of one prayer with six variants of
 one sentence — the last five differ from the first only in the tail, «— как ты
 будешь узнавать это?» and its cousins. The person presses "replace" and is
@@ -38,7 +38,7 @@ answer.
 - **Near**: Jaccard over character 3-grams ≥ **0.60**, or a shared opening of
   ≥ **4** normalized words covering ≥ **0.7** of the shorter question.
 
-The metric is `evaluation/check_questions.py`'s `normalise_series_text` /
+The metric is [check_questions.py](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/check_questions.py)'s `normalise_series_text` /
 `trigram_similarity`, reused character for character and pinned by a test, so
 the number the benchmark prints about a series and the filter that runs in
 production are one measurement rather than two definitions that drift.
@@ -170,7 +170,8 @@ this ADR said a lexical metric cannot see (ClickUp 86cbehyg8).
 The alternative to "one more generation" is "N answers from one generation":
 `n` of the OpenAI-compatible chat API, which vLLM serves from a single prefill,
 with the pick made server-side. It was measured against this ADR's mechanism —
-`evaluation/gen_questions.py --candidates N` and `--retry-on-repeat`, prompt v4,
+[`gen_questions.py`](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/gen_questions.py)
+with `--candidates N` and `--retry-on-repeat`, prompt v4,
 Qwen3-30B, the four replacement series x 6 samples, both client modes, six
 artifacts `bench_data/questions_qwen30b_v4_cand_*.jsonl`. Nothing in
 `app/` changed: the endpoint still does exactly what the Decision section says.
@@ -217,16 +218,16 @@ coin toss dressed as a criterion — and the formal checks cannot tell them apar
 **Recommendation recorded, not enacted: do not adopt.** Worth revisiting only
 as a *reinforcement* of the retry (the second call asking for `n=2`), or once a
 semantic filter (ClickUp 86cbehyg8) gives the selection something real to
-choose on. The numbers and the transcripts are in `evaluation/README.md`,
+choose on. The numbers and the transcripts are in [README.md](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/README.md),
 «Несколько кандидатов за вызов против повторной генерации».
 ## Semantic check: measured, decision pending (ClickUp 86cbehyg8, 2026-09-06)
 
 The question this ADR left open has been measured and **not** implemented:
 nothing in `app/` changed, and `POST /api/ai/question` still answers exactly as
 it did. What exists is the evidence for a decision — the labelled set
-`evaluation/question_pairs_labelled.json` (176 pairs, ru 83 / uk 51 / en 42,
-116 `repeat` / 60 `different`), the tool `evaluation/question_semantic_bench.py`
-that scores each pair three ways, and the table in `evaluation/README.md`,
+[question_pairs_labelled.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/question_pairs_labelled.json) (176 pairs, ru 83 / uk 51 / en 42,
+116 `repeat` / 60 `different`), the tool [question_semantic_bench.py](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/question_semantic_bench.py)
+that scores each pair three ways, and the table in [README.md](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/README.md),
 «Семантическая проверка повторов через bge-m3».
 
 **bge-m3 cosine sees the thought where the trigram score sees the frame.** On

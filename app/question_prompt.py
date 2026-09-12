@@ -42,7 +42,7 @@ rather than guessed (the v1 provider measurement is 86cbegctz):
    работы, помоги найти покой» Qwen asked «Ты действительно чувствуешь, что
    больше не можешь?» — it thickened the state beyond what was said and read
    as a test for despair). That prayer is now `probe-tired-work` in
-   `evaluation/question_probe_inputs.json`.
+   `AI-Evaluation/evaluation/question_probe_inputs.json`.
 3. **"Concrete" had to be told what it is not.** The first draft of v2 said
    only "ask about something concrete", and both providers read it as "ask for
    facts": gemini-3.5-flash-lite answered the birth of a daughter with «Как
@@ -111,12 +111,12 @@ prompts (ru/uk/en plus the universal one) with named sections instead of one
 English template with a language placeholder, and `_STAGE_TEXTS` — the stage
 instructions localized as well, JSON-quoting the person's words as data. Its
 record, and the four-way model/prompt comparison it was accepted on, are in
-`architect/twinkler-ai.md` («v5») and `evaluation/README.md`.
+`architect/twinkler-ai.md` («v5») and `AI-Evaluation/evaluation/README.md`.
 
 **v6 (2026-09-06, ClickUp 86cbejvt2)** — the first revision that changes the
 *contract* rather than the wording, because the wording levers are spent. The
 independent assessment of v5
-(`evaluation/bench_data/question_comparison_prompt_v5_before_after/FABLE_ASSESSMENT.md`,
+(`AI-Evaluation/evaluation/bench_data/question_comparison_prompt_v5_before_after/FABLE_ASSESSMENT.md`,
 ticket 86cbejtt2) measured, on Qwen3-30B: the masculine addressed to a woman
 in **15 answers of 99**, verbatim duplicates inside the Ukrainian series (6 of
 51 replacements, one sample repeating a single line five times), «X или Y»
@@ -145,7 +145,7 @@ state it, do not ask the model for it" — is two of the four changes here:
    two options the model itself named.
 
 Each prompt also gains two worked examples from a domain the app never sees
-(no prayer, and nothing that touches `evaluation/question_quality_inputs.json`
+(no prayer, and nothing that touches `AI-Evaluation/evaluation/question_quality_inputs.json`
 — the same de-fingerprinting rule `query_rewrite`'s examples follow, so a
 measured answer can never be an example copied back).
 

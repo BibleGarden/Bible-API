@@ -136,8 +136,8 @@ def test_the_reference_scenarios_are_unchanged():
 
     inputs = json.loads(
         (
-            Path(__file__).resolve().parents[1]
-            / "evaluation/question_quality_inputs.json"
+            Path(__file__).resolve().parent
+            / "fixtures/ai/question_quality_inputs.json"
         ).read_text(encoding="utf-8")
     )["inputs"]
     decided = {

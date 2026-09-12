@@ -28,14 +28,14 @@ evaluation tools and the tests can import it without the application.
 
 ## The metric
 
-`normalize` and `similarity` are the definition `evaluation/check_questions.py`
+`normalize` and `similarity` are the definition `AI-Evaluation/evaluation/check_questions.py`
 already uses for the replacement series (`normalise_series_text`,
 `trigram_similarity`): casefold, ё→е, drop everything that is neither a word
 character nor whitespace (quotes, dashes, «», …, ?, !), collapse whitespace;
 then Jaccard over character 3-grams. Character trigrams rather than word sets
 because a reworded loop keeps the letters and moves the words. Reusing that
 definition is the point — the metric the benchmark reports and the filter that
-runs in production must agree, or a number in `evaluation/README.md` says
+runs in production must agree, or a number in `AI-Evaluation/evaluation/README.md` says
 nothing about what the endpoint does.
 
 Ukrainian is safe under it: `і`, `ї`, `є`, `ґ` are word characters and only `ё`
@@ -68,7 +68,7 @@ repeated stem reaches 1.0.
 
 ## Where the threshold comes from
 
-Measured on `evaluation/bench_data/questions_qwen30b_v3_series.jsonl`
+Measured on `AI-Evaluation/evaluation/bench_data/questions_qwen30b_v3_series.jsonl`
 (Qwen3-30B, prompt v3, four inputs x six replacement series). "flagged" is
 this module's verdict at the constants above; the pair sets are reproduced in
 `tests/test_question_novelty.py`.
@@ -141,11 +141,11 @@ positive), not a tuning, and the reading this table supports is the one this
 module already states — v4 moved the problem out of reach of a lexical metric,
 and the semantic check is ClickUp 86cbehyg8.
 
-Replayed the way the endpoint runs it (`evaluation/check_questions.py
+Replayed the way the endpoint runs it (`AI-Evaluation/evaluation/check_questions.py
 --novelty-sim`, each step against the journal questions plus the earlier steps
 of its series), the filter fires on **34 of 126** steps in the identical-body
 run and **42 of 252** in the two accumulating ones; per series and per
-threshold, `evaluation/README.md`, «Фильтр повторов на v4».
+threshold, `AI-Evaluation/evaluation/README.md`, «Фильтр повторов на v4».
 """
 
 from __future__ import annotations
@@ -154,7 +154,7 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-# --- the metric, byte for byte `evaluation/check_questions.py` -------------
+# --- the metric, byte for byte `AI-Evaluation/evaluation/check_questions.py` -------------
 _PUNCTUATION = re.compile(r"[^\w\s]", re.UNICODE)
 _TRIGRAM_SIZE = 3
 

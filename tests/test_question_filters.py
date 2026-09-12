@@ -38,7 +38,7 @@ from question_filters import (
     words,
 )
 
-BENCH = Path(__file__).resolve().parents[1] / "evaluation" / "bench_data"
+BENCH = Path(__file__).resolve().parent / "fixtures" / "ai"
 ARTIFACTS = {
     ("qwen", 4): BENCH / "question_comparison_2026-09-06" / "qwen.jsonl",
     ("gemini", 4): BENCH / "question_comparison_2026-09-06" / "gemini.jsonl",
@@ -250,7 +250,7 @@ def test_the_gender_detector_agrees_with_the_manual_count():
 
     Three of the four combinations reproduce the hand count exactly, on the
     same rows. The fourth is one extra flag on Gemini/v4, documented in the
-    module docstring and in `evaluation/README.md`: «Что ты чувствовала, когда
+    module docstring and in `AI-Evaluation/evaluation/README.md`: «Что ты чувствовала, когда
     отчёт был наконец готов?», where «готов» agrees with «отчёт» and the
     window rule attaches it to «ты».
     """

@@ -4,6 +4,11 @@ Public read-only REST API for the [Bible Garden](https://github.com/Bible-Garden
 
 Built with FastAPI and MySQL.
 
+Model benchmarks, evaluation datasets, generated outputs and research notes
+live in [BibleGarden/AI-Evaluation](https://github.com/BibleGarden/AI-Evaluation).
+This repository keeps only the small immutable snapshots required by
+production regression tests under `tests/fixtures/ai/`.
+
 ## Setup
 
 ```bash
@@ -169,8 +174,9 @@ Measured on 8 CPU cores, int8: 0.07-0.22x the audio duration, 0.85 GB
 (`small`) / 0.100 (`medium`) against Gemini's 0.019. The production provider —
 `large-v3-turbo` on a CPU behind the audio API — measures 0.037 on Russian
 (character error rate 0.003, Gemini's own) at 0.20x the audio and no memory on
-this side. Full tables, the side-by-side transcripts and how to re-measure
-(`evaluation/transcribe_bench.py remote`): `evaluation/README.md` and
+this side. Full tables, side-by-side transcripts and the re-measurement command
+are in [AI-Evaluation](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/README.md),
+with the production decision in
 `architect/adr/0012-speech-transcription-providers.md`.
 
 ### Choosing the embedding provider

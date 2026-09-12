@@ -993,7 +993,7 @@ AI_TRANSCRIBE_MODEL = os.getenv("AI_TRANSCRIBE_MODEL", "")
 AI_TRANSCRIBE_MODEL_PATH = os.getenv("AI_TRANSCRIBE_MODEL_PATH", "").strip()
 # Operational knobs of the LOCAL transcriber (the remote providers have their
 # own budgets). Their defaults ARE the reviewed operating point (ADR 0012,
-# measured in evaluation/README.md), not a stand-in for a setting somebody
+# measured in AI-Evaluation/evaluation/README.md), not a stand-in for a setting somebody
 # forgot; a malformed value is still a startup error.
 #
 # COMPUTE_TYPE: CTranslate2 quantisation, applied while loading the float16

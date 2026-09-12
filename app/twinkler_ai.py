@@ -462,7 +462,7 @@ def language_source(request: CompleteRequest) -> str:
     person had already written in the same request. The prompt then got v2's
     "answer in exactly the language of the person's message", the wording v2
     exists to avoid: Qwen3-30B broke it in 6 answers out of 81. Measured on
-    the evaluation set (`evaluation/gen_questions.py --dry-run`): 9 of 33
+    the evaluation set (`AI-Evaluation/evaluation/gen_questions.py --dry-run`): 9 of 33
     inputs undetermined before, **6** after, and the topic alone recovered
     none of them — the evidence for `ru-001`/`ru-002`/`ru-005` is in an
     earlier reply, which is why the walk does not stop at the topic.
@@ -476,7 +476,7 @@ def language_source(request: CompleteRequest) -> str:
 
     Still one *text*, not a language: `question_prompt_for` stays a pure
     function of the string it is handed, both transports are handed the same
-    one, and `evaluation/gen_questions.py` mirrors this selection (pinned
+    one, and `AI-Evaluation/evaluation/gen_questions.py` mirrors this selection (pinned
     against it by `tests/test_gen_questions.py`).
     """
     candidates = person_language_candidates(request)

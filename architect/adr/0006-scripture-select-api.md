@@ -28,7 +28,7 @@ Ticket: ClickUp 86cb8vw1m
 ADR 0004 (retrieval) and ADR 0005 (grounded rerank) produce
 `ScriptureRetriever.select_final`: a prayer context in, ONE verified
 passage out, with the whole quality argument already measured against
-`evaluation/thresholds.json`. What was missing is the public contract the
+[thresholds.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/thresholds.json). What was missing is the public contract the
 iOS app calls: request validation, authentication, rate limiting, a time
 budget, and the privacy rules for a request whose input is a prayer.
 

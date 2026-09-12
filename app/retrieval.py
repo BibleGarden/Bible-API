@@ -75,7 +75,8 @@ FETCH_K = 50
 # How many lexical (BM25) hits to merge into each variant's ranking.
 LEXICAL_K = 20
 # Diversity: at most this many candidates of one book in the final top-K
-# (thresholds.json diversity: max_share_single_book_in_window = 0.4) and at
+# (AI-Evaluation/evaluation/thresholds.json,
+# diversity: max_share_single_book_in_window = 0.4) and at
 # most one candidate per chapter (near-duplicate windows are redundant).
 MAX_PER_BOOK = 4
 MAX_PER_CHAPTER = 1
@@ -567,7 +568,7 @@ class ScriptureRetriever:
     trace           - optional diagnostic observer `trace(stage, payload)`
                       called after each pipeline stage with the objects that
                       stage produced (ClickUp 86cbegawh, the tracing stand
-                      `evaluation/trace_picker.py`). It is None everywhere in
+                      `AI-Evaluation/evaluation/trace_picker.py`). It is None everywhere in
                       production. It is READ-ONLY by contract: its return
                       value is ignored, an exception it raises is swallowed
                       with a category-only warning, and no stage consults it

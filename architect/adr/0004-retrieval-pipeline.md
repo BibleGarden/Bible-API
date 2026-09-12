@@ -40,8 +40,8 @@ for the downstream LLM reranker (86cb8vw1h, out of scope here).
 
 Acceptance criterion (moved by Maria from the embeddings stage): the
 retrieval layer as a whole must pass the approved retrieval thresholds
-(`evaluation/thresholds.json` v0.2.0) on the approved dataset
-(`evaluation/scenarios.json` v0.2.0, 24 scenarios): hit_rate@10 >= 0.90,
+([thresholds.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/thresholds.json) v0.2.0) on the approved dataset
+([scenarios.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/scenarios.json) v0.2.0, 24 scenarios): hit_rate@10 >= 0.90,
 recall@10 >= 0.60, MRR >= 0.60, unacceptable@10 <= 0.05.
 
 Starting point: raw embedding search over the c3 index
@@ -126,7 +126,8 @@ failure categories are.
 
 ## Measurements (approved dataset v0.2.0, thresholds v0.2.0)
 
-Benchmark: `evaluation/retrieval_benchmark.py pipeline` — runs the full
+Benchmark: run `python evaluation/retrieval_benchmark.py pipeline` from the
+sibling [AI-Evaluation repository](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/retrieval_benchmark.py) — it runs the full
 pipeline over the production modules with cached corpus embeddings
 (MRL-identical to the production index); every Gemini call is disk-cached,
 so ablation re-runs are free. Defaults reproduce the approved
@@ -240,7 +241,7 @@ parallel embedding is an obvious later optimisation).
 
 Step 2 above is unchanged in role and in every threshold; what changed is the
 instruction it sends and the shape of the answer it accepts. v8 is the
-benchmark prompt "8c" of the 7/8a/8b/8c matrix (evaluation/README.md,
+benchmark prompt "8c" of the 7/8a/8b/8c matrix (https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/README.md,
 86cbea05x) moved into `app/query_rewrite.py`, plus one closing line.
 
 **Why.** v7 was written for `gemini-3.7-flash` and measured on it. On
@@ -270,11 +271,11 @@ single relevant passage in top-10 (0.583 / 0.312 / 0.404 against
 2. **Six worked examples**, two per language, shown whatever the target
    language is. They are de-fingerprinted by the rule the rerank prompt v6
    established — no example topic and no example passage may touch
-   `evaluation/scenarios.json` — and that is a test against the live dataset
+   [scenarios.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/scenarios.json) — and that is a test against the live dataset
    (`tests/test_rewrite_prompts.py`), not a claim in a comment.
 
    **The dataset moves, so the examples move: revision 4 (2026-09-05,
-   evening).** Grading of the Russian top-1 pairs (86cbedtf8, `scenarios.json`
+   evening).** Grading of the Russian top-1 pairs (86cbedtf8, [scenarios.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/scenarios.json)
    0.8.0) made Ps 62 and Ps 16 graded references, which is exactly what the
    "экзамен" and "квартира" examples quoted; the test failed before any run,
    naming both collisions by coordinate. The rule and the test are right and
@@ -288,7 +289,7 @@ single relevant passage in top-10 (0.583 / 0.312 / 0.404 against
    worse anywhere, and every difference inside this server's own spread, so
    "not worse" is the whole claim. Run 3 equalled run 2 byte for byte
    (125/125), the cold run shared 47 of 125 with it. Numbers, artifacts and
-   the ungraded top-1 list: evaluation/README.md, "Ревизия 4".
+   the ungraded top-1 list: https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/README.md, "Ревизия 4".
 3. **A closing reminder of the answer language**, the last line of the
    instruction: the model has just read six examples in three languages.
    This one is a precaution and not a measured gain — the language was
@@ -343,7 +344,7 @@ the retrieval metrics of one prompt move by up to 0.125 hit@10 / 0.072 recall
 / 0.072 MRR between a "cold" and a "warm" sample. A single run is therefore
 not evidence that one prompt beats another by less than that, and the
 published 8c numbers are themselves one draw. Details, sample tables and the
-artifacts: evaluation/README.md, subsection 86cbegg36.
+artifacts: https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/README.md, subsection 86cbegg36.
 
 What is *not* random is the warm state. Reproduced independently at review
 (2026-09-05) with nine production-rewriter calls at temperature 0 — three

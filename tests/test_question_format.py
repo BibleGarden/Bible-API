@@ -315,7 +315,7 @@ def test_the_defaults_are_the_reviewed_ones():
 
 
 def test_the_module_pulls_in_no_configuration():
-    """Both production and `evaluation/gen_questions.py` import it.
+    """Both production and `AI-Evaluation/evaluation/gen_questions.py` import it.
 
     The tool runs outside the container with no `.env` at all, so a `config`
     import here would make the stand unable to parse what the endpoint parses.

@@ -27,7 +27,7 @@ model" was a code change and a deploy. It has to be an `.env` edit plus a
 benchmark — and, during the migration, stages must be movable **one at a
 time**, because each one is pinned by its own measurement.
 
-The transport itself was not a research question: `evaluation/trace_picker.py`
+The transport itself was not a research question: [trace_picker.py](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/trace_picker.py)
 has been running the production pipeline on Qwen through hand-written
 adapters (`QwenQueryRewriter`, `QwenPassageReranker`) since ClickUp
 86cbegcmm. This step moves that proven code into `app/` with tests.
@@ -188,7 +188,7 @@ stage's prompts and parser, plus one factory per stage
 `twinkler_ai.complete`) that maps the configured provider onto a class. The
 Gemini classes were not touched.
 
-**Reuse `evaluation/trace_picker.py`'s adapters from `app/`.** The dependency
+**Reuse [trace_picker.py](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/trace_picker.py)'s adapters from `app/`.** The dependency
 would point the wrong way (production importing the evaluation stand), and
 the stand's rewriter deliberately runs a *different* prompt (8c, measured for
 small models) while production runs v7. The adapters were moved into `app/`
@@ -247,7 +247,7 @@ version, and it will be replaced by a real setting in step 6.
    was ever load-bearing (ADR 0005: the server never trusted the schema), but
    a weaker model may now produce more refused answers, each costing a
    fallback to retrieval's top-1. Worth watching in the benchmark of step 5.
-3. `evaluation/trace_picker.py` still owns private copies of the same
+3. [trace_picker.py](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/trace_picker.py) still owns private copies of the same
    adapters (with prompt 8c). Once the production prompts and the stand's
    agree, its rerank column could import
    `passage_rerank.OpenAICompatPassageReranker` instead.

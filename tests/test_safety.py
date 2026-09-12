@@ -8,8 +8,8 @@ Three obligations, in order of how much damage getting them wrong does:
    guiding question, in 3 samples out of 3. Tier 1 means the model is not
    asked at all, so no provider can undo it.
 2. **No false positive on the reference corpus.** Every input of the 24
-   approved scenarios in `evaluation/scenarios.json` and every probe input of
-   `evaluation/question_probe_inputs.json` (bar the despair probe) must leave
+   approved scenarios in `AI-Evaluation/evaluation/scenarios.json` and every probe input of
+   `AI-Evaluation/evaluation/question_probe_inputs.json` (bar the despair probe) must leave
    tier 1 silent. A false tier 1 replaces a real answer with a crisis text;
    on the reference set that is measurable, so it is measured.
 3. **No false positive on the idioms of death**, which are ordinary speech in
@@ -45,10 +45,10 @@ os.environ.setdefault("API_KEY", "test-api-key")
 
 import safety
 
-EVALUATION = Path(__file__).resolve().parent.parent / "evaluation"
-SCENARIOS = EVALUATION / "scenarios.json"
-PROBES = EVALUATION / "question_probe_inputs.json"
-QWEN_ANSWERS = EVALUATION / "bench_data" / "questions_qwen30b_v1.jsonl"
+AI_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "ai"
+SCENARIOS = AI_FIXTURES / "scenarios.json"
+PROBES = AI_FIXTURES / "question_probe_inputs.json"
+QWEN_ANSWERS = AI_FIXTURES / "bench_data" / "questions_qwen30b_v1.jsonl"
 
 A_QUESTION = "Что ты чувствуешь прямо сейчас?"
 

@@ -19,7 +19,7 @@ ADR 0002 chose `gemini-embedding-001@768` because every local model measured
 at the time failed the retrieval thresholds by an order of magnitude. That
 measurement was taken **without a query-rewrite stage** — the pipeline of
 ADR 0004 did not exist yet. Re-measured with it (ClickUp 86cbe4n7e, package
-in `evaluation/README.md`), the verdict no longer holds: rewrite v7 lifts
+in [README.md](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/README.md)), the verdict no longer holds: rewrite v7 lifts
 bge-m3 from 0.238 to 0.857 hit@10 on the vector signal alone. In the full
 production pipeline (rewrite + BM25 + interleave + blacklist + diversity)
 bge-m3 measures
@@ -193,7 +193,7 @@ vector in place.
   bottleneck of a selection.
 - Retrieval quality drops as tabulated above and the rerank absorbs it. That
   trade is Maria's decision, taken with the numbers in front of her.
-- `evaluation/trace_picker.py` keeps its own `LocalEmbedder`; the production
+- [trace_picker.py](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/trace_picker.py) keeps its own `LocalEmbedder`; the production
   client is the same design, now with tests. Once the stand's prompts and
   production's agree it could import this one.
 
@@ -228,7 +228,7 @@ vector in place.
 
 ## Why the benchmark was not re-run
 
-`evaluation/retrieval_benchmark.py` never reads `chunk_embeddings`: every
+[retrieval_benchmark.py](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/retrieval_benchmark.py) never reads `chunk_embeddings`: every
 one of its four matrix readers goes through `load_corpus_matrix`, which
 loads `bench_data/emb_<model>_<variant>.npy` built from `chunks.jsonl`. It
 therefore cannot measure the DB index this ticket produces, and re-running
@@ -240,13 +240,13 @@ rather than two runs of the same encoder.
 
 ## Open questions
 
-1. ~~The retrieval thresholds of `evaluation/thresholds.json` are **not** met
+1. ~~The retrieval thresholds of [thresholds.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/thresholds.json) are **not** met
    by this embedder on MRR (0.524 against 0.60). The rerank compensates in
    the final top-1 measurement, but the retrieval-stage threshold now fails
    by design. Whether to re-baseline those thresholds for the local pipeline
    or keep them as a record of what Gemini did is Maria's call (step 8).~~
    **Resolved 2026-09-05:** Maria lowered `retrieval_top_k.mrr_min` to 0.50
-   (`thresholds.json` 0.4.0). The reasoning she accepted: MRR measures the
+   ([thresholds.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/thresholds.json) 0.4.0). The reasoning she accepted: MRR measures the
    position of the right passage *inside* the top-10, and the rerank reads
    the whole top-10, so that position barely reaches the final answer; the
    `final_top1` thresholds are unchanged and remain the acceptance gate.

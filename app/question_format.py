@@ -41,7 +41,7 @@ comment for why that memory is allowed to be lossy.
 
 The module imports nothing from the application except `json_repair` and
 `question_novelty`, which import nothing at all — so
-`evaluation/gen_questions.py` parses production answers with the production
+`AI-Evaluation/evaluation/gen_questions.py` parses production answers with the production
 parser instead of a copy of it.
 """
 

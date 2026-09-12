@@ -73,7 +73,7 @@ Write a new file under `Dashboard-API/migrations/` (naming per
 `Dashboard-API/migrations/README.md`).
 *Consumers to update in the same change:* `bible-parser/const.php:952-959`
 (`get_all_bible_books()`, declared `:929`, reads the three pairs by name),
-`evaluation/retrieval_benchmark.py:1576-1585`, `evaluation/trace_picker.py:659`.
+[retrieval_benchmark.py:1576-1585](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/retrieval_benchmark.py#L1576-L1585), [trace_picker.py:659](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/trace_picker.py#L659).
 The excerpt lookups are **no longer consumers**: `short_name_*` left both
 `WHERE` clauses on 2026-09-05 (see 3.5).
 *Verify:* `Dashboard-API/tests/seed_test_data.sql:9` inserts `bible_books`
@@ -278,7 +278,7 @@ and lower-cases — **no stemming, no stop words, no per-language rules**.
 `t.language` and builds one BM25 index per language. A new language gets an
 index automatically once its chunks exist. Note the consequence: for a
 morphologically rich language the lexical signal is weaker than for English,
-and ADR 0010's measurement (`evaluation/README.md`, "Локальные эмбеддеры")
+and ADR 0010's measurement ([README.md](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/README.md), "Локальные эмбеддеры")
 found BM25 is carrying much of the retrieval quality — worth measuring per
 language rather than assuming.
 
@@ -327,7 +327,7 @@ model on purpose (`render_examples()` docstring, `:311-316`), iterating
 `_EXAMPLE_LANGUAGE_ORDER = ("ru", "en", "uk")` (`:296`). A new language needs
 its own examples, and they must satisfy the de-fingerprinting rule
 (`:120-143`): **not one example topic and not one example passage may coincide
-with anything in `evaluation/scenarios.json`**, or the prompt measures itself.
+with anything in [scenarios.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/scenarios.json)**, or the prompt measures itself.
 *Verify:* `tests/test_rewrite_prompts.py` — `LANGUAGES = ("ru", "en", "uk")`
 (`:60`) must grow, and these tests enforce the rule against the live dataset:
 `test_example_topics_do_not_appear_in_the_dataset` (`:87`),
@@ -449,7 +449,7 @@ signal. `_RU_DIE_TAIL` (`:285`), `_UK_DIE_TAIL` (`:289`), `_EN_DIE_TAIL`
 `question_prompt_for` (`:198-219`) turns it into the prompt. Both go through
 `safety.detect_language`, so they inherit 6.6 and need no separate change.
 
-**6.11 — `evaluation/gen_questions.py:492` and `:611`** default to `"en"` when
+**6.11 — [gen_questions.py:492](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/gen_questions.py#L492) and `:611`** default to `"en"` when
 the source text is blank — the offline probe generator's own copy of the same
 assumption.
 
@@ -481,7 +481,7 @@ ADR 0012, `architect/adr/0012-speech-transcription-providers.md`.
 
 ## Layer 8 — Evaluation and benchmarks
 
-**8.1 — `evaluation/scenarios.json`: at least 5 scenarios in the new language,
+**8.1 — [scenarios.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/scenarios.json): at least 5 scenarios in the new language,
 including one `empty`.** Today 24 scenarios: ru 10, en 7, uk 7 (v0.8.0,
 `status: approved`). Scenario ids are prefixed with the language (`uk-002`).
 *Verify — and these tests will fail until updated:*
@@ -490,15 +490,15 @@ including one `empty`.** Today 24 scenarios: ru 10, en 7, uk 7 (v0.8.0,
 `:238-244` asserts the `empty` category is present in every language;
 `:70-71` asserts the id prefix matches the scenario's language.
 Then bump the minor version and set `review_status: draft` until graded
-(`evaluation/README.md`, "Как дополнить", `:276-281`).
+([README.md](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/README.md), "Как дополнить", `:276-281`).
 
-**8.2 — `evaluation/thresholds.json`: nothing per language.** v0.4.0 — the
+**8.2 — [thresholds.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/thresholds.json): nothing per language.** v0.4.0 — the
 thresholds (`retrieval_top_k`, `final_top1`,
 `final_top1_coverage_restricted`) are global, not keyed by language. **Do not
 change them to make a new language pass** (monorepo `CLAUDE.md`: thresholds and
-`scenarios.json` are not to be moved).
+[scenarios.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/scenarios.json) are not to be moved).
 
-**8.3 — `evaluation/retrieval_benchmark.py:69`, `LANGUAGE_CORPUS`: add the
+**8.3 — [retrieval_benchmark.py:69](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/retrieval_benchmark.py#L69), `LANGUAGE_CORPUS`: add the
 language → (translation code, alias) entry.** `{"ru": (1, "syn"), "en": (16,
 "bsb"), "uk": (20, "ubh")}` — **hardcoded numeric translation codes**.
 `TRANSLATION_LANGUAGE` (`:70-72`) is derived from it; `parse_languages()`
@@ -506,15 +506,15 @@ language → (translation code, alias) entry.** `{"ru": (1, "syn"), "en": (16,
 fingerprint (`:242-243`) and the per-language reporting (`:795`, `:282-306`)
 key off it too.
 
-**8.4 — `evaluation/check_refs_db.py:33`, `NATIVE_BASELINE`:** `{"ru": "bti",
+**8.4 — [check_refs_db.py:33](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/check_refs_db.py#L33), `NATIVE_BASELINE`:** `{"ru": "bti",
 "en": "bsb", "uk": "ubh"}` — the translation each language's reference
 coordinates are checked against.
 
-**8.5 — `evaluation/question_probe_inputs.json`: add probe inputs.** 13 today
+**8.5 — [question_probe_inputs.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/question_probe_inputs.json): add probe inputs.** 13 today
 (ru 8, en 3, uk 2), schema v2.0.0, used both by the question probe and by the
 safety sweep.
 
-**8.6 — `evaluation/check_questions.py`: its own language detector and the
+**8.6 — [check_questions.py](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/check_questions.py): its own language detector and the
 informal-register rule.** This is a benchmark script and **cannot import the
 application** (`app/safety.py:174-176` says so explicitly), so it carries a
 parallel copy: `detect_language()` (`:166-188`) with `_UK_LETTERS` (`:73`),
@@ -527,44 +527,44 @@ substring lists (`_FORBIDDEN`, `:111-139`; `_ADVICE_MODALS` `:140`;
 `_SUPPORT_MARKERS` `:142`) are **per language too** and currently hold ru/uk/en
 phrases only.
 
-**8.7 — `evaluation/check_rewrites.py`** checks the answer language of every
+**8.7 — [check_rewrites.py](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/check_rewrites.py)** checks the answer language of every
 rewrite variant against the scenario's language using
 `check_questions.detect_language` (`:94`, `:147-172`) — it inherits 8.6.
 
-**8.8 — `evaluation/transcribe_bench.py`: `LOCALES` (`:75`,
+**8.8 — [transcribe_bench.py](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/transcribe_bench.py): `LOCALES` (`:75`,
 `{"ru": "ru-RU", "uk": "uk-UA", "en": "en-US"}`), the `SAMPLES` table (`:94-108`,
 5 passages per language with translation + voice aliases and expected
 durations), and the reporting loop `for language in ("ru", "uk", "en", "all")`
 (`:702`).** (There is no `transcribe_samples.json`; the samples are this Python
 table.)
 
-**8.9 — `evaluation/description_prompts.py:81-84`** — `LANGUAGE_NAMES =
+**8.9 — [description_prompts.py:81-84](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/description_prompts.py#L81-L84)** — `LANGUAGE_NAMES =
 {"ru": "Russian", "en": "English", "uk": "Ukrainian"}` for the
 corpus-description prompt, and `build_description_instruction()` **raises**
 `ValueError(f"unsupported language: {language}")` on anything else
-(`:115-116`) — a hard gate, not a fallback. `evaluation/gen_descriptions.py`
+(`:115-116`) — a hard gate, not a fallback. [gen_descriptions.py](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/gen_descriptions.py)
 inherits it (`:548`, `:725`; one language per batch is enforced at `:321-329`).
 
 **8.10 — The ru-only offline tools.** Two benchmark drivers are pinned to
 Russian by construction and are **not** made multilingual by adding a language:
-`evaluation/trace_picker.py:157` (`LANGUAGE = "ru"`) with `:659` reading
-`short_name_ru` only, and `evaluation/local_picker.py:212-213`
+[trace_picker.py:157](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/trace_picker.py#L157) (`LANGUAGE = "ru"`) with `:659` reading
+`short_name_ru` only, and [local_picker.py:212-213](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/local_picker.py#L212-L213)
 (`LANGUAGE = "ru"`, `TRANSLATION, ALIAS = rb.LANGUAGE_CORPUS[LANGUAGE]`) with
 a hardcoded `"language": "ru"` in its report at `:720`. Point them at the new
 language by editing the constant, or leave them; either way know they are not
-covering it. `evaluation/diagnose_pipeline.py:52`, `:60` reads
+covering it. [diagnose_pipeline.py:52](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/diagnose_pipeline.py#L52), `:60` reads
 `rb.LANGUAGE_CORPUS` per scenario and so inherits 8.3 with no edit of its own.
 
-**8.11 — `evaluation/rewrite_prompts.py`** indexes the application's
+**8.11 — [rewrite_prompts.py](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/rewrite_prompts.py)** indexes the application's
 `query_rewrite._LANGUAGES` directly (`:227-229`, `:255-264`) — a `KeyError` for
 a language missing from 5.1. Nothing to add here once 5.1 is done.
 
-**8.12 — Grading: who reviews.** `evaluation/README.md:240-255` — the reviewer
+**8.12 — Grading: who reviews.** [README.md:240-255](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/README.md#L240-L255) — the reviewer
 reads the scenario **in the scenario's language**, opens each reference in that
 language's translation (with the psalm mapping), grades on the 3-grade scale
 and **must fill the free-text "why"**. Maria grades Russian; on 2026-09-05
 (86cbedtf8) she graded the Russian top-1 pairs and **explicitly could not grade
-the en/uk pairs** (`evaluation/README.md:40`, `:3010`, `:3107` — "прямо
+the en/uk pairs** ([README.md:40](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/README.md#L40), `:3010`, `:3107` — "прямо
 запрещало домысливать grade для en/uk"). So: **a new language needs a named
 native reviewer before its scenarios can leave `review_status: draft`**, and
 ungraded top-1 pairs go to Maria as a list — never self-graded (monorepo
@@ -651,7 +651,7 @@ distinctions the guards encode — a fixed idiom of death versus a statement of
 intent, the doctrinal register of "die to sin", the difference between grief and
 intent after "without" — are not reachable by dictionary or by a model
 translating from Russian. Name the reviewer in the ticket before starting. The
-same person can grade that language's `scenarios.json` (layer 8.12), and the two
+same person can grade that language's [scenarios.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/scenarios.json) (layer 8.12), and the two
 jobs pair naturally.
 
 ## The minimum phrase set
@@ -714,8 +714,8 @@ Reproduce that per language:
    prefix matching the language, and that tier 2 fires only against a reply
    containing `?`).
 3. **Sweep the reference corpus.** The suite already asserts that **no**
-   approved scenario of `evaluation/scenarios.json` and **no** input of
-   `evaluation/question_probe_inputs.json` raises tier 1
+   approved scenario of [scenarios.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/scenarios.json) and **no** input of
+   [question_probe_inputs.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/question_probe_inputs.json) raises tier 1
    (`tests/test_safety.py:167`, `:196`), and that none loses its answer to
    tier 2 (`:185`, `:212`) — with the single documented exception `en-005`
    (`:240`). Adding scenarios in the new language (layer 8.1) automatically
@@ -736,7 +736,7 @@ Reproduce that per language:
 The fixed reply must be in the **informal, intimate** register where the
 language distinguishes one (`app/safety.py:97-99`), contain **no question
 mark**, and name **no hotline number** — the app is worldwide. If the new
-language has a T/V distinction, extend `evaluation/check_questions.py:227` so
+language has a T/V distinction, extend [check_questions.py:227](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/check_questions.py#L227) so
 its register is actually checked in probe runs, and add its polite forms to
 `_FORMAL` (`:96-100`).
 
@@ -797,7 +797,7 @@ the list is complete. Every "✅" was verified in the file named.
 | 8.9 | `description_prompts` | ✅ `uk` in `LANGUAGE_NAMES` (`:84`), so `build_description_instruction` does not raise |
 | 8.10 | `trace_picker`, `local_picker`, `diagnose_pipeline` | ⚠️ `trace_picker.py:157` and `local_picker.py:212` default to `ru` (and `trace_picker.py:659` reads `short_name_ru` only) — ru-only tools by construction; `diagnose_pipeline.py:52,60` is data-driven ✅ |
 | 8.11 | `rewrite_prompts` | ✅ inherited from `_LANGUAGES` |
-| 8.12 | Native reviewer / grading | ❌ **uk top-1 pairs are ungraded**: Maria explicitly did not grade en/uk (`evaluation/README.md:40`, `:3010`, `:3107`). No named Ukrainian reviewer exists |
+| 8.12 | Native reviewer / grading | ❌ **uk top-1 pairs are ungraded**: Maria explicitly did not grade en/uk ([README.md:40](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/README.md#L40), `:3010`, `:3107`). No named Ukrainian reviewer exists |
 | 9.1-9.2 | Admin API / Web | ✅ nothing hardcoded |
 | 10.1 | Mobile + stores | out of these repositories |
 | 11.1-11.4 | Chunk → index → import, env, docs | ✅ |
@@ -888,31 +888,31 @@ table to work through; the checklist above is its narrative.
 
 | File:line | What it is | On adding a language |
 |---|---|---|
-| `evaluation/scenarios.json` | 24 scenarios, ids prefixed `ru-`/`en-`/`uk-` (ru 10 / en 7 / uk 7) | **add ≥5, incl. `empty`** |
-| `evaluation/thresholds.json` | global thresholds, **not per language** | nothing |
-| `evaluation/question_probe_inputs.json` | 13 inputs (ru 8 / en 3 / uk 2) | **add** |
-| `evaluation/retrieval_benchmark.py:69` | `LANGUAGE_CORPUS = {"ru": (1,"syn"), "en": (16,"bsb"), "uk": (20,"ubh")}` | **add** |
-| `evaluation/retrieval_benchmark.py:795` | per-language result split | **add** |
-| `evaluation/retrieval_benchmark.py:1576-1585` | `SELECT short_name_ru, short_name_en, short_name_uk` | **add a column** |
-| `evaluation/check_refs_db.py:33` | `NATIVE_BASELINE = {"ru":"bti","en":"bsb","uk":"ubh"}` | **add** |
-| `evaluation/check_questions.py:73,74,79,84` | `_UK_LETTERS`, `_RU_LETTERS`, `_UK_WORDS`, `_RU_WORDS` (second detector) | **add** |
-| `evaluation/check_questions.py:96-105` | `_FORMAL` polite forms + `_FORMAL_EXCEPTIONS` | **add** |
-| `evaluation/check_questions.py:111,140,142` | `_FORBIDDEN`, `_ADVICE_MODALS`, `_SUPPORT_MARKERS` — ru/uk/en phrases | **add** |
-| `evaluation/check_questions.py:227` | `if language not in ("ru","uk"): informal = None` | **add if T/V** |
-| `evaluation/check_rewrites.py:94` | imports `check_questions.detect_language` | inherited |
-| `evaluation/transcribe_bench.py:75` | `LOCALES = {"ru":"ru-RU","uk":"uk-UA","en":"en-US"}` | **add** |
-| `evaluation/transcribe_bench.py:94-108` | `SAMPLES` — 5 passages per language | **add 5** |
-| `evaluation/transcribe_bench.py:702` | `for language in ("ru","uk","en","all")` | **add** |
-| `evaluation/description_prompts.py:81-84` | `LANGUAGE_NAMES = {"ru":"Russian","en":"English","uk":"Ukrainian"}` | **add** |
-| `evaluation/description_prompts.py:115-116` | `raise ValueError(f"unsupported language: {language}")` — hard gate | covered by the above |
-| `evaluation/gen_descriptions.py:548,725` | calls `build_description_instruction(language, …)`; one language per batch enforced `:321-329` | inherited |
-| `evaluation/rewrite_prompts.py:227-229`, `:255-264` | indexes `query_rewrite._LANGUAGES[language]` — `KeyError` on an unknown one | inherited from 5.1 |
-| `evaluation/diagnose_pipeline.py:52,60` | `rb.LANGUAGE_CORPUS[scenario["language"]]` | inherited from 8.3 |
-| `evaluation/trace_picker.py:157` | `LANGUAGE = "ru"` (module default) | ru-only tool |
-| `evaluation/trace_picker.py:659` | `SELECT number, short_name_ru` | ru-only tool |
-| `evaluation/local_picker.py:212-213` | `LANGUAGE = "ru"`, `rb.LANGUAGE_CORPUS[LANGUAGE]` | ru-only tool |
-| `evaluation/local_picker.py:720` | `"language": "ru"` hardcoded in the report row | ru-only tool |
-| `evaluation/gen_questions.py:492,611` | `detect_language(source) if source.strip() else "en"` | review |
+| [scenarios.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/scenarios.json) | 24 scenarios, ids prefixed `ru-`/`en-`/`uk-` (ru 10 / en 7 / uk 7) | **add ≥5, incl. `empty`** |
+| [thresholds.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/thresholds.json) | global thresholds, **not per language** | nothing |
+| [question_probe_inputs.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/question_probe_inputs.json) | 13 inputs (ru 8 / en 3 / uk 2) | **add** |
+| [retrieval_benchmark.py:69](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/retrieval_benchmark.py#L69) | `LANGUAGE_CORPUS = {"ru": (1,"syn"), "en": (16,"bsb"), "uk": (20,"ubh")}` | **add** |
+| [retrieval_benchmark.py:795](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/retrieval_benchmark.py#L795) | per-language result split | **add** |
+| [retrieval_benchmark.py:1576-1585](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/retrieval_benchmark.py#L1576-L1585) | `SELECT short_name_ru, short_name_en, short_name_uk` | **add a column** |
+| [check_refs_db.py:33](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/check_refs_db.py#L33) | `NATIVE_BASELINE = {"ru":"bti","en":"bsb","uk":"ubh"}` | **add** |
+| [check_questions.py:73,74,79,84](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/check_questions.py#L73-L84) | `_UK_LETTERS`, `_RU_LETTERS`, `_UK_WORDS`, `_RU_WORDS` (second detector) | **add** |
+| [check_questions.py:96-105](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/check_questions.py#L96-L105) | `_FORMAL` polite forms + `_FORMAL_EXCEPTIONS` | **add** |
+| [check_questions.py:111,140,142](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/check_questions.py#L111-L142) | `_FORBIDDEN`, `_ADVICE_MODALS`, `_SUPPORT_MARKERS` — ru/uk/en phrases | **add** |
+| [check_questions.py:227](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/check_questions.py#L227) | `if language not in ("ru","uk"): informal = None` | **add if T/V** |
+| [check_rewrites.py:94](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/check_rewrites.py#L94) | imports `check_questions.detect_language` | inherited |
+| [transcribe_bench.py:75](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/transcribe_bench.py#L75) | `LOCALES = {"ru":"ru-RU","uk":"uk-UA","en":"en-US"}` | **add** |
+| [transcribe_bench.py:94-108](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/transcribe_bench.py#L94-L108) | `SAMPLES` — 5 passages per language | **add 5** |
+| [transcribe_bench.py:702](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/transcribe_bench.py#L702) | `for language in ("ru","uk","en","all")` | **add** |
+| [description_prompts.py:81-84](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/description_prompts.py#L81-L84) | `LANGUAGE_NAMES = {"ru":"Russian","en":"English","uk":"Ukrainian"}` | **add** |
+| [description_prompts.py:115-116](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/description_prompts.py#L115-L116) | `raise ValueError(f"unsupported language: {language}")` — hard gate | covered by the above |
+| [gen_descriptions.py:548,725](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/gen_descriptions.py#L548-L725) | calls `build_description_instruction(language, …)`; one language per batch enforced `:321-329` | inherited |
+| [rewrite_prompts.py:227-229](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/rewrite_prompts.py#L227-L229), `:255-264` | indexes `query_rewrite._LANGUAGES[language]` — `KeyError` on an unknown one | inherited from 5.1 |
+| [diagnose_pipeline.py:52,60](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/diagnose_pipeline.py#L52-L60) | `rb.LANGUAGE_CORPUS[scenario["language"]]` | inherited from 8.3 |
+| [trace_picker.py:157](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/trace_picker.py#L157) | `LANGUAGE = "ru"` (module default) | ru-only tool |
+| [trace_picker.py:659](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/trace_picker.py#L659) | `SELECT number, short_name_ru` | ru-only tool |
+| [local_picker.py:212-213](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/local_picker.py#L212-L213) | `LANGUAGE = "ru"`, `rb.LANGUAGE_CORPUS[LANGUAGE]` | ru-only tool |
+| [local_picker.py:720](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/local_picker.py#L720) | `"language": "ru"` hardcoded in the report row | ru-only tool |
+| [gen_questions.py:492,611](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/gen_questions.py#L492-L611) | `detect_language(source) if source.strip() else "en"` | review |
 
 ## Dashboard-API
 
@@ -999,7 +999,7 @@ table to work through; the checklist above is its narrative.
 4. **Who is the native reviewer for each language?** `uk` is the proof this is
    not theoretical: it is complete in code and its benchmark top-1 pairs are
    still `ungraded`, because Maria grades Russian and did not grade en/uk
-   (`evaluation/README.md:40`, `:3107`). A language without a named native
+   ([README.md:40](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/README.md#L40), `:3107`). A language without a named native
    reviewer cannot pass the despair validation *or* leave
    `review_status: draft`.
 5. ~~**What alphabet may a book alias be written in?**~~ **Resolved — Maria,

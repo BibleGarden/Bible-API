@@ -228,7 +228,7 @@ to be discovered by using it.
   still wins.
 - Tooling that imports `app/config.py` (CLIs, the benchmark) inherits the
   same fail-fast behaviour and must set the required variables the same way
-  tests do — see `evaluation/retrieval_benchmark.py`'s `API_KEY` default and
+  tests do — see [retrieval_benchmark.py](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/retrieval_benchmark.py)'s `API_KEY` default and
   the nit fixed alongside this ADR in `app/retrieval_cli.py`.
 - Extends ADR 0002 (`EMBEDDING_MODEL`/`EMBEDDING_DIMENSIONS` already had no
   code default, for the same "names an index, not a knob" reason), ADR 0004

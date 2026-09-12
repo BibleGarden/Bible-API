@@ -38,7 +38,7 @@ from retrieval import (
     rotate_safe_pool,
 )
 
-EVALUATION_DIR = Path(__file__).resolve().parents[1] / "evaluation"
+AI_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "ai"
 
 
 # ---------------------------------------------------------------------------
@@ -121,7 +121,7 @@ def test_blacklist_blocks_every_benchmark_genre_trap():
 def test_blacklist_never_blocks_relevant_or_acceptable_references():
     blacklist = load_genre_blacklist()
     scenarios = json.loads(
-        (EVALUATION_DIR / "scenarios.json").read_text()
+        (AI_FIXTURES / "scenarios.json").read_text()
     )["scenarios"]
     for scenario in scenarios:
         for ref in scenario["references"]:
@@ -1488,7 +1488,7 @@ def test_concurrent_embedding_survives_a_failing_variant():
 # ---------------------------------------------------------------------------
 # Diagnostic trace hook (ClickUp 86cbegawh)
 #
-# The tracing stand `evaluation/trace_picker.py` watches the production
+# The tracing stand `AI-Evaluation/evaluation/trace_picker.py` watches the production
 # pipeline through an optional observer. The contract it relies on — and the
 # only reason the hook is allowed to exist in serving code — is that a traced
 # selection decides EXACTLY what an untraced one decides. These tests compare

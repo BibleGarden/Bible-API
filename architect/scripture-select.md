@@ -254,7 +254,7 @@ retrieval pipeline still intact. With rewrite *and* rerank unreachable the
 endpoint answers `retrieval_fallback` / `rerank_failed` with a real passage —
 the raw query is embedded, searched, fused and filtered exactly as always, and
 its top-1 is served. Verified against every failure mode in
-`evaluation/README.md`, "Отказы сервера компании: матрица деградации
+[README.md](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/README.md), "Отказы сервера компании: матрица деградации
 (86cbegg3w)"; the safe pool needs the *embedding* provider to be gone, which
 is why part B of that ticket is a separate measurement. The one way a chat
 outage alone still reaches the safe pool is by exhausting the whole budget
@@ -416,7 +416,7 @@ The key is resolved in exactly one place — `config.resolve_stage`, of which
 `config.resolve_rewrite_api_key` → `config.REWRITE_API_KEY` is a wrapper —
 and reaches the provider through the stage's client, so every creation point
 (`scripture_select._provider_clients`, `app/retrieval_cli.py`, and
-`evaluation/retrieval_benchmark.py` through `require_rewrite_api_key()`)
+[retrieval_benchmark.py](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/retrieval_benchmark.py) through `require_rewrite_api_key()`)
 bills the same key without repeating the rule. Since ADR 0009 the two other
 chat stages have the same option (`AI_QUESTION_API_KEY`,
 `AI_SCRIPTURE_RERANK_API_KEY`) and fall back to their provider's shared key.
@@ -461,7 +461,7 @@ so still not to be assumed in a cost estimate. Note the other side of the
 same change: without a cache hit each selection now sends ~4x the instruction
 tokens it used to. On the self-hosted Qwen that is compute, not money
 (measured cost of the whole rewrite call: median 3.0 s, max 4.1 s,
-evaluation/README.md 86cbea05x); on a metered provider it is a real increase
+https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/README.md 86cbea05x); on a metered provider it is a real increase
 in input tokens per selection.
 
 ## Time budget
@@ -526,7 +526,7 @@ hung call rather than a summed retry ladder.
 The ceiling above was measured and fixed against Gemini. It was re-measured
 against the company's Qwen server with every chat stage on `openai_compat`,
 under four failure modes applied to the rewrite stage, the rerank stage and
-both at once (full table in `evaluation/README.md`). **Every cell answered
+both at once (full table in [README.md](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/README.md)). **Every cell answered
 `200` inside 15 s** — the worst was 14.7 s, with both stages pointed at a
 server that accepts connections and never answers. Nothing in the selection
 pipeline needed changing; the two endpoints whose budget was *not* built this

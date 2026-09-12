@@ -3,7 +3,7 @@
 Prompt v4 asked the model to take the gender from the person's own words and
 v5 kept the rule with named example forms. The independent assessment of
 2026-09-06
-(`evaluation/bench_data/question_comparison_prompt_v5_before_after/FABLE_ASSESSMENT.md`)
+(`AI-Evaluation/evaluation/bench_data/question_comparison_prompt_v5_before_after/FABLE_ASSESSMENT.md`)
 measured what that is worth on Qwen3-30B: **15 answers of 99** addressed a
 woman in the masculine, ten of them in the Ukrainian series where the prompt
 carried Ukrainian example forms. The assessment's own first recommendation is
@@ -36,7 +36,7 @@ real and named rather than papered over:
 **A proximity rule was tried and rejected** (review of 86cbejvt2). Requiring a
 first-person pronoun («я», «мне», «мені» …) within ±4 words of the form was
 measured against the 16 scenarios of
-`evaluation/question_quality_inputs.json`, the reference set: it would have
+`AI-Evaluation/evaluation/question_quality_inputs.json`, the reference set: it would have
 turned **five of the eight** decided cases into `None` — `series-gratitude-ru`
 («Успела закончить отчёт», the sentence starts with the verb),
 `series-exhaustion-uk` («заснула просто в одязі», five words after the last
