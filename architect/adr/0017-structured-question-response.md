@@ -10,7 +10,7 @@ defaults) for why the constants here are code.
 
 Prompt v5 was accepted on 2026-09-06 (86cbejq55) and independently assessed the
 same day (86cbejtt2,
-`evaluation/bench_data/question_comparison_prompt_v5_before_after/FABLE_ASSESSMENT.md`,
+[bench_data/question_comparison_prompt_v5_before_after/FABLE_ASSESSMENT.md](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/bench_data/question_comparison_prompt_v5_before_after/FABLE_ASSESSMENT.md),
 396 answers read by hand). On Qwen3-30B — the model production runs — v5 fixed
 what it was written for (temporal sense, no interrogation of feelings, the
 prayer goal held) and produced, in the same run:
@@ -122,7 +122,7 @@ degradation as a restart.
   reading the person's last reply, now applied to the parsed `question`. So is
   the meaning of `novel`, the request contract (`topic`/`stage`/`messages`/
   `skipped_questions`), the rate limits, and the thresholds of
-  `evaluation/thresholds.json` and `scenarios.json`.
+  [thresholds.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/thresholds.json) and [scenarios.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/scenarios.json).
 * **Nothing was added to make the companion warmer** (Maria, 2026-09-05).
 
 ## Consequences
@@ -145,8 +145,8 @@ degradation as a restart.
   repeat). Bounded by the single request `Deadline`, not by a count: the
   endpoint's promise is its latency.
 * The evaluation stand builds the same bytes and parses with the same parser
-  (`evaluation/question_prompts.py` variant `v6`,
-  `evaluation/gen_questions.py` — `text` is the question, plus `subject`,
+  ([question_prompts.py](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/question_prompts.py) variant `v6`,
+  [gen_questions.py](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/gen_questions.py) — `text` is the question, plus `subject`,
   `raw_text`, `format_parse`). The `v6` name is the live wording rather than a
   frozen copy, and refuses to run once production moves past v6.
 * **Nothing here is measured yet.** Whether v6 is better than v5 on Qwen is

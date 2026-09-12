@@ -8,7 +8,8 @@ Public API — a read-only FastAPI service for the Bible Garden iOS app. Works w
 
 ## Common Commands
 
-Практический опыт запуска временных GPU-стендов Runpod: [`evaluation/runpod-notes.md`](evaluation/runpod-notes.md).
+Runpod notes and all model-evaluation tools live in
+[BibleGarden/AI-Evaluation](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/runpod-notes.md).
 
 ### Run / Build
 ```bash
@@ -29,16 +30,16 @@ docker exec bible-api bash -c "cd /code && PYTHONPATH=app python3 extract-openap
 ```
 
 ### Tests
-Only `app/` is bind-mounted, so `tests/` and `evaluation/` must be copied into
-the container (trailing `/.` — plain `docker cp tests` nests it into
-`/code/tests/tests`; recreating the container resets both directories to the
-image contents):
+Only `app/` is bind-mounted, so `tests/` must be copied into the container
+(trailing `/.` — plain `docker cp tests` nests it into `/code/tests/tests`;
+recreating the container resets the directory to the image contents):
 ```bash
 docker cp tests/. bible-api:/code/tests
-docker cp evaluation/. bible-api:/code/evaluation
 docker exec -e API_KEY=test-api-key -e AI_CLIENT_HMAC_KEY=test-hmac-key \
   bible-api pytest -q
 ```
+Evaluation tools and their own tests run from the sibling
+[`AI-Evaluation`](https://github.com/BibleGarden/AI-Evaluation) repository.
 The suite never loads a model: `conftest` pins `EMBEDDING_PROVIDER=gemini`
 and `AI_TRANSCRIBE_PROVIDER=gemini`, and the local-client tests inject
 stand-ins (a fake encoder; a fake `faster_whisper` module), so no test
@@ -63,7 +64,7 @@ system prompt is a code constant now, not an environment value.
 
 ## Architecture
 
-- **`architect/adding-a-language.md`** — cross-cutting checklist: every place a human language is named, enumerated or spelled into code across all repositories (the `languages` table and the per-language `bible_books.short_name_*` columns, bible-parser's closed `ru`/`uk`/`en` branches, the `Language` enum of `POST /api/ai/scripture`, the rewrite prompt's per-language examples, **the despair rule of `app/safety.py`**, transcription, `evaluation/`, ops), with a per-layer verification step, the procedure for validating the despair detector in a new language, a dry run on `uk`, and the full table of hardcoded language literals with file:line (ClickUp 86cbegn16)
+- **`architect/adding-a-language.md`** — cross-cutting checklist: every place a human language is named, enumerated or spelled into code across all repositories (the `languages` table and the per-language `bible_books.short_name_*` columns, bible-parser's closed `ru`/`uk`/`en` branches, the `Language` enum of `POST /api/ai/scripture`, the rewrite prompt's per-language examples, **the despair rule of `app/safety.py`**, transcription, [AI evaluation](https://github.com/BibleGarden/AI-Evaluation/tree/main/evaluation), ops), with a per-layer verification step, the procedure for validating the despair detector in a new language, a dry run on `uk`, and the full table of hardcoded language literals with file:line (ClickUp 86cbegn16)
 
 ### Application Structure (`app/`)
 
@@ -81,8 +82,8 @@ system prompt is a code constant now, not an environment value.
 - **`question_format.py`** — the answer contract of `POST /api/ai/question` since prompt v6 (ClickUp 86cbejvt2): `parse_question` reads `{"subject": …, "question": …}` through four rungs (`json` → `repaired` via `json_repair.repair_json_object` → `regex`, forgiving about the key's spelling and quoting → `raw`, the answer's first line, salvaged so that a person is never shown a brace), and `SubjectMemory` remembers what each question we have shown was about (`normalize(question) -> subject`, two hours, 2000 entries, oldest evicted) so the next message can list the subjects already used. Dependency-free like `question_prompt.py`, so the evaluation stand parses production answers with the production parser (`architect/adr/0017-structured-question-response.md`)
 - **`person_gender.py`** — the person's grammatical gender from a **reviewed list** of first-person ru/uk forms (`detect_gender`): `f`, `m`, or `None` for no match, a contradiction, or English. Read from their own words only — a Twinkler question may carry the very error this replaces. Also dependency-free (ClickUp 86cbejvt2)
 - **`json_repair.py`** — the bounded JSON repair of `query_rewrite` (`repair_json_object`), moved here unchanged on 2026-09-06 so `question_format.py` can import the same rule without dragging `config`/`httpx` in; `query_rewrite` re-exports it and every caller and test is unaffected
-- **`question_novelty.py`** — the repeat filter of `POST /api/ai/question` (ClickUp 86cbehyg0): `normalize` + character-trigram Jaccard, `is_repeat(candidate, shown)` against the `assistant` turns and `skipped_questions`. Dependency-free like `question_prompt.py`, and the metric is `evaluation/check_questions.py`'s own, so the benchmark number and the production filter are one measurement. Thresholds are reviewed constants with their table in the docstring, never environment (ADR 0008). Lexical only — a reworded return to the same thought is 86cbehyg8 (`architect/adr/0016-question-novelty-check.md`)
-- **`question_filters.py`** — the three post-filters of ClickUp 86cbejvra, **not wired into any endpoint**: `detect_gender` (the person's grammatical gender from their own words — reviewed ru/uk form lists, never a `-ла` rule, because «колега звільнився» and «сосед помог» sit inside the same requests), `gender_mismatch` (a question addressing the other gender; with no evidence, *any* explicit gendered address — the gender was imposed), `is_menu` («X или Y»), `has_tail` (a clause appended after a dash, «не просто … а …»). Dependency-free like `question_prompt.py`, constants reviewed in the docstring (ADR 0008). It exists because prompt wording did not fix these: v5 asked Qwen not to default to the masculine and made it worse (15 masculine addresses to a woman against v4's 1 — the independent assessment of 86cbejtt2), and sampling does not either — **six measured runs of 86cbejvra sit in one cloud of 15-22 gender errors**, whatever temperature, `min_p` or `presence_penalty` says, while `min_p` 0.05 at temperature 1.0 is the one lever that moved verbatim repeats (0-2 against the baseline's 4-10 over three runs). Full table, ranges and the honest caveats: `evaluation/README.md`, «Промпт наводящего вопроса v6-A». Verified against that hand count on all 396 benchmark answers: three combinations reproduce it exactly, the fourth by one row, whose false-positive class (a third-person noun subject between the pronoun and the gendered form) is documented rather than tuned away (`tests/test_question_filters.py`)
+- **`question_novelty.py`** — the repeat filter of `POST /api/ai/question` (ClickUp 86cbehyg0): `normalize` + character-trigram Jaccard, `is_repeat(candidate, shown)` against the `assistant` turns and `skipped_questions`. Dependency-free like `question_prompt.py`, and the metric is [check_questions.py](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/check_questions.py)'s own, so the benchmark number and the production filter are one measurement. Thresholds are reviewed constants with their table in the docstring, never environment (ADR 0008). Lexical only — a reworded return to the same thought is 86cbehyg8 (`architect/adr/0016-question-novelty-check.md`)
+- **`question_filters.py`** — the three post-filters of ClickUp 86cbejvra, **not wired into any endpoint**: `detect_gender` (the person's grammatical gender from their own words — reviewed ru/uk form lists, never a `-ла` rule, because «колега звільнився» and «сосед помог» sit inside the same requests), `gender_mismatch` (a question addressing the other gender; with no evidence, *any* explicit gendered address — the gender was imposed), `is_menu` («X или Y»), `has_tail` (a clause appended after a dash, «не просто … а …»). Dependency-free like `question_prompt.py`, constants reviewed in the docstring (ADR 0008). It exists because prompt wording did not fix these: v5 asked Qwen not to default to the masculine and made it worse (15 masculine addresses to a woman against v4's 1 — the independent assessment of 86cbejtt2), and sampling does not either — **six measured runs of 86cbejvra sit in one cloud of 15-22 gender errors**, whatever temperature, `min_p` or `presence_penalty` says, while `min_p` 0.05 at temperature 1.0 is the one lever that moved verbatim repeats (0-2 against the baseline's 4-10 over three runs). Full table, ranges and the honest caveats: [README.md](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/README.md), «Промпт наводящего вопроса v6-A». Verified against that hand count on all 396 benchmark answers: three combinations reproduce it exactly, the fourth by one row, whose false-positive class (a third-person noun subject between the pronoun and the gendered form) is documented rather than tuned away (`tests/test_question_filters.py`)
 - **`safety.py`** — the despair / self-harm rule of `POST /api/ai/question` in code rather than in the prompt (ru/uk/en dictionary + regex, no model, no network): tier 1 answers the versioned fixed reply (`SAFETY_REPLIES`, `SAFETY_REPLY_VERSION`) without calling the provider, tier 2 replaces a model reply that came back as a question for a weaker despair signal. Reason: Qwen3-30B answered the explicit despair input with a question 3/3 while Gemini obeyed the prompt (ClickUp 86cbegctz/86cbegg23) — see `architect/twinkler-ai.md`, "The despair rule is code". Since 86cbegmzz, and since Maria's 2026-09-05 decision, **both tiers** read the person's **last reply** (the topic at `stage: first`, nothing at `next`/`reflect` with no history): a phrase that already got the fixed reply must not answer every later question of that prayer with it. Tier 2's fixed reply takes its **language** from the same source the prompt uses (`language_source`), not from the matched text, so it speaks the prayer's language rather than the tier-2 pattern's
 - **`scripture_select.py`** — Public scripture-selection endpoint `POST /api/ai/scripture` over `retrieval.select_final`; owns the process-local corpus cache: vector + BM25 indexes, Psalm maps, catalogue, coverage sets (see `architect/scripture-select.md`, `architect/adr/0006-scripture-select-api.md`, `architect/adr/0007-reference-translation-rendering.md`)
 - **`passage_render.py`** — renders a canonical passage window in a translation that has no chunk corpus (coordinates through `psalm_verse_mappings`, text from `translation_verses` with `chunking.build_text` semantics) and builds the per-translation coverage sets used to filter candidates before the rerank (ADR 0007)
@@ -328,7 +329,7 @@ Each chat stage names its transport, so moving one to another model is an
 - Retrieval quality (86cbe4n7e, full pipeline): hit@10 0.875, recall@10
   0.688, MRR 0.524 against Gemini's 1.000 / 0.789 / 0.664 — recall passes,
   ranking is worse and the grounded rerank absorbs it. Maria lowered the
-  retrieval-stage MRR threshold to 0.50 on 2026-09-05 (`thresholds.json`
+  retrieval-stage MRR threshold to 0.50 on 2026-09-05 ([thresholds.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/thresholds.json)
   0.4.0); the `final_top1` thresholds are unchanged — see ADR 0010's open
   question 1. **The remote provider changes none of these numbers**: the same
   benchmark with `--embedder bge-m3 --embedder-provider openai_compat` (the
@@ -367,7 +368,9 @@ in `architect/adr/0012-speech-transcription-providers.md`, the contract in
   deploy: the production key (`bible-api-prod`, Passbolt) and the production
   VM's place in that server's IP allow-list.
 - **Measured on that live endpoint** (review, 15 excerpts, driven through
-  `RemoteTranscriber` itself — `evaluation/transcribe_bench.py remote`, which
+  `RemoteTranscriber` itself —
+  [`transcribe_bench.py`](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/transcribe_bench.py)
+  with the `remote` command, which
   is also how to re-measure when the admins change the model): WER ru/uk/en
   **0.037 / 0.059 / 0.002**, CER ru **0.003** (Gemini's own), 3.9-13.9 s per
   excerpt = 0.20x the audio on average (0.42x worst, network included),
@@ -387,7 +390,7 @@ in `architect/adr/0012-speech-transcription-providers.md`, the contract in
   413/415/422/429/502/503, same 14 MiB cap, and no error ever names the
   provider, the recording or the transcript.
 - **Measured** (8 cores, int8, 15 ru/uk/en excerpts of 17-53 s, full table and
-  the side-by-side transcripts in `evaluation/README.md`): WER ru/uk/en
+  the side-by-side transcripts in [README.md](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/README.md)): WER ru/uk/en
   `small` 0.153 / 0.129 / 0.003, `medium` 0.100 / 0.097 / 0.000, Gemini
   0.019 / 0.051 / 0.000; time 0.07-0.22x the audio (target ≤ 1.5x) and threads
   saturate at ~4. **Speed is not the constraint** — memory and Russian
@@ -1044,7 +1047,7 @@ the person did not name and asking for facts instead of an open question, and
 drops the despair sentence (that rule is `app/safety.py`). Measured: Qwen's
 language violations 6/81 → 0/81, interpretations 5/81 → 0/81, clean answers
 65/81 → 81/81, and Gemini 75/81 → 81/81 on the same prompt
-(`evaluation/README.md`, "Промпт наводящего вопроса v2").
+([README.md](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/README.md), "Промпт наводящего вопроса v2").
 
 **`QUESTION_PROMPT_VERSION = 3`, the same day** (ClickUp 86cbegmzz): the
 request became `topic` + `stage` + `messages` and the stage instructions
@@ -1071,8 +1074,8 @@ block (one of them sent the question off to an invented third party) and Qwen's
 own `top_p=0.8`/`top_k=20`. The loop is weakened, not closed — with an
 identical body the model cannot know what it already offered; the ADR 0015
 field is what breaks it, and the repetition filter is 86cbehyg0. Candidate
-texts and the table: `evaluation/question_prompts.py`,
-`evaluation/README.md` «Промпт наводящего вопроса v4».
+texts and the table: [question_prompts.py](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/question_prompts.py),
+[README.md](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/README.md) «Промпт наводящего вопроса v4».
 
 **`QUESTION_PROMPT_VERSION = 6` since 2026-09-06** (ClickUp 86cbejvt2, umbrella
 86cbejvq1) — **on the branch, not measured**: whether it beats v5 on Qwen3-30B
@@ -1168,7 +1171,7 @@ five differing only in the tail. So the handler compares the generated text
 with the `assistant` turns plus `skipped_questions` (`app/question_novelty.py`
 — normalize + character-trigram Jaccard ≥ **0.60**, or a shared opening of ≥ 4
 words covering ≥ 0.7 of the shorter question; the same metric
-`evaluation/check_questions.py` reports for those series, pinned by a test).
+[check_questions.py](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/check_questions.py) reports for those series, pinned by a test).
 On a repeat it generates **exactly once more**, with the rejected question
 appended to the skipped list for that call only, and never a third time.
 
@@ -1204,9 +1207,9 @@ replacement series, 200 everywhere, 0.3-1.1 s, three `novel: false`, one retry
 that escaped the repeat — and the one finding of that check, that the endpoint's
 `question novelty:` `INFO` line never reached `docker logs` until `main.py` was
 given `ensure_visible_handler(logging.getLogger("twinkler_ai"))`. Protocol:
-`evaluation/bench_data/live_9084_2026-09-06.md`; before/after transcripts for
-Maria: `evaluation/bench_data/before_after_2026-09-06.md`; the measurement
-sections are indexed at the top of `evaluation/README.md`'s question block. The
+[bench_data/live_9084_2026-09-06.md](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/bench_data/live_9084_2026-09-06.md); before/after transcripts for
+Maria: [bench_data/before_after_2026-09-06.md](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/bench_data/before_after_2026-09-06.md); the measurement
+sections are indexed at the top of [README.md](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/README.md)'s question block. The
 **client contract** (accumulate every replaced question, do not duplicate
 `messages`, what to do on `novel: false`) is in `architect/twinkler-ai.md` and
 in the two ADRs.

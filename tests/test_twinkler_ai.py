@@ -43,13 +43,13 @@ from pathlib import Path
 
 client = TestClient(app)
 real_reserve_rate_limit = twinkler_ai._reserve_rate_limit
-EVALUATION = Path(__file__).resolve().parent.parent / "evaluation"
+AI_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "ai"
 
 
 def _probe_topic(probe_id: str) -> str:
     """The topic of a `first`-stage probe — its whole text, in this schema."""
     payload = json.loads(
-        (EVALUATION / "question_probe_inputs.json").read_text(encoding="utf-8")
+        (AI_FIXTURES / "question_probe_inputs.json").read_text(encoding="utf-8")
     )
     probe = next(
         probe for probe in payload["inputs"] if probe["id"] == probe_id
@@ -285,7 +285,7 @@ def test_v6_examples_are_from_a_domain_the_app_never_sees():
     a case it will be measured on.
     """
     inputs = json.loads(
-        (EVALUATION / "question_quality_inputs.json").read_text(encoding="utf-8")
+        (AI_FIXTURES / "question_quality_inputs.json").read_text(encoding="utf-8")
     )["inputs"]
     # Whole topics, and only the ones that are a phrase: a one-word topic like
     # «Вибір» is an ordinary word of the language, and forbidding it would ban

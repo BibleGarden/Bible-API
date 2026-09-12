@@ -37,8 +37,8 @@ Requirements:
 - multilingual embeddings (ru/en/uk queries against the language's
   translation), cosine search, filters by language/translation;
 - retrieval quality measured on the draft evaluation set
-  (`evaluation/scenarios.json` v0.1.0, 24 scenarios) against the draft
-  retrieval thresholds (`evaluation/thresholds.json`): hit_rate@10 >= 0.90,
+  ([scenarios.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/scenarios.json) v0.1.0, 24 scenarios) against the draft
+  retrieval thresholds ([thresholds.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/thresholds.json)): hit_rate@10 >= 0.90,
   recall@10 >= 0.60, MRR >= 0.60, unacceptable share in top-10 <= 0.05;
 - production runs on a small VPS (shared with MySQL and the API), so memory
   is the scarcest resource;
@@ -53,10 +53,10 @@ tasks.
 
 ## Benchmark
 
-`evaluation/retrieval_benchmark.py` embeds the full corpus per configuration
+[retrieval_benchmark.py](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/retrieval_benchmark.py) embeds the full corpus per configuration
 and replays all 24 scenarios (query = prayer topic + allowed user replies;
 corpus = the language's translation: ru→syn, en→bsb, uk→ubh; ubh chunked with
-the same `chunk_cli.py` run as syn/bsb). Matching follows `thresholds.json`
+the same `chunk_cli.py` run as syn/bsb). Matching follows [thresholds.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/thresholds.json)
 (book+chapter equality, verse-range intersection) with a data-driven
 Psalm-numbering mapping layer (canonical english-masoretic → Septuagint
 chapters + counted superscriptions for syn, superscription offsets for ubh),
@@ -79,7 +79,9 @@ plus the Gemini embedding API (see limitations).
 | gemini-embedding-001 | not measurable today (daily quota) | — | — | — | ~0.35 s API | ~0 (API) |
 
 minilm = paraphrase-multilingual-MiniLM-L12-v2, e5 = intfloat/multilingual-e5.
-Full per-language breakdowns: `evaluation/retrieval_benchmark.py run-all`.
+For full per-language breakdowns, run `python evaluation/retrieval_benchmark.py
+run-all` from the sibling
+[AI-Evaluation repository](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/retrieval_benchmark.py).
 
 **No measured configuration comes anywhere near the draft thresholds.**
 The numbers are honest lower bounds (the reference sets are non-exhaustive),
@@ -115,9 +117,9 @@ The benchmark's Gemini path is implemented, checkpointed (resumes without
 re-spending quota) and ready to run:
 
 ```
-GEMINI_API_KEY=… python evaluation/retrieval_benchmark.py embed --model gemini --variant title_text
-python evaluation/retrieval_benchmark.py run --model gemini --variant title_text          # 3072 dims
-python evaluation/retrieval_benchmark.py run --model gemini --variant title_text --dims 768
+GEMINI_API_KEY=… python ../AI-Evaluation/evaluation/retrieval_benchmark.py embed --model gemini --variant title_text
+python ../AI-Evaluation/evaluation/retrieval_benchmark.py run --model gemini --variant title_text          # 3072 dims
+python ../AI-Evaluation/evaluation/retrieval_benchmark.py run --model gemini --variant title_text --dims 768
 ```
 
 Completing it requires either enabling billing on the key (paid tier: no

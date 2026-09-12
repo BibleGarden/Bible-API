@@ -1,10 +1,7 @@
 """Unit tests for the repeat filter of `POST /api/ai/question`.
 
-ClickUp 86cbehyg0. Two things are pinned here: the verdicts on the examples
-the constants were chosen from (`app/question_novelty.py` carries the table),
-and the property that makes the table trustworthy — the metric is the one
-`evaluation/check_questions.py` reports, character for character, so a number
-in `evaluation/README.md` describes what the endpoint actually does.
+ClickUp 86cbehyg0. The verdicts on the examples used to choose the constants
+are pinned here; `app/question_novelty.py` carries the measured table.
 
 The positive and negative sets are read from the artifact rather than quoted,
 so a rebuilt benchmark is measured against the same constants instead of
@@ -13,10 +10,8 @@ against a copy of itself.
 
 from __future__ import annotations
 
-import importlib.util
 import itertools
 import json
-import sys
 from pathlib import Path
 
 import pytest
@@ -33,8 +28,10 @@ from question_novelty import (
     similarity,
 )
 
-EVALUATION = Path(__file__).resolve().parents[1] / "evaluation"
-SERIES = EVALUATION / "bench_data" / "questions_qwen30b_v3_series.jsonl"
+SERIES = (
+    Path(__file__).resolve().parent
+    / "fixtures/ai/bench_data/questions_qwen30b_v3_series.jsonl"
+)
 
 
 def _series() -> dict[tuple[str, int], list[str]]:
@@ -50,42 +47,6 @@ def _series() -> dict[tuple[str, int], list[str]]:
         key: [row["text"] for row in sorted(rows, key=lambda r: r["step"])]
         for key, rows in grouped.items()
     }
-
-
-def _check_questions():
-    """`evaluation/check_questions.py`, loaded the way test_gen_questions does.
-
-    It is a script outside the package, so it is imported by path rather than
-    by name; nothing in it is executed on import.
-    """
-    spec = importlib.util.spec_from_file_location(
-        "check_questions_under_test", EVALUATION / "check_questions.py"
-    )
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-# --- the metric is the benchmark's metric ----------------------------------
-
-
-def test_the_metric_is_the_one_the_benchmark_reports():
-    """`normalize`/`similarity` == `normalise_series_text`/`trigram_similarity`.
-
-    Not a style preference: the filter that runs in production and the number
-    `evaluation/check_questions.py` prints about a replacement series have to
-    be the same measurement, or the benchmark stops describing the endpoint.
-    """
-    benchmark = _check_questions()
-    texts = [text for texts in _series().values() for text in texts]
-    assert len(texts) > 100
-    for text in texts:
-        assert normalize(text) == benchmark.normalise_series_text(text)
-    for left, right in itertools.combinations(texts[:40], 2):
-        assert similarity(left, right) == benchmark.trigram_similarity(
-            left, right
-        )
 
 
 # --- exact repeats ---------------------------------------------------------

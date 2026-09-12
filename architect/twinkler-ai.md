@@ -292,7 +292,7 @@ outvoted it.
 stop it from offering them again. The measured replacement series show it
 plainly: pressing "replace" six times on one prayer produced six variants of a
 single sentence, the last five differing from the first only in the tail
-(`evaluation/bench_data/questions_qwen30b_v3_series.jsonl`, `series-scale-ru`).
+([bench_data/questions_qwen30b_v3_series.jsonl](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/bench_data/questions_qwen30b_v3_series.jsonl), `series-scale-ru`).
 So the server now checks the answer before returning it.
 
 **What is compared.** The generated text against everything the person has
@@ -306,7 +306,7 @@ punctuation and quotes, collapse whitespace) and then Jaccard over character
 new tail — a shared opening of ≥ 4 normalized words covering ≥ 0.7 of the
 shorter question. Both constants are code, not environment (ADR 0008), and the
 module docstring carries the table they were chosen on. It is the very
-definition `evaluation/check_questions.py` reports for those series, so the
+definition [check_questions.py](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/check_questions.py) reports for those series, so the
 benchmark number and the production filter are one measurement.
 
 **Lexical only.** Two questions with no shared wording can still be one
@@ -316,7 +316,7 @@ worse than the gap. Whether bge-m3 can measure the thought is ClickUp
 labelled pairs a cosine of ≥ 0.78-0.80 beside this filter catches 0.83 of the
 repeats against its own 0.30, at ~+0.5-0.6 s on the median answer (and up to
 ~2 s on a long prayer unless the compared list is bounded) — the tables are in
-`evaluation/README.md`, «Семантическая проверка повторов через bge-m3», and the
+[README.md](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/README.md), «Семантическая проверка повторов через bge-m3», and the
 recommendation is recorded in ADR 0016 for Maria.
 
 **Two answers per call was measured too, and rejected** (ClickUp 86cbehyg4):
@@ -459,7 +459,8 @@ answer for its gender, its menus or its dashes.
 
 Unchanged: both despair tiers (`app/safety.py`, still the person's last reply,
 now applied to the parsed question), the meaning of `novel`, the request
-contract, the limits, and the reference data of `evaluation/`. Nothing was
+contract, the limits, and the reference data in
+[AI-Evaluation](https://github.com/BibleGarden/AI-Evaluation/tree/main/evaluation). Nothing was
 added to make the companion warmer (Maria, 2026-09-05).
 
 One line per answered request says how the answer parsed and carries no text:
@@ -554,7 +555,7 @@ Result on the same inputs, 3 samples each: language violations **0/81** and
 interpretations **0/81** on Qwen (clean answers 65/81 → **81/81**), and Gemini
 went 75/81 → **81/81** on the same prompt, so v2 does not cost the external
 provider anything either. Numbers, tables and every answer verbatim:
-`evaluation/README.md`, "Промпт наводящего вопроса v2".
+[README.md](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/README.md), "Промпт наводящего вопроса v2".
 
 **The despair sentence is not in v2.** It moved to `app/safety.py` (below),
 and a prompt carrying a rule it no longer enforces would invite the next
@@ -591,10 +592,10 @@ Two v2 properties this was built on, and both held:
 
 The `reflect` stage asks for a closing question that helps formulate a
 takeaway. That is still one question, so the form rules hold; if it ever stops
-being a question, `question`/`len160` in `evaluation/check_questions.py` need a
+being a question, `question`/`len160` in [check_questions.py](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/check_questions.py) need a
 per-stage expectation the way `expect_question` works today.
 
-**Measured on 2026-09-05** (`evaluation/README.md`, "Промпт v3 и
+**Measured on 2026-09-05** ([README.md](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/README.md), "Промпт v3 и
 структурированный запрос"): 96 clean answers of 99 on Qwen3-30B, no language
 violation, the three that failed each once and on a different input.
 
@@ -622,8 +623,8 @@ duplicate pairs 11 → 5; the Ukrainian series' gender mismatch 30/30 → **0/30
 probes and scenarios 96/99 → **99/99** clean with no language violation. Two
 rewordings of the `skipped_questions` block and Qwen's own `top_p`/`top_k` were
 measured in the same run and **rejected** — the table, the losing texts and the
-transcripts are in `evaluation/README.md`, "Промпт наводящего вопроса v4", and
-`evaluation/question_prompts.py`.
+transcripts are in [README.md](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/README.md), "Промпт наводящего вопроса v4", and
+[question_prompts.py](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/question_prompts.py).
 
 **What v4 does not fix:** with an identical request the model still cannot know
 what it already offered, so the loop is weakened, not closed. The
@@ -670,7 +671,7 @@ The prompt kept the sentence for one version — a model that also obeys it
 produces a better, personal answer — and **prompt v2 dropped it** (ClickUp
 86cbegg3f): tier 1 never lets an explicit message reach the model, so the
 sentence could only ever apply to messages the code had already decided were
-not despair. `evaluation/gen_questions.py` follows the same logic and no
+not despair. [gen_questions.py](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/gen_questions.py) follows the same logic and no
 longer sends `probe-despair` to a provider at all.
 
 Dropping it is not free, and the price is measurable on the artifacts of both
@@ -706,8 +707,8 @@ prompt demands it. A tier-2 pattern that matched an ordinary message would
 therefore silently replace every answer to it. Both sets are consequently
 narrow phrase patterns, never single loaded words, and both are swept over the
 whole reference corpus by `tests/test_safety.py`: the 24 approved scenarios of
-`evaluation/scenarios.json` and the probe inputs of
-`evaluation/question_probe_inputs.json` raise **no** tier 1, and no tier 2
+[scenarios.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/scenarios.json) and the probe inputs of
+[question_probe_inputs.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/question_probe_inputs.json) raise **no** tier 1, and no tier 2
 either bar the one case below. Since the probe file became a set of *requests*
 (schema v2.0.0) the sweep runs on the one view both tiers read now
 (`probe_inputs`); the older view of the topic plus every reply
@@ -717,7 +718,7 @@ either bar the one case below. Since the probe file became a set of *requests*
 `en-005` ("Feeling worthless / I keep thinking everyone would be fine without
 me") is that case, and it is tier 2 on purpose: passive ideation stated about
 other people is worth refusing a question over, not worth refusing the
-companion an answer. `evaluation/check_questions.py` already treats this input
+companion an answer. [check_questions.py](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/check_questions.py) already treats this input
 the same way — its `soft_safety_branch` flag exists because a model that
 answers it with "please don't stay alone with this" is obeying the prompt, not
 breaking the one-question rule.
@@ -920,7 +921,7 @@ cut off inside the budget.)
 Not changed, and deliberately: the two **Gemini** paths still hand httpx a
 bare `AI_*_TIMEOUT_SECONDS`, i.e. that value per phase. Carving them would be
 a behaviour change to a path this ticket did not measure; it is recorded as an
-open item in `evaluation/README.md`.
+open item in [README.md](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/README.md).
 
 Transcription names its transport in `AI_TRANSCRIBE_PROVIDER` since
 2026-09-05 (ClickUp 86cbegg3m, `architect/adr/0012-speech-transcription-providers.md`),

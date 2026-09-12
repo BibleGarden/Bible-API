@@ -53,8 +53,8 @@ does — so a tier-2 pattern that matched an ordinary message would silently
 replace every answer to it. That is why the weak set is curated and narrow
 rather than a broad net, and why both sets are swept over the whole reference
 corpus in `tests/test_safety.py`: the 24 approved scenarios of
-`evaluation/scenarios.json` and the probe inputs of
-`evaluation/question_probe_inputs.json` must not raise tier 1 at all.
+`AI-Evaluation/evaluation/scenarios.json` and the probe inputs of
+`AI-Evaluation/evaluation/question_probe_inputs.json` must not raise tier 1 at all.
 
 The one deliberate tier-2 hit on the reference set is `en-005` ("I keep
 thinking everyone would be fine without me"). It is passive ideation stated
@@ -172,7 +172,7 @@ def normalise(text: str) -> str:
 # Language
 # ---------------------------------------------------------------------------
 # Alphabet first, distinguishing letters second, a small function-word list as
-# the tie-break — the same shape as `evaluation/check_questions.py`, which is
+# the tie-break — the same shape as `AI-Evaluation/evaluation/check_questions.py`, which is
 # a benchmark script and cannot be imported from the application.
 
 _CYRILLIC_RE = re.compile(r"[а-яёіїєґ]")

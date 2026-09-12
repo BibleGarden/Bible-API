@@ -33,7 +33,7 @@ The retrieval pipeline (ADR 0004) returns a top-10 of verified candidates —
 canonical IDs, fused scores and exact texts from `cep_public` — that passes
 the `retrieval_top_k` thresholds. This stage picks the ONE passage the user
 will see. Acceptance: the `final_top1` thresholds of
-`evaluation/thresholds.json` v0.2.0 on the approved dataset v0.2.0
+[thresholds.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/thresholds.json) v0.2.0 on the approved dataset v0.2.0
 (24 scenarios): relevant_share >= 0.70, relevant-or-acceptable >= 0.95,
 unacceptable = 0, sensitive top-1 ONLY relevant; an ungraded top-1 (matches
 no reference of the non-exhaustive set) counts neither way and goes to
@@ -123,8 +123,9 @@ Unlike the rewrite stage (where flash-lite fails, ADR 0004), choosing among
 
 ## Measurements (dataset v0.2.0, thresholds v0.2.0 final_top1)
 
-Benchmark: `evaluation/retrieval_benchmark.py pipeline --rerank
-[--rerank-model X]` — the approved retrieval configuration plus the final
+Benchmark: run `python evaluation/retrieval_benchmark.py pipeline --rerank
+[--rerank-model X]` from the sibling
+[AI-Evaluation repository](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/retrieval_benchmark.py) — the approved retrieval configuration plus the final
 choice; rerank answers are disk-cached (model + `RERANK_PROMPT_VERSION` +
 scenario + candidate-list hash). Grading of a top-1: intersection with the
 scenario references (safety-first: unacceptable > relevant > acceptable),
@@ -179,7 +180,7 @@ Reading:
 ### Follow-up: dataset v0.3.0 (Maria's manual grades) and prompt v4
 
 Maria graded all 10 ungraded top-1s; the grades were merged into
-`scenarios.json` v0.3.0 (6 relevant, 3 acceptable, 1 unacceptable). The
+[scenarios.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/scenarios.json) v0.3.0 (6 relevant, 3 acceptable, 1 unacceptable). The
 unacceptable one — Mt 10:28-31 for en-005 "Feeling worthless": the chunk
 OPENS with "do not be afraid of those who kill the body" and mentions
 Gehenna — a dangerous first line in a suicidality-adjacent state, despite
@@ -224,7 +225,7 @@ cache-served. Running total after this round: 126 calls. Serve-time: +1 flash-li
 ### Follow-up: dataset v0.4.0 (second review batch), prompts v5 and v6
 
 Maria graded the 4 ungraded top-1s of the previous round; the grades were
-merged into `scenarios.json` v0.4.0 (minor bump — the set of grades
+merged into [scenarios.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/scenarios.json) v0.4.0 (minor bump — the set of grades
 changed):
 
 | scenario | top-1 | grade | editor's "why" |
@@ -343,7 +344,7 @@ cache-served. Running total across both rounds: 315 calls.
 Maria graded the one remaining ungraded top-1 of the v6 production
 configuration — uk-005 Isa 43:1-13 («Не бійся, бо Я викупив тебе… ти Мій…
 ти дорогий в очах Моїх»), the same passage already `relevant` for en-005 —
-`relevant`. Merged into `scenarios.json` v0.5.0 (minor bump — the set of
+`relevant`. Merged into [scenarios.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/scenarios.json) v0.5.0 (minor bump — the set of
 grades changed). No prompt change was needed: prompt v6 stays production,
 re-run from cache (`fresh_calls=0`).
 

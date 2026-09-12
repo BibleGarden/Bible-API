@@ -14,7 +14,7 @@
   **OpenBible.info Topical Bible + Cross References**: CC BY, машиночитаемый
   TSV, стандартный английский порядок книг, покрывает **100 % chapter-level**
   и **93 % (14/15) в строгой topic-label-aware проверке** «relevant»-ссылок
-  из `evaluation/scenarios.json` (методика и числа — раздел «Оценка покрытия»).
+  из [scenarios.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/scenarios.json) (методика и числа — раздел «Оценка покрытия»).
 - Nave's и Torrey's — public domain, но единого авторитетного JSON/SQL-репо
   под них найдено не было; нашёлся смежный подтверждённый репозиторий
   (`BradyStephenson/bible-data`, CC BY 4.0) с `NavesTopicalDictionary.csv`.
@@ -77,7 +77,7 @@
 ### Метод 1 — покрытие «есть хоть какая-то запись в этой главе» (буквально по ТЗ)
 
 Скрипт `/tmp/coverage_check.py` (не в репозитории): берёт все ссылки с
-`grade: "relevant"` из всех 24 сценариев `evaluation/scenarios.json`
+`grade: "relevant"` из всех 24 сценариев [scenarios.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/scenarios.json)
 (итого **87 ссылок**), переводит номер книги из славянского порядка
 `cep_public` в стандартный/OSIS-порядок (см. «Координатные системы» ниже) и
 проверяет пересечение диапазона стихов с любым окном из скачанных данных
@@ -139,7 +139,7 @@ HIT  uk-007 praying for children             -> найдено (тема "childr
 
 ### Координатные системы: обязательный маппинг номеров книг
 
-`evaluation/scenarios.json` и `cep_public.bible_books` используют
+[scenarios.json](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/scenarios.json) и `cep_public.bible_books` используют
 **славянский порядок канона** (1–66: Быт=1…Пс=19…Мф=40…**Иак=45, 1Пет=46
 … Рим=52** (соборные послания раньше павловых) …Откр=66) — соборные послания
 идут раньше павловых. OpenBible.info и OSIS-обозначения в

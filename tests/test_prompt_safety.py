@@ -18,7 +18,7 @@ os.environ.setdefault("API_KEY", "test-api-key")
 from passage_rerank import build_rerank_user_content
 from prompt_safety import neutralize_prompt_markers as clean
 
-SCENARIOS = Path(__file__).resolve().parent.parent / "evaluation" / "scenarios.json"
+SCENARIOS = Path(__file__).resolve().parent / "fixtures" / "ai" / "scenarios.json"
 
 
 # ---------------------------------------------------------------------------

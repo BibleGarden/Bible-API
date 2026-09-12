@@ -1,14 +1,10 @@
-"""Contract of the localized v6 prompt and the frozen v4 baseline."""
+"""Contract of the localized production v6 prompt."""
 
 import json
-from pathlib import Path
-import sys
 
 import pytest
 
 import question_prompt
-
-sys.path.insert(0, str(Path(__file__).parents[1] / "evaluation"))
 
 
 @pytest.mark.parametrize(
@@ -102,44 +98,6 @@ def test_unknown_stage_fails_loudly():
         question_prompt.build_user_message("", "summary", [])
 
 
-def test_evaluation_variants_keep_v4_frozen_and_production_live():
-    import question_prompts
-
-    history = [("assistant", "Что важно?"), ("user", "Семья.")]
-    old = question_prompts.user_message("v4", "Тема", "next", history, [], "ru")
-    new = question_prompts.user_message(
-        question_prompts.PRODUCTION, "Тема", "next", history, [], "ru"
-    )
-
-    assert "Уже прозвучали вопросы" in old
-    assert "Разговор до этого" in new
-    assert old != new
-
-
-def test_every_saved_v4_request_is_reproducible():
-    """All 99 archived requests stay byte-identical after production moves."""
-    import question_prompts
-
-    artifact = (
-        Path(__file__).parents[1]
-        / "evaluation/bench_data/question_comparison_2026-09-06/qwen.jsonl"
-    )
-    rows = [json.loads(line) for line in artifact.read_text(encoding="utf-8").splitlines()]
-
-    assert len(rows) == 99
-    for row in rows:
-        request = row["input"]
-        messages = [(item["role"], item["text"]) for item in request["messages"]]
-        assert question_prompts.user_message(
-            "v4",
-            request["topic"],
-            request["stage"],
-            messages,
-            row["skipped_questions"],
-            row["prompt_language"],
-        ) == row["sent_user_message"]
-
-
 @pytest.mark.parametrize('language,heading', [('ru','Цель молитвы'),('uk','Мета молитви'),('en','Prayer goal')])
 @pytest.mark.parametrize('stage', ['first','next','reflect'])
 def test_each_stage_uses_requested_language(language, heading, stage):
@@ -149,14 +107,6 @@ def test_each_stage_uses_requested_language(language, heading, stage):
     assert heading in text
     if language=='en':
         assert 'Задай' not in text and 'Постав' not in text
-
-
-def test_structured_ablation_names_target_language_explicitly():
-    import question_prompts
-    prompt = question_prompts.system_prompt('v5-structured', 'uk')
-    assert 'Write in Ukrainian, and in no other language.' in prompt
-    assert 'Detect the language from' not in prompt
-    assert '# Goal' in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -306,77 +256,6 @@ def test_a_history_of_our_questions_alone_is_not_the_person_speaking():
     )
 
     assert "Род человека" not in message
-
-
-def test_the_evaluation_stand_builds_the_production_bytes_for_v6():
-    """`--prompt-variant v6` must be the endpoint, byte for byte.
-
-    The whole point of the stand is that a measured answer was produced by the
-    prompt that ships. `v6` is a NAME for the live wording (it is not frozen
-    yet), so this check is what keeps the name honest.
-    """
-    import question_prompts
-
-    cases = [
-        ("Тема", "first", [], [], "ru", "f"),
-        ("Понять масштаб целей на завтра", "next",
-         [("assistant", "Что важно?"), ("user", "Я рада.")],
-         ["Первый?", "Второй?"], "ru", "f"),
-        ("Мета", "next", [("user", "Я втомилася.")], [], "uk", "f"),
-        ("Topic", "reflect", [("user", "I am tired.")], [], "en", None),
-        ("Тема", "next", [("user", "Ответ")], [], None, "m"),
-    ]
-    for topic, stage, messages, skipped, language, gender in cases:
-        assert question_prompts.user_message(
-            "v6", topic, stage, messages, skipped, language, gender
-        ) == question_prompt.build_user_message(
-            topic, stage, messages, skipped, language, gender
-        )
-        assert question_prompts.system_prompt(
-            "v6", language
-        ) == question_prompt.build_question_prompt(language)
-        # And `production` is the same thing while production is v6.
-        assert question_prompts.user_message(
-            question_prompts.PRODUCTION, topic, stage, messages, skipped,
-            language, gender,
-        ) == question_prompt.build_user_message(
-            topic, stage, messages, skipped, language, gender
-        )
-
-
-def test_the_stand_builds_the_production_bytes_with_used_subjects_too():
-    """The block the server fills from its own memory must survive the mirror.
-
-    An empty `used_subjects` would have passed the check above by accident —
-    the block is not rendered at all when the list is empty — so the one case
-    that actually exercises it is pinned separately.
-    """
-    import question_prompts
-
-    subjects = ["завтрашние дела", "качество работы", "Что ты хочешь успеть?"]
-    messages = [("assistant", "Что важно?"), ("user", "Я рада.")]
-    for language in ("ru", "uk", "en", None):
-        assert question_prompts.user_message(
-            "v6", "Тема", "next", messages, ["Первый?"], language, "f", subjects
-        ) == question_prompt.build_user_message(
-            "Тема", "next", messages, ["Первый?"], language, "f", subjects
-        )
-    rendered = question_prompts.user_message(
-        "v6", "Тема", "next", messages, ["Первый?"], "ru", "f", subjects
-    )
-    assert "Предметы, о которых уже спрашивали:" in rendered
-    for subject in subjects:
-        assert json.dumps(subject, ensure_ascii=False) in rendered
-
-
-def test_the_stand_knows_which_variants_expect_the_structured_answer():
-    import question_prompts
-
-    assert question_prompts.structured_answer("v6")
-    assert question_prompts.structured_answer(question_prompts.PRODUCTION)
-    assert not question_prompts.structured_answer("v4")
-    assert not question_prompts.structured_answer("v5-structured")
-    assert question_prompts.prompt_version("v6") == 6
 
 
 def test_the_gender_codes_are_the_ones_person_gender_returns():

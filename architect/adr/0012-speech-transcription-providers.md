@@ -21,7 +21,7 @@ our machines" is worth the most.
 
 Whisper is the proven local answer; the open questions were speed on a CPU and
 quality on Russian and Ukrainian. Both were measured on this 8-core host
-(`evaluation/README.md`, "Локальная расшифровка речи", 2026-09-05):
+([README.md](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/README.md), "Локальная расшифровка речи", 2026-09-05):
 faster-whisper `small` and `medium`, int8, beam 1 and 5, against Gemini on the
 same 10-60 s excerpts of ru/uk/en Bible audio with the verse text as the
 reference.
@@ -159,7 +159,7 @@ category only, because an httpx message quotes the request URL.
   A deployment on `openai_compat` or `gemini` pays the image size and imports
   none of it — the import is inside the loader.
 - **Speed is not the constraint; memory and quality are.** Measured on this
-  8-core host over 15 excerpts of 17-53 s (`evaluation/README.md`), int8,
+  8-core host over 15 excerpts of 17-53 s ([README.md](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/README.md)), int8,
   language given, VAD on:
 
   | configuration | WER ru | WER uk | WER en | time / audio (max) | peak RSS |
@@ -199,7 +199,7 @@ category only, because an httpx message quotes the request URL.
   ru/uk WER on this studio corpus. Our own memory cost is zero: the API
   container stayed at **75 MB RSS** through the run.
 - The acceptance criterion Maria set is her own reading of the 15 Russian
-  transcripts, not the WER; they are side by side in `evaluation/README.md`,
+  transcripts, not the WER; they are side by side in [README.md](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/README.md),
   the remote provider among them. The corpus is studio-read Scripture, so
   these numbers are a floor for every provider, Gemini included — spontaneous
   prayer speech is harder for all of them.

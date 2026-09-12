@@ -1,7 +1,7 @@
 # EXPERIMENTAL — not part of the production stack.
 #
 # Standalone Qdrant instance used only for the vector-store comparison in
-# evaluation/retrieval_benchmark.py (ClickUp 86cb8vw14). The production
+# https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/retrieval_benchmark.py (ClickUp 86cb8vw14). The production
 # decision (see architect/adr/0002-embedding-model-and-vector-store.md) does
 # NOT require this service; keep it out of the main docker-compose.yml unless
 # the corpus outgrows the in-MySQL index.

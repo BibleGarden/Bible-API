@@ -17,7 +17,7 @@ then writes the `query`, the instruction carries per-language worked
 examples, and a closing line repeats the answer language. Measured on
 `qwen3-30b-a3b-instruct-2507`, the reference anchor alone lifted hit@10 from
 0.583 to 0.875 and few-shot on top of it lifted recall@10 to 0.547 and MRR to
-0.558 (evaluation/README.md, 86cbea05x). `ref` never reaches the retrieval
+0.558 (AI-Evaluation/evaluation/README.md, 86cbea05x). `ref` never reaches the retrieval
 layer: `parse_rewrite_response` drops it — it is scaffolding for the model's
 recall, and the queries themselves still carry no coordinates.
 
@@ -27,13 +27,13 @@ the API key must ever be logged — callers log only failure categories.
 
 The prompt is generic: it knows nothing about the evaluation dataset and
 never receives reference answers. The worked examples are de-fingerprinted —
-no example topic and no example passage may touch `evaluation/scenarios.json`,
+no example topic and no example passage may touch `AI-Evaluation/evaluation/scenarios.json`,
 which `tests/test_rewrite_prompts.py` checks against the live dataset. That
 check is what moved two examples on 2026-09-05 (prompt revision 4): grading
 made Ps 62 and Ps 16 references, so the "экзамен" and "квартира" examples
 now anchor on Ps 94:19 and Deut 12:9-10. The numbers quoted above were
 measured on revision 3; revision 4 was re-measured warm and is inside the
-server's own run-to-run spread (evaluation/README.md, 86cbegg36).
+server's own run-to-run spread (AI-Evaluation/evaluation/README.md, 86cbegg36).
 """
 
 from __future__ import annotations
@@ -132,7 +132,7 @@ def build_search_query(topic: str, user_replies: list[str]) -> str:
 #
 # De-fingerprinting is mandatory (the rule the rerank prompt v6 established):
 # not one example topic and not one example passage may coincide with anything
-# in `evaluation/scenarios.json`, or the prompt would be measuring itself.
+# in `AI-Evaluation/evaluation/scenarios.json`, or the prompt would be measuring itself.
 # Example topics are outside the evaluation set (exam, flat hunting, public
 # speaking, moving city, starting university, a wedding) and the quoted texts
 # are written from memory, close to the text, never copied from the dataset.
@@ -324,7 +324,7 @@ def render_examples(
     `with_refs=False` produces the answers as plain strings instead of
     `{ref, query}` objects. Production never asks for it: it is what the
     historical benchmark prompt 8b was made of, and
-    `evaluation/rewrite_prompts.py` calls this function rather than keeping a
+    `AI-Evaluation/evaluation/rewrite_prompts.py` calls this function rather than keeping a
     second copy of the examples that could drift from these.
     """
     blocks: list[str] = []
@@ -372,7 +372,7 @@ def build_rewrite_instruction(language: str, variants: int = REWRITE_VARIANTS) -
     """System instruction for the rewrite call (static per language).
 
     Prompt v8. Three things distinguish it from v7, each measured on a small
-    local model (evaluation/README.md, 86cbea05x):
+    local model (AI-Evaluation/evaluation/README.md, 86cbea05x):
 
     1. the reference anchor — the model names the passage in `ref` before
        writing the `query`, which turns generic pious formulas into near
@@ -387,7 +387,7 @@ def build_rewrite_instruction(language: str, variants: int = REWRITE_VARIANTS) -
        21 scenarios without it. It stays because removing it is not measurably
        better either: warm run against warm run on the production embedder it
        is ahead on hit@10 and recall@10 and 0.044 behind on MRR, inside that
-       server's own 0.072 spread (ADR 0004, "Prompt v8"; evaluation/README.md,
+       server's own 0.072 spread (ADR 0004, "Prompt v8"; AI-Evaluation/evaluation/README.md,
        86cbegg36). Dropping this paragraph makes the prompt byte-identical to
        the measured 8c revision 2.
     """

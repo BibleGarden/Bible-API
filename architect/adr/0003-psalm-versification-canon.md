@@ -181,7 +181,7 @@ coexist mid-migration — informational only.
 ## Consequences
 
 - One shared implementation of the Psalm mapping: the chunker, the
-  benchmark (`evaluation/retrieval_benchmark.py` now imports
+  benchmark ([retrieval_benchmark.py](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/retrieval_benchmark.py) now imports
   `app/versification.py`; its private mapping layer is gone) and the future
   selection endpoint all use the same rules — closing ADR 0002 open
   question 5.
