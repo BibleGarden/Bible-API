@@ -294,21 +294,31 @@ def test_control_pair_sides_are_both_the_baseline():
 
 
 class _FakeCompleted:
-    def __init__(self, stdout="model: gpt-6-astra\n", returncode=0):
-        self.stdout, self.stderr, self.returncode = stdout, "", returncode
+    def __init__(self, stdout="model: gpt-6-astra\n", stderr="", returncode=0):
+        self.stdout, self.stderr, self.returncode = stdout, stderr, returncode
 
 
-def _fake_run(monkeypatch, payload=None, *, stdout="model: gpt-6-astra\n", returncode=0,
-              raise_timeout=False, sink=None):
+def _fake_run(
+    monkeypatch,
+    payload=None,
+    *,
+    stdout="model: gpt-6-astra\n",
+    stderr="",
+    returncode=0,
+    raise_timeout=False,
+    sink=None,
+):
     def fake(command, **kwargs):
         if sink is not None:
             schema = Path(command[command.index("--output-schema") + 1])
-            sink.append((list(command), kwargs, json.loads(schema.read_text(encoding="utf-8"))))
+            sink.append(
+                (list(command), kwargs, json.loads(schema.read_text(encoding="utf-8")))
+            )
         if raise_timeout:
             raise subprocess.TimeoutExpired(command, kwargs.get("timeout", 1))
         if payload is not None:
             Path(command[command.index("-o") + 1]).write_text(payload, encoding="utf-8")
-        return _FakeCompleted(stdout, returncode)
+        return _FakeCompleted(stdout, stderr, returncode)
 
     monkeypatch.setattr(tool.subprocess, "run", fake)
 
@@ -317,10 +327,21 @@ def test_codex_call_shape_and_success(monkeypatch):
     calls = []
     _fake_run(monkeypatch, '{"verdict": "B", "reason": "sharper"}', sink=calls)
     payload, model, error, ms = tool.call_codex("PROMPT", timeout=42)
-    assert (payload, model, error) == ({"verdict": "B", "reason": "sharper"}, "gpt-6-astra", None)
+    assert (payload, model, error) == (
+        {"verdict": "B", "reason": "sharper"},
+        "gpt-6-astra",
+        None,
+    )
     assert ms >= 0
     command, kwargs, schema = calls[0]
-    assert command[:6] == ["codex", "exec", "--skip-git-repo-check", "--ephemeral", "-s", "read-only"]
+    assert command[:6] == [
+        "codex",
+        "exec",
+        "--skip-git-repo-check",
+        "--ephemeral",
+        "-s",
+        "read-only",
+    ]
     assert command[-1] == "PROMPT"
     assert "--output-schema" in command and "-o" in command
     # stdin MUST be closed: `codex exec` waits for stdin otherwise and hangs.
@@ -330,12 +351,46 @@ def test_codex_call_shape_and_success(monkeypatch):
     assert schema["required"] == ["verdict", "reason"]
 
 
-@pytest.mark.parametrize("payload,expected", [
-    ("not json at all", "invalid json"),
-    ('{"verdict": "maybe", "reason": "x"}', "off-schema verdict"),
-    ('{"reason": "x"}', "off-schema verdict"),
-    ("", "empty output"),
-])
+def test_pinned_model_is_passed_and_proved_from_stderr(monkeypatch, tmp_path):
+    calls = []
+    log = tmp_path / "call.json"
+    _fake_run(
+        monkeypatch,
+        '{"verdict": "A", "reason": "clearer"}',
+        stdout="",
+        stderr="model: gpt-6-astra\n",
+        sink=calls,
+    )
+    payload, model, error, _ms = tool.call_codex(
+        "PROMPT", expected_model="gpt-6-astra", log_path=log
+    )
+    assert payload["verdict"] == "A" and model == "gpt-6-astra" and error is None
+    assert calls[0][0][calls[0][0].index("--model") + 1] == "gpt-6-astra"
+    saved = json.loads(log.read_text())
+    assert saved["returncode"] == 0 and "gpt-6-astra" in saved["stderr"]
+
+
+@pytest.mark.parametrize(
+    ("stdout", "expected"),
+    [("", "model proof missing"), ("model: another-model\n", "model mismatch")],
+)
+def test_pinned_model_requires_matching_runtime_proof(monkeypatch, stdout, expected):
+    _fake_run(monkeypatch, '{"verdict": "A", "reason": "x"}', stdout=stdout)
+    payload, _model, error, _ms = tool.call_codex(
+        "PROMPT", expected_model="gpt-6-astra"
+    )
+    assert payload is None and error.startswith(expected)
+
+
+@pytest.mark.parametrize(
+    "payload,expected",
+    [
+        ("not json at all", "invalid json"),
+        ('{"verdict": "maybe", "reason": "x"}', "off-schema verdict"),
+        ('{"reason": "x"}', "off-schema verdict"),
+        ("", "empty output"),
+    ],
+)
 def test_codex_rejects_answers_off_the_schema(monkeypatch, payload, expected):
     _fake_run(monkeypatch, payload)
     result, _, error, _ = tool.call_codex("PROMPT")
@@ -374,6 +429,86 @@ def test_failed_judgements_are_not_written_and_stay_retryable(monkeypatch, tmp_p
     _fake_run(monkeypatch, raise_timeout=True)
     assert tool.run_codex_judge(rows, out, args, "gpt-6-astra")["written"] == 0
     assert len(tool.read_jsonl(out)) == 2
+
+
+def test_first_failure_stops_new_single_worker_calls(monkeypatch, tmp_path, runs):
+    run_a, run_b = (tool.load_run(path, "qwen") for path in runs)
+    rows = tool.manifest_rows(
+        tool.build_pairs(run_a, run_b, 1, limit=2, control_fraction=0)
+    )
+    calls = []
+    _fake_run(monkeypatch, returncode=1, sink=calls)
+    args = tool.argparse.Namespace(
+        workers=1,
+        timeout=5,
+        codex_binary="codex",
+        judge_model="gpt-6-astra",
+        codex_log_dir=tmp_path / "logs",
+    )
+    stats = tool.run_codex_judge(
+        rows, tmp_path / "verdicts_codex.jsonl", args, "gpt-6-astra"
+    )
+    assert len(calls) == 1
+    assert stats["written"] == 0 and stats["errors"]["exit 1"] == 1
+    logs = list((tmp_path / "logs").glob("*.json"))
+    assert len(logs) == 1 and json.loads(logs[0].read_text())["returncode"] == 1
+
+
+def test_pinned_run_refuses_to_resume_partial_verdicts(tmp_path, runs):
+    run_a, run_b = (tool.load_run(path, "qwen") for path in runs)
+    rows = tool.manifest_rows(
+        tool.build_pairs(run_a, run_b, 1, limit=2, control_fraction=0)
+    )
+    out = tmp_path / "verdicts_codex.jsonl"
+    out.write_text(
+        json.dumps(
+            {
+                "pair_id": rows[0]["pair_id"],
+                "orientation": rows[0]["orientation"],
+            }
+        )
+        + "\n"
+    )
+    args = tool.argparse.Namespace(
+        workers=1,
+        timeout=5,
+        codex_binary="codex",
+        judge_model="gpt-6-astra",
+        codex_log_dir=None,
+        allow_seeded_verdicts=False,
+    )
+    with pytest.raises(ValueError, match="refusing to resume a partial"):
+        tool.run_codex_judge(rows, out, args, "gpt-6-astra")
+
+
+def test_pinned_run_accepts_explicit_matching_pilot_seed(monkeypatch, tmp_path, runs):
+    run_a, run_b = (tool.load_run(path, "qwen") for path in runs)
+    rows = tool.manifest_rows(
+        tool.build_pairs(run_a, run_b, 1, limit=1, control_fraction=0)
+    )
+    out = tmp_path / "verdicts_codex.jsonl"
+    seed = {
+        "pair_id": rows[0]["pair_id"],
+        "orientation": rows[0]["orientation"],
+        "judge_model": "gpt-6-astra",
+    }
+    out.write_text(json.dumps(seed) + "\n")
+    calls = []
+    _fake_run(
+        monkeypatch,
+        '{"verdict": "A", "reason": "ok"}',
+        sink=calls,
+    )
+    args = tool.argparse.Namespace(
+        workers=1,
+        timeout=5,
+        codex_binary="codex",
+        judge_model="gpt-6-astra",
+        codex_log_dir=None,
+        allow_seeded_verdicts=True,
+    )
+    stats = tool.run_codex_judge(rows, out, args, "gpt-6-astra")
+    assert len(calls) == stats["written"] == 1
 
 
 def test_configured_model_is_read_without_touching_credentials(tmp_path, monkeypatch):

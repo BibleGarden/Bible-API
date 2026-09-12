@@ -1,0 +1,39 @@
+{
+  "note": "Partial billing snapshot after stop: the 09:00 UTC bucket is absent; not a final total.",
+  "metadata": {
+    "query": {
+      "bucketSize": "hour",
+      "endTime": "2026-09-12T10:00:00Z",
+      "podId": "8q0uiy9j7lon07",
+      "startTime": "2026-09-12T07:00:00Z"
+    },
+    "recordCount": 2,
+    "totals": {
+      "cpuAmount": 0,
+      "diskAmount": 0.011458332650363445,
+      "gpuAmount": 0.9938350543379784,
+      "totalAmount": 1.0052933869883418
+    },
+    "uniquePodCount": 1
+  },
+  "records": [
+    {
+      "cpuAmount": 0,
+      "diskAmount": 0.00624999962747097,
+      "endTime": "2026-09-12T08:00:00Z",
+      "gpuAmount": 0.5396069213747978,
+      "podId": "8q0uiy9j7lon07",
+      "startTime": "2026-09-12T07:00:00Z",
+      "totalAmount": 0.5458569210022688
+    },
+    {
+      "cpuAmount": 0,
+      "diskAmount": 0.005208333022892475,
+      "endTime": "2026-09-12T09:00:00Z",
+      "gpuAmount": 0.45422813296318054,
+      "podId": "8q0uiy9j7lon07",
+      "startTime": "2026-09-12T08:00:00Z",
+      "totalAmount": 0.459436465986073
+    }
+  ]
+}

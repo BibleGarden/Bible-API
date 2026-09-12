@@ -1,0 +1,10 @@
+{
+  "reason": "Maria ended testing for the day and requested deletion of Runpod storage because downloading the weights was fast.",
+  "pod_id": "8q0uiy9j7lon07",
+  "delete_http_status": 204,
+  "verified_at_utc": "2026-09-12T12:11:37Z",
+  "list_pods": {"pods": []},
+  "list_network_volumes": {"networkVolumes": []},
+  "retained_resources": [],
+  "note": "Deleting the Pod removed its attached 60 GB persistent volume. Previously recorded storage charges remain historical, not continuing resources. No additional model or benchmark calls were made for cleanup."
+}

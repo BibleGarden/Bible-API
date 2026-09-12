@@ -1,5 +1,17 @@
 # Scripture Selection Benchmark
 
+## Qwen / Gemma on Runpod — 2026-09-12
+
+Experiment [86cbh0p8t](https://app.clickup.com/t/86cbh0p8t) compares the shared
+Qwen API with an isolated Gemma 4 31B FP8 Pod. The reproducible configuration,
+measurements, limitations, and outcome are in
+[`bench_data/runpod_86cbh0p8t/report.md`](bench_data/runpod_86cbh0p8t/report.md).
+The reusable client is [`load_benchmark.py`](load_benchmark.py). These are direct
+model API measurements, not end-to-end Bible-API latency or a replacement for
+the existing retrieval quality thresholds.
+Практические правила аренды, холодного запуска, хранения и безопасного завершения
+собраны в [`runpod-notes.md`](runpod-notes.md).
+
 Эталонный набор для оценки качества серверного RAG-подбора мест Писания под
 контекст молитвы (тема + разрешённые ответы пользователя из диалога Twinkler).
 Тикет: ClickUp 86cb8vvyb.

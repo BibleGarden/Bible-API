@@ -8,6 +8,8 @@ Public API — a read-only FastAPI service for the Bible Garden iOS app. Works w
 
 ## Common Commands
 
+Практический опыт запуска временных GPU-стендов Runpod: [`evaluation/runpod-notes.md`](evaluation/runpod-notes.md).
+
 ### Run / Build
 ```bash
 docker compose up -d --build
