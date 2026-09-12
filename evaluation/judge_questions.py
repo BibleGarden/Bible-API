@@ -52,6 +52,7 @@ never re-asked, and a failed call is simply not written, so a rerun retries it.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import random
 import re
@@ -410,7 +411,13 @@ def codex_config_model():
 MODEL_LINE = re.compile(r"^model:\s*(\S+)\s*$", re.MULTILINE)
 
 
-def call_codex(prompt, timeout=DEFAULT_TIMEOUT, binary="codex"):
+def call_codex(
+    prompt,
+    timeout=DEFAULT_TIMEOUT,
+    binary="codex",
+    expected_model=None,
+    log_path=None,
+):
     """One judgement from `codex exec`. Returns (payload, model, error, ms).
 
     `</dev/null` is not optional: without a closed stdin `codex exec` waits for
@@ -421,22 +428,82 @@ def call_codex(prompt, timeout=DEFAULT_TIMEOUT, binary="codex"):
         schema_path = Path(work) / "schema.json"
         out_path = Path(work) / "verdict.json"
         schema_path.write_text(json.dumps(VERDICT_SCHEMA), encoding="utf-8")
-        command = [binary, "exec", "--skip-git-repo-check", "--ephemeral", "-s", "read-only",
-                   "--output-schema", str(schema_path), "-o", str(out_path), prompt]
+        command = [
+            binary,
+            "exec",
+            "--skip-git-repo-check",
+            "--ephemeral",
+            "-s",
+            "read-only",
+        ]
+        if expected_model:
+            command.extend(["--model", expected_model])
+        command.extend(
+            ["--output-schema", str(schema_path), "-o", str(out_path), prompt]
+        )
         try:
             completed = subprocess.run(
-                command, stdin=subprocess.DEVNULL, capture_output=True, text=True,
-                timeout=timeout, cwd=work)
+                command,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                cwd=work,
+            )
         except subprocess.TimeoutExpired:
+            if log_path:
+                write_json(
+                    log_path,
+                    {
+                        "returncode": None,
+                        "stdout": "",
+                        "stderr": "",
+                        "error": "timeout",
+                    },
+                )
             return None, None, "timeout", int((time.monotonic() - started) * 1000)
         except OSError as error:
-            return None, None, f"spawn: {type(error).__name__}", int((time.monotonic() - started) * 1000)
+            if log_path:
+                write_json(
+                    log_path,
+                    {
+                        "returncode": None,
+                        "stdout": "",
+                        "stderr": "",
+                        "error": f"spawn: {type(error).__name__}",
+                    },
+                )
+            return (
+                None,
+                None,
+                f"spawn: {type(error).__name__}",
+                int((time.monotonic() - started) * 1000),
+            )
         ms = int((time.monotonic() - started) * 1000)
         stdout = completed.stdout or ""
-        found = MODEL_LINE.search(stdout)
+        stderr = completed.stderr or ""
+        if log_path:
+            write_json(
+                log_path,
+                {
+                    "returncode": completed.returncode,
+                    "stdout": stdout,
+                    "stderr": stderr,
+                },
+            )
+        found = MODEL_LINE.search(stdout + "\n" + stderr)
         model = found.group(1) if found else None
         if completed.returncode != 0:
             return None, model, f"exit {completed.returncode}", ms
+        if expected_model and model is None:
+            return None, None, "model proof missing", ms
+        if expected_model and model != expected_model:
+            return (
+                None,
+                model,
+                f"model mismatch: expected {expected_model}, got {model}",
+                ms,
+            )
         raw = out_path.read_text(encoding="utf-8") if out_path.exists() else ""
     if not raw.strip():
         return None, model, "empty output", ms
@@ -446,37 +513,90 @@ def call_codex(prompt, timeout=DEFAULT_TIMEOUT, binary="codex"):
         return None, model, "invalid json", ms
     if not isinstance(payload, dict) or payload.get("verdict") not in VERDICTS:
         return None, model, "off-schema verdict", ms
-    return {"verdict": payload["verdict"], "reason": str(payload.get("reason", ""))[:400]}, model, None, ms
+    return (
+        {"verdict": payload["verdict"], "reason": str(payload.get("reason", ""))[:400]},
+        model,
+        None,
+        ms,
+    )
 
 
 def run_codex_judge(rows, out_path, args, model_hint):
     """Judge every manifest row not already in `out_path`, appending as we go."""
     done = {(row["pair_id"], row["orientation"]) for row in read_jsonl(out_path)}
     todo = [row for row in rows if (row["pair_id"], row["orientation"]) not in done]
+    expected_model = getattr(args, "judge_model", None)
+    allow_seeded = bool(getattr(args, "allow_seeded_verdicts", False))
+    if expected_model and done and todo and not allow_seeded:
+        raise ValueError(
+            "refusing to resume a partial pinned-model judging run; use a new output directory"
+        )
+    if expected_model and done and todo:
+        existing = read_jsonl(out_path)
+        if any(row.get("judge_model") != expected_model for row in existing):
+            raise ValueError("seeded verdict model does not match --judge-model")
     lock = threading.Lock()
+    stop = threading.Event()
     stats = {"written": 0, "errors": Counter(), "failed": [], "models": Counter()}
+    log_dir = getattr(args, "codex_log_dir", None)
+    if log_dir:
+        Path(log_dir).mkdir(parents=True, exist_ok=True)
 
     def judge(row):
-        payload, model, error, ms = call_codex(row["prompt"], args.timeout, args.codex_binary)
+        if stop.is_set():
+            return
+        log_path = None
+        if log_dir:
+            identity = f"{row['pair_id']}:{row['orientation']}".encode()
+            log_path = (
+                Path(log_dir) / f"{hashlib.sha256(identity).hexdigest()[:16]}.json"
+            )
+        payload, model, error, ms = call_codex(
+            row["prompt"],
+            args.timeout,
+            args.codex_binary,
+            expected_model=expected_model,
+            log_path=log_path,
+        )
         with lock:
             if error:
+                if expected_model:
+                    stop.set()
                 stats["errors"][error] += 1
-                stats["failed"].append({"pair_id": row["pair_id"], "orientation": row["orientation"],
-                                        "error": error})
-                print(f"codex {row['pair_id']} {row['orientation']}: {error}", flush=True)
+                stats["failed"].append(
+                    {
+                        "pair_id": row["pair_id"],
+                        "orientation": row["orientation"],
+                        "error": error,
+                    }
+                )
+                print(
+                    f"codex {row['pair_id']} {row['orientation']}: {error}", flush=True
+                )
                 return
             stats["models"][model or model_hint or "unknown"] += 1
-            record = {"pair_id": row["pair_id"], "id": row["id"], "sample": row["sample"],
-                      "step": row["step"], "control": row["control"],
-                      "orientation": row["orientation"], "left_source": row["left_source"],
-                      "right_source": row["right_source"], "verdict": payload["verdict"],
-                      "reason": payload["reason"], "judge_model": model or model_hint or "unknown",
-                      "ms": ms}
+            record = {
+                "pair_id": row["pair_id"],
+                "id": row["id"],
+                "sample": row["sample"],
+                "step": row["step"],
+                "control": row["control"],
+                "orientation": row["orientation"],
+                "left_source": row["left_source"],
+                "right_source": row["right_source"],
+                "verdict": payload["verdict"],
+                "reason": payload["reason"],
+                "judge_model": model or model_hint or "unknown",
+                "ms": ms,
+            }
             with out_path.open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps(record, ensure_ascii=False) + "\n")
             stats["written"] += 1
-            print(f"codex {stats['written']}/{len(todo)} {row['pair_id']} {row['orientation']} "
-                  f"-> {payload['verdict']} ({ms} ms)", flush=True)
+            print(
+                f"codex {stats['written']}/{len(todo)} {row['pair_id']} {row['orientation']} "
+                f"-> {payload['verdict']} ({ms} ms)",
+                flush=True,
+            )
 
     if todo:
         with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
@@ -499,39 +619,80 @@ def run(args):
     if pairs_path.exists():
         existing = read_jsonl(pairs_path)
         if existing != rows:
-            raise ValueError("pairs.jsonl in this directory describes a different pair set; "
-                             "use a new output directory rather than mixing two comparisons")
+            raise ValueError(
+                "pairs.jsonl in this directory describes a different pair set; "
+                "use a new output directory rather than mixing two comparisons"
+            )
     else:
         pairs_path.write_text(
-            "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows), encoding="utf-8")
+            "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows),
+            encoding="utf-8",
+        )
 
-    meta = {"judge": args.judge, "a": str(run_a["path"]), "b": str(run_b["path"]),
-            "model_a": run_a["model"], "model_b": run_b["model"], "seed": args.seed,
-            "limit": args.limit, "control_fraction": args.control_fraction,
-            "pairs": len(pairs), "control_pairs": sum(p["control"] for p in pairs),
-            "judgements": len(rows), "started_at": datetime.now(timezone.utc).isoformat()}
+    meta = {
+        "judge": args.judge,
+        "a": str(run_a["path"]),
+        "b": str(run_b["path"]),
+        "model_a": run_a["model"],
+        "model_b": run_b["model"],
+        "seed": args.seed,
+        "limit": args.limit,
+        "control_fraction": args.control_fraction,
+        "pairs": len(pairs),
+        "control_pairs": sum(p["control"] for p in pairs),
+        "judgements": len(rows),
+        "started_at": datetime.now(timezone.utc).isoformat(),
+    }
     if args.judge == "manifest":
-        meta.update({"judge_model": "external", "written": 0, "note":
-                     "pairs.jsonl carries the prompt of every pair and orientation; the "
-                     "judge writes verdicts_<name>.jsonl in the format of the codex judge"})
+        meta.update(
+            {
+                "judge_model": "external",
+                "written": 0,
+                "note": "pairs.jsonl carries the prompt of every pair and orientation; the "
+                "judge writes verdicts_<name>.jsonl in the format of the codex judge",
+            }
+        )
         write_json(args.out / f"meta_{args.judge}.json", meta)
-        print(f"Written {pairs_path} ({len(rows)} prompts over {len(pairs)} pairs, "
-              f"{meta['control_pairs']} of them control)")
+        print(
+            f"Written {pairs_path} ({len(rows)} prompts over {len(pairs)} pairs, "
+            f"{meta['control_pairs']} of them control)"
+        )
         return 0
 
-    hint = codex_config_model()
+    requested_model = getattr(args, "judge_model", None)
+    hint = requested_model or codex_config_model()
+    prior_meta = args.out / f"meta_{args.judge}.json"
+    if requested_model and prior_meta.exists():
+        previous = read_json(prior_meta)
+        if not previous.get("complete", False):
+            raise ValueError(
+                "refusing to resume a failed pinned-model judging run; use a new output directory"
+            )
     stats = run_codex_judge(rows, args.out / f"verdicts_{args.judge}.jsonl", args, hint)
-    meta.update({
-        "judge_model": (stats["models"].most_common(1)[0][0] if stats["models"] else hint),
-        "configured_model": hint, "workers": args.workers, "timeout_seconds": args.timeout,
-        "written": stats["written"], "errors": dict(stats["errors"]),
-        "failed": stats["failed"][:50],
-        "finished_at": datetime.now(timezone.utc).isoformat()})
+    meta.update(
+        {
+            "judge_model": (
+                stats["models"].most_common(1)[0][0]
+                if stats["models"]
+                else (None if requested_model else hint)
+            ),
+            "requested_judge_model": requested_model,
+            "configured_model": codex_config_model(),
+            "workers": args.workers,
+            "timeout_seconds": args.timeout,
+            "written": stats["written"],
+            "errors": dict(stats["errors"]),
+            "failed": stats["failed"][:50],
+            "finished_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
     total = len(read_jsonl(args.out / f"verdicts_{args.judge}.jsonl"))
     meta["complete"] = total == len(rows)
     write_json(args.out / f"meta_{args.judge}.json", meta)
-    print(f"{total}/{len(rows)} judgements in verdicts_{args.judge}.jsonl; "
-          f"errors: {dict(stats['errors']) or 'none'}")
+    print(
+        f"{total}/{len(rows)} judgements in verdicts_{args.judge}.jsonl; "
+        f"errors: {dict(stats['errors']) or 'none'}"
+    )
     return 0 if meta["complete"] else 1
 
 
@@ -785,6 +946,22 @@ def main(argv=None):
     parser.add_argument("--limit", type=int, default=None, help="judge only N main pairs")
     parser.add_argument("--control-fraction", type=float, default=0.1)
     parser.add_argument("--codex-binary", default="codex")
+    parser.add_argument(
+        "--judge-model",
+        default=None,
+        help="pin codex exec to this model and require matching runtime model proof",
+    )
+    parser.add_argument(
+        "--codex-log-dir",
+        type=Path,
+        default=None,
+        help="directory for one stdout/stderr/exit-code JSON record per invocation",
+    )
+    parser.add_argument(
+        "--allow-seeded-verdicts",
+        action="store_true",
+        help="continue after an intentional proved pilot verdict; never use after failure",
+    )
     parser.add_argument("--label-a", default="A (базовый прогон)")
     parser.add_argument("--label-b", default="B (кандидат)")
     args = parser.parse_args(argv)

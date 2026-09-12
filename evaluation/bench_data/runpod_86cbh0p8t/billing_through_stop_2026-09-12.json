@@ -1,0 +1,48 @@
+{
+  "note": "Later billing snapshot covering the GPU stop interval. Stored-volume charges continue after compute stops; this is not an invoice or a final lifetime Pod total.",
+  "metadata": {
+    "query": {
+      "bucketSize": "hour",
+      "endTime": "2026-09-12T10:00:00Z",
+      "podId": "8q0uiy9j7lon07",
+      "startTime": "2026-09-12T07:00:00Z"
+    },
+    "recordCount": 3,
+    "totals": {
+      "cpuAmount": 0,
+      "diskAmount": 0.02604166546370834,
+      "gpuAmount": 1.991607427597046,
+      "totalAmount": 2.0176490930607542
+    },
+    "uniquePodCount": 1
+  },
+  "records": [
+    {
+      "cpuAmount": 0,
+      "diskAmount": 0.00624999962747097,
+      "endTime": "2026-09-12T08:00:00Z",
+      "gpuAmount": 0.5396069213747978,
+      "podId": "8q0uiy9j7lon07",
+      "startTime": "2026-09-12T07:00:00Z",
+      "totalAmount": 0.5458569210022688
+    },
+    {
+      "cpuAmount": 0,
+      "diskAmount": 0.01249999925494194,
+      "endTime": "2026-09-12T09:00:00Z",
+      "gpuAmount": 1.089937023818493,
+      "podId": "8q0uiy9j7lon07",
+      "startTime": "2026-09-12T08:00:00Z",
+      "totalAmount": 1.1024370230734348
+    },
+    {
+      "cpuAmount": 0,
+      "diskAmount": 0.007291666581295431,
+      "endTime": "2026-09-12T10:00:00Z",
+      "gpuAmount": 0.3620634824037552,
+      "podId": "8q0uiy9j7lon07",
+      "startTime": "2026-09-12T09:00:00Z",
+      "totalAmount": 0.3693551489850506
+    }
+  ]
+}

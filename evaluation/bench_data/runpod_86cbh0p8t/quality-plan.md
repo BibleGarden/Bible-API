@@ -1,5 +1,18 @@
 # Blind question-quality comparison
 
+## Independent model judges
+
+Maria requested an additional Fable 5.1 / Astra assessment on 2026-09-12.
+Use the earlier `judge_questions.py` pairwise criteria and controls on samples
+2 and 3 only. Each elementary question is assessed in both A/B orientations;
+same-run/different-sample controls test judge consistency. Opposite orientations
+must be evaluated in separate judge contexts, with source models and control
+labels hidden. Pin `claude-fable-5-1` and `gpt-6-astra`, record actual model
+identity and failures, and do not retry failed judgements automatically.
+Machine preferences and cross-judge agreement are an additional result, not a
+substitute for Maria's production migration decision. The human review pack
+below remains unchanged.
+
 Prepared on 2026-09-12 for ClickUp 86cbh0p8t. This plan compares the production
 Bible-API question stage on Qwen3-30B and Gemma 4 31B. It does not change or
 reinterpret `evaluation/scenarios.json` or `evaluation/thresholds.json`.

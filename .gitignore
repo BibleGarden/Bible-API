@@ -97,3 +97,11 @@ evaluation/bench_data/*
 !evaluation/bench_data/runpod_86cbh0p8t/*.md
 !evaluation/bench_data/runpod_86cbh0p8t/*.html
 !evaluation/bench_data/runpod_86cbh0p8t/*.log
+!evaluation/bench_data/runpod_86cbh0p8t/*.png
+!evaluation/bench_data/runpod_86cbh0p8t/*.svg
+!evaluation/bench_data/runpod_86cbh0p8t/*.pdf
+!evaluation/bench_data/runpod_86cbh0p8t/ai_judging/
+!evaluation/bench_data/runpod_86cbh0p8t/ai_judging/**/
+!evaluation/bench_data/runpod_86cbh0p8t/ai_judging/**/*.json
+!evaluation/bench_data/runpod_86cbh0p8t/ai_judging/**/*.jsonl
+!evaluation/bench_data/runpod_86cbh0p8t/ai_judging/**/*.md

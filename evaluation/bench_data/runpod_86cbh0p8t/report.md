@@ -41,6 +41,16 @@ retained. A restart does not guarantee the same available GPU or a cached image.
 
 ## Results
 
+### Speed visualization
+
+![Qwen and Gemma latency and throughput](model_load_comparison.png)
+
+Downloads: [PNG](model_load_comparison.png), [SVG](model_load_comparison.svg),
+[PDF](model_load_comparison.pdf). Solid latency curves show p50; dashed curves
+show p95. Qwen and Gemma were measured on different machines and network paths,
+not sequentially on the same physical GPU. The fourth panel reports total
+throughput of the mixed workload.
+
 ### Qwen warm-cache baseline
 
 Measured on 2026-09-12 with `load_benchmark.py`: 60 requests per concurrency
@@ -171,6 +181,28 @@ Quality acceptance requires Maria's review of blinded model outputs. This
 experiment does not change the reference scenarios, retrieval thresholds, or
 production model selection.
 
+Maria subsequently requested independent Fable 5.1 and Astra judging using the
+earlier pairwise protocol: sample 1 excluded, both A/B orientations and same-run
+control pairs. This machine assessment is separate from the human blind pack
+and does not itself authorize a production model change.
+
+### Independent AI judge results
+
+See [AI_JUDGE_SUMMARY.md](ai_judging/AI_JUDGE_SUMMARY.md) for verified coverage,
+controls, subgroup results and evidence. Astra preferred Gemma in 34 of 52
+complete main pairs, Qwen in 16, with two ties. Fable preferred Gemma in 37 of
+51 complete pairs, Qwen in eight, with six ties. A tie here also includes an
+unstable preference after A/B reversal; it is not always a judgement of equal
+quality.
+
+Fable's first pilot verdict lacked direct per-message model attribution and
+was excluded. Its other 113 orientations were verified using actual assistant
+message model IDs. The one missing orientation awaits Maria's permission to
+repeat; its pair is unresolved, not a tie. Across the 51 pairs complete for
+both judges, both preferred Gemma on 31 and Qwen on eight. These preferences
+favour Gemma overall on this fixture, but do not establish universal superiority:
+the common `reflect` wins favour Qwen (four pairs versus zero for Gemma).
+
 ## Verification
 
 The focused harness and question-generator tests passed: 71 tests, exit code 0,
@@ -189,6 +221,10 @@ the quoted compute/storage rates. A billing read shortly after shutdown
 contained only two hourly buckets ending at 09:00 UTC, totaling $1.0053;
 the 09:00–shutdown interval was absent, so this is not the final charged total.
 Stopped storage continues at approximately $12/month until the Pod is deleted.
+The [later billing snapshot](billing_through_stop_2026-09-12.json) includes
+the stop interval and reports GPU charges of $1.9916 and total recorded charges
+of $2.0176 for the queried 07:00–10:00 UTC window. The retained disk continues
+accruing charges, so this is not a final lifetime Pod total.
 See [deployment-result.md](deployment-result.md) and
 [deployment-telemetry.md](deployment-telemetry.md) for the startup timeline,
 measured disk/GPU use and monitoring limitations.
