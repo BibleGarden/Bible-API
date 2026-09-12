@@ -48,8 +48,8 @@ of `AI_PROVIDER_VARS`' chat list:
 
 - **`openai_compat` — the production provider.** A multipart
   `POST {endpoint}/audio/transcriptions` (`file`, `model`,
-  `response_format=json`, `temperature=0`, and `language` only when the locale
-  names a language Whisper knows). This is the OpenAI audio API that vLLM,
+  `response_format=json`, `temperature=0`; `language` is omitted so Whisper
+  detects the spoken language). This is the OpenAI audio API that vLLM,
   speaches and faster-whisper-server all expose, so the server can be replaced
   without touching this code. Endpoint and key resolve through the existing
   `config.resolve_stage`, including the per-stage overrides
@@ -95,14 +95,14 @@ meets first for a spoken reply). It is a `502` and not a `413` on purpose:
 whoever transcribes, and a second, provider-dependent size rule under the
 same status would be the more confusing answer.
 
-The contract of `architect/twinkler-ai.md` is unchanged and is now enforced by
-construction rather than by an instruction: **verbatim, in the recording's own
-language** is `task="transcribe"` (never `translate`) with `temperature=0` and
-no prompt at all on both Whisper paths — there is nothing for a sampled token
-to invent. The **locale is a weak hint**: its primary subtag becomes Whisper's
-`language=` when the model knows that language, and is dropped otherwise. A
-phone set to a language Whisper cannot name gets auto-detection, never a
-refusal.
+The contract of `architect/twinkler-ai.md` is enforced by construction:
+**verbatim, in the recording's own language** is `task="transcribe"` (never
+`translate`) with `temperature=0`, automatic language detection and no prompt
+on both Whisper paths. The optional app locale remains accepted and validated
+for client compatibility, but every provider ignores it: an interface locale
+does not establish which language a person speaks in a recording. This fixes
+86cbh1apz, reproduced on 2026-09-12 when `locale=en-US` made the configured
+Whisper endpoint translate a Russian fixture into English.
 
 ### 3. The local provider is shaped like the local embeddings
 

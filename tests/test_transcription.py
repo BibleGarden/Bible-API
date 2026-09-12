@@ -29,7 +29,6 @@ from transcription import (
     TranscriptionUnavailable,
     bearer_headers,
     transcriptions_url,
-    whisper_language,
 )
 
 SAMPLE_RATE = transcription.SAMPLE_RATE
@@ -138,39 +137,6 @@ def test_the_transcription_timings_are_visible_under_uvicorn():
         transcription.logger.setLevel(level)
 
 
-# --- the locale hint -------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "locale, expected",
-    [
-        ("ru-RU", "ru"),
-        ("uk-UA", "uk"),
-        ("en", "en"),
-        ("EN-gb", "en"),
-        ("zh-Hant-TW", "zh"),
-        ("iw-IL", "he"),
-        ("nb-NO", "no"),
-        # Whisper knows Nynorsk under its own code, so it is not aliased.
-        ("nn-NO", "nn"),
-        (None, None),
-        ("", None),
-        # A language Whisper does not have: the locale is a WEAK hint, so it
-        # becomes auto-detection rather than a refusal.
-        ("xx-YY", None),
-        ("zzz", None),
-    ],
-)
-def test_locale_becomes_a_language_hint_or_nothing(locale, expected):
-    assert whisper_language(locale) == expected
-
-
-def test_a_model_that_knows_one_language_rejects_the_others():
-    """`small.en` must not be asked for Russian just because the phone is."""
-    assert whisper_language("ru-RU", frozenset({"en"})) is None
-    assert whisper_language("en-US", frozenset({"en"})) == "en"
-
-
 # --- loading the weights ---------------------------------------------------
 
 
@@ -218,18 +184,18 @@ def test_a_broken_weights_directory_is_reported_by_type(fake_faster_whisper):
 # --- transcribing locally --------------------------------------------------
 
 
-def test_segments_are_joined_verbatim_in_the_original_language(
+def test_conflicting_locale_does_not_override_the_spoken_language(
     fake_faster_whisper,
 ):
     model = FakeWhisperModel(segments=(" Господи, ", " помоги мне. ", "  "))
     client = LocalTranscriber(model=model)
 
-    text = client.transcribe(b"m4a-bytes", "audio/mp4", "ru-RU")
+    text = client.transcribe(b"m4a-bytes", "audio/mp4", "en-US")
 
     assert text == "Господи, помоги мне."
     _audio, kwargs = model.calls[0]
     assert kwargs["task"] == "transcribe"  # never `translate`
-    assert kwargs["language"] == "ru"
+    assert kwargs["language"] is None
     assert kwargs["vad_filter"] is True
     assert kwargs["beam_size"] == client.beam_size
 
@@ -447,10 +413,13 @@ def test_the_remote_request_is_the_openai_audio_shape(monkeypatch):
     # `temperature=0` is the verbatim contract, not a preference: there is no
     # prompt to disobey and nothing for a sampled token to invent.
     assert b'name="temperature"\r\n\r\n0\r\n' in body
-    assert b'name="language"' in body and b"\r\n\r\nru" in body
+    assert b'name="language"' not in body
 
 
-def test_an_unknown_locale_sends_no_language_field(monkeypatch):
+@pytest.mark.parametrize("locale", ["ru-RU", "en-US", "xx-YY", None])
+def test_every_locale_leaves_remote_language_detection_automatic(
+    monkeypatch, locale
+):
     captured = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -458,7 +427,7 @@ def test_an_unknown_locale_sends_no_language_field(monkeypatch):
         return httpx.Response(200, json={"text": "text"})
 
     client, async_client = remote_client(handler)
-    run_remote(client, async_client, monkeypatch, locale="xx-YY")
+    run_remote(client, async_client, monkeypatch, locale=locale)
 
     assert b'name="language"' not in captured["body"]
 

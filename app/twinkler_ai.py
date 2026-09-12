@@ -817,20 +817,11 @@ def _audio_mime_type(file: UploadFile) -> str:
     raise HTTPException(status_code=415, detail="Unsupported audio format")
 
 
-def _transcription_prompt(locale: str | None) -> str:
-    if locale is None:
-        return _TRANSCRIPTION_PROMPT
-    return (
-        f"{_TRANSCRIPTION_PROMPT} The app locale is {locale}; use it only as a "
-        "weak hint when the spoken language is ambiguous."
-    )
-
-
 async def transcribe(audio: bytes, mime_type: str, locale: str | None) -> str:
     """Transcribe one recording, or raise AIError (the handler's 502).
 
     The provider seam of ADR 0012. Three transports, one contract — verbatim,
-    in the recording's own language, the locale a weak hint — and one public
+    in the recording's own language, with automatic language detection — and one public
     failure, so the handler, its status codes and every client are unchanged
     whichever answers:
 
@@ -907,7 +898,7 @@ async def _transcribe_gemini(
         "contents": [{
             "role": "user",
             "parts": [
-                {"text": _transcription_prompt(locale)},
+                {"text": _TRANSCRIPTION_PROMPT},
                 {
                     "inline_data": {
                         "mime_type": mime_type,
@@ -1188,7 +1179,7 @@ async def twinkler_complete(
     summary="Transcribe a voice recording",
     description=(
         "Transcribes an M4A recording in its original language. The optional "
-        "locale is used only as a weak language hint."
+        "locale is accepted for client compatibility and ignored."
     ),
     responses={
         403: {"model": ErrorResponse, "description": "Invalid or missing API key"},
@@ -1217,7 +1208,7 @@ async def twinkler_transcribe(
     locale: str | None = Form(
         default=None,
         max_length=35,
-        description="Optional BCP 47 app locale used only as a weak hint",
+        description="Optional BCP 47 app locale; accepted for compatibility and ignored",
     ),
     api_key: bool = RequireAPIKey,
 ) -> CompleteResponse:

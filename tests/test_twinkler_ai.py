@@ -2606,7 +2606,7 @@ def test_transcription_requires_api_key():
     assert response.status_code == 403
 
 
-def test_returns_transcript_with_soft_locale_hint(monkeypatch):
+def test_accepts_locale_for_client_compatibility(monkeypatch):
     generated = AsyncMock(return_value="Господи, помоги мне.")
     monkeypatch.setattr(twinkler_ai, "transcribe", generated)
 
@@ -2786,8 +2786,8 @@ def test_sends_expected_gemini_transcription_request(monkeypatch):
         parts = payload["contents"][0]["parts"]
         assert "original language" in parts[0]["text"]
         assert "Do not translate" in parts[0]["text"]
-        assert "app locale is uk-UA" in parts[0]["text"]
-        assert "weak hint" in parts[0]["text"]
+        assert "app locale" not in parts[0]["text"]
+        assert "uk-UA" not in parts[0]["text"]
         assert parts[1] == {
             "inline_data": {
                 "mime_type": "audio/mp4",
