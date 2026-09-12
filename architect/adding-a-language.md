@@ -457,25 +457,13 @@ assumption.
 
 ## Layer 7 — Transcription (`POST /api/ai/transcribe`)
 
-**7.1 — Check the language is in Whisper's vocabulary — otherwise nothing to
-do.** `app/transcription.py:96-107`, `WHISPER_LANGUAGES` — the 100 codes every
-multilingual Whisper checkpoint knows, copied from
-`faster_whisper.tokenizer._LANGUAGE_CODES`. It is the vocabulary of the model
-family, not of a deployment, so it is a constant and should **not** be edited to
-add a language Whisper does not know.
-
-**7.2 — `whisper_language()` (`:189-210`) needs no change.** It takes the
-primary subtag of the app locale (`ru-RU` → `ru`, `zh-Hant-TW` → `zh`), maps
-deprecated spellings through `LOCALE_LANGUAGE_ALIASES` (`:83-88`:
-`iw→he, in→id, ji→yi, nb→no`), and returns `None` — auto-detect — for anything
-outside the set. The locale is contractually a **weak hint**, so an unknown
-locale degrades to auto-detection rather than an error.
-
-**7.3 — The Gemini path's prompt is language-neutral.**
-`app/twinkler_ai.py:51` (`_TRANSCRIPTION_PROMPT`, "in its original language")
-and `_transcription_prompt(locale)` (`:481-487`) — the locale is injected as
-"a weak hint when the spoken language is ambiguous". Nothing per language.
-ADR 0012, `architect/adr/0012-speech-transcription-providers.md`.
+**7.1 — No language-specific transcription change.** Both Whisper transports
+auto-detect the spoken language and Gemini receives a language-neutral
+"in its original language" instruction. The accepted app locale is ignored
+because the interface and recording languages can differ. Verify the chosen
+multilingual model on representative recordings in the new language; there is
+no application vocabulary or locale mapping to extend. ADR 0012,
+`architect/adr/0012-speech-transcription-providers.md`.
 
 ---
 
@@ -785,7 +773,7 @@ the list is complete. Every "✅" was verified in the file named.
 | 6.7 | Tier-1 patterns | ✅ 7 (`uk.no-wish-to-live` … `uk.suicide-word`) |
 | 6.8 | Tier-2 patterns | ✅ 9 |
 | 6.9 | Guards | ✅ `_UK_LIVE_TAIL` `:266`, `_UK_DIE_TAIL` `:289`, `_UK_MEANING_TAIL` `:298` |
-| 7.1-7.3 | Whisper `uk`, locale mapping, prompt | ✅ `uk` ∈ `WHISPER_LANGUAGES` (`:105`) |
+| 7.1 | Automatic transcription language detection | ✅ no per-language application mapping |
 | 8.1 | Scenarios | ✅ 7 uk scenarios, `empty` present, all approved |
 | 8.2 | Thresholds | ✅ global |
 | 8.3 | `LANGUAGE_CORPUS["uk"]` | ✅ `(20, "ubh")` |
@@ -874,8 +862,6 @@ table to work through; the checklist above is its narrative.
 | `app/retrieval_cli.py:156` | `--language choices=("ru","en","uk")` | **add** |
 | `app/versification.py:68-76` | `TRANSLATION_SCHEMES` — per **translation alias** | **add per translation** |
 | `app/canon.py:142-144` | `TRANSLATION_CHAPTER_COUNTS` — `("ubh", 39): 3` | per translation, if needed |
-| `app/transcription.py:83-88` | `LOCALE_LANGUAGE_ALIASES` (deprecated ISO spellings) | usually none |
-| `app/transcription.py:96-107` | `WHISPER_LANGUAGES` — 100 codes | **check membership, do not edit** |
 | `app/vector_index.py:14` | index version shape `c3:BAAI/bge-m3@1024` | revisit after 86cbehd6h |
 | `tests/test_evaluation_dataset.py:224` | `assert set(counts) == {"ru","en","uk"}` (+ ≥5 each, `:226`) | **will fail — update** |
 | `tests/test_evaluation_dataset.py:244` | `empty` category in every language | **will fail — update** |

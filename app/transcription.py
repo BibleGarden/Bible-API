@@ -35,9 +35,9 @@ documented `502`, so no client learns which transport answered.
 
 The contract is `architect/twinkler-ai.md`'s and does not change with the
 provider: the recording is transcribed **verbatim in its original language**
-(`task="transcribe"`, never `translate`) and the app locale is a **weak hint**
-only — it becomes Whisper's `language=` when it names a language the model
-knows, and nothing at all otherwise (auto-detection).
+(`task="transcribe"`, never `translate`) and Whisper always detects that
+language from the recording. The accepted app locale is deliberately ignored:
+it describes the interface, not necessarily the speech.
 
 Nothing in this module logs the audio, the transcript, or anything derived
 from either: durations, languages and timings only.
@@ -76,37 +76,6 @@ SAMPLE_RATE = 16000
 # (`vad_filter=True`) rather than transcribed, which is what keeps a recording
 # that is mostly a quiet room from producing invented sentences.
 VAD_FILTER = True
-
-# Locales whose primary subtag is not a language code Whisper knows. The first
-# three are ISO 639-1's own deprecated spellings, which some platforms still
-# emit; `nb` (Bokmål) is Whisper's `no`, while `nn` (Nynorsk) is its own code
-# and needs no alias.
-LOCALE_LANGUAGE_ALIASES = {
-    "iw": "he",
-    "in": "id",
-    "ji": "yi",
-    "nb": "no",
-}
-
-# The 100 language codes every multilingual Whisper checkpoint knows
-# (`faster_whisper.tokenizer._LANGUAGE_CODES`, copied because it is private
-# and because the REMOTE provider has no model object to ask). It is the
-# vocabulary of the model family, not of a deployment, so it is a constant.
-# The local transcriber intersects it with the loaded model's own list, which
-# is how an English-only checkpoint (`small.en`) still rejects `language=ru`.
-WHISPER_LANGUAGES = frozenset({
-    "af", "am", "ar", "as", "az", "ba", "be", "bg", "bn", "bo", "br",
-    "bs", "ca", "cs", "cy", "da", "de", "el", "en", "es", "et", "eu",
-    "fa", "fi", "fo", "fr", "gl", "gu", "ha", "haw", "he", "hi", "hr",
-    "ht", "hu", "hy", "id", "is", "it", "ja", "jw", "ka", "kk", "km",
-    "kn", "ko", "la", "lb", "ln", "lo", "lt", "lv", "mg", "mi", "mk",
-    "ml", "mn", "mr", "ms", "mt", "my", "ne", "nl", "nn", "no", "oc",
-    "pa", "pl", "ps", "pt", "ro", "ru", "sa", "sd", "si", "sk", "sl",
-    "sn", "so", "sq", "sr", "su", "sv", "sw", "ta", "te", "tg", "th",
-    "tk", "tl", "tr", "tt", "uk", "ur", "uz", "vi", "yi", "yo", "yue",
-    "zh",
-})
-
 
 class TranscriptionUnavailable(RuntimeError):
     """The local speech model is not configured, not loadable, or refused.
@@ -187,30 +156,6 @@ def load_transcription_model(
         return _model
 
 
-def whisper_language(
-    locale: str | None, supported=WHISPER_LANGUAGES
-) -> str | None:
-    """The app locale as a Whisper language hint, or `None` for auto-detect.
-
-    `ru-RU` -> `ru`, `en-GB` -> `en`, `zh-Hant-TW` -> `zh`: the primary
-    subtag, lower-cased, past the deprecated spellings above. A locale whose
-    language this model does not know becomes `None` rather than an error —
-    the contract calls the locale a **weak hint**, and refusing a recording
-    because the phone is set to a language Whisper cannot name would be a far
-    worse answer than transcribing it with auto-detection.
-
-    `supported` is the model's own set of language codes, so this stays a
-    pure function of its two arguments and the tests need no weights.
-    """
-    if not locale:
-        return None
-    primary = locale.split("-", 1)[0].strip().lower()
-    if not primary:
-        return None
-    primary = LOCALE_LANGUAGE_ALIASES.get(primary, primary)
-    return primary if primary in supported else None
-
-
 class LocalTranscriber:
     """`twinkler_ai.transcribe`'s Gemini path, served by Whisper in-process.
 
@@ -233,10 +178,6 @@ class LocalTranscriber:
         self.max_audio_seconds = max_audio_seconds
         self.slow_after_seconds = slow_after_seconds
         self._lock = _transcribe_lock
-
-    def _supported_languages(self) -> frozenset[str]:
-        own = frozenset(getattr(self._model, "supported_languages", ()) or ())
-        return own & WHISPER_LANGUAGES if own else WHISPER_LANGUAGES
 
     def _decode(self, audio: bytes):
         """The upload as a 16 kHz mono waveform, or TranscriptionUnavailable.
@@ -277,14 +218,13 @@ class LocalTranscriber:
                 f"{self.max_audio_seconds:.0f} s this deployment transcribes "
                 f"locally (AI_TRANSCRIBE_MAX_AUDIO_SECONDS)"
             )
-        language = whisper_language(locale, self._supported_languages())
         started = time.time()
         try:
             with self._lock:
                 segments, info = self._model.transcribe(
                     waveform,
                     task="transcribe",
-                    language=language,
+                    language=None,
                     beam_size=self.beam_size,
                     vad_filter=VAD_FILTER,
                 )
@@ -309,11 +249,10 @@ class LocalTranscriber:
         # new VM.
         logger.info(
             "Local transcription: audio=%.1fs cpu=%.1fs ratio=%.2f "
-            "hint=%s detected=%s",
+            "language=auto detected=%s",
             duration,
             elapsed,
             elapsed / duration if duration else 0.0,
-            language or "<none>",
             detected or "<unknown>",
         )
         if elapsed > self.slow_after_seconds:
@@ -386,9 +325,9 @@ def bearer_headers(api_key: str) -> dict[str, str]:
 class RemoteTranscriber:
     """Whisper on someone else's CPU, through the OpenAI audio API.
 
-    One multipart POST per recording: `file`, `model`, `response_format=json`,
-    `temperature=0` and — only when the locale names a language Whisper knows
-    — `language`. The answer is `{"text": "..."}`.
+    One multipart POST per recording: `file`, `model`, `response_format=json`
+    and `temperature=0`. The `language` field is deliberately absent so
+    Whisper detects the spoken language. The answer is `{"text": "..."}`.
 
     `temperature=0` and the absence of any prompt are the contract, not a
     preference: this endpoint returns a **verbatim** transcript in the
@@ -468,10 +407,7 @@ class RemoteTranscriber:
             "response_format": "json",
             "temperature": "0",
         }
-        language = whisper_language(locale)
-        if language:
-            data["language"] = language
-        return transcriptions_url(self.endpoint), files, data, language
+        return transcriptions_url(self.endpoint), files, data
 
     @staticmethod
     def _text_of(response: httpx.Response) -> str:
@@ -496,7 +432,7 @@ class RemoteTranscriber:
     async def transcribe(
         self, audio: bytes, mime_type: str, locale: str | None
     ) -> str:
-        url, files, data, language = self._request(audio, mime_type, locale)
+        url, files, data = self._request(audio, mime_type, locale)
         headers = bearer_headers(self.api_key)
         last_error: Exception | None = None
         started = time.time()
@@ -553,12 +489,11 @@ class RemoteTranscriber:
                     f"the transcription request failed: {transport_error(exc)}"
                 ) from None
             else:
-                # Nothing about the recording or the transcript: how long the
-                # call took and which hint was sent.
+                # Nothing about the recording or the transcript: only how
+                # long automatic-language transcription took.
                 logger.info(
-                    "Remote transcription: %.1fs hint=%s",
+                    "Remote transcription: %.1fs language=auto",
                     time.time() - started,
-                    language or "<none>",
                 )
                 return text
         raise TranscriptionUnavailable(

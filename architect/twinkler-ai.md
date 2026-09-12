@@ -377,8 +377,9 @@ best text, so the client can also simply ignore the field.
 
 `POST /api/ai/transcribe` accepts `multipart/form-data` with a required
 M4A `file` and an optional BCP 47 `locale`. The response is the same
-`{ "text": "..." }` shape. The locale is a weak disambiguation hint only; the
-recording is transcribed verbatim in its original language without translation
+`{ "text": "..." }` shape. The locale is accepted and validated for client
+compatibility but ignored; the recording is transcribed verbatim in its
+detected original language without translation
 or generated additions. Empty files and invalid locales return `422`, files
 larger than 14 MiB return `413`, and unsupported audio types return `415`.
 Which model does it — Whisper on the company's server, Whisper in this
@@ -978,8 +979,8 @@ translate:
 
 - **`openai_compat`** (`app/transcription.RemoteTranscriber`): one multipart
   `POST {AI_TRANSCRIBE_ENDPOINT or AI_OPENAI_COMPAT_ENDPOINT}/audio/transcriptions`
-  with `file`, `model`, `response_format=json`, `temperature=0` and —only when
-  the locale names a language Whisper knows— `language`. The answer is
+  with `file`, `model`, `response_format=json` and `temperature=0`; `language`
+  is omitted so Whisper detects the spoken language. The answer is
   `{"text": ...}`. The key travels in `Authorization: Bearer`, and only when
   there is one. Two attempts on a retryable status, and
   `AI_TRANSCRIBE_TIMEOUT_SECONDS` (60) bounds the **whole call** — both
@@ -993,13 +994,15 @@ translate:
   before any work starts, and the run happens on a worker thread.
 - **`gemini`**: the M4A bytes base64-encoded into an `inline_data` part
   alongside a server-controlled verbatim-transcription instruction, at
-  `temperature 0` — byte for byte the request this endpoint always sent.
+  `temperature 0`.
 
-**The locale is a hint, and only a hint, in every one of them.** On the two
-Whisper paths its primary subtag becomes `language=` when the model knows that
-language (`ru-RU` → `ru`, `zh-Hant-TW` → `zh`) and is dropped otherwise, so a
-phone set to a language Whisper cannot name gets auto-detection rather than an
-error; on Gemini it is the same sentence in the instruction it always was.
+**The locale is ignored by every provider.** It remains in the public request
+for compatibility with released clients and retains its BCP 47 validation,
+but an interface locale is not evidence of the recording's language. Both
+Whisper paths use automatic language detection; Gemini receives only the
+server-controlled instruction to transcribe in the recording's original
+language. This rule prevents a conflicting interface locale from translating
+or distorting the person's speech (86cbh1apz, reproduced 2026-09-12).
 
 ## Rate limiting and observability
 
