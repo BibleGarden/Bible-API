@@ -89,3 +89,10 @@ evaluation/bench_data/*
 !evaluation/bench_data/question_v6_vs_v5/**/*.jsonl
 !evaluation/bench_data/question_v6_vs_v5/**/*.md
 !evaluation/bench_data/question_v6_vs_v5/**/*.html
+
+# Reproducible Runpod/Qwen comparison: sanitized results and documentation only.
+!evaluation/bench_data/runpod_86cbh0p8t/
+!evaluation/bench_data/runpod_86cbh0p8t/*.json
+!evaluation/bench_data/runpod_86cbh0p8t/*.jsonl
+!evaluation/bench_data/runpod_86cbh0p8t/*.md
+!evaluation/bench_data/runpod_86cbh0p8t/*.html

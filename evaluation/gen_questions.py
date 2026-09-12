@@ -947,7 +947,8 @@ def _provider_call(
     last_error = ""
     texts: list[str] = []
     usage: dict = {}
-    while attempts < TRANSPORT_ATTEMPTS:
+    transport_attempts = getattr(args, "transport_attempts", TRANSPORT_ATTEMPTS)
+    while attempts < transport_attempts:
         attempts += 1
         try:
             if args.provider == "gemini":
@@ -971,7 +972,7 @@ def _provider_call(
         except (httpx.HTTPError, ValueError) as exc:
             last_error = transport_error(exc) if isinstance(exc, httpx.HTTPError) \
                 else f"empty: {exc}"
-            if attempts >= TRANSPORT_ATTEMPTS:
+            if attempts >= transport_attempts:
                 break
             time.sleep(
                 RATE_LIMIT_PAUSE_SECONDS if is_rate_limited(exc) else 2.0 * attempts
@@ -1323,6 +1324,9 @@ def build_meta(
             "samples_per_input": args.samples,
             "timeout_seconds": args.timeout,
             "sleep_between_calls_seconds": args.sleep,
+            "transport_attempts": getattr(
+                args, "transport_attempts", TRANSPORT_ATTEMPTS
+            ),
         },
         "inputs_sent": len(inputs),
         "inputs_skipped": skipped,
@@ -1460,6 +1464,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT_SECONDS)
     parser.add_argument(
+        "--transport-attempts", type=int, default=TRANSPORT_ATTEMPTS,
+        help="maximum attempts per provider call; use 1 for load experiments",
+    )
+    parser.add_argument(
         "--out", default="",
         help="JSONL artifact; metadata goes to <out>.meta.json. A relative "
              "path is resolved against the evaluation/ directory. Required "
@@ -1561,6 +1569,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.samples < 1:
         parser.error("--samples must be >= 1")
+    if args.transport_attempts < 1:
+        parser.error("--transport-attempts must be >= 1")
     if args.candidates < 1:
         parser.error("--candidates must be >= 1")
     # Ranges of the OpenAI-compatible API. A value outside them is a typo the

@@ -1,0 +1,39 @@
+{
+  "provider": "qwen",
+  "model": "qwen3-30b-a3b-instruct-2507",
+  "endpoint": "https://llm.ai2.ru",
+  "date": "2026-09-12",
+  "ticket": "ClickUp 86cbh0p8t (generator provenance: 86cbegctz, 86cbegg3f, 86cbegmzz, 86cbehyez, 86cbehyf8, 86cbehyg4)",
+  "comparison_method": "sample 1 is excluded as warm-up; samples 2 and 3 form the blind quality pack; accumulated-skips steps after the first contain stochastic prior answers and are not used for latency comparison",
+  "prompt": "app/question_prompt.build_question_prompt(detect_language(last words of the person)) over app/question_prompt.build_user_message(topic, stage, messages)",
+  "prompt_version": 6,
+  "prompt_variant": "production",
+  "prompt_variant_note": "production wording (app/question_prompt.py v6)",
+  "scenarios_file": "",
+  "probes_file": "",
+  "series_file": "bench_data/runpod_86cbh0p8t/quality_cases.json",
+  "accumulate_skipped": true,
+  "candidates": 1,
+  "retry_on_repeat": false,
+  "selection_rule": null,
+  "series": {
+    "novelty-gratitude-ru": 3,
+    "novelty-choice-en": 3,
+    "novelty-exhaustion-uk": 3
+  },
+  "sampling": {
+    "temperature": 0.7,
+    "max_output_tokens": 1024,
+    "overrides": {},
+    "samples_per_input": 3,
+    "timeout_seconds": 180.0,
+    "sleep_between_calls_seconds": 0.0,
+    "transport_attempts": 1
+  },
+  "inputs_sent": 20,
+  "inputs_skipped": [],
+  "records_expected": 78,
+  "records_written": 78,
+  "records_failed": 0,
+  "partial": false
+}

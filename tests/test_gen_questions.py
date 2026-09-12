@@ -22,6 +22,7 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -371,6 +372,30 @@ def _run_series(monkeypatch, tmp_path, *extra: str):
         (tmp_path / "run.jsonl.meta.json").read_text(encoding="utf-8")
     )
     return sent, records, meta
+
+
+def test_transport_attempt_override_is_recorded_and_prevents_retry(
+    monkeypatch, tmp_path
+):
+    calls = 0
+
+    def fail_once(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        raise httpx.ConnectError("offline")
+
+    monkeypatch.setattr(tool, "call_qwen", fail_once)
+    args = SimpleNamespace(provider="qwen", transport_attempts=1)
+    texts, usage, attempts, error, _latency = tool._provider_call(
+        None, args, "https://example.invalid", "key", "model", "user", "prompt", 1
+    )
+    assert calls == attempts == 1
+    assert not texts and not usage and "ConnectError" in error
+
+    _sent, _records, meta = _run_series(
+        monkeypatch, tmp_path, "--transport-attempts", "1"
+    )
+    assert meta["sampling"]["transport_attempts"] == 1
 
 
 def test_every_replacement_sends_the_identical_body(monkeypatch, tmp_path):
