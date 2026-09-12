@@ -249,10 +249,10 @@ of the despair rule now agree with each other on which part:
 | the answer's language (prompt, and tier 2's fixed reply) | the last `user` turn → the topic → their earlier replies, newest first → else the last `assistant` turn → else English | the person's own words decide; a question of ours must not vote |
 | `skipped_questions` | read by **nothing** but the model | our own generated text, wrapped in a Russian block whatever the prayer's language: it can neither name the language nor speak despair on the person's behalf (ClickUp 86cbehyfe) |
 
-That language chain is walked by **decidability, not presence**: `detect_language`
-answers `None` for a line that does not say which language it is («Помоги»
-carries none of the four letters or function words separating Russian from
-Ukrainian), so the walk moves on to the next thing the *same person* wrote
+That language chain is walked by **decidability, not presence**: the offline
+`py3langid` detector returns `None` when its normalized top probability is
+below `0.9` (or the input has no letters), so a short uncertain line such as
+«Помоги» lets the walk move on to the next thing the *same person* wrote
 rather than handing the prompt v2's "answer in exactly the language of the
 person's message" — 9 of the 33 evaluation inputs were undetermined when it
 stopped at the first non-empty candidate, 6 when it stops at the first
@@ -494,10 +494,9 @@ forbids invented feelings, circumstances, people and spiritual meanings.
 The system and stage instructions have complete Russian, Ukrainian and
 English versions. Russian and Ukrainian carry their own register and gender
 rules; English contains no Cyrillic grammar examples. The universal version
-is used only when `detect_language` cannot decide. The detector still has its
-existing limitation: arbitrary Latin-script languages are classified as
-English, so v5 does not claim general language identification beyond the
-current RU/UK/EN contract.
+is used when `detect_language` abstains or returns another ISO language code.
+Language detection and prompt localization are separate policies: identifying
+Spanish, Polish or Portuguese does not pretend that a localized prompt exists.
 
 The user message now keeps prior turns in chronological order with explicit
 question/answer roles. Topic, turns and skipped questions are JSON-quoted and
@@ -524,8 +523,9 @@ Russian."). The language is resolved once per request and handed to whichever
 transport answers, so the two providers still send identical bytes (ADR 0009,
 pinned by the parity tests in `tests/test_llm_client.py`).
 
-`detect_language` returns `None` for a Cyrillic message that carries none of
-the four letters separating Russian from Ukrainian ("Помоги", "дякую"). Then
+`detect_language` returns `None` when the bundled offline model's normalized
+top probability is below `0.9` (including short ambiguous messages such as
+"Помоги" and "дякую"). Then
 the placeholder becomes `UNDETERMINED_LANGUAGE` — "exactly the language of the
 person's message", which is v1's behaviour — and **not** English: naming
 English over a Cyrillic message would manufacture the very violation this
@@ -663,10 +663,12 @@ included. An instruction one model obeys and another does not cannot carry
 this rule, and while it did, the rule blocked moving the endpoint to a local
 model at all (the strategic goal of the AI contour).
 
-So the rule moved into `app/safety.py`: a dictionary plus regular expressions
-for ru / uk / en, no model, no network call, nothing to be unavailable. It
-behaves identically whatever `AI_QUESTION_MODEL` names, which is the entire
-point.
+So the rule moved into `app/safety.py`: a reviewed dictionary plus regular
+expressions for ru / uk / en. Its language is now supplied by the bundled
+py3langid model in `app/language_detection.py`; both parts are local and make
+no network call. A missing dependency or bundled model aborts startup rather
+than restoring the removed heuristic. The safety result remains independent
+of whatever `AI_QUESTION_MODEL` names.
 
 The prompt kept the sentence for one version — a model that also obeys it
 produces a better, personal answer — and **prompt v2 dropped it** (ClickUp
@@ -767,10 +769,11 @@ line break) and invisible characters removed by reusing
 
 ### The reply, and its version
 
-`safety.SAFETY_REPLIES` holds one text per language (`ru`, `uk`, `en`; an
-undetected language falls back to `en`, and a Cyrillic message that carries
-none of the four letters separating Russian from Ukrainian takes the language
-of the pattern that matched). Each is two sentences, contains no question
+`safety.SAFETY_REPLIES` holds one text per language (`ru`, `uk`, `en`; a known
+unsupported language falls back to `en`). When language detection abstains,
+tier 1 uses the language of the matched pattern. Tier 2 preserves a known
+conversation language and otherwise uses that same pattern evidence (Maria,
+2026-09-13; ADR 0018). Each reply is two sentences, contains no question
 mark, uses the informal register, and names **no** hotline number — the app
 is worldwide, so it points at someone close first and at emergency help
 generically.

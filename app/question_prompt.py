@@ -188,9 +188,8 @@ from collections.abc import Sequence
 # per-step angle and the gender stated by code (ClickUp 86cbejvt2).
 QUESTION_PROMPT_VERSION = 6
 
-# `safety.detect_language` returns `ru`, `uk`, `en` — or `None` for a message
-# that does not say (a bare Cyrillic "Помоги" carries none of the four letters
-# that separate Russian from Ukrainian, and none of the function words either).
+# `safety.detect_language` returns an ISO code, or `None` when the bundled
+# offline model's normalized top probability is below its reviewed threshold.
 LANGUAGE_NAMES = {"ru": "Russian", "uk": "Ukrainian", "en": "English"}
 # What is substituted when the detector cannot decide. NOT a silent fallback to
 # English: forcing English on an undecidable *Cyrillic* message would create
@@ -360,7 +359,8 @@ def build_question_prompt(language: str | None) -> str:
     """The system prompt for a message written in `language`.
 
     `language` is what `safety.detect_language` returned for the very message
-    being answered — `ru`, `uk`, `en`, or `None` when the text does not say.
+    being answered. Complete localized prompts exist for `ru`, `uk` and `en`;
+    another ISO code or `None` selects the universal prompt.
     Both providers send the result of this function and nothing else, so the
     bytes on the wire are identical whichever transport is configured
     (ADR 0009).

@@ -201,9 +201,9 @@ def test_the_prompt_uses_a_complete_localized_language_section(language, marker)
 def test_an_undecidable_language_keeps_the_v1_instruction():
     """`None` must not become English.
 
-    `detect_language` answers `None` for a Cyrillic message carrying none of
-    the four letters that separate Russian from Ukrainian ("Помоги"). Naming
-    English there would manufacture the very violation this version removes,
+    `detect_language` answers `None` for a short message below the reviewed
+    confidence threshold ("Помоги"). Naming English there would manufacture
+    the very violation this version removes,
     so the prompt falls back to v1's behaviour — the model decides — for
     exactly those inputs.
     """
@@ -470,7 +470,7 @@ def test_returns_generated_text(monkeypatch):
                     ("user", "Мне одиноко.\nХочу восстановить общение."),
                 ),
             ),
-            "Мне одиноко.\nХочу восстановить общение.",
+            "Отношения с семьёй",
         ),
         # No topic, no history: legal for next/reflect, and there is nothing
         # to detect a language from at all.
@@ -584,14 +584,13 @@ def test_the_language_falls_back_to_the_assistant_turn_last():
     assert twinkler_ai.language_source(request) == "Що зараз найважче?"
     assert twinkler_ai.question_prompt_for(
         twinkler_ai.language_source(request)
-    ) == question_prompt.build_question_prompt("uk")
+    ) == question_prompt.build_question_prompt(None)
 
 
 # --- the language chain is walked by decidability (86cbegmzz, review) -----
 #
-# `detect_language` answers `None` for a message that does not say — a short
-# Cyrillic line with none of the four letters and none of the function words
-# that separate Russian from Ukrainian. Stopping at the first *non-empty*
+# `detect_language` answers `None` when the offline model has insufficient
+# confidence. Stopping at the first *non-empty*
 # candidate handed the prompt v2's "answer in exactly the language of the
 # person's message" for those, which is the sentence v2 exists to avoid (Qwen
 # broke it 6/81). So the walk continues to the next thing the SAME PERSON
@@ -605,9 +604,9 @@ def _prompt_language_of(**body) -> str:
 
 
 def test_an_undecidable_reply_lets_the_topic_name_the_language():
-    """«Помоги» says nothing; the goal the same person typed does."""
+    """The short reply is uncertain; a confident topic supplies the language."""
     assert _prompt_language_of(
-        topic="Что делать с обидой на брата",
+        topic="Я не знаю, что делать с обидой на брата, и хочу помолиться об этом",
         stage="next",
         messages=[
             {"role": "assistant", "text": "Що зараз найважче?"},
@@ -618,10 +617,25 @@ def test_an_undecidable_reply_lets_the_topic_name_the_language():
 
 def test_the_topic_answers_for_an_undecidable_reply_in_english_too():
     assert _prompt_language_of(
-        topic="Praying about my father",
+        topic="I want to pray about my father because our last conversation still troubles me",
         stage="next",
         messages=[{"role": "user", "text": "Помоги"}],
     ) == question_prompt.build_question_prompt("en")
+
+
+@pytest.mark.parametrize(
+    "topic",
+    [
+        "Necesito ayuda porque estoy muy triste",
+        "Potrzebuję pomocy, bo jest mi bardzo ciężko",
+        "Preciso de ajuda porque estou muito triste",
+    ],
+)
+def test_detected_unsupported_language_uses_the_universal_prompt(topic):
+    assert safety.detect_language(topic) in {"es", "pl", "pt"}
+    assert _prompt_language_of(topic=topic, stage="first", messages=[]) == (
+        question_prompt.build_question_prompt(None)
+    )
 
 
 def test_an_earlier_reply_answers_when_neither_the_last_one_nor_the_topic_can():
@@ -886,7 +900,7 @@ def test_the_skipped_questions_never_decide_the_language(monkeypatch):
         json=question_body(
             topic="Praying for my father",
             stage="next",
-            messages=(("user", "He is in hospital and I am afraid."),),
+            messages=(("user", "My father is in hospital and I am afraid for his recovery."),),
             skipped=(SKIPPED_ONE, SKIPPED_TWO),
         ),
     )
@@ -1107,18 +1121,66 @@ def test_the_fixed_reply_is_in_the_language_of_the_person_not_of_the_blocks(
     assert response.json() == answered(safety.SAFETY_REPLIES["en"], True, subject=None)
 
 
-def test_the_last_reply_now_outvotes_a_long_russian_topic(monkeypatch):
-    """Maria's 2026-09-05 decision: tier 2's reply language follows
-    `language_source`, same as tier 1 and the prompt — not a vote over
-    topic + every reply.
+def test_tier_two_uses_the_pattern_language_when_detection_abstains(monkeypatch):
+    """The tier-2 pattern is positive language evidence, as it is in tier 1."""
+    monkeypatch.setattr(
+        twinkler_ai,
+        "complete",
+        AsyncMock(return_value=model_answer("Що допомагає тобі триматися?")),
+    )
 
-    A long Russian topic used to outvote a short English reply that actually
-    carried the tier-2 phrase (`written_by_the_person` joined them, and
-    `safety.check_reply` resolved the language from that one string), so a
-    person answering in English could get the fixed reply in Russian. Now the
-    last reply alone decides, the same source the prompt and tier 1 already
-    used — so the two halves of one request can no longer disagree.
-    """
+    response = client.post(
+        "/api/ai/question",
+        headers={"X-API-Key": "test-api-key"},
+        json=question_body(
+            stage="next",
+            messages=(("user", "не хочу так жити"),),
+        ),
+    )
+
+    assert response.status_code == 200
+    assert response.json() == answered(safety.SAFETY_REPLIES["uk"], True, subject=None)
+
+
+@pytest.mark.parametrize(
+    ("topic", "expected_language"),
+    [
+        (
+            "I need help because this situation has kept me awake for several nights",
+            "en",
+        ),
+        ("Necesito ayuda porque esta situación no me deja dormir", "es"),
+    ],
+)
+def test_tier_two_preserves_known_conversation_language(
+    monkeypatch, topic, expected_language
+):
+    """Known context wins over the language carried by the matched pattern."""
+    monkeypatch.setattr(
+        twinkler_ai,
+        "complete",
+        AsyncMock(return_value=model_answer("What would help you now?")),
+    )
+
+    response = client.post(
+        "/api/ai/question",
+        headers={"X-API-Key": "test-api-key"},
+        json=question_body(
+            topic=topic,
+            stage="next",
+            messages=(("user", "не хочу так жити"),),
+        ),
+    )
+
+    assert safety.detect_language(topic) == expected_language
+    assert response.status_code == 200
+    # Spanish is detected but has no localized fixed reply, so the existing
+    # worldwide English safety response policy remains unchanged.
+    assert response.json() == answered(safety.SAFETY_REPLIES["en"], True, subject=None)
+
+
+def test_known_topic_wins_when_the_last_reply_is_below_threshold(monkeypatch):
+    """A short uncertain reply lets the existing context chain continue."""
     monkeypatch.setattr(
         twinkler_ai, "complete", AsyncMock(return_value=model_answer("Что тебя сейчас держит?"))
     )
@@ -1137,10 +1199,8 @@ def test_the_last_reply_now_outvotes_a_long_russian_topic(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json() == answered(safety.SAFETY_REPLIES["en"], True, subject=None)
-    # The person's last words are English, and that is what the prompt and
-    # tier 1 already used — tier 2's reply language now agrees with them.
-    assert safety.detect_language("I'm a burden") == "en"
+    assert response.json() == answered(safety.SAFETY_REPLIES["ru"], True, subject=None)
+    assert safety.detect_language("I'm a burden") is None
 
 
 def test_the_fixed_reply_still_costs_a_request_slot(monkeypatch, allow_ai_requests):
@@ -1214,7 +1274,7 @@ def test_an_ordinary_message_is_untouched_by_either_tier(monkeypatch):
     assert response.json() == answered("Что тебе сейчас труднее всего?", True)
     _assert_called_with(
         generated,
-        question_prompt.build_user_message(topic, "first", [], language=None),
+        question_prompt.build_user_message(topic, "first", [], language="ru"),
         topic,
     )
 

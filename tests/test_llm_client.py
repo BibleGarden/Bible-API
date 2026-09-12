@@ -682,7 +682,7 @@ def test_the_stage_instructions_do_not_choose_the_language(monkeypatch):
 @pytest.mark.parametrize(
     ("message", "language"),
     [
-        ("Мне очень тяжело сейчас, я не сплю", "ru"),
+        ("Мне очень тяжело сейчас и я не знаю, что делать дальше", "ru"),
         ("Син не дзвонить уже місяць", "uk"),
         ("I got the job! Three years of trying", "en"),
         # No evidence of ru vs uk: the prompt keeps v1's "detect it yourself"
