@@ -9,6 +9,8 @@ measurements, limitations, and outcome are in
 The reusable client is [`load_benchmark.py`](load_benchmark.py). These are direct
 model API measurements, not end-to-end Bible-API latency or a replacement for
 the existing retrieval quality thresholds.
+Практические правила аренды, холодного запуска, хранения и безопасного завершения
+собраны в [`runpod-notes.md`](runpod-notes.md).
 
 Эталонный набор для оценки качества серверного RAG-подбора мест Писания под
 контекст молитвы (тема + разрешённые ответы пользователя из диалога Twinkler).

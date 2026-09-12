@@ -2,6 +2,11 @@
 
 Task: https://app.clickup.com/t/86cbh0p8t. Started 2026-09-12 UTC.
 
+Final infrastructure state, verified 2026-09-12 12:11:37 UTC: the Pod and
+its disk were deleted at Maria's request; both Pod and network-volume lists
+are empty. See [cleanup evidence](cleanup_2026-09-12.json) and the reusable
+[Runpod notes](../../runpod-notes.md). Testing is finished for the day.
+
 ## Scope and method
 
 The baseline is the shared `https://llm.ai2.ru/v1` API serving
@@ -32,12 +37,10 @@ two-hour operational deadline was extended to four hours after the slow image
 pull and Maria's question about losing downloads on deletion. The revised
 estimate is about $4.40 including disk, still within the authorized budget.
 Actual identifiers, timestamps and shutdown evidence belong in the deployment
-record. Maria subsequently chose stopping the Pod to retain downloaded weights,
-rather than deleting it. The stopped 60 GB Pod volume costs approximately
-$12/month ($0.20/GB/month); GPU and container disk are not billed while stopped.
-This ongoing storage charge is separate from the active test's compute cost.
-Container disk contents are erased on stop; only the `/workspace` volume is
-retained. A restart does not guarantee the same available GPU or a cached image.
+record. The Pod was initially stopped with its 60 GB disk retained at Maria's
+request; stopped storage was priced at approximately $12/month. Maria later
+chose deletion because the model weights downloaded quickly. The Pod and
+attached disk have now been deleted, with no retained Runpod resources.
 
 ## Results
 
@@ -197,8 +200,8 @@ quality.
 
 Fable's first pilot verdict lacked direct per-message model attribution and
 was excluded. Its other 113 orientations were verified using actual assistant
-message model IDs. The one missing orientation awaits Maria's permission to
-repeat; its pair is unresolved, not a tie. Across the 51 pairs complete for
+message model IDs. The one missing orientation remains unresolved, not a tie;
+Maria ended testing for the day and no repeat is scheduled. Across the 51 pairs complete for
 both judges, both preferred Gemma on 31 and Qwen on eight. These preferences
 favour Gemma overall on this fixture, but do not establish universal superiority:
 the common `reflect` wins favour Qwen (four pairs versus zero for Gemma).
@@ -220,11 +223,14 @@ The approximately 110-minute active interval is estimated at $2.02 using
 the quoted compute/storage rates. A billing read shortly after shutdown
 contained only two hourly buckets ending at 09:00 UTC, totaling $1.0053;
 the 09:00–shutdown interval was absent, so this is not the final charged total.
-Stopped storage continues at approximately $12/month until the Pod is deleted.
+Stopped storage accrued until the Pod and disk were deleted later that day.
 The [later billing snapshot](billing_through_stop_2026-09-12.json) includes
 the stop interval and reports GPU charges of $1.9916 and total recorded charges
-of $2.0176 for the queried 07:00–10:00 UTC window. The retained disk continues
-accruing charges, so this is not a final lifetime Pod total.
+of $2.0176 for the queried 07:00–10:00 UTC window. The disk remained allocated
+after that window until deletion, so this is not a final lifetime Pod total.
+Deletion returned HTTP 204; independent reads at 12:11:37 UTC showed no Pods
+and no network volumes. The benchmark data, graphs and judge outputs remain
+in this repository; downloaded model weights were deliberately discarded.
 See [deployment-result.md](deployment-result.md) and
 [deployment-telemetry.md](deployment-telemetry.md) for the startup timeline,
 measured disk/GPU use and monitoring limitations.

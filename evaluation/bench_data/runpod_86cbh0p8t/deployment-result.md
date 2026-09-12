@@ -1,5 +1,9 @@
 # Runpod Gemma 4 deployment result
 
+Final state (2026-09-12 12:11:37 UTC): Pod and disk deleted at Maria's request,
+with no Pods or network volumes remaining. The stop/retention details below
+record the preceding state, not continuing resources.
+
 ## Resource record
 
 - Pod ID: `8q0uiy9j7lon07`
@@ -40,5 +44,15 @@ The controlled load and quality runs completed, and their artifacts were copied 
 - Stop was issued at about `2026-09-12T09:19:45Z`.
 - Independent readback at `2026-09-12T09:19:53Z` returned status `EXITED`, exposed only `start` and `terminate` as subsequent actions, and retained the 60 GB persistent mount at `/workspace`. GPU compute had stopped and the Pod was not deleted.
 - Running duration was about 1 hour 50 minutes. At the quoted `$1.09/hour` compute plus about `$0.012/hour` running storage, the estimated run cost is `$2.02`. The post-stop [partial billing snapshot](billing_partial_2026-09-12.json) contains only the two hourly buckets ending at 09:00 UTC, totaling `$1.0053`. The 09:00-to-stop interval is absent; neither that partial sum nor the estimate is a confirmed final charged total.
-- The retained 60 GB persistent volume costs `$12/month` while stopped. The 30 GB container disk is erased on stop. The model weights under `/workspace/huggingface` remain; the vLLM image and compilation cache outside `/workspace` may need to be fetched or rebuilt on a later start.
-- A [later billing read](billing_through_stop_2026-09-12.json) includes the stop interval: GPU `$1.9916`, recorded total `$2.0176` for 07:00–10:00 UTC. Retained-disk charges continue, so this snapshot is not a final lifetime Pod total.
+- During the stopped interval, the 60 GB persistent volume was priced at `$12/month`. The container disk was erased on stop; `/workspace/huggingface` remained until the final deletion below.
+- A [later billing read](billing_through_stop_2026-09-12.json) includes the stop interval: GPU `$1.9916`, recorded total `$2.0176` for 07:00–10:00 UTC. Disk charges continued until deletion, so this snapshot is not a final lifetime Pod total.
+
+## Final deletion
+
+Maria ended testing and requested removal of the storage because downloading
+the model weights was fast. Deleting Pod `8q0uiy9j7lon07` returned HTTP 204.
+Independent `list-pods` and `list-network-volumes` calls at
+`2026-09-12T12:11:37Z` returned empty lists. The attached 60 GB volume and its
+model cache were removed; no paid resources from this experiment remain.
+The [cleanup record](cleanup_2026-09-12.json) preserves those responses. All
+benchmark results and documentation were already saved locally and in Git.

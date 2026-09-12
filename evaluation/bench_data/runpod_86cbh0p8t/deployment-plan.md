@@ -1,5 +1,10 @@
 # Gemma Runpod deployment plan
 
+Historical plan. The experiment finished; Maria requested final deletion on
+2026-09-12, and at 12:11:37 UTC both Pod and network-volume lists were empty.
+The interim stop-and-retain instructions below are not the final resource state.
+See [cleanup evidence](cleanup_2026-09-12.json) and [Runpod notes](../../runpod-notes.md).
+
 Prepared on 2026-09-12 for ClickUp 86cbh0p8t. Creation is gated on the orchestrator's explicit `GO`.
 
 ## Billable resource
