@@ -35,11 +35,30 @@ def test_fixture_uses_all_production_prompt_builders(benchmark):
 
 def test_summary_reports_latency_errors_rate_and_throughput(benchmark):
     records = [
-        {"ok": True, "stage": "question", "valid": True, "latency_seconds": 2.0, "ttft_seconds": 0.2,
-         "tokens_per_second": 20.0, "batch_elapsed_seconds": 3.0},
-        {"ok": True, "stage": "question", "valid": True, "latency_seconds": 1.0, "ttft_seconds": 0.1,
-         "tokens_per_second": 10.0, "batch_elapsed_seconds": 3.0},
-        {"ok": False, "stage": "question", "latency_seconds": 0.1, "batch_elapsed_seconds": 3.0},
+        {
+            "ok": True,
+            "stage": "question",
+            "valid": True,
+            "latency_seconds": 2.0,
+            "ttft_seconds": 0.2,
+            "tokens_per_second": 20.0,
+            "batch_elapsed_seconds": 3.0,
+        },
+        {
+            "ok": True,
+            "stage": "question",
+            "valid": True,
+            "latency_seconds": 1.0,
+            "ttft_seconds": 0.1,
+            "tokens_per_second": 10.0,
+            "batch_elapsed_seconds": 3.0,
+        },
+        {
+            "ok": False,
+            "stage": "question",
+            "latency_seconds": 0.1,
+            "batch_elapsed_seconds": 3.0,
+        },
     ]
     summary = benchmark.summarize(records)
     assert summary["errors"] == 1
@@ -50,15 +69,41 @@ def test_summary_reports_latency_errors_rate_and_throughput(benchmark):
     assert summary["throughput_requests_per_second"] == pytest.approx(2 / 3)
 
 
+def test_checkpoint_is_atomic_and_replaces_previous_result(benchmark, tmp_path):
+    target = tmp_path / "result.json"
+    benchmark.write_checkpoint(str(target), {"levels": [1]})
+    benchmark.write_checkpoint(str(target), {"levels": [1, 2]})
+    assert json.loads(target.read_text()) == {"levels": [1, 2]}
+    assert not target.with_suffix(".json.tmp").exists()
+
+
+def test_progress_keeps_each_completed_record(benchmark, tmp_path):
+    target = tmp_path / "progress.jsonl"
+    benchmark.append_progress(str(target), {"case_id": "a", "ok": True})
+    benchmark.append_progress(str(target), {"case_id": "b", "ok": False})
+    assert [
+        json.loads(line)["case_id"] for line in target.read_text().splitlines()
+    ] == ["a", "b"]
+
+
 def test_stream_extracts_ttft_usage_finish_reason_and_valid_json(benchmark):
     item = '{"ref":"Psalm 23","query":"The Lord is my shepherd"}'
     events = [
         {"choices": [{"delta": {"content": '{"queries": ['}}]},
-        {"choices": [{"delta": {"content": ",".join([item] * 6) + "]}"},
-                      "finish_reason": "stop"}],
-         "usage": {"completion_tokens": 12}},
+        {
+            "choices": [
+                {
+                    "delta": {"content": ",".join([item] * 6) + "]}"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"completion_tokens": 12},
+        },
     ]
-    body = "".join(f"data:{json.dumps(event)}\n\n" for event in events) + "data: [DONE]\n\n"
+    body = (
+        "".join(f"data:{json.dumps(event)}\n\n" for event in events)
+        + "data: [DONE]\n\n"
+    )
     calls = 0
 
     def handler(request):
@@ -66,14 +111,23 @@ def test_stream_extracts_ttft_usage_finish_reason_and_valid_json(benchmark):
         calls += 1
         return httpx.Response(200, text=body)
 
-    case = {"id": "rewrite", "stage": "rewrite", "language": "en",
-            "topic": "peace", "replies": []}
+    case = {
+        "id": "rewrite",
+        "stage": "rewrite",
+        "language": "en",
+        "topic": "peace",
+        "replies": [],
+    }
 
     async def invoke():
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
             return await benchmark.stream_one(
-                client, "https://model.example/v1/chat/completions", "secret", "model",
-                case, 256,
+                client,
+                "https://model.example/v1/chat/completions",
+                "secret",
+                "model",
+                case,
+                256,
             )
 
     result = asyncio.run(invoke())
@@ -92,14 +146,24 @@ def test_length_finish_is_invalid_and_http_error_is_not_retried(benchmark):
         calls += 1
         return httpx.Response(503)
 
-    case = {"id": "question", "stage": "question", "language": "en",
-            "topic": "ordinary day", "question_stage": "first", "messages": []}
+    case = {
+        "id": "question",
+        "stage": "question",
+        "language": "en",
+        "topic": "ordinary day",
+        "question_stage": "first",
+        "messages": [],
+    }
 
     async def invoke():
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
             return await benchmark.stream_one(
-                client, "https://model.example/v1/chat/completions", "secret", "model",
-                case, 256,
+                client,
+                "https://model.example/v1/chat/completions",
+                "secret",
+                "model",
+                case,
+                256,
             )
 
     result = asyncio.run(invoke())
@@ -113,11 +177,17 @@ def test_length_finish_is_invalid_and_http_error_is_not_retried(benchmark):
     )
 
     async def invoke_length():
-        transport = httpx.MockTransport(lambda request: httpx.Response(200, text=length_body))
+        transport = httpx.MockTransport(
+            lambda request: httpx.Response(200, text=length_body)
+        )
         async with httpx.AsyncClient(transport=transport) as client:
             return await benchmark.stream_one(
-                client, "https://model.example/v1/chat/completions", "secret", "model",
-                case, 256,
+                client,
+                "https://model.example/v1/chat/completions",
+                "secret",
+                "model",
+                case,
+                256,
             )
 
     length_result = asyncio.run(invoke_length())

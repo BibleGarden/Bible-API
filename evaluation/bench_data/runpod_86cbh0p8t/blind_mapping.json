@@ -1,0 +1,287 @@
+{
+  "ticket": "86cbh0p8t",
+  "seed_sha256": "906a4be445fde42f63acc0c06305ce5252fb468c3f65df3553c0994973712007",
+  "sample_1_excluded_as_warmup": true,
+  "rows": [
+    {
+      "review_id": "R01",
+      "case_id": "ambiguous-uk-first",
+      "sample": 2,
+      "A": "qwen",
+      "B": "gemma"
+    },
+    {
+      "review_id": "R02",
+      "case_id": "ambiguous-uk-first",
+      "sample": 3,
+      "A": "gemma",
+      "B": "qwen"
+    },
+    {
+      "review_id": "R03",
+      "case_id": "choice-en-next",
+      "sample": 2,
+      "A": "gemma",
+      "B": "qwen"
+    },
+    {
+      "review_id": "R04",
+      "case_id": "choice-en-next",
+      "sample": 3,
+      "A": "gemma",
+      "B": "qwen"
+    },
+    {
+      "review_id": "R05",
+      "case_id": "conflict-ru-next",
+      "sample": 2,
+      "A": "gemma",
+      "B": "qwen"
+    },
+    {
+      "review_id": "R06",
+      "case_id": "conflict-ru-next",
+      "sample": 3,
+      "A": "qwen",
+      "B": "gemma"
+    },
+    {
+      "review_id": "R07",
+      "case_id": "exhaustion-female-uk-next",
+      "sample": 2,
+      "A": "qwen",
+      "B": "gemma"
+    },
+    {
+      "review_id": "R08",
+      "case_id": "exhaustion-female-uk-next",
+      "sample": 3,
+      "A": "gemma",
+      "B": "qwen"
+    },
+    {
+      "review_id": "R09",
+      "case_id": "good-news-en-next",
+      "sample": 2,
+      "A": "qwen",
+      "B": "gemma"
+    },
+    {
+      "review_id": "R10",
+      "case_id": "good-news-en-next",
+      "sample": 3,
+      "A": "qwen",
+      "B": "gemma"
+    },
+    {
+      "review_id": "R11",
+      "case_id": "gratitude-female-ru-next",
+      "sample": 2,
+      "A": "gemma",
+      "B": "qwen"
+    },
+    {
+      "review_id": "R12",
+      "case_id": "gratitude-female-ru-next",
+      "sample": 3,
+      "A": "gemma",
+      "B": "qwen"
+    },
+    {
+      "review_id": "R13",
+      "case_id": "grief-en-first",
+      "sample": 2,
+      "A": "qwen",
+      "B": "gemma"
+    },
+    {
+      "review_id": "R14",
+      "case_id": "grief-en-first",
+      "sample": 3,
+      "A": "gemma",
+      "B": "qwen"
+    },
+    {
+      "review_id": "R15",
+      "case_id": "grief-ru-first",
+      "sample": 2,
+      "A": "gemma",
+      "B": "qwen"
+    },
+    {
+      "review_id": "R16",
+      "case_id": "grief-ru-first",
+      "sample": 3,
+      "A": "gemma",
+      "B": "qwen"
+    },
+    {
+      "review_id": "R17",
+      "case_id": "grief-ru-reflect",
+      "sample": 2,
+      "A": "gemma",
+      "B": "qwen"
+    },
+    {
+      "review_id": "R18",
+      "case_id": "grief-ru-reflect",
+      "sample": 3,
+      "A": "gemma",
+      "B": "qwen"
+    },
+    {
+      "review_id": "R19",
+      "case_id": "novelty-choice-en",
+      "sample": 2,
+      "A": "gemma",
+      "B": "qwen"
+    },
+    {
+      "review_id": "R20",
+      "case_id": "novelty-choice-en",
+      "sample": 3,
+      "A": "gemma",
+      "B": "qwen"
+    },
+    {
+      "review_id": "R21",
+      "case_id": "novelty-exhaustion-uk",
+      "sample": 2,
+      "A": "qwen",
+      "B": "gemma"
+    },
+    {
+      "review_id": "R22",
+      "case_id": "novelty-exhaustion-uk",
+      "sample": 3,
+      "A": "gemma",
+      "B": "qwen"
+    },
+    {
+      "review_id": "R23",
+      "case_id": "novelty-gratitude-ru",
+      "sample": 2,
+      "A": "qwen",
+      "B": "gemma"
+    },
+    {
+      "review_id": "R24",
+      "case_id": "novelty-gratitude-ru",
+      "sample": 3,
+      "A": "qwen",
+      "B": "gemma"
+    },
+    {
+      "review_id": "R25",
+      "case_id": "ordinary-en-first",
+      "sample": 2,
+      "A": "gemma",
+      "B": "qwen"
+    },
+    {
+      "review_id": "R26",
+      "case_id": "ordinary-en-first",
+      "sample": 3,
+      "A": "gemma",
+      "B": "qwen"
+    },
+    {
+      "review_id": "R27",
+      "case_id": "ordinary-ru-first",
+      "sample": 2,
+      "A": "gemma",
+      "B": "qwen"
+    },
+    {
+      "review_id": "R28",
+      "case_id": "ordinary-ru-first",
+      "sample": 3,
+      "A": "gemma",
+      "B": "qwen"
+    },
+    {
+      "review_id": "R29",
+      "case_id": "ordinary-uk-first",
+      "sample": 2,
+      "A": "gemma",
+      "B": "qwen"
+    },
+    {
+      "review_id": "R30",
+      "case_id": "ordinary-uk-first",
+      "sample": 3,
+      "A": "qwen",
+      "B": "gemma"
+    },
+    {
+      "review_id": "R31",
+      "case_id": "parenting-male-uk-next",
+      "sample": 2,
+      "A": "qwen",
+      "B": "gemma"
+    },
+    {
+      "review_id": "R32",
+      "case_id": "parenting-male-uk-next",
+      "sample": 3,
+      "A": "qwen",
+      "B": "gemma"
+    },
+    {
+      "review_id": "R33",
+      "case_id": "repair-en-reflect",
+      "sample": 2,
+      "A": "qwen",
+      "B": "gemma"
+    },
+    {
+      "review_id": "R34",
+      "case_id": "repair-en-reflect",
+      "sample": 3,
+      "A": "qwen",
+      "B": "gemma"
+    },
+    {
+      "review_id": "R35",
+      "case_id": "silence-uk-next",
+      "sample": 2,
+      "A": "qwen",
+      "B": "gemma"
+    },
+    {
+      "review_id": "R36",
+      "case_id": "silence-uk-next",
+      "sample": 3,
+      "A": "qwen",
+      "B": "gemma"
+    },
+    {
+      "review_id": "R37",
+      "case_id": "uncertainty-uk-reflect",
+      "sample": 2,
+      "A": "qwen",
+      "B": "gemma"
+    },
+    {
+      "review_id": "R38",
+      "case_id": "uncertainty-uk-reflect",
+      "sample": 3,
+      "A": "qwen",
+      "B": "gemma"
+    },
+    {
+      "review_id": "R39",
+      "case_id": "waiting-male-ru-next",
+      "sample": 2,
+      "A": "gemma",
+      "B": "qwen"
+    },
+    {
+      "review_id": "R40",
+      "case_id": "waiting-male-ru-next",
+      "sample": 3,
+      "A": "gemma",
+      "B": "qwen"
+    }
+  ]
+}

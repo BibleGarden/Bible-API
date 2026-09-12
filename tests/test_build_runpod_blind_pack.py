@@ -64,6 +64,12 @@ def test_pack_excludes_warmup_and_hides_model_identity(tmp_path):
     assert {row["sample"] for row in key["rows"]} == {2, 3}
     assert {row["A"] for row in key["rows"]} == {"qwen", "gemma"}
 
+    second_output = tmp_path / "review-second.html"
+    second_mapping = tmp_path / "mapping-second.json"
+    tool.build_pack(qwen, gemma, fixture, second_output, second_mapping, "test seed")
+    assert second_output.read_bytes() == output.read_bytes()
+    assert second_mapping.read_bytes() == mapping.read_bytes()
+
     gemma_rows[-1] = {**gemma_rows[-1], "text": "I am Gemma"}
     write_jsonl(gemma, gemma_rows)
     with pytest.raises(SystemExit, match="model identity leaked"):
