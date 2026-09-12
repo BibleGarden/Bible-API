@@ -7,6 +7,8 @@
 **/__pycache__
 **/*.pyc
 audio
+# Local deployment and reverse-proxy files are not application runtime files.
+/deploy/
 # Legacy local evaluation caches are not part of this application's build.
 evaluation
 # Default host directory of the embedding weights (docker-compose.yml,
