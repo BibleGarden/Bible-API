@@ -380,8 +380,10 @@ change to make, and it is a change, so it needs a version". Treat this as an
 open decision (see the end of this document), not as a to-do you may silently
 skip.
 
-**6.4 — `app/safety.py:94`, `SUPPORTED_LANGUAGES = ("ru", "uk", "en")`.** The
-despair detector's language set. `DEFAULT_LANGUAGE = "en"` (`:93`).
+**6.4 — `app/safety.py`, `SAFETY_REPLY_LANGUAGES = ("ru", "uk", "en")`.**
+This is the fixed-reply set, not the detector's language set. The offline
+detector covers the 139 languages bundled with py3langid. `DEFAULT_LANGUAGE =
+"en"` remains the fixed-reply fallback.
 
 **6.5 — `app/safety.py:101-119`, `SAFETY_REPLIES`: write the fixed crisis reply.**
 Two sentences, **no question mark anywhere**, informal register, **no hotline
@@ -392,32 +394,18 @@ environment variable (ADR 0008 reasoning, module docstring `:70-76`).
 **Bump `SAFETY_REPLY_VERSION`** (`:91`, currently 2).
 *Verify:* `tests/test_safety.py:602-613` pins the sha256 of the joined replies —
 it fails until the hash is updated together with the version bump;
-`:587-588` asserts `set(SAFETY_REPLIES) == set(SUPPORTED_LANGUAGES)`;
+the suite asserts `set(SAFETY_REPLIES) == set(SAFETY_REPLY_LANGUAGES)`;
 `:593` asserts no reply contains a question mark.
 
-**6.6 — `app/safety.py:199-227`, `detect_language`: decide the detection
-strategy. This is the trap.** Today: alphabet first (`_CYRILLIC_RE` `:178`,
-`_LATIN_RE` `:179`), distinguishing letters second (`_UK_LETTERS_RE` `:180`
-`[іїєґ]`, `_RU_LETTERS_RE` `:181` `[ыэъ]`), a function-word vote as tie-break
-(`_UK_WORDS` `:187`, `_RU_WORDS` `:192`), `None` when the text does not say.
-
-> **Any Latin-script message currently returns `"en"`** — unconditionally,
-> at `app/safety.py:212-215` (`if cyrillic <= latin: return "en"`), with the
-> comment "en is the only Latin-script
-> language this endpoint answers in, so it is the answer rather than a guess at
-> another one". The moment a second Latin-script language is added (Spanish,
-> Polish, Portuguese, Indonesian…), that line is **wrong**: a Spanish prayer
-> resolves to `en`, gets the English prompt, and — worse — gets the **English**
-> fixed reply, while the Spanish despair patterns can still fire on it through
-> `_scan`'s `detect_language(text) or pattern_language` fallback (`:645`).
-> A Latin-script language therefore **requires replacing this branch**, not
-> extending a list. That is a design decision, not a patch (see open decisions).
-
-Adding a Cyrillic-script language is the cheaper case: a distinguishing-letter
-regex plus a function-word set, with the rule stated at `:182-186` — **every
-function word must exist in one language and not in the other, or it votes for
-the wrong one**.
-*Verify:* `tests/test_safety.py:565` (`test_language_detection`), `:569`, `:577`.
+**6.6 — `app/language_detection.py`, `detect_language`.** This decision was
+resolved by ADR 0018. One eagerly loaded py3langid model returns any of its 139
+ISO codes at normalized probability `>= 0.9`, and `None` below it; input with
+no letters returns `None` without classification. Do not add a language to a
+candidate list or a word override: neither exists. Adding a language to the
+product still requires measuring representative text because detection support
+does not imply prompt, safety or retrieval quality. *Verify:*
+`tests/test_language_detection.py` and the reproducible routing benchmark in
+BibleGarden/AI-Evaluation@ec757fe.
 
 **6.7 — `app/safety.py:301-…`, `EXPLICIT_PATTERNS` (tier 1) — 21 patterns today,
 7 per language.** An explicit statement of not wanting to live, wanting to die,
@@ -502,11 +490,10 @@ coordinates are checked against.
 (ru 8, en 3, uk 2), schema v2.0.0, used both by the question probe and by the
 safety sweep.
 
-**8.6 — [check_questions.py](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/check_questions.py): its own language detector and the
-informal-register rule.** This is a benchmark script and **cannot import the
-application** (`app/safety.py:174-176` says so explicitly), so it carries a
-parallel copy: `detect_language()` (`:166-188`) with `_UK_LETTERS` (`:73`),
-`_RU_LETTERS` (`:74`), `_UK_WORDS` (`:79`), `_RU_WORDS` (`:84`); the
+**8.6 — [check_questions.py](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/check_questions.py): shared detector and the
+informal-register rule.** AI-Evaluation pins a reviewed Bible-API revision and
+loads the production language detector through that boundary; do not recreate
+the removed alphabet/function-word heuristic. Its
 polite-form regex `_FORMAL` (`:96-100`) with `_FORMAL_EXCEPTIONS` (`:105`); and
 **`if language not in ("ru", "uk"): verdict["informal"] = None`** (`:227-228`)
 — the register rule is skipped for anything else. A new language with a T/V
@@ -709,9 +696,10 @@ Reproduce that per language:
    (`:240`). Adding scenarios in the new language (layer 8.1) automatically
    extends this sweep: **a tier-1 hit on an ordinary prayer is a hard failure,
    not a tuning parameter.**
-4. **Run it against nothing else.** No model, no network — `app/safety.py` is
-   dictionary and regex only, and `tests/test_safety.py:616` asserts the module
-   reads no environment variable.
+4. **Run it offline.** The safety patterns are dictionary and regex; language
+   identification uses the model bundled inside py3langid. Neither makes a
+   network call or reads provider credentials. A missing model is a startup
+   error, not a fallback.
 5. **Then bump and pin.** `SAFETY_REPLY_VERSION` (`app/safety.py:91`) and the
    sha256 in `tests/test_safety.py:602-613`.
 6. **Report false positives and false negatives separately** to the reviewer,
@@ -767,9 +755,9 @@ the list is complete. Every "✅" was verified in the file named.
 | 6.1 | `LANGUAGE_NAMES["uk"]` | ✅ `app/question_prompt.py:109` |
 | 6.2 | Register sentence | ✅ "Ukrainian ty" named explicitly (`:128`) |
 | 6.3 | Stage instructions | ⚠️ **Russian for Ukrainian prayers too** — documented decision (`:82-88`), not an omission |
-| 6.4 | `SUPPORTED_LANGUAGES` | ✅ `app/safety.py:94` |
+| 6.4 | `SAFETY_REPLY_LANGUAGES` | ✅ `app/safety.py` |
 | 6.5 | `SAFETY_REPLIES["uk"]` | ✅ `:108-112`, version 2, hash-pinned |
-| 6.6 | Detection | ✅ `_UK_LETTERS_RE` `:180`, `_UK_WORDS` `:187` |
+| 6.6 | Detection | ✅ py3langid model + `0.9` threshold (ADR 0018) |
 | 6.7 | Tier-1 patterns | ✅ 7 (`uk.no-wish-to-live` … `uk.suicide-word`) |
 | 6.8 | Tier-2 patterns | ✅ 9 |
 | 6.9 | Guards | ✅ `_UK_LIVE_TAIL` `:266`, `_UK_DIE_TAIL` `:289`, `_UK_MEANING_TAIL` `:298` |
@@ -830,11 +818,9 @@ table to work through; the checklist above is its narrative.
 | File:line | What it is | On adding a language |
 |---|---|---|
 | `app/safety.py:93` | `DEFAULT_LANGUAGE = "en"` | review (fallback reply language) |
-| `app/safety.py:94` | `SUPPORTED_LANGUAGES = ("ru", "uk", "en")` | **add** |
+| `app/safety.py` | `SAFETY_REPLY_LANGUAGES = ("ru", "uk", "en")` | **add only when adding a reviewed fixed reply** |
 | `app/safety.py:101-119` | `SAFETY_REPLIES` — fixed crisis reply per language | **add + bump `SAFETY_REPLY_VERSION` (`:91`) + repin hash** |
-| `app/safety.py:178-181` | `_CYRILLIC_RE`, `_LATIN_RE`, `_UK_LETTERS_RE`, `_RU_LETTERS_RE` | **extend / redesign** |
-| `app/safety.py:187,192` | `_UK_WORDS`, `_RU_WORDS` function-word votes | **add a set** |
-| `app/safety.py:212-215` | `detect_language`: **any Latin script → `"en"`** | **redesign for a Latin-script language** |
+| `app/language_detection.py` | py3langid 139-language detector, probability threshold `0.9` | **measure representative inputs; do not add word overrides** |
 | `app/safety.py:257,266,271` | `_RU/_UK/_EN_LIVE_TAIL` guards | **add** |
 | `app/safety.py:278` | `_NOT_NEGATED` (`не` — serves ru+uk) | **add** |
 | `app/safety.py:285,289,293` | `_RU/_UK/_EN_DIE_TAIL` guards | **add** |
@@ -881,7 +867,7 @@ table to work through; the checklist above is its narrative.
 | [retrieval_benchmark.py:795](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/retrieval_benchmark.py#L795) | per-language result split | **add** |
 | [retrieval_benchmark.py:1576-1585](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/retrieval_benchmark.py#L1576-L1585) | `SELECT short_name_ru, short_name_en, short_name_uk` | **add a column** |
 | [check_refs_db.py:33](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/check_refs_db.py#L33) | `NATIVE_BASELINE = {"ru":"bti","en":"bsb","uk":"ubh"}` | **add** |
-| [check_questions.py:73,74,79,84](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/check_questions.py#L73-L84) | `_UK_LETTERS`, `_RU_LETTERS`, `_UK_WORDS`, `_RU_WORDS` (second detector) | **add** |
+| [language_detection.py](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/language_detection.py) | production detector loaded from the pinned Bible-API revision | inherited; repin after a reviewed detector change |
 | [check_questions.py:96-105](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/check_questions.py#L96-L105) | `_FORMAL` polite forms + `_FORMAL_EXCEPTIONS` | **add** |
 | [check_questions.py:111,140,142](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/check_questions.py#L111-L142) | `_FORBIDDEN`, `_ADVICE_MODALS`, `_SUPPORT_MARKERS` — ru/uk/en phrases | **add** |
 | [check_questions.py:227](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/check_questions.py#L227) | `if language not in ("ru","uk"): informal = None` | **add if T/V** |
@@ -957,18 +943,11 @@ table to work through; the checklist above is its narrative.
 
 # Open decisions (for Maria)
 
-1. **Latin-script detection.** `app/safety.py:215-217` returns `"en"` for any
-   Latin-script message by construction. Adding a second Latin-script language
-   (Spanish, Polish, Portuguese, Indonesian…) makes that line actively wrong:
-   the prayer gets the English prompt and, in crisis, the **English** fixed
-   reply. Options: (a) extend the alphabet-and-function-word approach with
-   per-language distinguishing letters and stop-word votes — cheap, and
-   degrades to `None` honestly; (b) add a small offline language-ID dependency
-   — more accurate, but a new dependency in the one module that is deliberately
-   "dictionary and regex only, no model, no network"; (c) take the language
-   from the client (the app knows its own locale) and use detection only as a
-   check — a public-contract change. **This decision must be made before the
-   first Latin-script language, not with it.**
+1. **Latin-script detection — resolved by ADR 0018.** The bundled py3langid
+   model returns a language only at normalized probability `>= 0.9`. Spanish,
+   Polish and Portuguese no longer become English merely because they use the
+   Latin script. Detection coverage is separate from localized prompt and
+   fixed-reply coverage.
 2. **Stage instructions in Russian for every language**
    (`app/question_prompt.py:172-215`, decision recorded at `:82-88`). Measured
    not to leak into answers today on ru/uk/en. Does that hold for a language

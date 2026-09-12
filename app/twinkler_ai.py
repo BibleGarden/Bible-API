@@ -455,9 +455,8 @@ def language_source(request: CompleteRequest) -> str:
 
     The candidates above are walked by **decidability**, not merely by
     presence (ClickUp 86cbegmzz, review of this ticket). `detect_language`
-    answers `None` for a message that does not say — a short Cyrillic line
-    carrying none of the four letters and none of the function words that
-    separate Russian from Ukrainian, «Помоги» being the canonical one — and
+    answers `None` when the offline model's normalized top probability is
+    below `0.9` — «Помоги» being the canonical short example — and
     stopping at the first *non-empty* candidate threw away evidence the same
     person had already written in the same request. The prompt then got v2's
     "answer in exactly the language of the person's message", the wording v2
@@ -513,10 +512,9 @@ def safety_input_text(request: CompleteRequest) -> str | None:
     because the model wrote it — and tier 2 already answers that case on the
     reply itself, against the person's own last words.
 
-    Tier 2's fixed reply still needs a *language*, and that is resolved
-    separately by the caller through `language_source` — not by matching this
-    same text a second time — because the language the matched phrase happens
-    to be in is not necessarily the language the rest of the prayer is in.
+    Tier 2's fixed reply still needs a *language*. `language_source` supplies
+    known conversation context; only when its detector abstains does the
+    already-matched pattern supply the language (ADR 0018).
     """
     last_user = request.last_text("user")
     if last_user is not None:
@@ -547,11 +545,10 @@ def _safety_guarded_reply(
     guard = check_reply(checked or "", text)
     if not guard.matched:
         return None
-    # The reply's language is not the matched phrase's language: it is
-    # whatever `language_source`/the prompt already resolved for this request,
-    # so the fixed reply speaks the prayer's language even when the despair
-    # phrase itself was undecidable on its own.
-    reply_language = detect_language(language_text)
+    # Known conversation context remains authoritative.  When the offline
+    # detector abstains, the language of the safety pattern is the only
+    # positive evidence left and matches the tier-1 policy.
+    reply_language = detect_language(language_text) or guard.language
     logger.warning(
         "Safety rule fired on the model reply: tier=%d pattern=%s "
         "language=%s reply_version=%d stage=%s",

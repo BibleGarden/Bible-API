@@ -26,9 +26,9 @@ looks at the last one; an older despair phrase is someone else's turn now.
 
 Tier 2's fixed reply still needs a language, and that is resolved separately
 by the caller — `app/twinkler_ai.py`'s `language_source`, the same source the
-prompt and tier 1 use — rather than by this module detecting the language of
-the matched text itself: the phrase that tripped the pattern is not
-necessarily the language the rest of the prayer is in.
+prompt uses. A known conversation language wins; when identification abstains,
+the matched pattern supplies its reviewed language, as it already does in
+tier 1 (ADR 0018).
 
 **Tier 1 — skip the model.** An explicit statement of not wanting to live, of
 wanting to die, of ending one's own life or of harming oneself
@@ -61,10 +61,11 @@ thinking everyone would be fine without me"). It is passive ideation stated
 about other people, not an intent stated about oneself: worth refusing a
 question over, not worth refusing to let the companion answer.
 
-Dictionary and regular expressions only — no model, no network call, no
-external service. The detector is the cheapest and least failable part of the
-request path, and it must stay that way: it is what still works when the
-provider does not.
+The safety decision itself remains a reviewed dictionary and regular
+expressions. Language identification is the bundled py3langid statistical
+model: local, deterministic and network-free, loaded once when the process
+starts. It can abstain; the matched safety pattern then supplies its reviewed
+language. No external service participates in either tier.
 
 **Nothing here is configurable.** The reply texts are a reviewed code
 constant versioned by `SAFETY_REPLY_VERSION`, the way the question prompt is
@@ -84,6 +85,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from language_detection import detect_language
 from prompt_safety import neutralize_prompt_markers
 
 # Bump on ANY change to the wording of SAFETY_REPLIES. v1 is the first
@@ -91,7 +93,7 @@ from prompt_safety import neutralize_prompt_markers
 SAFETY_REPLY_VERSION = 2  # v2: reviewer's wording of the second sentence, approved by Maria 2026-09-05
 
 DEFAULT_LANGUAGE = "en"
-SUPPORTED_LANGUAGES = ("ru", "uk", "en")
+SAFETY_REPLY_LANGUAGES = ("ru", "uk", "en")
 
 # Two sentences each, no question mark anywhere: the fixed reply is what the
 # prompt asks the model for and the model may fail to produce. Deliberately
@@ -169,64 +171,8 @@ def normalise(text: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Language
-# ---------------------------------------------------------------------------
-# Alphabet first, distinguishing letters second, a small function-word list as
-# the tie-break — the same shape as `AI-Evaluation/evaluation/check_questions.py`, which is
-# a benchmark script and cannot be imported from the application.
-
-_CYRILLIC_RE = re.compile(r"[а-яёіїєґ]")
-_LATIN_RE = re.compile(r"[a-z]")
-_UK_LETTERS_RE = re.compile(r"[іїєґ]")
-_RU_LETTERS_RE = re.compile(r"[ыэъ]")  # `ё` is normalised away before this
-_WORD_RE = re.compile(r"[^\W\d_]+", re.UNICODE)
-# Every entry must exist in one of the two languages and NOT in the other, or
-# it votes for the wrong one: "хочу" is spelled identically in both and would
-# have made every Russian sentence containing it Ukrainian. Words present in
-# both lists ("про", "тебе") are harmless — they cancel out.
-_UK_WORDS = frozenset({
-    "що", "чи", "зараз", "тобі", "твоє", "твої", "хочеш", "серці",
-    "найбільше", "хочеться", "розкажи", "коли", "чому", "як", "про", "більше",
-    "тебе", "від", "цьому", "жити", "життя", "мене", "буде", "немає", "нема",
-})
-_RU_WORDS = frozenset({
-    "что", "тебе", "сейчас", "твоё", "твое", "твои", "хочешь", "сердце",
-    "больше", "расскажи", "когда", "почему", "как", "про", "этом", "этот",
-    "хочется", "жить", "жизни", "жизнь", "меня", "будет", "нет", "смысла",
-})
-
-
-def detect_language(text: str) -> str | None:
-    """`ru`, `uk`, `en` — or `None` when the text does not say.
-
-    `None` is not a failure: it is the honest answer for a Cyrillic message
-    that carries none of the four letters that separate Russian from
-    Ukrainian ("не хочу жити"). The caller resolves it from the language the
-    matched pattern belongs to, which is exactly the missing evidence.
-    """
-    normalised = normalise(text)
-    cyrillic = len(_CYRILLIC_RE.findall(normalised))
-    latin = len(_LATIN_RE.findall(normalised))
-    if cyrillic == 0 and latin == 0:
-        return None
-    if cyrillic <= latin:
-        # Latin script: `en` is the only Latin-script language this endpoint
-        # answers in, so it is the answer rather than a guess at another one.
-        return "en"
-    if _UK_LETTERS_RE.search(normalised):
-        return "uk"
-    if _RU_LETTERS_RE.search(normalised):
-        return "ru"
-    words = {word for word in _WORD_RE.findall(normalised)}
-    uk_hits = len(words & _UK_WORDS)
-    ru_hits = len(words & _RU_WORDS)
-    if uk_hits > ru_hits:
-        return "uk"
-    if ru_hits > uk_hits:
-        return "ru"
-    return None
-
-
+# Language identification is imported from `language_detection` and re-exported
+# here for compatibility with callers that predate the shared module.
 # ---------------------------------------------------------------------------
 # Patterns
 # ---------------------------------------------------------------------------
@@ -639,9 +585,8 @@ def _scan(
                 matched=True,
                 tier=tier,
                 pattern_id=pattern_id,
-                # The message decides the language; the pattern only answers
-                # when the message cannot ("не хочу жити" carries none of the
-                # four Ukrainian letters).
+                # The message decides the language when confidence is high;
+                # otherwise the reviewed pattern is the available evidence.
                 language=detect_language(text) or pattern_language,
             )
     return NO_MATCH

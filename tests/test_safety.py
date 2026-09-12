@@ -555,10 +555,13 @@ def test_normalise_flattens_without_losing_words():
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
-        ("Мне очень тяжело сейчас", "ru"),
-        ("Мені дуже важко зараз", "uk"),
-        ("This is hard for me", "en"),
-        ("Помоги", None),          # Cyrillic, but nothing separates ru from uk
+        ("Мне очень тяжело сейчас и я не знаю, что делать дальше", "ru"),
+        ("Мені дуже важко зараз і я не знаю, що робити далі", "uk"),
+        ("This is very hard for me and I do not know what to do next", "en"),
+        ("Necesito ayuda porque estoy muy triste", "es"),
+        ("Potrzebuję pomocy, bo jest mi bardzo ciężko", "pl"),
+        ("Preciso de ajuda porque estou muito triste", "pt"),
+        ("Помоги", None),          # top probability is below the reviewed threshold
         ("123 !!! ***", None),     # no letters at all
     ],
 )
@@ -567,7 +570,7 @@ def test_language_detection(text, expected):
 
 
 def test_an_undecidable_cyrillic_message_takes_the_language_of_the_pattern():
-    """"хочу померти" carries none of і/ї/є/ґ — the pattern is the evidence."""
+    """A low-confidence phrase takes the reviewed pattern's language."""
     assert safety.detect_language("хочу померти") is None
     assert safety.detect_language("хочу умереть") is None
     assert safety.check_input("хочу померти").language == "uk"
@@ -585,7 +588,7 @@ def test_an_unknown_language_falls_back_to_english():
 # ---------------------------------------------------------------------------
 
 def test_a_reply_exists_for_every_supported_language():
-    assert set(safety.SAFETY_REPLIES) == set(safety.SUPPORTED_LANGUAGES)
+    assert set(safety.SAFETY_REPLIES) == set(safety.SAFETY_REPLY_LANGUAGES)
     assert safety.DEFAULT_LANGUAGE in safety.SAFETY_REPLIES
 
 
