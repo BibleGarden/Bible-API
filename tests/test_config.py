@@ -36,6 +36,12 @@ REMOVED_AI_VARS = (
     "AI_OPENAI_COMPAT_API_KEY",
     "GEMINI_API_KEY",
 )
+FORBIDDEN_REASONING_VARS = (
+    "AI_REASONING_EFFORT",
+    "AI_TRANSCRIBE_REASONING_EFFORT",
+    "EMBEDDING_REASONING_EFFORT",
+)
+REASONING_EFFORTS = ("omit", "none", "low", "medium", "high")
 INTEGER_OPERATIONAL_VARS = (
     "DB_PORT",
     "IMPORT_MAX_PAYLOAD_MB",
@@ -63,6 +69,7 @@ STAGE_FIELDS = (
         "AI_QUESTION_MODEL",
         "AI_QUESTION_ENDPOINT",
         "AI_QUESTION_API_KEY",
+        "AI_QUESTION_REASONING_EFFORT",
     ),
     (
         "scripture_rewrite",
@@ -70,6 +77,7 @@ STAGE_FIELDS = (
         "AI_SCRIPTURE_REWRITE_MODEL",
         "AI_SCRIPTURE_REWRITE_ENDPOINT",
         "AI_SCRIPTURE_REWRITE_API_KEY",
+        "AI_SCRIPTURE_REWRITE_REASONING_EFFORT",
     ),
     (
         "scripture_rerank",
@@ -77,6 +85,7 @@ STAGE_FIELDS = (
         "AI_SCRIPTURE_RERANK_MODEL",
         "AI_SCRIPTURE_RERANK_ENDPOINT",
         "AI_SCRIPTURE_RERANK_API_KEY",
+        "AI_SCRIPTURE_RERANK_REASONING_EFFORT",
     ),
     (
         "transcribe",
@@ -84,6 +93,7 @@ STAGE_FIELDS = (
         "AI_TRANSCRIBE_MODEL",
         "AI_TRANSCRIBE_ENDPOINT",
         "AI_TRANSCRIBE_API_KEY",
+        None,
     ),
     (
         "embeddings",
@@ -91,6 +101,7 @@ STAGE_FIELDS = (
         "EMBEDDING_MODEL",
         "EMBEDDING_ENDPOINT",
         "EMBEDDING_API_KEY",
+        None,
     ),
 )
 AI_DISABLED_FORBIDDEN = (
@@ -99,14 +110,17 @@ AI_DISABLED_FORBIDDEN = (
     "AI_QUESTION_MODEL",
     "AI_QUESTION_ENDPOINT",
     "AI_QUESTION_API_KEY",
+    "AI_QUESTION_REASONING_EFFORT",
     "AI_SCRIPTURE_REWRITE_PROVIDER",
     "AI_SCRIPTURE_REWRITE_MODEL",
     "AI_SCRIPTURE_REWRITE_ENDPOINT",
     "AI_SCRIPTURE_REWRITE_API_KEY",
+    "AI_SCRIPTURE_REWRITE_REASONING_EFFORT",
     "AI_SCRIPTURE_RERANK_PROVIDER",
     "AI_SCRIPTURE_RERANK_MODEL",
     "AI_SCRIPTURE_RERANK_ENDPOINT",
     "AI_SCRIPTURE_RERANK_API_KEY",
+    "AI_SCRIPTURE_RERANK_REASONING_EFFORT",
     "AI_TRANSCRIBE_PROVIDER",
     "AI_TRANSCRIBE_MODEL",
     "AI_TRANSCRIBE_ENDPOINT",
@@ -137,13 +151,17 @@ AI_ENV = {
     "AI_QUESTION_MODEL": "cerebras-model",
     "AI_QUESTION_ENDPOINT": "https://cerebras.example/v1",
     "AI_QUESTION_API_KEY": "question-key",
+    "AI_QUESTION_REASONING_EFFORT": "none",
     "AI_SCRIPTURE_REWRITE_PROVIDER": "openai_compat",
     "AI_SCRIPTURE_REWRITE_MODEL": "qwen3-30b",
     "AI_SCRIPTURE_REWRITE_ENDPOINT": "http://qwen:8000/v1",
     "AI_SCRIPTURE_REWRITE_API_KEY": "",
-    "AI_SCRIPTURE_RERANK_PROVIDER": "gemini",
-    "AI_SCRIPTURE_RERANK_MODEL": "gemini-3.5-flash-lite",
+    "AI_SCRIPTURE_REWRITE_REASONING_EFFORT": "omit",
+    "AI_SCRIPTURE_RERANK_PROVIDER": "openai_compat",
+    "AI_SCRIPTURE_RERANK_MODEL": "qwen3-30b",
+    "AI_SCRIPTURE_RERANK_ENDPOINT": "http://qwen:8000/v1",
     "AI_SCRIPTURE_RERANK_API_KEY": "rerank-key",
+    "AI_SCRIPTURE_RERANK_REASONING_EFFORT": "high",
     "AI_TRANSCRIBE_PROVIDER": "local",
     "AI_TRANSCRIBE_MODEL": "small",
     "AI_TRANSCRIBE_MODEL_PATH": "/models/whisper/small",
@@ -181,14 +199,17 @@ AI_FIELDS = {
     "AI_QUESTION_MODEL",
     "AI_QUESTION_ENDPOINT",
     "AI_QUESTION_API_KEY",
+    "AI_QUESTION_REASONING_EFFORT",
     "AI_SCRIPTURE_REWRITE_PROVIDER",
     "AI_SCRIPTURE_REWRITE_MODEL",
     "AI_SCRIPTURE_REWRITE_ENDPOINT",
     "AI_SCRIPTURE_REWRITE_API_KEY",
+    "AI_SCRIPTURE_REWRITE_REASONING_EFFORT",
     "AI_SCRIPTURE_RERANK_PROVIDER",
     "AI_SCRIPTURE_RERANK_MODEL",
     "AI_SCRIPTURE_RERANK_ENDPOINT",
     "AI_SCRIPTURE_RERANK_API_KEY",
+    "AI_SCRIPTURE_RERANK_REASONING_EFFORT",
     "AI_TRANSCRIBE_PROVIDER",
     "AI_TRANSCRIBE_MODEL",
     "AI_TRANSCRIBE_ENDPOINT",
@@ -198,6 +219,9 @@ AI_FIELDS = {
     "GEMINI_API_KEY",
     "AI_OPENAI_COMPAT_ENDPOINT",
     "AI_OPENAI_COMPAT_API_KEY",
+    "AI_REASONING_EFFORT",
+    "AI_TRANSCRIBE_REASONING_EFFORT",
+    "EMBEDDING_REASONING_EFFORT",
 }
 EMBEDDING_FIELDS = {
     "EMBEDDING_PROVIDER",
@@ -258,6 +282,8 @@ def test_literal_contract_matches_the_production_lists():
     assert config.AI_PROVIDER_VARS == AI_PROVIDERS_REQUIRED
     assert config.AI_REQUIRED_VARS == AI_MODELS_REQUIRED
     assert config.REMOVED_AI_VARS == REMOVED_AI_VARS
+    assert config.FORBIDDEN_REASONING_VARS == FORBIDDEN_REASONING_VARS
+    assert config.REASONING_EFFORTS == REASONING_EFFORTS
     configured_stages = (
         *config.AI_STAGE_VARS,
         config.TRANSCRIBE_STAGE_VARS,
@@ -271,6 +297,7 @@ def test_literal_contract_matches_the_production_lists():
                 stage.model_var,
                 stage.endpoint_var,
                 stage.api_key_var,
+                stage.reasoning_effort_var,
             )
             for stage in configured_stages
         )
@@ -351,6 +378,63 @@ def test_complete_mixed_environment_has_no_problems():
 
 
 @pytest.mark.parametrize(
+    "reasoning_var",
+    [
+        "AI_QUESTION_REASONING_EFFORT",
+        "AI_SCRIPTURE_REWRITE_REASONING_EFFORT",
+        "AI_SCRIPTURE_RERANK_REASONING_EFFORT",
+    ],
+)
+def test_every_openai_compat_chat_stage_requires_reasoning_effort(reasoning_var):
+    env = dict(AI_ENV)
+    del env[reasoning_var]
+    assert reasoning_var in config.missing_required_vars(env)
+    with pytest.raises(config.ConfigError, match=reasoning_var):
+        config._validate(env, [])
+
+
+@pytest.mark.parametrize("value", REASONING_EFFORTS)
+def test_every_reasoning_effort_literal_is_accepted(value):
+    env = dict(AI_ENV, AI_QUESTION_REASONING_EFFORT=value)
+    assert config.missing_required_vars(env) == []
+    assert config.invalid_required_values(env) == []
+    stage = config.resolve_stage(env, config.QUESTION_STAGE_VARS)
+    assert stage.reasoning_effort == value
+
+
+@pytest.mark.parametrize("value", ["", "minimal", "max", "NONE", " low "])
+def test_reasoning_effort_rejects_missing_aliases_and_untrimmed_values(value):
+    env = dict(AI_ENV, AI_QUESTION_REASONING_EFFORT=value)
+    with pytest.raises(config.ConfigError, match="AI_QUESTION_REASONING_EFFORT"):
+        config._validate(env, [])
+
+
+@pytest.mark.parametrize(
+    "reasoning_var",
+    [
+        "AI_QUESTION_REASONING_EFFORT",
+        "AI_SCRIPTURE_REWRITE_REASONING_EFFORT",
+        "AI_SCRIPTURE_RERANK_REASONING_EFFORT",
+    ],
+)
+@pytest.mark.parametrize("value", ["", "omit", "none"])
+def test_gemini_chat_rejects_reasoning_effort_even_when_blank(reasoning_var, value):
+    env = {**GEMINI_AI_ENV, reasoning_var: value}
+    problems = config.invalid_required_values(env)
+    assert any(
+        reasoning_var in problem and "openai_compat" in problem
+        for problem in problems
+    )
+
+
+@pytest.mark.parametrize("name", FORBIDDEN_REASONING_VARS)
+@pytest.mark.parametrize("value", ["", "none"])
+def test_shared_audio_and_embedding_reasoning_names_are_unreadable(name, value):
+    problems = config.invalid_required_values({**BASE_ENV, name: value})
+    assert any(name in problem and "unsupported" in problem for problem in problems)
+
+
+@pytest.mark.parametrize(
     "provider_var,key_var",
     [
         ("AI_QUESTION_PROVIDER", "AI_QUESTION_API_KEY"),
@@ -413,10 +497,11 @@ def test_removed_variables_fail_fast_even_blank(name, value):
 
 
 def test_gemini_stage_uses_only_its_stage_specific_key():
-    stage = config.resolve_stage(AI_ENV, config.SCRIPTURE_RERANK_STAGE_VARS)
+    stage = config.resolve_stage(GEMINI_AI_ENV, config.SCRIPTURE_RERANK_STAGE_VARS)
     assert stage.is_gemini
     assert stage.api_key == "rerank-key"
     assert stage.endpoint == ""
+    assert stage.reasoning_effort is None
 
 
 @pytest.mark.parametrize(
@@ -448,7 +533,7 @@ def test_every_enabled_ai_model_is_required(model_var):
 
 def test_gemini_rejects_even_a_blank_endpoint_variable():
     problems = config.invalid_required_values(
-        {**AI_ENV, "AI_SCRIPTURE_RERANK_ENDPOINT": ""}
+        {**GEMINI_AI_ENV, "AI_SCRIPTURE_RERANK_ENDPOINT": ""}
     )
     assert any("AI_SCRIPTURE_RERANK_ENDPOINT" in problem for problem in problems)
 
@@ -680,12 +765,17 @@ def test_supported_local_transcription_compute_type_is_accepted():
         (
             "question",
             config.QUESTION_STAGE_VARS,
-            ("https://cerebras.example/v1", "question-key", "cerebras-model"),
+            (
+                "https://cerebras.example/v1",
+                "question-key",
+                "cerebras-model",
+                "none",
+            ),
         ),
         (
             "scripture_rewrite",
             config.SCRIPTURE_REWRITE_STAGE_VARS,
-            ("http://qwen:8000/v1", "", "qwen3-30b"),
+            ("http://qwen:8000/v1", "", "qwen3-30b", "omit"),
         ),
     ],
 )
@@ -695,7 +785,12 @@ def test_openai_stage_routing_uses_only_its_own_fields(
     stage = config.resolve_stage(AI_ENV, stage_vars)
     assert stage.stage == stage_name
     assert stage.is_openai_compat
-    assert (stage.endpoint, stage.api_key, stage.model) == expected
+    assert (
+        stage.endpoint,
+        stage.api_key,
+        stage.model,
+        stage.reasoning_effort,
+    ) == expected
 
 
 def test_local_transcription_routing_has_no_endpoint_or_key():
@@ -704,6 +799,7 @@ def test_local_transcription_routing_has_no_endpoint_or_key():
     assert stage.model == "small"
     assert stage.endpoint == ""
     assert stage.api_key == ""
+    assert stage.reasoning_effort is None
 
 
 @pytest.mark.parametrize(
@@ -776,9 +872,12 @@ def test_import_reads_each_stage_without_inheritance(monkeypatch):
     assert module.AI_ENABLED is True
     assert module.QUESTION_PROVIDER.endpoint == "https://cerebras.example/v1"
     assert module.QUESTION_PROVIDER.api_key == "question-key"
+    assert module.QUESTION_PROVIDER.reasoning_effort == "none"
     assert module.SCRIPTURE_REWRITE_PROVIDER.endpoint == "http://qwen:8000/v1"
     assert module.SCRIPTURE_REWRITE_PROVIDER.api_key == ""
+    assert module.SCRIPTURE_REWRITE_PROVIDER.reasoning_effort == "omit"
     assert module.SCRIPTURE_RERANK_PROVIDER.api_key == "rerank-key"
+    assert module.SCRIPTURE_RERANK_PROVIDER.reasoning_effort == "high"
     assert module.TRANSCRIBE_PROVIDER.is_local
 
 

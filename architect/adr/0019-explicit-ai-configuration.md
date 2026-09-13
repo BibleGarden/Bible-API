@@ -36,6 +36,13 @@ may use `local`, which requires `AI_TRANSCRIBE_MODEL_PATH` and forbids its
 endpoint/key. `AI_CLIENT_HMAC_KEY` is required with enabled AI so the
 per-client limiter cannot start already degraded.
 
+ADR 0020 adds one more field to each of the three chat stages when its
+provider is `openai_compat`: the stage-specific
+`AI_<STAGE>_REASONING_EFFORT`, exactly `omit`, `none`, `low`, `medium` or
+`high`. It is forbidden for Gemini. `omit` is the explicit instruction not to
+send a request field; absence is still a startup error. There is no shared
+reasoning variable, and transcription and embeddings do not have one.
+
 Embeddings keep their separate explicit block. `openai_compat` requires
 `EMBEDDING_ENDPOINT` and the presence of `EMBEDDING_API_KEY`, which may be
 empty; Gemini requires a non-empty key and no endpoint; `local` requires
@@ -53,9 +60,9 @@ not force four irrelevant exports when `AI_ENABLED=false`.
 
 ## Consequences
 
-- The effective provider, model, endpoint and credential source of every stage
-  are visible in one environment; changing one stage cannot silently affect
-  another.
+- The effective provider, model, endpoint, credential source and, for
+  OpenAI-compatible chat, reasoning mode of every stage are visible in one
+  environment; changing one stage cannot silently affect another.
 - Deployments must migrate atomically and remove the three legacy variables.
 - Disabling chat/audio is one explicit value and does not disable embeddings.
 - The AI-enabled startup contract is stricter because a missing HMAC key now

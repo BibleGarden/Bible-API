@@ -68,12 +68,18 @@ SECRET_KEY = "sk-do-not-print-me"
 
 
 def stage(name: str, model: str = "qwen3-30b", **kwargs) -> config.StageProvider:
+    provider = kwargs.pop("provider", config.PROVIDER_OPENAI_COMPAT)
+    reasoning_effort = kwargs.pop(
+        "reasoning_effort",
+        "omit" if provider == config.PROVIDER_OPENAI_COMPAT else None,
+    )
     return config.StageProvider(
         stage=name,
-        provider=kwargs.pop("provider", config.PROVIDER_OPENAI_COMPAT),
+        provider=provider,
         model=model,
         endpoint=kwargs.pop("endpoint", ENDPOINT),
         api_key=kwargs.pop("api_key", SECRET_KEY),
+        reasoning_effort=reasoning_effort,
     )
 
 
@@ -112,7 +118,13 @@ def test_auth_header_is_omitted_for_an_unauthenticated_endpoint():
 
 def test_payload_carries_the_json_contract_only_when_asked():
     payload = build_payload(
-        "m", "system", "user", temperature=0.0, max_tokens=1024, json_object=True
+        "m",
+        "system",
+        "user",
+        temperature=0.0,
+        max_tokens=1024,
+        json_object=True,
+        reasoning_effort="omit",
     )
     assert payload["messages"] == [
         {"role": "system", "content": "system"},
@@ -121,9 +133,61 @@ def test_payload_carries_the_json_contract_only_when_asked():
     assert payload["response_format"] == {"type": "json_object"}
     assert payload["temperature"] == 0.0 and payload["max_tokens"] == 1024
     prose = build_payload(
-        "m", "s", "u", temperature=0.7, max_tokens=8, json_object=False
+        "m",
+        "s",
+        "u",
+        temperature=0.7,
+        max_tokens=8,
+        json_object=False,
+        reasoning_effort="omit",
     )
     assert "response_format" not in prose
+
+
+def test_transport_and_config_share_the_literal_reasoning_contract():
+    expected = ("omit", "none", "low", "medium", "high")
+    assert config.REASONING_EFFORTS == expected
+    assert llm_client.REASONING_EFFORTS == expected
+
+
+@pytest.mark.parametrize("effort", ["none", "low", "medium", "high"])
+def test_payload_sends_each_reasoning_effort_literal_exactly(effort):
+    payload = build_payload(
+        "m",
+        "s",
+        "u",
+        temperature=0.0,
+        max_tokens=8,
+        json_object=False,
+        reasoning_effort=effort,
+    )
+    assert payload["reasoning_effort"] == effort
+
+
+def test_payload_omit_is_an_explicit_instruction_not_to_send_the_field():
+    payload = build_payload(
+        "m",
+        "s",
+        "u",
+        temperature=0.0,
+        max_tokens=8,
+        json_object=False,
+        reasoning_effort="omit",
+    )
+    assert "reasoning_effort" not in payload
+
+
+def test_payload_rejects_an_unknown_reasoning_effort():
+    with pytest.raises(ValueError, match="reasoning_effort"):
+        build_payload(
+            "m",
+            "s",
+            "u",
+            temperature=0.0,
+            max_tokens=8,
+            json_object=False,
+            reasoning_effort="default",
+        )
 
 
 def test_the_client_sends_model_prompt_and_key():
@@ -135,21 +199,37 @@ def test_the_client_sends_model_prompt_and_key():
         captured["body"] = json.loads(request.content)
         return httpx.Response(200, json=chat_response('{"ok": true}'))
 
-    client = ChatClient(ENDPOINT, SECRET_KEY, "qwen3-30b", http_client=mock_client(handler))
+    client = ChatClient(
+        ENDPOINT,
+        SECRET_KEY,
+        "qwen3-30b",
+        "none",
+        http_client=mock_client(handler),
+    )
     assert client.complete("instruction", "content") == '{"ok": true}'
     assert captured["url"] == f"{ENDPOINT}/chat/completions"
     assert captured["auth"] == f"Bearer {SECRET_KEY}"
     assert captured["body"]["model"] == "qwen3-30b"
+    assert captured["body"]["reasoning_effort"] == "none"
 
 
 @pytest.mark.parametrize(
     ("field", "value"),
-    [("endpoint", ""), ("model", "")],
+    [("endpoint", ""), ("model", ""), ("reasoning_effort", "")],
 )
 def test_an_unconfigured_client_refuses_before_it_dials(field, value):
-    kwargs = {"endpoint": ENDPOINT, "api_key": "k", "model": "m", field: value}
+    kwargs = {
+        "endpoint": ENDPOINT,
+        "api_key": "k",
+        "model": "m",
+        "reasoning_effort": "omit",
+        field: value,
+    }
     client = ChatClient(
-        kwargs["endpoint"], kwargs["api_key"], kwargs["model"],
+        kwargs["endpoint"],
+        kwargs["api_key"],
+        kwargs["model"],
+        kwargs["reasoning_effort"],
         http_client=mock_client(lambda r: httpx.Response(200)),
     )
     with pytest.raises(LLMError, match="not configured"):
@@ -171,7 +251,7 @@ def test_a_reasoning_block_cannot_swallow_the_json_object():
     reasoning would take the closing brace of the real object with it."""
     answer = '<think>maybe {"candidate": 9}?</think>{"candidate": 2, "reason": "fits"}'
     client = ChatClient(
-        ENDPOINT, "k", "m",
+        ENDPOINT, "k", "m", "omit",
         http_client=mock_client(lambda r: httpx.Response(200, json=chat_response(answer))),
     )
     text = client.complete("i", "u")
@@ -209,7 +289,7 @@ def test_retries_transient_statuses_then_succeeds():
         return httpx.Response(200, json=chat_response("done"))
 
     client = ChatClient(
-        ENDPOINT, "k", "m", http_client=mock_client(handler),
+        ENDPOINT, "k", "m", "omit", http_client=mock_client(handler),
         attempts=3, sleep=lambda _s: None,
     )
     assert client.complete("i", "u") == "done"
@@ -224,7 +304,7 @@ def test_gives_up_after_the_configured_attempts():
         return httpx.Response(429, json={})
 
     client = ChatClient(
-        ENDPOINT, "k", "m", http_client=mock_client(handler),
+        ENDPOINT, "k", "m", "omit", http_client=mock_client(handler),
         attempts=2, sleep=lambda _s: None,
     )
     with pytest.raises(LLMError, match="after retries"):
@@ -239,7 +319,9 @@ def test_an_exhausted_budget_starts_no_call():
         calls["n"] += 1
         return httpx.Response(200, json=chat_response("x"))
 
-    client = ChatClient(ENDPOINT, "k", "m", http_client=mock_client(handler))
+    client = ChatClient(
+        ENDPOINT, "k", "m", "omit", http_client=mock_client(handler)
+    )
     with pytest.raises(LLMError, match="budget exhausted"):
         client.complete("i", "u", deadline=Deadline(0.0))
     assert calls["n"] == 0
@@ -259,7 +341,9 @@ def test_one_call_is_capped_across_all_four_httpx_phases():
                 request=httpx.Request("POST", url),
             )
 
-    client = ChatClient(ENDPOINT, "k", "m", http_client=RecordingClient())
+    client = ChatClient(
+        ENDPOINT, "k", "m", "omit", http_client=RecordingClient()
+    )
     client.complete("i", "u", deadline=Deadline(4.0))
     timeout = seen["timeout"]
     assert isinstance(timeout, httpx.Timeout)
@@ -279,7 +363,7 @@ def test_one_call_is_capped_across_all_four_httpx_phases():
 def test_a_failure_never_carries_the_key_the_url_or_the_content(handler, caplog):
     secret_prayer = "секретная тема молитвы"
     client = ChatClient(
-        ENDPOINT, SECRET_KEY, "m", http_client=mock_client(handler),
+        ENDPOINT, SECRET_KEY, "m", "omit", http_client=mock_client(handler),
         attempts=2, sleep=lambda _s: None,
     )
     with caplog.at_level(logging.DEBUG):
@@ -308,15 +392,32 @@ def test_the_async_client_answers_and_maps_its_failures():
     async_ok = mock_async(lambda r: httpx.Response(200, json=chat_response("Ответ")))
     with async_ok:
         assert asyncio.run(
-            AsyncChatClient(ENDPOINT, "k", "m").complete("i", "u")
+            AsyncChatClient(ENDPOINT, "k", "m", "omit").complete("i", "u")
         ) == "Ответ"
     with mock_async(lambda r: httpx.Response(500)):
         with pytest.raises(LLMError, match="after retries"):
             asyncio.run(
-                AsyncChatClient(ENDPOINT, "k", "m", sleep=no_sleep()).complete(
+                AsyncChatClient(
+                    ENDPOINT, "k", "m", "omit", sleep=no_sleep()
+                ).complete(
                     "i", "u"
                 )
             )
+
+
+def test_the_async_client_sends_reasoning_effort_exactly():
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(request.content))
+        return httpx.Response(200, json=chat_response("Ответ"))
+
+    with mock_async(handler):
+        answer = asyncio.run(
+            AsyncChatClient(ENDPOINT, "k", "m", "high").complete("i", "u")
+        )
+    assert answer == "Ответ"
+    assert captured["reasoning_effort"] == "high"
 
 
 def no_sleep(recorded: list | None = None):
@@ -340,7 +441,12 @@ def test_the_async_ladder_is_the_same_one_the_gemini_stages_climb():
         with pytest.raises(LLMError, match="after retries"):
             asyncio.run(
                 AsyncChatClient(
-                    ENDPOINT, "k", "m", attempts=3, sleep=no_sleep(pauses)
+                    ENDPOINT,
+                    "k",
+                    "m",
+                    "omit",
+                    attempts=3,
+                    sleep=no_sleep(pauses),
                 ).complete("i", "u")
             )
     assert calls["n"] == 3
@@ -435,7 +541,11 @@ def test_no_gemini_host_is_dialled_by_a_fully_local_selection(monkeypatch):
     reranker = build_passage_reranker(
         stage("scripture_rerank"), http_client=mock_client(rerank)
     )
-    monkeypatch.setattr(twinkler_ai, "QUESTION_PROVIDER", stage("question"))
+    monkeypatch.setattr(
+        twinkler_ai,
+        "QUESTION_PROVIDER",
+        stage("question", reasoning_effort="none"),
+    )
     monkeypatch.setattr(
         embeddings, "load_embedding_model", lambda: FakeEncoder()
     )
@@ -471,6 +581,19 @@ def test_the_factories_build_no_gemini_client(monkeypatch):
     for client in built:
         assert not isinstance(client, forbidden)
         client.close()
+
+
+def test_the_chat_factories_preserve_each_stage_reasoning_effort():
+    rewriter = build_query_rewriter(
+        stage("scripture_rewrite", reasoning_effort="low")
+    )
+    reranker = build_passage_reranker(
+        stage("scripture_rerank", reasoning_effort="medium")
+    )
+    assert rewriter._chat.reasoning_effort == "low"
+    assert reranker._chat.reasoning_effort == "medium"
+    rewriter.close()
+    reranker.close()
 
 
 def test_the_factories_build_gemini_clients_for_a_gemini_deployment():
@@ -577,7 +700,11 @@ def test_question_parity_between_providers(monkeypatch):
     with mock_async(gemini):
         on_gemini = asyncio.run(twinkler_ai.complete("Мне тяжело"))
 
-    monkeypatch.setattr(twinkler_ai, "QUESTION_PROVIDER", stage("question"))
+    monkeypatch.setattr(
+        twinkler_ai,
+        "QUESTION_PROVIDER",
+        stage("question", reasoning_effort="none"),
+    )
     with mock_async(openai_compat):
         on_local = asyncio.run(twinkler_ai.complete("Мне тяжело"))
 
@@ -631,7 +758,11 @@ def test_question_parity_on_every_stage(
     with mock_async(gemini):
         on_gemini = asyncio.run(twinkler_ai.complete(user_message, language_source))
 
-    monkeypatch.setattr(twinkler_ai, "QUESTION_PROVIDER", stage("question"))
+    monkeypatch.setattr(
+        twinkler_ai,
+        "QUESTION_PROVIDER",
+        stage("question", reasoning_effort="none"),
+    )
     with mock_async(openai_compat):
         on_local = asyncio.run(twinkler_ai.complete(user_message, language_source))
 
@@ -724,13 +855,18 @@ def test_the_question_stage_asks_for_the_v6_object(monkeypatch):
         captured.update(json.loads(request.content))
         return httpx.Response(200, json=chat_response("Ответ"))
 
-    monkeypatch.setattr(twinkler_ai, "QUESTION_PROVIDER", stage("question"))
+    monkeypatch.setattr(
+        twinkler_ai,
+        "QUESTION_PROVIDER",
+        stage("question", reasoning_effort="none"),
+    )
     with mock_async(handler):
         asyncio.run(twinkler_ai.complete("Запрос"))
 
     assert captured["response_format"] == {"type": "json_object"}
     assert captured["temperature"] == 0.7
     assert captured["max_tokens"] == llm_client.DEFAULT_MAX_TOKENS
+    assert captured["reasoning_effort"] == "none"
 
 
 def test_a_failing_local_question_is_the_same_502_as_a_failing_gemini_one(monkeypatch):
@@ -773,6 +909,7 @@ def test_the_startup_banner_names_the_providers_and_never_the_key(monkeypatch, c
     assert caplog.text.count("AI stage") == 4
     assert "AI stage transcribe" in caplog.text
     assert "openai_compat" in caplog.text
+    assert "reasoning_effort=omit" in caplog.text
     assert "llm.example" in caplog.text          # the host, for the operator
     assert SECRET_KEY not in caplog.text         # never the key itself
     assert "8443" not in caplog.text             # host only, not the URL

@@ -321,8 +321,11 @@ contract.
 
 When `AI_ENABLED=true`, rewrite and rerank each require their own provider and
 model. Gemini requires a non-empty stage key; `openai_compat` requires its own
-endpoint and a present stage-key variable, which may be empty for no-auth. No
-endpoint or key is inherited from another stage.
+endpoint, a present stage-key variable (which may be empty for no-auth), and
+its own required `AI_<STAGE>_REASONING_EFFORT`. `none`, `low`, `medium` and
+`high` are sent exactly; `omit` explicitly leaves the request field out and is
+not a fallback. Gemini forbids the variable. No endpoint, key or reasoning
+mode is inherited from another stage.
 
 Embeddings keep their separate required block. `openai_compat` requires
 `EMBEDDING_ENDPOINT` and present `EMBEDDING_API_KEY`; Gemini uses the
@@ -333,7 +336,9 @@ OpenAI-compatible key means no Authorization header.
 The models, prompts, parsers, retrieval fallbacks and operational timeout
 defaults described below are unchanged. The complete fail-fast matrix and
 removed legacy variables are in
-`architect/adr/0019-explicit-ai-configuration.md`.
+`architect/adr/0019-explicit-ai-configuration.md`; ADR 0020 records the
+reasoning contract and the local Qwen/Cerebras trial. Embeddings have no
+reasoning setting.
 ### Rewrite prompt and implicit provider caching
 
 The rewrite request is built so the static part is strictly a prefix of the

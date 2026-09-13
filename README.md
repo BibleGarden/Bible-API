@@ -103,9 +103,10 @@ migration fallbacks. `AI_ENABLED` is required in every deployment:
 
 | Block | Required values | Forbidden / omitted values |
 |---|---|---|
-| AI disabled | `AI_ENABLED=false` | every stage-specific `AI_*_PROVIDER/MODEL/ENDPOINT/API_KEY` and `AI_CLIENT_HMAC_KEY` |
-| Gemini stage | `AI_ENABLED=true`, stage `PROVIDER=gemini`, `MODEL`, non-empty stage `API_KEY` | stage `ENDPOINT` |
-| OpenAI-compatible stage | `AI_ENABLED=true`, stage `PROVIDER=openai_compat`, `MODEL`, `ENDPOINT`, present stage `API_KEY` (may be empty) | shared endpoint/key variables |
+| AI disabled | `AI_ENABLED=false` | every stage-specific `AI_*_PROVIDER/MODEL/ENDPOINT/API_KEY/REASONING_EFFORT` and `AI_CLIENT_HMAC_KEY` |
+| Gemini stage | `AI_ENABLED=true`, stage `PROVIDER=gemini`, `MODEL`, non-empty stage `API_KEY` | stage `ENDPOINT`; chat-stage `REASONING_EFFORT` |
+| OpenAI-compatible chat stage | `AI_ENABLED=true`, stage `PROVIDER=openai_compat`, `MODEL`, `ENDPOINT`, present stage `API_KEY` (may be empty), `REASONING_EFFORT=omit\|none\|low\|medium\|high` | shared endpoint/key/reasoning variables |
+| OpenAI-compatible transcription | `AI_TRANSCRIBE_PROVIDER=openai_compat`, `MODEL`, `ENDPOINT`, present `API_KEY` (may be empty) | transcription reasoning variables |
 | Local transcription | `AI_TRANSCRIBE_PROVIDER=local`, `MODEL`, `MODEL_PATH` | transcription `ENDPOINT` and `API_KEY` |
 | Embeddings | `EMBEDDING_PROVIDER`, `MODEL`, `DIMENSIONS` in every deployment | provider-specific unused fields |
 | OpenAI-compatible embeddings | `EMBEDDING_ENDPOINT` and present `EMBEDDING_API_KEY` (may be empty) | `EMBEDDING_MODEL_PATH` |
@@ -142,19 +143,57 @@ AI_CLIENT_HMAC_KEY=generate-a-separate-random-secret
 AI_QUESTION_PROVIDER=openai_compat
 AI_QUESTION_MODEL=your-cerebras-model
 AI_QUESTION_ENDPOINT=https://api.cerebras.ai/v1
+AI_QUESTION_REASONING_EFFORT=omit
 
 AI_SCRIPTURE_REWRITE_PROVIDER=openai_compat
 AI_SCRIPTURE_REWRITE_MODEL=qwen3-30b
 AI_SCRIPTURE_REWRITE_ENDPOINT=http://qwen:8000/v1
+AI_SCRIPTURE_REWRITE_REASONING_EFFORT=omit
 
 AI_SCRIPTURE_RERANK_PROVIDER=openai_compat
 AI_SCRIPTURE_RERANK_MODEL=qwen3-30b
 AI_SCRIPTURE_RERANK_ENDPOINT=http://qwen:8000/v1
+AI_SCRIPTURE_RERANK_REASONING_EFFORT=omit
 
 AI_TRANSCRIBE_PROVIDER=openai_compat
 AI_TRANSCRIBE_MODEL=deepdml/faster-whisper-large-v3-turbo-ct2
 AI_TRANSCRIBE_ENDPOINT=https://your-audio-server/v1
 ```
+
+For Maria's local Qwen/Cerebras trial of 2026-09-13, the desired chat block is
+the following. The same existing Cerebras secret is exported into the three
+stage-specific key variables from the invoking shell; it is not stored in
+`.env`:
+
+```bash
+: "${CEREBRAS_API_KEY:?export the existing shell-only Cerebras key first}"
+export AI_QUESTION_API_KEY="$CEREBRAS_API_KEY"
+export AI_SCRIPTURE_REWRITE_API_KEY="$CEREBRAS_API_KEY"
+export AI_SCRIPTURE_RERANK_API_KEY="$CEREBRAS_API_KEY"
+```
+
+```dotenv
+AI_QUESTION_PROVIDER=openai_compat
+AI_QUESTION_MODEL=qwen-3.8-27b
+AI_QUESTION_ENDPOINT=https://api.cerebras.ai/v1
+AI_QUESTION_REASONING_EFFORT=none
+
+AI_SCRIPTURE_REWRITE_PROVIDER=openai_compat
+AI_SCRIPTURE_REWRITE_MODEL=qwen-3.8-27b
+AI_SCRIPTURE_REWRITE_ENDPOINT=https://api.cerebras.ai/v1
+AI_SCRIPTURE_REWRITE_REASONING_EFFORT=none
+
+AI_SCRIPTURE_RERANK_PROVIDER=openai_compat
+AI_SCRIPTURE_RERANK_MODEL=qwen-3.8-27b
+AI_SCRIPTURE_RERANK_ENDPOINT=https://api.cerebras.ai/v1
+AI_SCRIPTURE_RERANK_REASONING_EFFORT=none
+```
+
+`none`, `low`, `medium` and `high` are sent byte-for-byte as the
+`reasoning_effort` request field. `omit` is an explicit compatibility choice
+that leaves the field out; it is not a default or fallback. Missing or invalid
+reasoning configuration aborts startup for an OpenAI-compatible chat stage.
+Transcription and embeddings do not have a reasoning setting.
 
 A disabled AI surface is intentionally short; embeddings remain fully
 configured because scripture retrieval and index identity are separate:

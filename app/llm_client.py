@@ -6,7 +6,9 @@ The three chat-shaped AI stages — the guiding question
 passage rerank — used to speak Gemini's `:generateContent` protocol inline,
 one hand-rolled copy per module. This module is the OTHER transport: one
 OpenAI-compatible `/chat/completions` client the same three stages can use,
-chosen per stage by `AI_*_PROVIDER` (see `app/config.py`).
+chosen per stage by `AI_*_PROVIDER` (see `app/config.py`). Each client also
+receives that stage's validated reasoning effort: four values become the
+request field, while the explicit `omit` mode leaves it out.
 
 What is deliberately NOT here: prompts, parsers and validation. A stage's
 instruction, its user content and the checks applied to the answer stay in
@@ -79,6 +81,10 @@ DEFAULT_MAX_TOKENS = 1024
 # can still afford the attempt that follows.
 _RETRY_BASE_SECONDS = 2.0
 
+# Kept literal here as a transport guard as well as in config validation: the
+# client is also used by tests and tooling that can construct it directly.
+REASONING_EFFORTS = ("omit", "none", "low", "medium", "high")
+
 
 class LLMError(RuntimeError):
     """The chat backend is not configured, unreachable or returned junk.
@@ -132,6 +138,7 @@ def build_payload(
     temperature: float,
     max_tokens: int,
     json_object: bool,
+    reasoning_effort: str,
 ) -> dict:
     """The chat-completions body: system instruction + one user message.
 
@@ -152,6 +159,12 @@ def build_payload(
     }
     if json_object:
         payload["response_format"] = {"type": "json_object"}
+    if reasoning_effort not in REASONING_EFFORTS:
+        raise ValueError(
+            "reasoning_effort must be one of " + ", ".join(REASONING_EFFORTS)
+        )
+    if reasoning_effort != "omit":
+        payload["reasoning_effort"] = reasoning_effort
     return payload
 
 
@@ -195,6 +208,7 @@ class _ChatBase:
         endpoint: str,
         api_key: str,
         model: str,
+        reasoning_effort: str,
         timeout: float = 20.0,
         attempts: int = 3,
         max_tokens: int = DEFAULT_MAX_TOKENS,
@@ -202,6 +216,7 @@ class _ChatBase:
         self.endpoint = endpoint
         self.api_key = api_key
         self.model = model
+        self.reasoning_effort = reasoning_effort
         self.timeout = timeout
         self.attempts = max(1, attempts)
         self.max_tokens = max_tokens
@@ -218,6 +233,8 @@ class _ChatBase:
             raise LLMError("chat endpoint is not configured")
         if not self.model:
             raise LLMError("chat model is not configured")
+        if self.reasoning_effort not in REASONING_EFFORTS:
+            raise LLMError("chat reasoning effort is not configured")
 
     def _request(
         self,
@@ -235,6 +252,7 @@ class _ChatBase:
             temperature=temperature,
             max_tokens=self.max_tokens,
             json_object=json_object,
+            reasoning_effort=self.reasoning_effort,
         )
         return completions_url(self.endpoint), payload, auth_headers(self.api_key)
 
@@ -269,13 +287,22 @@ class ChatClient(_ChatBase):
         endpoint: str,
         api_key: str,
         model: str,
+        reasoning_effort: str,
         http_client: httpx.Client | None = None,
         timeout: float = 20.0,
         attempts: int = 3,
         max_tokens: int = DEFAULT_MAX_TOKENS,
         sleep=time.sleep,
     ):
-        super().__init__(endpoint, api_key, model, timeout, attempts, max_tokens)
+        super().__init__(
+            endpoint,
+            api_key,
+            model,
+            reasoning_effort,
+            timeout,
+            attempts,
+            max_tokens,
+        )
         self._owns_client = http_client is None
         self._client = http_client or httpx.Client(timeout=httpx.Timeout(timeout))
         self._sleep = sleep
@@ -362,12 +389,21 @@ class AsyncChatClient(_ChatBase):
         endpoint: str,
         api_key: str,
         model: str,
+        reasoning_effort: str,
         timeout: float = 20.0,
         attempts: int = 3,
         max_tokens: int = DEFAULT_MAX_TOKENS,
         sleep=asyncio.sleep,
     ):
-        super().__init__(endpoint, api_key, model, timeout, attempts, max_tokens)
+        super().__init__(
+            endpoint,
+            api_key,
+            model,
+            reasoning_effort,
+            timeout,
+            attempts,
+            max_tokens,
+        )
         # Injectable for the same reason `ChatClient` takes one: a test of the
         # retry ladder must not spend the backoff in real seconds.
         self._sleep = sleep
