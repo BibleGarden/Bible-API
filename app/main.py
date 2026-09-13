@@ -148,7 +148,8 @@ def log_ai_providers() -> None:
     Which model served a request is the question the 2026-08-29 incident was
     debugged blind for, and a provider is one level above a model — so it is
     said out loud, once, next to the trusted-proxy banner. Never the key
-    itself: only the host and whether a key is configured.
+    itself: only the host, validated reasoning mode and whether a key is
+    configured.
     `grep 'AI stage'` after a deploy.
 
     The handler is ensured for THIS logger: `trusted_proxies` installs one on
@@ -170,12 +171,18 @@ def log_ai_providers() -> None:
             where = f" from {AI_TRANSCRIBE_MODEL_PATH or '<no path>'}"
         else:
             where = ""
+        reasoning = (
+            f" reasoning_effort={stage.reasoning_effort}"
+            if stage.reasoning_effort is not None
+            else ""
+        )
         logger.info(
-            "AI stage %s: provider=%s model=%s%s key=%s",
+            "AI stage %s: provider=%s model=%s%s%s key=%s",
             stage.stage,
             stage.provider or "<none: AI not configured>",
             stage.model or "<none>",
             where,
+            reasoning,
             "set" if stage.api_key else "none",
         )
 

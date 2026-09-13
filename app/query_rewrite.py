@@ -685,6 +685,7 @@ class OpenAICompatQueryRewriter:
             stage.endpoint,
             stage.api_key,
             stage.model,
+            stage.reasoning_effort,
             http_client=http_client,
             timeout=timeout,
             attempts=self.attempts,

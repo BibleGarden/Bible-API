@@ -2165,7 +2165,7 @@ def test_the_openai_compat_provider_generates_twice_too(monkeypatch):
         "QUESTION_PROVIDER",
         config.StageProvider(
             "question", "openai_compat", "qwen3-30b",
-            "https://llm.example:8443/v1", "chat-key",
+            "https://llm.example:8443/v1", "chat-key", "omit",
         ),
     )
 
@@ -2928,7 +2928,7 @@ def transcribe_provider(provider: str, model: str = "whisper-large-v3",
                         endpoint: str = "", api_key: str = "") -> object:
     """One resolved transcription stage, as `config.resolve_stage` builds it."""
     return config.StageProvider(
-        "transcribe", provider, model, endpoint, api_key
+        "transcribe", provider, model, endpoint, api_key, None
     )
 
 
@@ -3116,7 +3116,7 @@ def test_the_question_call_carries_the_endpoint_budget(monkeypatch):
         "QUESTION_PROVIDER",
         config.StageProvider(
             "question", "openai_compat", "qwen3-30b",
-            "https://llm.example:8443/v1", "chat-key",
+            "https://llm.example:8443/v1", "chat-key", "omit",
         ),
     )
 
@@ -3189,7 +3189,7 @@ def test_no_google_host_is_dialled_on_any_of_the_five_stages(monkeypatch):
         "QUESTION_PROVIDER",
         config.StageProvider(
             "question", "openai_compat", "qwen3-30b",
-            "https://llm.example:8443/v1", "chat-key",
+            "https://llm.example:8443/v1", "chat-key", "omit",
         ),
     )
     monkeypatch.setattr(
@@ -3213,11 +3213,11 @@ def test_no_google_host_is_dialled_on_any_of_the_five_stages(monkeypatch):
     # calls, each with the shared recording transport as its http client.
     rewrite_stage = config.StageProvider(
         "scripture_rewrite", "openai_compat", "qwen3-30b",
-        "https://llm.example:8443/v1", "chat-key",
+        "https://llm.example:8443/v1", "chat-key", "omit",
     )
     rerank_stage = config.StageProvider(
         "scripture_rerank", "openai_compat", "qwen3-30b",
-        "https://llm.example:8443/v1", "chat-key",
+        "https://llm.example:8443/v1", "chat-key", "omit",
     )
     rewriter = build_query_rewriter(
         rewrite_stage, http_client=httpx.Client(transport=transport)

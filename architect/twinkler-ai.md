@@ -858,8 +858,12 @@ For question, `AI_QUESTION_PROVIDER` is `gemini` or
 `openai_compat`. Both transports receive the same prompt and assembled user
 message. Gemini reads only `AI_QUESTION_MODEL` and the present
 `AI_QUESTION_API_KEY`; OpenAI-compatible transport additionally reads
-`AI_QUESTION_ENDPOINT`. A Gemini key must be non-empty; an explicitly empty
-OpenAI-compatible key omits the authentication header.
+`AI_QUESTION_ENDPOINT` and the required `AI_QUESTION_REASONING_EFFORT`.
+`none`, `low`, `medium` and `high` are sent exactly as `reasoning_effort`;
+`omit` explicitly leaves that field out for an endpoint/model without the
+setting. A Gemini key must be non-empty; an explicitly empty OpenAI-compatible
+key omits the authentication header, and any question reasoning variable on
+Gemini is a startup error.
 
 Transcription uses `AI_TRANSCRIBE_PROVIDER` with `gemini`,
 `openai_compat` or `local`. Remote providers read only the transcription
@@ -869,8 +873,9 @@ faster-whisper reads `AI_TRANSCRIBE_MODEL` and
 
 Provider timeouts, request envelopes, parsing, retries, prompts and public
 responses are unchanged. No stage inherits another stage's endpoint or key.
-The full fail-fast matrix is
-`architect/adr/0019-explicit-ai-configuration.md`.
+Transcription has no reasoning setting. The full fail-fast matrix is
+`architect/adr/0019-explicit-ai-configuration.md`; the reasoning extension and
+the 2026-09-13 local trial are ADR 0020.
 
 ### The ceiling bounds the call, not one attempt
 

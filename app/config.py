@@ -3,6 +3,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from ipaddress import IPv4Network, IPv6Network, ip_address, ip_network
+from typing import Literal
 from urllib.parse import urlsplit
 
 
@@ -57,14 +58,33 @@ AI_REQUIRED_VARS = (
 #
 # Question, rewrite and rerank accept gemini or openai_compat. Transcription
 # additionally accepts local. With AI_ENABLED=true every stage names its own
-# provider, model and remote API key; openai_compat also names its endpoint.
-# No value is inherited from another stage.
+# provider, model and remote API key; openai_compat also names its endpoint
+# and, for chat, its reasoning effort. No value is inherited from another
+# stage.
 #
 # Embeddings are configured below as an independent fifth stage.
 # ---------------------------------------------------------------------------
 PROVIDER_GEMINI = "gemini"
 PROVIDER_OPENAI_COMPAT = "openai_compat"
 AI_PROVIDERS = (PROVIDER_GEMINI, PROVIDER_OPENAI_COMPAT)
+
+ReasoningEffort = Literal["omit", "none", "low", "medium", "high"]
+REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
+    "omit",
+    "none",
+    "low",
+    "medium",
+    "high",
+)
+
+# These names are intentionally unreadable. Chat reasoning belongs to one
+# specific stage; transcription and embeddings use different protocols with
+# no reasoning-effort field.
+FORBIDDEN_REASONING_VARS = (
+    "AI_REASONING_EFFORT",
+    "AI_TRANSCRIBE_REASONING_EFFORT",
+    "EMBEDDING_REASONING_EFFORT",
+)
 
 # These shared variables were removed by ADR 0019. Presence is rejected even
 # when the value is blank: otherwise an old deployment could appear to start
@@ -112,13 +132,14 @@ TRANSCRIBE_COMPUTE_TYPES = (
 
 @dataclass(frozen=True)
 class StageVars:
-    """The four environment variables that configure one chat stage."""
+    """Environment variables that configure one AI stage."""
 
     stage: str
     provider_var: str
     model_var: str
     endpoint_var: str
     api_key_var: str
+    reasoning_effort_var: str | None
 
 
 QUESTION_STAGE_VARS = StageVars(
@@ -127,6 +148,7 @@ QUESTION_STAGE_VARS = StageVars(
     "AI_QUESTION_MODEL",
     "AI_QUESTION_ENDPOINT",
     "AI_QUESTION_API_KEY",
+    "AI_QUESTION_REASONING_EFFORT",
 )
 SCRIPTURE_REWRITE_STAGE_VARS = StageVars(
     "scripture_rewrite",
@@ -137,6 +159,7 @@ SCRIPTURE_REWRITE_STAGE_VARS = StageVars(
     # rewrite stage (ADR 0004/0008). Its meaning is unchanged and merely
     # generalised — "the key THIS stage bills", whoever serves it.
     "AI_SCRIPTURE_REWRITE_API_KEY",
+    "AI_SCRIPTURE_REWRITE_REASONING_EFFORT",
 )
 SCRIPTURE_RERANK_STAGE_VARS = StageVars(
     "scripture_rerank",
@@ -144,6 +167,7 @@ SCRIPTURE_RERANK_STAGE_VARS = StageVars(
     "AI_SCRIPTURE_RERANK_MODEL",
     "AI_SCRIPTURE_RERANK_ENDPOINT",
     "AI_SCRIPTURE_RERANK_API_KEY",
+    "AI_SCRIPTURE_RERANK_REASONING_EFFORT",
 )
 AI_STAGE_VARS = (
     QUESTION_STAGE_VARS,
@@ -156,6 +180,7 @@ TRANSCRIBE_STAGE_VARS = StageVars(
     "AI_TRANSCRIBE_MODEL",
     "AI_TRANSCRIBE_ENDPOINT",
     "AI_TRANSCRIBE_API_KEY",
+    None,
 )
 CHAT_PROVIDER_VARS = tuple(stage.provider_var for stage in AI_STAGE_VARS)
 # Every provider variable of the AI surface: the three chat stages plus
@@ -222,6 +247,7 @@ EMBEDDING_STAGE_VARS = StageVars(
     "EMBEDDING_MODEL",
     "EMBEDDING_ENDPOINT",
     "EMBEDDING_API_KEY",
+    None,
 )
 
 
@@ -232,6 +258,7 @@ class StageProvider:
     `provider` is "" only when nothing named one (AI not configured, or a
     configuration `_validate` has already refused). `endpoint` is empty for
     Gemini, whose URL is a constant of the stage module.
+    `reasoning_effort` is set only for an OpenAI-compatible chat stage.
     """
 
     stage: str
@@ -239,6 +266,7 @@ class StageProvider:
     model: str
     endpoint: str
     api_key: str
+    reasoning_effort: ReasoningEffort | None
 
     @property
     def is_gemini(self) -> bool:
@@ -386,8 +414,13 @@ def resolve_stage(env: Mapping[str, str], stage: StageVars) -> StageProvider:
         if env_var_present(env, stage.api_key_var)
         else ""
     )
+    reasoning_effort = (
+        env.get(stage.reasoning_effort_var, "").strip()
+        if stage.reasoning_effort_var is not None
+        else None
+    )
     if provider == TRANSCRIBE_PROVIDER_LOCAL:
-        return StageProvider(stage.stage, provider, model, "", "")
+        return StageProvider(stage.stage, provider, model, "", "", None)
     if provider == PROVIDER_OPENAI_COMPAT:
         return StageProvider(
             stage.stage,
@@ -395,8 +428,9 @@ def resolve_stage(env: Mapping[str, str], stage: StageVars) -> StageProvider:
             model,
             env.get(stage.endpoint_var, "").strip(),
             api_key,
+            reasoning_effort,
         )
-    return StageProvider(stage.stage, provider, model, "", api_key)
+    return StageProvider(stage.stage, provider, model, "", api_key, None)
 
 
 def validate_endpoint(name: str, value: str) -> str | None:
@@ -433,6 +467,10 @@ def _remote_missing(env: Mapping[str, str], stage: StageVars) -> list[str]:
     if provider == PROVIDER_OPENAI_COMPAT:
         if not env.get(stage.endpoint_var, "").strip():
             missing.append(stage.endpoint_var)
+        if stage.reasoning_effort_var is not None and not env.get(
+            stage.reasoning_effort_var, ""
+        ).strip():
+            missing.append(stage.reasoning_effort_var)
     if provider == PROVIDER_GEMINI:
         if not env_var_present(env, stage.api_key_var) or not env.get(
             stage.api_key_var, ""
@@ -512,6 +550,13 @@ def invalid_required_values(env: Mapping[str, str]) -> list[str]:
                 f"{name}: removed; configure every stage with its own "
                 "PROVIDER, MODEL, ENDPOINT and API_KEY variables"
             )
+    for name in FORBIDDEN_REASONING_VARS:
+        if name in env:
+            problems.append(
+                f"{name}: unsupported; reasoning effort exists only as an "
+                "explicit per-stage variable for question, scripture rewrite "
+                "and scripture rerank"
+            )
     raw = env.get("EMBEDDING_DIMENSIONS", "").strip()
     if raw:
         try:
@@ -573,6 +618,8 @@ def invalid_required_values(env: Mapping[str, str]) -> list[str]:
                 stage.api_key_var,
             )
         )
+        if stage.reasoning_effort_var is not None:
+            stage_config_names.add(stage.reasoning_effort_var)
     compute_type = env.get("AI_TRANSCRIBE_COMPUTE_TYPE", "").strip()
     if compute_type and compute_type not in TRANSCRIBE_COMPUTE_TYPES:
         problems.append(
@@ -599,10 +646,27 @@ def invalid_required_values(env: Mapping[str, str]) -> list[str]:
                 problem = validate_endpoint(stage.endpoint_var, value)
                 if problem:
                     problems.append(problem)
+            if stage.reasoning_effort_var is not None:
+                reasoning_effort = env.get(stage.reasoning_effort_var, "")
+                if reasoning_effort and reasoning_effort not in REASONING_EFFORTS:
+                    problems.append(
+                        f"{stage.reasoning_effort_var}: unknown reasoning effort "
+                        f"{reasoning_effort!r}, expected one of "
+                        f"{', '.join(REASONING_EFFORTS)}"
+                    )
         elif env_var_present(env, stage.endpoint_var):
             problems.append(
                 f"{stage.endpoint_var}: set while {stage.provider_var}="
                 f"{provider or '<unset>'} — only openai_compat uses an endpoint"
+            )
+        if provider != PROVIDER_OPENAI_COMPAT and (
+            stage.reasoning_effort_var is not None
+            and env_var_present(env, stage.reasoning_effort_var)
+        ):
+            problems.append(
+                f"{stage.reasoning_effort_var}: set while {stage.provider_var}="
+                f"{provider or '<unset>'} — only openai_compat chat uses "
+                "reasoning effort"
             )
     transcribe_provider = env.get(TRANSCRIBE_PROVIDER_VAR, "").strip()
     if transcribe_provider and transcribe_provider not in TRANSCRIBE_PROVIDERS:
@@ -724,6 +788,13 @@ def _required_reason(env: Mapping[str, str], name: str) -> str:
                 f"{name} must be present for remote provider "
                 f"{provider or '<unset>'}; it may "
                 "be empty to state that no Authorization header is required"
+            )
+        if name == stage.reasoning_effort_var:
+            return (
+                f"{name} is required when {stage.provider_var}="
+                f"{PROVIDER_OPENAI_COMPAT}: one of "
+                f"{', '.join(REASONING_EFFORTS)}; use omit to explicitly not "
+                "send the field"
             )
     return f"{name} is required"
 

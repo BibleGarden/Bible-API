@@ -680,6 +680,7 @@ async def _complete_openai_compat(
         QUESTION_PROVIDER.endpoint,
         QUESTION_PROVIDER.api_key,
         QUESTION_PROVIDER.model,
+        QUESTION_PROVIDER.reasoning_effort,
         timeout=AI_QUESTION_TIMEOUT_SECONDS,
         attempts=1,
     )
