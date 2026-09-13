@@ -876,8 +876,11 @@ The full fail-fast matrix is
 
 `AI_QUESTION_TIMEOUT_SECONDS` (default 20) and
 `AI_TRANSCRIBE_TIMEOUT_SECONDS` (default 60) keep their measured operational
-defaults. Each remote call carves the remaining request deadline across
-httpx's phases; transcription's two attempts share one total deadline.
+defaults. Question calls use the request's remaining deadline. For
+transcription, `openai_compat` makes at most two attempts that share one
+deadline; Gemini makes one HTTP call with `AI_TRANSCRIBE_TIMEOUT_SECONDS` and
+has no retry/request-deadline wrapper; local transcription makes no HTTP call
+and cannot be cancelled through an HTTP deadline.
 
 ### When the AI surface is unavailable
 

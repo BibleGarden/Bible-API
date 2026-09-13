@@ -2,7 +2,7 @@
 CLI smoke-test for the scripture-selection retrieval pipeline
 (architect/adr/0004-retrieval-pipeline.md).
 
-Runs the full production path against the live DB and the Gemini API:
+Runs the full production path against the live DB and configured providers:
 query rewrite -> per-variant hybrid search (vector index + BM25) ->
 interleave fusion -> blacklist/exclusions -> diversity -> texts from
 translation_chunks.
@@ -14,7 +14,7 @@ Usage (inside the bible-api container):
         --reply "Мы ждали её несколько лет" \
         [--exclude v3:19.127.001-005,...] [--top-k 10] [--show-text]
 
-    # empty topic -> safe pool, no Gemini calls
+    # empty topic -> safe pool, no provider calls
     python app/retrieval_cli.py select --language ru --topic ""
 """
 
