@@ -15,6 +15,10 @@ services:
     # export unused keys. EMBEDDING_API_KEY remains independently required for
     # remote embeddings.
     environment:
+      # Local/test incident diagnostic only. It logs prayer-derived request
+      # bodies and raw question-provider responses, so production must keep
+      # the default false. A blank or non-boolean value fails at startup.
+      AI_QUESTION_LOG_PROVIDER_BODIES: "${AI_QUESTION_LOG_PROVIDER_BODIES-false}"
       AI_QUESTION_API_KEY: ${AI_QUESTION_API_KEY-__BIBLE_API_UNSET__}
       AI_SCRIPTURE_REWRITE_API_KEY: ${AI_SCRIPTURE_REWRITE_API_KEY-__BIBLE_API_UNSET__}
       AI_SCRIPTURE_RERANK_API_KEY: ${AI_SCRIPTURE_RERANK_API_KEY-__BIBLE_API_UNSET__}
@@ -51,6 +55,11 @@ services:
       # gemini provider, which loads nothing.
       - ${EMBEDDING_MODELS_DIR:-./models}:/models:ro
       - ./app:/code/app
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: always
     networks:
       - mysql_default

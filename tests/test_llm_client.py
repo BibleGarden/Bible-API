@@ -869,6 +869,200 @@ def test_the_question_stage_asks_for_the_v6_object(monkeypatch):
     assert captured["reasoning_effort"] == "none"
 
 
+def test_openai_question_diagnostics_log_bodies_without_credentials(
+    monkeypatch, caplog
+):
+    request_text = "private prayer text"
+    raw_response = json.dumps(
+        {
+            **chat_response(
+                '{"subject":"hope","question":"What matters?"}'
+            ),
+            "echoed_key": SECRET_KEY,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            content=raw_response.encode(),
+            headers={"Content-Type": "application/json"},
+        )
+
+    monkeypatch.setattr(
+        twinkler_ai,
+        "QUESTION_PROVIDER",
+        stage("question", reasoning_effort="none"),
+    )
+    monkeypatch.setattr(
+        twinkler_ai, "AI_QUESTION_LOG_PROVIDER_BODIES", True
+    )
+    with caplog.at_level(logging.INFO, logger=twinkler_ai.logger.name):
+        with mock_async(handler):
+            asyncio.run(twinkler_ai.complete(request_text))
+            asyncio.run(twinkler_ai.complete(request_text))
+
+    messages = [record.getMessage() for record in caplog.records]
+    request_lines = [
+        message for message in messages if "provider request" in message
+    ]
+    response_lines = [
+        message for message in messages if "provider response" in message
+    ]
+    assert len(request_lines) == len(response_lines) == 2
+    call_ids = []
+    for request_line, response_line in zip(request_lines, response_lines):
+        request_call_id = request_line.split("call_id=", 1)[1].split()[0]
+        response_call_id = response_line.split("call_id=", 1)[1].split()[0]
+        assert request_call_id == response_call_id
+        assert len(request_call_id) == 32
+        call_ids.append(request_call_id)
+    assert len(set(call_ids)) == 2
+
+    request_line = request_lines[0]
+    response_line = response_lines[0]
+    assert "provider=openai_compat" in request_line
+    assert request_text in request_line
+    assert (
+        json.dumps(
+            raw_response.replace(SECRET_KEY, "[REDACTED_API_KEY]"),
+            ensure_ascii=False,
+        )
+        in response_line
+    )
+    assert "[REDACTED_API_KEY]" in response_line
+    for message in (request_line, response_line):
+        assert SECRET_KEY not in message
+        assert "Authorization" not in message
+
+
+def test_question_provider_bodies_are_not_logged_by_default(monkeypatch, caplog):
+    request_text = "private prayer text"
+    monkeypatch.setattr(
+        twinkler_ai,
+        "QUESTION_PROVIDER",
+        stage("question", reasoning_effort="none"),
+    )
+    monkeypatch.setattr(
+        twinkler_ai, "AI_QUESTION_LOG_PROVIDER_BODIES", False
+    )
+    with caplog.at_level(logging.INFO, logger=twinkler_ai.logger.name):
+        with mock_async(
+            lambda _request: httpx.Response(
+                200,
+                json=chat_response("Provider answer"),
+            )
+        ):
+            asyncio.run(twinkler_ai.complete(request_text))
+
+    assert request_text not in caplog.text
+    assert "Provider answer" not in caplog.text
+
+
+def test_empty_openai_content_is_logged_before_the_expected_error(
+    monkeypatch, caplog
+):
+    raw_response = '{"choices":[{"message":{"content":""}}],"finish_reason":"length"}'
+    monkeypatch.setattr(
+        twinkler_ai,
+        "QUESTION_PROVIDER",
+        stage("question", reasoning_effort="none"),
+    )
+    monkeypatch.setattr(
+        twinkler_ai, "AI_QUESTION_LOG_PROVIDER_BODIES", True
+    )
+
+    with caplog.at_level(logging.INFO, logger=twinkler_ai.logger.name):
+        with mock_async(
+            lambda _request: httpx.Response(
+                200,
+                content=raw_response.encode(),
+                headers={"Content-Type": "application/json"},
+            )
+        ):
+            with pytest.raises(
+                twinkler_ai.AIError, match="response content is empty"
+            ):
+                asyncio.run(twinkler_ai.complete("private prayer text"))
+
+    request_line = next(
+        record.getMessage()
+        for record in caplog.records
+        if "provider request" in record.getMessage()
+    )
+    response_line = next(
+        record.getMessage()
+        for record in caplog.records
+        if "provider response" in record.getMessage()
+    )
+    assert json.dumps(raw_response) in response_line
+    assert (
+        request_line.split("call_id=", 1)[1].split()[0]
+        == response_line.split("call_id=", 1)[1].split()[0]
+    )
+
+
+def test_gemini_question_diagnostics_log_bodies_without_credentials(
+    monkeypatch, caplog
+):
+    request_text = "private prayer text"
+    real_async_client = httpx.AsyncClient
+
+    def factory(*args, **kwargs):
+        return real_async_client(
+            *args,
+            transport=httpx.MockTransport(
+                lambda _request: httpx.Response(
+                    200,
+                    json={
+                        **gemini_response("Provider answer"),
+                        "echoed_key": SECRET_KEY,
+                    },
+                )
+            ),
+            **kwargs,
+        )
+
+    monkeypatch.setattr(twinkler_ai.httpx, "AsyncClient", factory)
+    monkeypatch.setattr(twinkler_ai, "AI_QUESTION_MODEL", "gemini-test")
+    monkeypatch.setattr(
+        twinkler_ai,
+        "QUESTION_PROVIDER",
+        stage(
+            "question",
+            "gemini-test",
+            provider=config.PROVIDER_GEMINI,
+            endpoint="",
+        ),
+    )
+    monkeypatch.setattr(
+        twinkler_ai, "AI_QUESTION_LOG_PROVIDER_BODIES", True
+    )
+    with caplog.at_level(logging.INFO, logger=twinkler_ai.logger.name):
+        asyncio.run(twinkler_ai.complete(request_text))
+
+    messages = [record.getMessage() for record in caplog.records]
+    request_line = next(
+        message for message in messages if "provider request" in message
+    )
+    response_line = next(
+        message for message in messages if "provider response" in message
+    )
+    assert "provider=gemini" in request_line
+    assert request_text in request_line
+    assert "Provider answer" in response_line
+    assert "[REDACTED_API_KEY]" in response_line
+    assert (
+        request_line.split("call_id=", 1)[1].split()[0]
+        == response_line.split("call_id=", 1)[1].split()[0]
+    )
+    for message in (request_line, response_line):
+        assert SECRET_KEY not in message
+        assert "Authorization" not in message
+
+
 def test_a_failing_local_question_is_the_same_502_as_a_failing_gemini_one(monkeypatch):
     monkeypatch.setattr(twinkler_ai, "QUESTION_PROVIDER", stage("question"))
     with mock_async(lambda r: httpx.Response(500)):

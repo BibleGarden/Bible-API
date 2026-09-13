@@ -922,6 +922,27 @@ user agent, recording, filename, and transcript are never stored. Raw
 statistics are purged after 14 days by
 `app/aggregate_stats.py`; daily aggregates retain counts only.
 
+Question-provider body logging is a separate, explicit local/test incident
+diagnostic. With `AI_QUESTION_LOG_PROVIDER_BODIES=true`, every provider call
+made for `POST /api/ai/question` logs its JSON payload and the exact raw
+response body (JSON-quoted so one record stays one line), together with the
+provider, attempt and HTTP status. A new `call_id` is created for every
+provider call and repeated on its request and response records; a novelty
+generation therefore has a different ID from the first call. The payload
+includes the system prompt and prayer-derived user message, so this mode must
+never be enabled in production and must be disabled after the investigation. Request headers, endpoint URLs,
+`Authorization` and provider API keys are not logged; an echoed configured key
+in either body is replaced with `[REDACTED_API_KEY]`. The default is `false`;
+only exact `true`/`false` values are accepted and a malformed value aborts
+startup. This diagnostic writes service logs only and does not change the
+statistics schema or retention path above.
+
+The local Compose `json-file` log is limited to three 10 MiB files. This is a
+size ceiling, not time-based retention. Disabling the flag prevents new body
+records but does not remove existing current or rotated records; the exact
+single-container purge and verification procedure is documented in
+`README.md` next to the setting.
+
 Client addresses come from the direct peer. `X-Forwarded-For` is used only
 when the peer is a trusted reverse proxy — a name in `TRUSTED_PROXY_HOSTS`
 resolved at runtime, or an address/network in `TRUSTED_PROXY_IPS`

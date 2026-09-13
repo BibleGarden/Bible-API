@@ -133,6 +133,47 @@ only for an `openai_compat` stage.
 When `AI_ENABLED=false`, the four unused AI keys need not be exported.
 Remote embeddings remain independent and still need `EMBEDDING_API_KEY`.
 
+For a controlled local/test incident investigation only,
+`AI_QUESTION_LOG_PROVIDER_BODIES=true` writes each question-provider JSON
+payload and raw response body to the service log. These records contain
+prayer-derived text. They never include request headers, the provider URL or
+the configured API key; if a provider echoes that key in its body, it is
+replaced with `[REDACTED_API_KEY]`. Each provider call gets a new `call_id`,
+shared by its request and response records so concurrent calls and a second
+question generation can be separated. The setting defaults to `false`, accepts
+only the exact strings `true` and `false`, and a malformed value aborts
+startup. Keep it `false` in production and disable it after the investigation.
+
+The local Compose service uses Docker's `json-file` driver with `max-size=10m`
+and `max-file=3`, bounding its active log history to about 30 MiB. Rotation is
+size-based, not time-based. Setting the diagnostic flag back to `false` or
+restarting the existing container stops new body records but does **not**
+delete records already held in its current or rotated log files.
+
+After the investigation, purge those local Docker logs by replacing exactly
+the `bible-api` container. First set
+`AI_QUESTION_LOG_PROVIDER_BODIES=false` in `.env` and export the five provider
+keys through the normal shell-only secret source described above. Then run:
+
+```bash
+cd /root/cep/Bible-API
+old_container_id="$(docker compose ps -q bible-api)"
+test -n "$old_container_id"
+docker compose up -d --force-recreate --no-deps bible-api
+new_container_id="$(docker compose ps -q bible-api)"
+test -n "$new_container_id"
+test "$new_container_id" != "$old_container_id"
+! docker inspect "$old_container_id" >/dev/null 2>&1
+docker inspect "$new_container_id" \
+  --format '{{json .HostConfig.LogConfig}}'
+```
+
+Compose removes that one old container and its Docker-managed `json-file`
+logs; no filesystem-wide deletion or direct Docker-storage edit is needed.
+This does not erase copies already exported to an external log collector,
+backup or host snapshot; remove those through that system's own scoped
+retention procedure if such a copy exists.
+
 A mixed deployment can use Cerebras for the user-facing question and a local
 Qwen server through its OpenAI-compatible endpoint for rewrite and rerank:
 

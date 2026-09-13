@@ -27,6 +27,7 @@ from auth import RequireAPIKey
 from middleware import RequestStatsMiddleware
 from trusted_proxies import TRUSTED_PROXIES, ensure_visible_handler
 from config import (
+    AI_QUESTION_LOG_PROVIDER_BODIES,
     EMBEDDING_DIMENSIONS,
     EMBEDDING_MODEL,
     EMBEDDING_MODEL_PATH,
@@ -184,6 +185,11 @@ def log_ai_providers() -> None:
             where,
             reasoning,
             "set" if stage.api_key else "none",
+        )
+    if AI_QUESTION_LOG_PROVIDER_BODIES:
+        logger.warning(
+            "AI question provider body logging is ENABLED: local/test "
+            "diagnostic logs contain prayer-derived content"
         )
 
 

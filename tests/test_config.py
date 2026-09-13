@@ -194,6 +194,7 @@ GEMINI_AI_ENV.update(
 
 AI_FIELDS = {
     "AI_ENABLED",
+    "AI_QUESTION_LOG_PROVIDER_BODIES",
     "AI_CLIENT_HMAC_KEY",
     "AI_QUESTION_PROVIDER",
     "AI_QUESTION_MODEL",
@@ -863,8 +864,38 @@ def _restore_config():
 def test_import_reads_explicit_disabled_ai(monkeypatch):
     module = _reload_config(monkeypatch, BASE_ENV)
     assert module.AI_ENABLED is False
+    assert module.AI_QUESTION_LOG_PROVIDER_BODIES is False
     assert module.QUESTION_PROVIDER.provider == ""
     assert module.EMBEDDING_STAGE.api_key == "embed-key"
+
+
+def test_import_reads_explicit_question_provider_body_logging(monkeypatch):
+    module = _reload_config(
+        monkeypatch,
+        {**AI_ENV, "AI_QUESTION_LOG_PROVIDER_BODIES": "true"},
+    )
+    assert module.AI_QUESTION_LOG_PROVIDER_BODIES is True
+
+
+@pytest.mark.parametrize("raw", ["", "True", "1", "yes", " false "])
+def test_import_rejects_invalid_question_provider_body_logging(monkeypatch, raw):
+    with pytest.raises(
+        RuntimeError, match="AI_QUESTION_LOG_PROVIDER_BODIES"
+    ):
+        _reload_config(
+            monkeypatch,
+            {**AI_ENV, "AI_QUESTION_LOG_PROVIDER_BODIES": raw},
+        )
+
+
+def test_import_rejects_question_body_logging_without_ai(monkeypatch):
+    with pytest.raises(
+        RuntimeError, match="there is no question-provider call"
+    ):
+        _reload_config(
+            monkeypatch,
+            {**BASE_ENV, "AI_QUESTION_LOG_PROVIDER_BODIES": "true"},
+        )
 
 
 def test_import_reads_each_stage_without_inheritance(monkeypatch):
