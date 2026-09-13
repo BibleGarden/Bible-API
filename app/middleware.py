@@ -12,6 +12,7 @@ EXCLUDED_PATHS = {
     "/openapi.json",
     "/redoc",
     "/favicon.ico",
+    "/api/health",
 }
 EXCLUDED_STATUS_CODES = {403, 404}
 # Endpoints handling prayer content. For these the stored client address is
