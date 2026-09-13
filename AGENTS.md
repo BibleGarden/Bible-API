@@ -9,7 +9,7 @@ Workspace-wide rules, including production-data safety, are in `../AGENTS.md`.
 ## Local work
 
 For first setup, create the local configuration only if `.env` does not already
-exist; do not commit it.
+exist.
 
 ```bash
 test -f .env || cp .env.example .env
