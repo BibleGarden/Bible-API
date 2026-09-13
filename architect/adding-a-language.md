@@ -585,9 +585,8 @@ app repo and let its owner enumerate it.
 
 **11.1 — Chunking and index building happen LOCALLY first.** Order:
 `app/chunk_cli.py` → `app/versification_cli.py build` → `app/index_cli.py
-rebuild`, against `cep_admin`/the local corpus. Only then does the index reach
-production, because since ClickUp 86cbegwr9 **the import carries the RAG index**
-(`CLAUDE.md`, "The import carries the RAG index (ClickUp 86cbegwr9)").
+rebuild`, against `cep_admin`/the local corpus. The current publication order,
+including the RAG index, is in `Deploy/data-flow.md` and `Deploy/runbook.md`.
 
 **11.2 — Import the new translation the standard way.**
 `GET https://api.bible.garden/api/import?translation=<alias>`; check
@@ -600,9 +599,8 @@ before anything that changes production data.
 environment variable that names languages. Listed in
 `Deploy/env-checklist.md:218-221`.
 
-**11.4 — Docs to update in the same change:** `CLAUDE.md` (this repo — the
-`safety.py` bullet says "ru/uk/en dictionary + regex"),
-`architect/twinkler-ai.md` ("The reply, and its version" names the three
+**11.4 — Docs to update in the same change:** `architect/twinkler-ai.md`
+("The reply, and its version" names the three
 languages), `Architecture/architecture.md:170` (the `languages` row of the
 `cep_public` table list says "Languages (en, ru, uk)"), and
 `Deploy/data-flow.md:28`.
