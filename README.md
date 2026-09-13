@@ -25,6 +25,9 @@ The API will be available at `http://localhost:9084/api`.
 - `GET /api/languages` — available languages
 - `GET /api/translations` — available translations
 - `GET /api/translations/{code}/books` — books in a translation
+  (`chapters_count`, `chapters_without_text`, `has_text`). The canonical
+  structure remains visible when a translation has no text for a declared
+  book; excerpt navigation skips those books.
 - `GET /api/excerpt_with_alignment` — text with word-level audio timing.
   `?excerpt=` is `<book alias> <chapter>[:<verse>[-<verse>]]` (`gen 1`,
   `gen 1:1`, `gen 1:1-3`), several references may be listed in one value. The
@@ -34,6 +37,9 @@ The API will be available at `http://localhost:9084/api`.
   naming the format; an alias that belongs to no book of this translation
   returns 404.
 - `GET /api/audio/{translation}/{voice}/{book}/{chapter}.mp3` — audio files
+- `GET /api/health` — API-key-protected readiness check. Returns 200 only when
+  the database has at least one language; database failures and an empty
+  database return a generic 503. It does not call AI or record usage stats.
 - `GET /api/about` — Bible Garden About page (unchanged default); use
   `GET /api/about?app=lampada` for Lampada contacts and description.
   `app=bible-garden` explicitly selects the default; unknown values return 422.
@@ -60,8 +66,10 @@ All endpoints require `X-API-Key` header.
 `{ "topic", "stage", "messages" }` — the topic (may be empty), the stage
 (`first`, `next` or `reflect`) and the conversation so far as
 `{ "role": "assistant" | "user", "text" }` turns — and answers
-`{ "text", "novel" }`. The instructions for the stage and the system prompt are
-built server-side and the provider key never leaves the server:
+`{ "text", "novel", "subject" }`; `subject` is the optional short subject of
+reflection identified by the model. The instructions for the stage and the
+system prompt are built server-side and the provider key never leaves the
+server:
 
 ```json
 {"topic": "Отношения с семьёй", "stage": "next",
