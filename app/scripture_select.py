@@ -993,7 +993,7 @@ def _provider_clients() -> tuple:
     (`AI_SCRIPTURE_REWRITE_PROVIDER` / `AI_SCRIPTURE_RERANK_PROVIDER` and the
     endpoint/key/model that belong to it — ADR 0009), and each stage's key is
     still its own (`AI_SCRIPTURE_*_API_KEY` when the deployment splits
-    billing, the provider's shared key otherwise). The embedder is chosen the
+    billing). No key is inherited from another stage. The embedder is chosen the
     same way, by `EMBEDDING_PROVIDER` (ADR 0010/0014); on `local` the timeout
     and retry budget below are meaningless and ignored — there is no call to
     time out — and the weights are already in memory, loaded at start-up. On
@@ -1488,8 +1488,9 @@ async def scripture_select(
             status_code=503, detail="Scripture selection temporarily unavailable"
         ) from error
 
-    client_key = resolve_client_ip(http_request)
-    await _enforce_rate_limit(client_key)
+    if AI_ENABLED:
+        client_key = resolve_client_ip(http_request)
+        await _enforce_rate_limit(client_key)
 
     exclusions, stale = split_exclusions(
         request.exclude_canonical_ids, CHUNKING_VERSION

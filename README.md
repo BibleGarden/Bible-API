@@ -104,17 +104,18 @@ migration fallbacks. `AI_ENABLED` is required in every deployment:
 | Block | Required values | Forbidden / omitted values |
 |---|---|---|
 | AI disabled | `AI_ENABLED=false` | every stage-specific `AI_*_PROVIDER/MODEL/ENDPOINT/API_KEY` and `AI_CLIENT_HMAC_KEY` |
-| Gemini stage | `AI_ENABLED=true`, stage `PROVIDER=gemini`, `MODEL`, present stage `API_KEY` | stage `ENDPOINT` |
-| OpenAI-compatible stage | `AI_ENABLED=true`, stage `PROVIDER=openai_compat`, `MODEL`, `ENDPOINT`, present stage `API_KEY` | shared endpoint/key variables |
+| Gemini stage | `AI_ENABLED=true`, stage `PROVIDER=gemini`, `MODEL`, non-empty stage `API_KEY` | stage `ENDPOINT` |
+| OpenAI-compatible stage | `AI_ENABLED=true`, stage `PROVIDER=openai_compat`, `MODEL`, `ENDPOINT`, present stage `API_KEY` (may be empty) | shared endpoint/key variables |
 | Local transcription | `AI_TRANSCRIBE_PROVIDER=local`, `MODEL`, `MODEL_PATH` | transcription `ENDPOINT` and `API_KEY` |
 | Embeddings | `EMBEDDING_PROVIDER`, `MODEL`, `DIMENSIONS` in every deployment | provider-specific unused fields |
-| Remote embeddings | present `EMBEDDING_API_KEY`; additionally `EMBEDDING_ENDPOINT` for `openai_compat` | `EMBEDDING_MODEL_PATH` |
+| OpenAI-compatible embeddings | `EMBEDDING_ENDPOINT` and present `EMBEDDING_API_KEY` (may be empty) | `EMBEDDING_MODEL_PATH` |
+| Gemini embeddings | non-empty `EMBEDDING_API_KEY` | `EMBEDDING_ENDPOINT` and `EMBEDDING_MODEL_PATH` |
 | Local embeddings | `EMBEDDING_MODEL_PATH` | `EMBEDDING_ENDPOINT` and `EMBEDDING_API_KEY` |
 
-A present API-key variable may be empty. That is the explicit statement that
-the remote endpoint needs no Authorization header. Provider secrets are
-exported from the shell before `docker compose up` and are never placed in
-`.env`:
+An OpenAI-compatible API-key variable may be present and empty. That is the
+explicit statement that the endpoint needs no Authorization header. Gemini
+keys must be non-empty. Provider secrets are exported from the shell before
+`docker compose up` and are never placed in `.env`:
 
 ```bash
 export AI_QUESTION_API_KEY='cerebras-key'
@@ -126,7 +127,8 @@ export EMBEDDING_API_KEY='embedding-key'
 
 Compose preserves the distinction between an unexported variable and an
 explicitly empty export. An unexported key becomes a private sentinel that
-startup validation treats as missing; an empty export remains valid no-auth.
+startup validation treats as missing; an empty export remains valid no-auth
+only for an `openai_compat` stage.
 When `AI_ENABLED=false`, the four unused AI keys need not be exported.
 Remote embeddings remain independent and still need `EMBEDDING_API_KEY`.
 

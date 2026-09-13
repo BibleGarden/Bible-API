@@ -159,8 +159,8 @@ TRANSCRIBE_STAGE_VARS = StageVars(
 )
 CHAT_PROVIDER_VARS = tuple(stage.provider_var for stage in AI_STAGE_VARS)
 # Every provider variable of the AI surface: the three chat stages plus
-# transcription. Naming ANY of them switches the surface on, and once it is
-# on, all four must be named (`missing_required_vars`).
+# transcription. `AI_ENABLED=true` requires all four; provider presence by
+# itself never enables the surface.
 AI_PROVIDER_VARS = CHAT_PROVIDER_VARS + (TRANSCRIBE_PROVIDER_VAR,)
 
 # ---------------------------------------------------------------------------
@@ -429,10 +429,18 @@ def validate_endpoint(name: str, value: str) -> str | None:
 def _remote_missing(env: Mapping[str, str], stage: StageVars) -> list[str]:
     """Variables a remote stage must state explicitly."""
     missing = []
-    if env.get(stage.provider_var, "").strip() == PROVIDER_OPENAI_COMPAT:
+    provider = env.get(stage.provider_var, "").strip()
+    if provider == PROVIDER_OPENAI_COMPAT:
         if not env.get(stage.endpoint_var, "").strip():
             missing.append(stage.endpoint_var)
-    if not env_var_present(env, stage.api_key_var):
+    if provider == PROVIDER_GEMINI:
+        if not env_var_present(env, stage.api_key_var) or not env.get(
+            stage.api_key_var, ""
+        ).strip():
+            missing.append(stage.api_key_var)
+    elif provider == PROVIDER_OPENAI_COMPAT and not env_var_present(
+        env, stage.api_key_var
+    ):
         missing.append(stage.api_key_var)
     return missing
 
@@ -709,9 +717,12 @@ def _required_reason(env: Mapping[str, str], name: str) -> str:
                 f"{PROVIDER_OPENAI_COMPAT}"
             )
         if name == stage.api_key_var:
+            provider = env.get(stage.provider_var, "").strip()
+            if provider == PROVIDER_GEMINI:
+                return f"{name} must be non-empty when {stage.provider_var}=gemini"
             return (
                 f"{name} must be present for remote provider "
-                f"{env.get(stage.provider_var, '').strip() or '<unset>'}; it may "
+                f"{provider or '<unset>'}; it may "
                 "be empty to state that no Authorization header is required"
             )
     return f"{name} is required"

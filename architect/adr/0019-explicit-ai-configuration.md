@@ -27,18 +27,19 @@ would read them. Embeddings remain independently required: scripture retrieval
 still has to name and query the stored vector index.
 
 With `true`, question, rewrite, rerank and transcription each require their own
-`AI_<STAGE>_PROVIDER`, `AI_<STAGE>_MODEL` and, for every remote provider, the
-presence of `AI_<STAGE>_API_KEY`. An empty key explicitly means no
-Authorization header. `openai_compat` additionally requires the stage's own
+`AI_<STAGE>_PROVIDER`, `AI_<STAGE>_MODEL` and `AI_<STAGE>_API_KEY`. Gemini
+requires a non-empty stage key. For `openai_compat`, the key must be present
+but may be empty to explicitly mean no Authorization header; that provider
+additionally requires the stage's own
 `AI_<STAGE>_ENDPOINT`; Gemini must not have an endpoint. Only transcription
 may use `local`, which requires `AI_TRANSCRIBE_MODEL_PATH` and forbids its
 endpoint/key. `AI_CLIENT_HMAC_KEY` is required with enabled AI so the
 per-client limiter cannot start already degraded.
 
 Embeddings keep their separate explicit block. `openai_compat` requires
-`EMBEDDING_ENDPOINT` and the presence of `EMBEDDING_API_KEY`; Gemini requires
-the key and no endpoint; `local` requires `EMBEDDING_MODEL_PATH` and forbids
-endpoint/key.
+`EMBEDDING_ENDPOINT` and the presence of `EMBEDDING_API_KEY`, which may be
+empty; Gemini requires a non-empty key and no endpoint; `local` requires
+`EMBEDDING_MODEL_PATH` and forbids endpoint/key.
 
 There are no aliases or inheritance. `GEMINI_API_KEY`,
 `AI_OPENAI_COMPAT_ENDPOINT` and `AI_OPENAI_COMPAT_API_KEY` are removed and
@@ -47,8 +48,8 @@ unused variables are rejected as well.
 
 Compose passes all five provider-key variables from the invoking shell. Its
 private sentinel preserves unset versus explicitly empty: startup rejects an
-unset key for a configured remote provider, accepts an explicitly empty key,
-and does not force four irrelevant exports when `AI_ENABLED=false`.
+unset key, accepts an explicitly empty key only for `openai_compat`, and does
+not force four irrelevant exports when `AI_ENABLED=false`.
 
 ## Consequences
 

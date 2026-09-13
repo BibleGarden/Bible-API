@@ -3262,3 +3262,5 @@ def test_the_gemini_path_is_still_the_default_provider(monkeypatch):
     )
     assert twinkler_ai.TRANSCRIBE_PROVIDER.is_gemini
     assert twinkler_ai.TRANSCRIBE_PROVIDER.api_key == ""
+    with pytest.raises(twinkler_ai.GeminiError, match="AI_TRANSCRIBE_API_KEY"):
+        asyncio.run(twinkler_ai.transcribe(b"m4a", "audio/mp4", None))

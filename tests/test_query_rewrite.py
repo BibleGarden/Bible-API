@@ -250,15 +250,10 @@ def test_rewrite_returns_parsed_variants():
     assert "Тема" in user_text and "ответ" in user_text
 
 
-def test_empty_rewrite_key_omits_authentication_header():
-    captured = {}
-
-    def handler(request):
-        captured["headers"] = request.headers
-        return httpx.Response(200, json=gemini_response(["q"]))
-
-    assert make_rewriter(handler, api_key="").rewrite("ru", "Тема", []) == ["q"]
-    assert "x-goog-api-key" not in captured["headers"]
+def test_rewrite_requires_api_key():
+    rewriter = make_rewriter(lambda request: httpx.Response(200), api_key="")
+    with pytest.raises(QueryRewriteError, match="AI_SCRIPTURE_REWRITE_API_KEY"):
+        rewriter.rewrite("ru", "Тема", [])
 
 
 def test_rewrite_rejects_bad_model_name():

@@ -196,7 +196,7 @@ def test_both_variables_report_through_the_aggregated_config_error():
                 "EMBEDDING_MODEL": "m",
                 "EMBEDDING_DIMENSIONS": "768",
                 "EMBEDDING_PROVIDER": "gemini",
-                "EMBEDDING_API_KEY": "",
+                "EMBEDDING_API_KEY": "embedding-key",
             },
             problems,
         )

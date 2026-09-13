@@ -163,6 +163,10 @@ class GeminiEmbeddingClient:
     def _embed_one(
         self, text: str, task_type: str, deadline: Deadline | None = None
     ) -> list[float]:
+        if not self.config.api_key:
+            raise EmbeddingUnavailable(
+                "EMBEDDING_API_KEY is not configured", provider_down=True
+            )
         url = GEMINI_EMBED_URL.format(model=self.config.model)
         body = {
             # The API rejects empty content; a single space is a harmless

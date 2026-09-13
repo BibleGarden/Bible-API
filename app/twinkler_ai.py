@@ -745,6 +745,8 @@ async def complete(
         raise AIError("AI is disabled by AI_ENABLED=false")
     if QUESTION_PROVIDER.is_openai_compat:
         return await _complete_openai_compat(user, prompt, deadline)
+    if not QUESTION_PROVIDER.api_key:
+        raise GeminiError("AI_QUESTION_API_KEY is not configured")
     if not MODEL_PATTERN.fullmatch(AI_QUESTION_MODEL):
         raise GeminiError("AI_QUESTION_MODEL contains invalid characters")
 
@@ -883,6 +885,8 @@ async def _transcribe_gemini(
     `AI_TRANSCRIBE_TIMEOUT_SECONDS` and defaults to the 60.0 literal it
     replaces. The API key comes only from `AI_TRANSCRIBE_API_KEY`.
     """
+    if not TRANSCRIBE_PROVIDER.api_key:
+        raise GeminiError("AI_TRANSCRIBE_API_KEY is not configured")
     if not MODEL_PATTERN.fullmatch(AI_TRANSCRIBE_MODEL):
         raise GeminiError("AI_TRANSCRIBE_MODEL contains invalid characters")
 

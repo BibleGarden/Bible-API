@@ -581,8 +581,8 @@ class GeminiQueryRewriter:
         """
         if language not in _LANGUAGES:
             raise QueryRewriteError(f"unsupported language: {language}")
-        if not self.api_key and not SCRIPTURE_REWRITE_PROVIDER.provider:
-            raise QueryRewriteError("AI is disabled by AI_ENABLED=false")
+        if not self.api_key:
+            raise QueryRewriteError("AI_SCRIPTURE_REWRITE_API_KEY is not configured")
         if not _MODEL_PATTERN.fullmatch(self.model):
             raise QueryRewriteError("rewrite model name contains invalid characters")
 

@@ -858,8 +858,8 @@ For question, `AI_QUESTION_PROVIDER` is `gemini` or
 `openai_compat`. Both transports receive the same prompt and assembled user
 message. Gemini reads only `AI_QUESTION_MODEL` and the present
 `AI_QUESTION_API_KEY`; OpenAI-compatible transport additionally reads
-`AI_QUESTION_ENDPOINT`. An empty key explicitly omits the authentication
-header.
+`AI_QUESTION_ENDPOINT`. A Gemini key must be non-empty; an explicitly empty
+OpenAI-compatible key omits the authentication header.
 
 Transcription uses `AI_TRANSCRIBE_PROVIDER` with `gemini`,
 `openai_compat` or `local`. Remote providers read only the transcription

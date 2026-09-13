@@ -408,8 +408,8 @@ class GeminiPassageReranker:
         """
         if not candidate_texts:
             raise PassageRerankError("no candidates to rerank")
-        if not self.api_key and not SCRIPTURE_RERANK_PROVIDER.provider:
-            raise PassageRerankError("AI is disabled by AI_ENABLED=false")
+        if not self.api_key:
+            raise PassageRerankError("AI_SCRIPTURE_RERANK_API_KEY is not configured")
         if not _MODEL_PATTERN.fullmatch(self.model):
             raise PassageRerankError("rerank model name contains invalid characters")
 

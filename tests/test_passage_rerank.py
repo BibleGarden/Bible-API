@@ -389,18 +389,10 @@ def test_choose_requires_candidates_and_sane_model():
         make_reranker(ok, model="bad model!").choose("тема", [], ["текст"])
 
 
-def test_empty_api_key_omits_authentication_header():
-    captured = {}
-
-    def handler(request):
-        captured["headers"] = request.headers
-        return httpx.Response(
-            200, json=gemini_response({"candidate": 1, "reason": "ok"})
-        )
-
-    choice = make_reranker(handler, api_key="").choose("тема", [], ["текст"])
-    assert choice.index == 0
-    assert "x-goog-api-key" not in captured["headers"]
+def test_empty_gemini_api_key_is_rejected():
+    reranker = make_reranker(lambda request: httpx.Response(200), api_key="")
+    with pytest.raises(PassageRerankError, match="AI_SCRIPTURE_RERANK_API_KEY"):
+        reranker.choose("тема", [], ["текст"])
 
 
 def test_choose_retries_transient_errors(monkeypatch):

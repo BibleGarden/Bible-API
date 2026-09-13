@@ -433,19 +433,15 @@ def test_persistent_failure_raises_after_retries():
     assert calls["n"] == 6  # _MAX_RETRIES
 
 
-def test_empty_api_key_omits_authentication_header():
-    captured = {}
-
-    def handler(request):
-        captured["headers"] = request.headers
-        return embedding_response()
-
+def test_empty_gemini_api_key_raises():
     client = GeminiEmbeddingClient(
         config=EmbeddingConfig(model="m", dimensions=4, api_key=""),
-        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+        http_client=httpx.Client(
+            transport=httpx.MockTransport(lambda request: embedding_response())
+        ),
     )
-    assert len(client.embed_query("q")) == 4
-    assert "x-goog-api-key" not in captured["headers"]
+    with pytest.raises(EmbeddingUnavailable, match="EMBEDDING_API_KEY"):
+        client.embed_query("q")
 
 
 def test_wrong_dimension_count_raises():

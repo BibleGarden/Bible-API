@@ -326,9 +326,9 @@ inherited from another stage.
 
 Embeddings keep their separate required block. `openai_compat` requires
 `EMBEDDING_ENDPOINT` and present `EMBEDDING_API_KEY`; Gemini uses the
-same key variable without an endpoint; `local` uses
-`EMBEDDING_MODEL_PATH` without endpoint/key. An explicitly empty remote key
-means no Authorization header.
+same key variable without an endpoint and requires it to be non-empty;
+`local` uses `EMBEDDING_MODEL_PATH` without endpoint/key. An explicitly empty
+OpenAI-compatible key means no Authorization header.
 
 The models, prompts, parsers, retrieval fallbacks and operational timeout
 defaults described below are unchanged. The complete fail-fast matrix and
@@ -485,8 +485,9 @@ selection costs ~8 provider calls:
 The in-memory client identifier is an HMAC-SHA-256 pseudonym built with
 `AI_CLIENT_HMAC_KEY` (shared with the Twinkler endpoints); the
 address itself is not retained. Missing HMAC configuration fails closed
-with 503. Counters are process-local, so production runs a single API
-worker. Client addresses come from the direct peer; `X-Forwarded-For` is
+with 503 while `AI_ENABLED=true`. Disabled AI bypasses this AI-only limiter
+and serves the safe pool. Counters are process-local, so production runs a
+single API worker. Client addresses come from the direct peer; `X-Forwarded-For` is
 honoured only for trusted reverse proxies — a name in `TRUSTED_PROXY_HOSTS`
 resolved at runtime, or an address/network in `TRUSTED_PROXY_IPS`
 (`app/trusted_proxies.py`, ClickUp 86cbbq6vz) — and then the client is its
