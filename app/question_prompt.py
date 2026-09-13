@@ -9,8 +9,8 @@ byte; the variable was deleted, not aliased.
 
 The prompt is public from that day on (the repository is public) — a
 deliberate, owner-approved trade: it was never a secret, only unpublished,
-and it carries no key material. `GEMINI_API_KEY` remains the only secret
-of this endpoint.
+and it carries no key material. The stage-specific `AI_QUESTION_API_KEY`
+remains the only provider secret of this endpoint.
 
 Kept in its own module rather than in `twinkler_ai.py` so the prompt can be
 imported (tests, evaluation) without pulling in the FastAPI router, matching

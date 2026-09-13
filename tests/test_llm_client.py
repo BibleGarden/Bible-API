@@ -569,7 +569,6 @@ def test_rerank_parity_between_providers():
 def test_question_parity_between_providers(monkeypatch):
     gemini, openai_compat, captured = both_transports(QUESTION_ANSWER)
 
-    monkeypatch.setattr(twinkler_ai, "GEMINI_API_KEY", "g")
     monkeypatch.setattr(twinkler_ai, "AI_QUESTION_MODEL", "gemini-test")
     monkeypatch.setattr(
         twinkler_ai, "QUESTION_PROVIDER",
@@ -624,7 +623,6 @@ def test_question_parity_on_every_stage(
     gemini, openai_compat, captured = both_transports(QUESTION_ANSWER)
     user_message = build_user_message(topic, question_stage, messages)
 
-    monkeypatch.setattr(twinkler_ai, "GEMINI_API_KEY", "g")
     monkeypatch.setattr(twinkler_ai, "AI_QUESTION_MODEL", "gemini-test")
     monkeypatch.setattr(
         twinkler_ai, "QUESTION_PROVIDER",
@@ -663,7 +661,6 @@ def test_the_stage_instructions_do_not_choose_the_language(monkeypatch):
     )
     assert "Conversation so far:" in user_message
 
-    monkeypatch.setattr(twinkler_ai, "GEMINI_API_KEY", "g")
     monkeypatch.setattr(twinkler_ai, "AI_QUESTION_MODEL", "gemini-test")
     monkeypatch.setattr(
         twinkler_ai, "QUESTION_PROVIDER",
@@ -697,7 +694,6 @@ def test_the_language_named_in_the_prompt_is_the_same_on_both_providers(
     one, or ADR 0009's "same bytes" claim would hold for v1 only."""
     gemini, openai_compat, captured = both_transports(QUESTION_ANSWER)
 
-    monkeypatch.setattr(twinkler_ai, "GEMINI_API_KEY", "g")
     monkeypatch.setattr(twinkler_ai, "AI_QUESTION_MODEL", "gemini-test")
     monkeypatch.setattr(
         twinkler_ai, "QUESTION_PROVIDER",
@@ -827,7 +823,6 @@ def test_the_question_timeout_variable_reaches_the_gemini_client(monkeypatch):
         )
 
     monkeypatch.setattr(httpx, "AsyncClient", factory)
-    monkeypatch.setattr(twinkler_ai, "GEMINI_API_KEY", "g")
     monkeypatch.setattr(twinkler_ai, "AI_QUESTION_MODEL", "gemini-test")
     monkeypatch.setattr(
         twinkler_ai, "QUESTION_PROVIDER",

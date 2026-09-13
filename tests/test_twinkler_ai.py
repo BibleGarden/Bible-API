@@ -349,7 +349,6 @@ def test_complete_names_the_language_of_the_message(monkeypatch):
     transport = httpx.MockTransport(handler)
     real_async_client = httpx.AsyncClient
 
-    monkeypatch.setattr(twinkler_ai, "GEMINI_API_KEY", "secret-test-key")
     monkeypatch.setattr(
         twinkler_ai.httpx,
         "AsyncClient",
@@ -401,7 +400,6 @@ def test_complete_sends_the_prompt_constant(monkeypatch):
     def async_client(*args, **kwargs):
         return real_async_client(*args, transport=transport, **kwargs)
 
-    monkeypatch.setattr(twinkler_ai, "GEMINI_API_KEY", "secret-test-key")
     monkeypatch.setattr(twinkler_ai.httpx, "AsyncClient", async_client)
 
     asyncio.run(twinkler_ai.complete("Запрос"))
@@ -2205,7 +2203,6 @@ def test_the_gemini_call_is_bounded_by_the_request_budget(monkeypatch):
             *args, transport=transport, **kwargs
         ),
     )
-    monkeypatch.setattr(twinkler_ai, "GEMINI_API_KEY", "secret-test-key")
     monkeypatch.setattr(twinkler_ai, "AI_QUESTION_MODEL", "gemini-test")
 
     response = post_question(novelty_body())
@@ -2422,11 +2419,10 @@ def test_hides_provider_failure(monkeypatch):
 # it is a code constant now, so the surface below is the whole contract.
 
 
-def test_missing_provider_key_is_502(monkeypatch):
-    """GEMINI_API_KEY unset -> GeminiError -> 502, no provider call."""
-    monkeypatch.setattr(twinkler_ai, "GEMINI_API_KEY", "")
+def test_disabled_ai_is_502(monkeypatch):
+    monkeypatch.setattr(twinkler_ai, "AI_ENABLED", False)
 
-    with pytest.raises(twinkler_ai.GeminiError, match="GEMINI_API_KEY"):
+    with pytest.raises(twinkler_ai.AIError, match="AI_ENABLED=false"):
         asyncio.run(twinkler_ai.complete("Запрос"))
 
     response = client.post(
@@ -2543,7 +2539,7 @@ def test_sends_expected_gemini_request(monkeypatch):
             "https://generativelanguage.googleapis.com/v1beta/models/"
             "gemini-test:generateContent"
         )
-        assert request.headers["x-goog-api-key"] == "secret-test-key"
+        assert request.headers["x-goog-api-key"] == config.QUESTION_PROVIDER.api_key
         assert request.headers["content-type"] == "application/json"
         assert json.loads(request.read()) == {
             "system_instruction": {
@@ -2565,7 +2561,6 @@ def test_sends_expected_gemini_request(monkeypatch):
     def async_client(*args, **kwargs):
         return real_async_client(*args, transport=transport, **kwargs)
 
-    monkeypatch.setattr(twinkler_ai, "GEMINI_API_KEY", "secret-test-key")
     monkeypatch.setattr(twinkler_ai, "AI_QUESTION_MODEL", "gemini-test")
     monkeypatch.setattr(twinkler_ai.httpx, "AsyncClient", async_client)
 
@@ -2586,7 +2581,6 @@ def test_handles_gemini_failures(monkeypatch, response, expected_message):
     def async_client(*args, **kwargs):
         return real_async_client(*args, transport=transport, **kwargs)
 
-    monkeypatch.setattr(twinkler_ai, "GEMINI_API_KEY", "secret-test-key")
     monkeypatch.setattr(twinkler_ai.httpx, "AsyncClient", async_client)
 
     with pytest.raises(twinkler_ai.GeminiError, match=expected_message):
@@ -2837,7 +2831,7 @@ def test_sends_expected_gemini_transcription_request(monkeypatch):
             "https://generativelanguage.googleapis.com/v1beta/models/"
             "gemini-test:generateContent"
         )
-        assert request.headers["x-goog-api-key"] == "secret-test-key"
+        assert request.headers["x-goog-api-key"] == config.TRANSCRIBE_PROVIDER.api_key
         payload = json.loads(request.read())
         assert payload["generationConfig"] == {
             "maxOutputTokens": 4096,
@@ -2866,7 +2860,6 @@ def test_sends_expected_gemini_transcription_request(monkeypatch):
         assert kwargs["timeout"] == 60.0
         return real_async_client(*args, transport=transport, **kwargs)
 
-    monkeypatch.setattr(twinkler_ai, "GEMINI_API_KEY", "secret-test-key")
     monkeypatch.setattr(twinkler_ai, "AI_TRANSCRIBE_MODEL", "gemini-test")
     monkeypatch.setattr(twinkler_ai.httpx, "AsyncClient", async_client)
 
@@ -3264,9 +3257,8 @@ def test_the_gemini_path_is_still_the_default_provider(monkeypatch):
     """`gemini` is the last branch rather than an `else: raise` — an unknown
     provider cannot reach the seam, config refuses it at start-up."""
     monkeypatch.setattr(
-        twinkler_ai, "TRANSCRIBE_PROVIDER", transcribe_provider("gemini")
+        twinkler_ai, "TRANSCRIBE_PROVIDER",
+        transcribe_provider("gemini", api_key="")
     )
-    monkeypatch.setattr(twinkler_ai, "GEMINI_API_KEY", "")
-
-    with pytest.raises(twinkler_ai.AIError, match="GEMINI_API_KEY"):
-        asyncio.run(twinkler_ai.transcribe(b"m4a", "audio/mp4", None))
+    assert twinkler_ai.TRANSCRIBE_PROVIDER.is_gemini
+    assert twinkler_ai.TRANSCRIBE_PROVIDER.api_key == ""

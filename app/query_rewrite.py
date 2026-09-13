@@ -47,7 +47,6 @@ import httpx
 
 from config import (
     AI_SCRIPTURE_REWRITE_MODEL,
-    REWRITE_API_KEY,
     SCRIPTURE_REWRITE_PROVIDER,
     StageProvider,
 )
@@ -514,12 +513,7 @@ class GeminiQueryRewriter:
 
     def __init__(
         self,
-        # Resolved at import: AI_SCRIPTURE_REWRITE_API_KEY when the deployment
-        # bills this stage separately, GEMINI_API_KEY otherwise (config.
-        # resolve_rewrite_api_key). Production creation points go through
-        # `build_query_rewriter`, which passes the same value explicitly from
-        # the stage configuration, so the key is chosen in exactly one place.
-        api_key: str = REWRITE_API_KEY,
+        api_key: str = SCRIPTURE_REWRITE_PROVIDER.api_key,
         model: str = AI_SCRIPTURE_REWRITE_MODEL,
         http_client: httpx.Client | None = None,
         variants: int = REWRITE_VARIANTS,
@@ -587,11 +581,8 @@ class GeminiQueryRewriter:
         """
         if language not in _LANGUAGES:
             raise QueryRewriteError(f"unsupported language: {language}")
-        if not self.api_key:
-            raise QueryRewriteError(
-                "rewrite API key is not configured "
-                "(AI_SCRIPTURE_REWRITE_API_KEY or GEMINI_API_KEY)"
-            )
+        if not self.api_key and not SCRIPTURE_REWRITE_PROVIDER.provider:
+            raise QueryRewriteError("AI is disabled by AI_ENABLED=false")
         if not _MODEL_PATTERN.fullmatch(self.model):
             raise QueryRewriteError("rewrite model name contains invalid characters")
 
@@ -625,7 +616,7 @@ class GeminiQueryRewriter:
                 response = self._client.post(
                     url,
                     json=payload,
-                    headers={"x-goog-api-key": self.api_key},
+                    headers={"x-goog-api-key": self.api_key} if self.api_key else {},
                     timeout=timeout,
                 )
                 if response.status_code in RETRYABLE_STATUS:

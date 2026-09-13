@@ -381,14 +381,26 @@ def test_choose_returns_validated_choice_and_sends_schema():
     assert "between 1 and 2" in system
 
 
-def test_choose_requires_candidates_api_key_and_sane_model():
+def test_choose_requires_candidates_and_sane_model():
     ok = lambda r: httpx.Response(200)  # noqa: E731 — never reached
     with pytest.raises(PassageRerankError, match="no candidates"):
         make_reranker(ok).choose("тема", [], [])
-    with pytest.raises(PassageRerankError, match="not configured"):
-        make_reranker(ok, api_key="").choose("тема", [], ["текст"])
     with pytest.raises(PassageRerankError, match="invalid characters"):
         make_reranker(ok, model="bad model!").choose("тема", [], ["текст"])
+
+
+def test_empty_api_key_omits_authentication_header():
+    captured = {}
+
+    def handler(request):
+        captured["headers"] = request.headers
+        return httpx.Response(
+            200, json=gemini_response({"candidate": 1, "reason": "ok"})
+        )
+
+    choice = make_reranker(handler, api_key="").choose("тема", [], ["текст"])
+    assert choice.index == 0
+    assert "x-goog-api-key" not in captured["headers"]
 
 
 def test_choose_retries_transient_errors(monkeypatch):

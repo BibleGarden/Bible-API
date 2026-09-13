@@ -641,7 +641,7 @@ the code byte for byte on 2026-08-30 (ClickUp 86cbbmy8d); v1 is exactly the
 text production ran until that day. The prompt is public from then on — the
 repository is public, and the owner approved the trade knowingly: the text was
 never a secret, only unpublished, and it carries no key material.
-`GEMINI_API_KEY` remains the only secret this endpoint has.
+The provider secret is now the stage-specific `AI_QUESTION_API_KEY`.
 
 Two consequences in the code. The former runtime guards ("prompt is not
 configured", "prompt is too long") were removed from `complete()` — they
@@ -848,165 +848,49 @@ handler of its own, so they pass whether or not anything else does.
 
 ## Provider contract
 
-Which transport answers `/api/ai/question` is configured per stage since
-2026-09-05 (ClickUp 86cbegg2f, `architect/adr/0009-provider-independent-llm-client.md`):
-`AI_QUESTION_PROVIDER` is `gemini` or `openai_compat`. The prompt, the
-assembled user message, the generation settings and every public response are
-the same either way — only the transport differs. Both strings are built once
-per request (`build_question_prompt`, `build_user_message`) and handed to
-whichever transport answers, which is what makes "the same bytes" a fact
-rather than a hope.
+`AI_ENABLED` is required and is the only switch for question and
+transcription. `false` returns the existing `502 AI service unavailable`
+without contacting a provider or entering the HMAC-backed limiter.
+`true` requires `AI_CLIENT_HMAC_KEY` and complete, stage-specific
+configuration for all four AI stages.
 
-**On `gemini`** the service calls
-`POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent`
-with the assembled message as user content and the built prompt
-(`build_question_prompt`, see "System prompt") as `system_instruction`;
-clients cannot override it. `GEMINI_API_KEY` is sent
-only in the `x-goog-api-key` header. The request sets `maxOutputTokens` to
-`1024` and `temperature` to `0.7`, and `AI_QUESTION_TIMEOUT_SECONDS`
-(default 20 — the literal this call carried before it became a variable)
-caps it. Since ClickUp 86cbehyg0 that cap is **carved across httpx's four
-phases** out of what the request budget has left, exactly as the
-`openai_compat` path does it: a bare number is applied to each phase
-separately, so `timeout=20` authorises up to 80 s for one call — and twice
-that for a request that generates twice.
+For question, `AI_QUESTION_PROVIDER` is `gemini` or
+`openai_compat`. Both transports receive the same prompt and assembled user
+message. Gemini reads only `AI_QUESTION_MODEL` and the present
+`AI_QUESTION_API_KEY`; OpenAI-compatible transport additionally reads
+`AI_QUESTION_ENDPOINT`. An empty key explicitly omits the authentication
+header.
 
-**On `openai_compat`** (`app/llm_client.AsyncChatClient`) it calls
-`POST {AI_QUESTION_ENDPOINT or AI_OPENAI_COMPAT_ENDPOINT}/chat/completions`
-with the same built prompt as the system message and the same assembled
-message as the user message, `temperature` `0.7` and `max_tokens` `1024`. The key travels in an
-`Authorization: Bearer` header, and only when there is one — an empty
-`AI_OPENAI_COMPAT_API_KEY` is the explicit "this endpoint is
-unauthenticated". No `response_format` is requested: this answer is prose for
-a person, not a parsed contract. `<think>…</think>` blocks are stripped from
-the answer before it is returned. One attempt per call, like the Gemini path:
-a retry ladder would double the time a person waits with nothing on screen.
-(The handler may ask for a second *generation* when the first repeats a
-question already shown — "The question must be new", above — which is a
-different decision, taken with an answer already in hand.)
-`AI_QUESTION_TIMEOUT_SECONDS` (default 20, the value this endpoint always ran
-with) is the ceiling of the whole call, carried by a per-request `Deadline`
-and carved across httpx's four phases.
+Transcription uses `AI_TRANSCRIBE_PROVIDER` with `gemini`,
+`openai_compat` or `local`. Remote providers read only the transcription
+stage's model/key and, for OpenAI compatibility, endpoint. Local
+faster-whisper reads `AI_TRANSCRIBE_MODEL` and
+`AI_TRANSCRIBE_MODEL_PATH` and has no endpoint/key.
 
-### The ceiling bounds the call, not one attempt (ClickUp 86cbegg3w, 2026-09-05)
+Provider timeouts, request envelopes, parsing, retries, prompts and public
+responses are unchanged. No stage inherits another stage's endpoint or key.
+The full fail-fast matrix is
+`architect/adr/0019-explicit-ai-configuration.md`.
 
-Measured against a stand-in that accepted the connection and answered nothing
-— the ordinary "process up, app dead" outage, and the one failure mode that
-does not fail fast:
+### The ceiling bounds the call, not one attempt
 
-| Endpoint | Before | After | Ceiling |
-| --- | --- | --- | --- |
-| `POST /api/ai/question` | 17.0 s | 17.0 s | `AI_QUESTION_TIMEOUT_SECONDS` = 20 |
-| `POST /api/ai/transcribe` | **116.1 s** | **57.0 s** | `AI_TRANSCRIBE_TIMEOUT_SECONDS` = 60 |
-
-Both clients bounded each *attempt* at the configured seconds and neither
-counted the backoff. The question endpoint got away with it because
-`_complete_openai_compat` builds its client with `attempts=1` — the ceiling
-held by accident, not by construction. Transcription has two attempts (it buys
-one recovery from a restarting server), so it waited the ceiling out twice
-with a 2 s pause in between and answered its `502` at nearly double the
-documented bound, in front of a person watching a spinner.
-
-Both calls now carry a per-request `deadline.Deadline` of their own ceiling,
-the mechanism `POST /api/ai/scripture` has used since ClickUp 86cbbnaxn:
-`gemini_retry.provider_timeout` takes the minimum of the ceiling and what is
-left, and `gemini_retry.retry_pause` refuses a backoff whose attempt would no
-longer fit. **The retry itself is unchanged where it can help**: a server that
-fails *fast* (a 503 while restarting) leaves nearly the whole budget, so the
-second attempt still runs — verified live in review against a stand-in that
-answers `503` to the first request and `200` to the second: the recording is
-transcribed, `200` in **2.0 s** (the 2 s backoff plus two fast calls), i.e. the
-ladder still buys the recovery it exists for. On a fake clock the same is
-asserted in `tests/test_transcription.py`. (The separate F4 row below — a
-stand-in that answers `200` only after 30 s, served at 30.0 s — says something
-else, and is worth not confusing with this: a slow but *working* server is not
-cut off inside the budget.)
-
-Not changed, and deliberately: the two **Gemini** paths still hand httpx a
-bare `AI_*_TIMEOUT_SECONDS`, i.e. that value per phase. Carving them would be
-a behaviour change to a path this ticket did not measure; it is recorded as an
-open item in [README.md](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/README.md).
-
-Transcription names its transport in `AI_TRANSCRIBE_PROVIDER` since
-2026-09-05 (ClickUp 86cbegg3m, `architect/adr/0012-speech-transcription-providers.md`),
-with a value set of its own because speech is not the chat protocol:
-`openai_compat` (Whisper on the company's model server, through the OpenAI
-**audio** API — the production provider), `local` (faster-whisper in this
-process, the fallback) and `gemini` (this endpoint's original call,
-unchanged). The variable is required as soon as any AI is configured, exactly
-like the three chat providers.
-
-Provider timeouts, HTTP errors, malformed responses and empty output are
-returned to the client as `502 AI service unavailable` without provider
-details. Missing server configuration has the same public response.
+`AI_QUESTION_TIMEOUT_SECONDS` (default 20) and
+`AI_TRANSCRIBE_TIMEOUT_SECONDS` (default 60) keep their measured operational
+defaults. Each remote call carves the remaining request deadline across
+httpx's phases; transcription's two attempts share one total deadline.
 
 ### When the AI surface is unavailable
 
-Since 2026-08-30 exactly two variables decide it, and the prompt is not one
-of them:
-
-| Condition | `/api/ai/question` and `/api/ai/transcribe` |
+| Condition | Result |
 | --- | --- |
-| `GEMINI_API_KEY` unset or blank | `502 AI service unavailable` (no provider call is attempted) — for each endpoint only while its own provider is `gemini` |
-| stage on `openai_compat` with no endpoint or model | `502` — unreachable in practice: that configuration aborts startup (ADR 0009) |
-| `AI_QUESTION_MODEL` / `AI_TRANSCRIBE_MODEL` malformed | `502` — but unreachable in practice: with a key set, a missing model name aborts startup (ADR 0008) |
-| `AI_CLIENT_HMAC_KEY` unset or blank | `503 AI service temporarily unavailable` — the per-client limiter fails closed instead of silently serving without a limit |
+| `AI_ENABLED=false` | `502 AI service unavailable`, no provider call |
+| missing/invalid provider, model, endpoint, key presence or HMAC while enabled | startup aborts with one aggregated configuration error |
+| provider timeout, HTTP error, malformed or empty response | `502 AI service unavailable` without provider details |
 
-The 503 is raised before the provider is contacted. `POST /api/ai/scripture`
-fails closed the same way, but not because the three endpoints share a
-limiter — they don't: `twinkler_ai.py` (`RateLimiter(name="AI")`) and
-`scripture_select.py` (`RateLimiter(name="scripture selection")`) each own a
-separate limiter instance with its own counters and its own budget
-(`config.py` spells out why they must not share one — one selection costs
-~8 Gemini calls, so it must not starve, or be starved by, the chat-shaped
-Twinkler endpoints). What the two limiters do share is the pseudonymisation
-key: both reserve through `client_ip.pseudonymize_twinkler_client`, which
-raises when `AI_CLIENT_HMAC_KEY` is unset or blank — so both fail closed on
-the same missing variable, independently rather than jointly. The scripture
-endpoint's 503 body is its own wording, `Scripture selection temporarily
-unavailable`, not the `AI service temporarily unavailable` text in the table
-above. Both branches are pinned by `test_missing_provider_key_is_502` and
-`test_missing_hmac_key_is_503`.
-
-Transcription uses `AI_TRANSCRIBE_MODEL` (no default in code; required by a
-Gemini key or by either Whisper provider) and means the model **identity** in
-all three: a Gemini model id, the name the audio server expects, or which
-Whisper the mounted weights are. `audio/mp4`, `audio/x-m4a` and `audio/m4a`
-are accepted whoever transcribes; a `.m4a` filename is used as a fallback only
-when the client sends no MIME type or `application/octet-stream`. The uploaded
-file is closed after it is read and is never persisted by the application, and
-neither the recording nor the transcript is ever logged or quoted in an error.
-
-The three transports, all of them `temperature 0` and none of them allowed to
-translate:
-
-- **`openai_compat`** (`app/transcription.RemoteTranscriber`): one multipart
-  `POST {AI_TRANSCRIBE_ENDPOINT or AI_OPENAI_COMPAT_ENDPOINT}/audio/transcriptions`
-  with `file`, `model`, `response_format=json` and `temperature=0`; `language`
-  is omitted so Whisper detects the spoken language. The answer is
-  `{"text": ...}`. The key travels in `Authorization: Bearer`, and only when
-  there is one. Two attempts on a retryable status, and
-  `AI_TRANSCRIBE_TIMEOUT_SECONDS` (60) bounds the **whole call** — both
-  attempts and the backoff between them — through a per-call `Deadline`, on
-  top of the four-phase carving of each attempt.
-- **`local`** (`app/transcription.LocalTranscriber`): faster-whisper on this
-  CPU, `task="transcribe"`, `vad_filter=True`, beam size
-  `AI_TRANSCRIBE_BEAM_SIZE`, weights loaded once at start-up from
-  `AI_TRANSCRIBE_MODEL_PATH`. The upload is decoded first (PyAV) so that a
-  recording longer than `AI_TRANSCRIBE_MAX_AUDIO_SECONDS` (600) is refused
-  before any work starts, and the run happens on a worker thread.
-- **`gemini`**: the M4A bytes base64-encoded into an `inline_data` part
-  alongside a server-controlled verbatim-transcription instruction, at
-  `temperature 0`.
-
-**The locale is ignored by every provider.** It remains in the public request
-for compatibility with released clients and retains its BCP 47 validation,
-but an interface locale is not evidence of the recording's language. Both
-Whisper paths use automatic language detection; Gemini receives only the
-server-controlled instruction to transcribe in the recording's original
-language. This rule prevents a conflicting interface locale from translating
-or distorting the person's speech (86cbh1apz, reproduced 2026-09-12).
-
+The question and transcription endpoints retain the shared in-process request
+limiter and pseudonymisation rules described below. Because the HMAC key is
+required at startup whenever AI is enabled, its former request-time 503 state
+is no longer reachable from a valid configuration.
 ## Rate limiting and observability
 
 Before calling Gemini, the service reserves a request in an in-memory rolling

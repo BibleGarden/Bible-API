@@ -250,10 +250,15 @@ def test_rewrite_returns_parsed_variants():
     assert "Тема" in user_text and "ответ" in user_text
 
 
-def test_rewrite_requires_api_key():
-    rewriter = make_rewriter(lambda r: httpx.Response(200), api_key="")
-    with pytest.raises(QueryRewriteError, match="not configured"):
-        rewriter.rewrite("ru", "Тема", [])
+def test_empty_rewrite_key_omits_authentication_header():
+    captured = {}
+
+    def handler(request):
+        captured["headers"] = request.headers
+        return httpx.Response(200, json=gemini_response(["q"]))
+
+    assert make_rewriter(handler, api_key="").rewrite("ru", "Тема", []) == ["q"]
+    assert "x-goog-api-key" not in captured["headers"]
 
 
 def test_rewrite_rejects_bad_model_name():
@@ -328,26 +333,23 @@ def test_default_variant_count_is_requested():
 # than by reloading modules in-process: `importlib.reload` mutates the shared
 # module dict (and rebuilds exception classes other modules already imported
 # by identity), which leaks into unrelated test modules. A subprocess also
-# makes the check hermetic — in a single-key deployment an in-process assert
-# "rewriter default == config.REWRITE_API_KEY" cannot fail even if the
-# rewriter were wired straight to GEMINI_API_KEY.
+# makes the check hermetic and proves each constructor sees only its own key.
 
 APP_DIR = Path(__file__).resolve().parents[1] / "app"
 
 _PROBE = """
 import inspect, json
-import config, embeddings, passage_rerank, query_rewrite, twinkler_ai
+import config, embeddings, passage_rerank, query_rewrite
 
 def default(func):
     return inspect.signature(func).parameters["api_key"].default
 
 print(json.dumps({
-    "config_shared": config.GEMINI_API_KEY,
-    "config_rewrite": config.REWRITE_API_KEY,
+    "question": config.QUESTION_PROVIDER.api_key,
+    "transcribe": config.TRANSCRIBE_PROVIDER.api_key,
     "rewriter": default(query_rewrite.GeminiQueryRewriter.__init__),
     "reranker": default(passage_rerank.GeminiPassageReranker.__init__),
     "embeddings": embeddings.EmbeddingConfig().api_key,
-    "twinkler": twinkler_ai.GEMINI_API_KEY,
 }))
 """
 
@@ -355,6 +357,7 @@ print(json.dumps({
 _PROBE_ENV = {
     "API_KEY": "k",
     "DB_HOST": "h", "DB_USER": "u", "DB_PASSWORD": "p", "DB_NAME": "n",
+    "AI_ENABLED": "true", "AI_CLIENT_HMAC_KEY": "hmac",
     "EMBEDDING_MODEL": "gemini-embedding-001", "EMBEDDING_DIMENSIONS": "768",
     # Embeddings on the API too: this probe asks which key each GEMINI client
     # bills, and the local provider has no key at all (ADR 0010).
@@ -367,6 +370,11 @@ _PROBE_ENV = {
     "AI_SCRIPTURE_REWRITE_PROVIDER": "gemini",
     "AI_SCRIPTURE_RERANK_PROVIDER": "gemini",
     "AI_TRANSCRIBE_PROVIDER": "gemini",
+    "AI_QUESTION_API_KEY": "question-key",
+    "AI_SCRIPTURE_REWRITE_API_KEY": "rewrite-key",
+    "AI_SCRIPTURE_RERANK_API_KEY": "rerank-key",
+    "AI_TRANSCRIBE_API_KEY": "transcribe-key",
+    "EMBEDDING_API_KEY": "embedding-key",
 }
 
 
@@ -382,26 +390,14 @@ def _probe_keys(**env_extra) -> dict:
     return json.loads(proc.stdout)
 
 
-def test_dedicated_key_reaches_the_rewriter_and_nothing_else():
-    keys = _probe_keys(GEMINI_API_KEY="shared-key", AI_SCRIPTURE_REWRITE_API_KEY="paid-key")
-    assert keys["rewriter"] == "paid-key"
-    assert keys["config_rewrite"] == "paid-key"
-    # ADR 0004: only the rewrite stage was split off.
-    assert keys["reranker"] == "shared-key"
-    assert keys["embeddings"] == "shared-key"
-    assert keys["twinkler"] == "shared-key"
-    assert keys["config_shared"] == "shared-key"
-
-
-def test_without_a_dedicated_key_every_stage_shares_one():
-    keys = _probe_keys(GEMINI_API_KEY="shared-key")
-    assert set(keys.values()) == {"shared-key"}
-
-
-@pytest.mark.parametrize("value", ["", "   "])
-def test_a_blank_dedicated_key_is_the_shared_key(value):
-    keys = _probe_keys(GEMINI_API_KEY="shared-key", AI_SCRIPTURE_REWRITE_API_KEY=value)
-    assert set(keys.values()) == {"shared-key"}
+def test_every_gemini_client_uses_only_its_stage_key():
+    assert _probe_keys() == {
+        "question": "question-key",
+        "transcribe": "transcribe-key",
+        "rewriter": "rewrite-key",
+        "reranker": "rerank-key",
+        "embeddings": "embedding-key",
+    }
 
 
 def _default_api_key(func) -> str:
@@ -418,11 +414,9 @@ def _mask(key: str) -> str:
 
 
 def test_production_rewriter_uses_the_configured_rewrite_key():
-    # The environment as this container actually runs it: the default that
-    # scripture_select and retrieval_cli inherit is config.REWRITE_API_KEY.
     assert (
         _mask(_default_api_key(GeminiQueryRewriter.__init__))
-        == _mask(config.REWRITE_API_KEY)
+        == _mask(config.SCRIPTURE_REWRITE_PROVIDER.api_key)
     )
 
 

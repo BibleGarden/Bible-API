@@ -17,7 +17,7 @@ from pydantic import (
 from auth import RequireAPIKey
 from client_ip import resolve_client_ip
 from config import (
-    GEMINI_API_KEY,
+    AI_ENABLED,
     AI_QUESTION_MODEL,
     AI_QUESTION_TIMEOUT_SECONDS,
     AI_TRANSCRIBE_MODEL,
@@ -713,13 +713,9 @@ async def complete(
     "the message itself", which is what a single-string caller (the parity
     tests, a one-off script) means by it.
 
-    "AI is not configured" is decided by exactly two variables since
-    2026-08-30, and the prompt is no longer one of them:
-    `GEMINI_API_KEY` unset -> GeminiError here -> 502, and
-    `AI_CLIENT_HMAC_KEY` unset -> the limiter fails closed before this
-    function is reached -> 503 (see `_enforce_rate_limit`). A malformed
-    `AI_QUESTION_MODEL` is also a 502, but is unreachable in practice: with
-    a key set, an unnamed model aborts startup (ADR 0008).
+    `AI_ENABLED=false` is the only disabled state. With it true, startup has
+    already required this stage's provider, model and API-key presence plus
+    the limiter's HMAC key (ADR 0019).
 
     Since 2026-08-30 the system prompt is code
     (`app/question_prompt.py`), so the two guards this function used
@@ -745,10 +741,10 @@ async def complete(
     prompt = question_prompt_for(
         user if language_source_text is None else language_source_text
     )
+    if not AI_ENABLED:
+        raise AIError("AI is disabled by AI_ENABLED=false")
     if QUESTION_PROVIDER.is_openai_compat:
         return await _complete_openai_compat(user, prompt, deadline)
-    if not GEMINI_API_KEY:
-        raise GeminiError("GEMINI_API_KEY is not configured")
     if not MODEL_PATTERN.fullmatch(AI_QUESTION_MODEL):
         raise GeminiError("AI_QUESTION_MODEL contains invalid characters")
 
@@ -786,7 +782,11 @@ async def complete(
         async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(
                 url,
-                headers={"x-goog-api-key": GEMINI_API_KEY},
+                headers=(
+                    {"x-goog-api-key": QUESTION_PROVIDER.api_key}
+                    if QUESTION_PROVIDER.api_key
+                    else {}
+                ),
                 json=payload,
             )
             response.raise_for_status()
@@ -836,6 +836,8 @@ async def transcribe(audio: bytes, mime_type: str, locale: str | None) -> str:
     start-up, which is why the last branch is the Gemini one rather than an
     `else: raise`.
     """
+    if not AI_ENABLED:
+        raise AIError("AI is disabled by AI_ENABLED=false")
     if TRANSCRIBE_PROVIDER.is_local:
         return await _transcribe_local(audio, mime_type, locale)
     if TRANSCRIBE_PROVIDER.is_openai_compat:
@@ -879,11 +881,8 @@ async def _transcribe_gemini(
 
     Unchanged except for its timeout, which is now
     `AI_TRANSCRIBE_TIMEOUT_SECONDS` and defaults to the 60.0 literal it
-    replaces. Without `GEMINI_API_KEY` it answers the same explicit 502 it
-    always has, while everything else keeps working.
+    replaces. The API key comes only from `AI_TRANSCRIBE_API_KEY`.
     """
-    if not GEMINI_API_KEY:
-        raise GeminiError("GEMINI_API_KEY is not configured")
     if not MODEL_PATTERN.fullmatch(AI_TRANSCRIBE_MODEL):
         raise GeminiError("AI_TRANSCRIBE_MODEL contains invalid characters")
 
@@ -916,7 +915,11 @@ async def _transcribe_gemini(
         ) as client:
             response = await client.post(
                 url,
-                headers={"x-goog-api-key": GEMINI_API_KEY},
+                headers=(
+                    {"x-goog-api-key": TRANSCRIBE_PROVIDER.api_key}
+                    if TRANSCRIBE_PROVIDER.api_key
+                    else {}
+                ),
                 json=payload,
             )
             response.raise_for_status()
@@ -984,6 +987,8 @@ async def twinkler_complete(
     http_request: Request,
     api_key: bool = RequireAPIKey,
 ) -> QuestionResponse:
+    if not AI_ENABLED:
+        raise HTTPException(status_code=502, detail="AI service unavailable")
     client_key = resolve_client_ip(http_request)
     await _enforce_rate_limit(client_key)
 
@@ -1209,6 +1214,8 @@ async def twinkler_transcribe(
     ),
     api_key: bool = RequireAPIKey,
 ) -> CompleteResponse:
+    if not AI_ENABLED:
+        raise HTTPException(status_code=502, detail="AI service unavailable")
     if locale is not None and not LOCALE_PATTERN.fullmatch(locale):
         raise HTTPException(status_code=422, detail="Invalid locale")
 

@@ -63,7 +63,6 @@ from config import (
     EMBEDDING_PROVIDER_LOCAL,
     EMBEDDING_PROVIDER_OPENAI_COMPAT,
     EMBEDDING_STAGE,
-    GEMINI_API_KEY,
 )
 from deadline import Deadline
 from gemini_retry import (
@@ -118,7 +117,7 @@ def normalize(vector: list[float]) -> list[float]:
 class EmbeddingConfig:
     model: str = EMBEDDING_MODEL
     dimensions: int = EMBEDDING_DIMENSIONS
-    api_key: str = GEMINI_API_KEY
+    api_key: str = EMBEDDING_STAGE.api_key
 
 
 class GeminiEmbeddingClient:
@@ -164,10 +163,6 @@ class GeminiEmbeddingClient:
     def _embed_one(
         self, text: str, task_type: str, deadline: Deadline | None = None
     ) -> list[float]:
-        if not self.config.api_key:
-            raise EmbeddingUnavailable(
-                "GEMINI_API_KEY is not configured", provider_down=True
-            )
         url = GEMINI_EMBED_URL.format(model=self.config.model)
         body = {
             # The API rejects empty content; a single space is a harmless
@@ -192,7 +187,11 @@ class GeminiEmbeddingClient:
                 response = self._client.post(
                     url,
                     json=body,
-                    headers={"x-goog-api-key": self.config.api_key},
+                    headers=(
+                        {"x-goog-api-key": self.config.api_key}
+                        if self.config.api_key
+                        else {}
+                    ),
                     timeout=timeout,
                 )
             except httpx.HTTPError as exc:

@@ -48,23 +48,9 @@ REBUILD_ARGS = SimpleNamespace(
 )
 
 
-def test_rebuild_without_api_key_touches_nothing(monkeypatch, capsys):
-    monkeypatch.setattr(index_cli, "GEMINI_API_KEY", "")
-    cursor, connection = RecordingCursor(), RecordingConnection()
-
-    assert index_cli.cmd_rebuild(connection, cursor, REBUILD_ARGS) == 1
-
-    assert cursor.statements == []
-    assert connection.commits == 0
-    err = capsys.readouterr().err
-    assert "GEMINI_API_KEY is not configured" in err
-    assert "Nothing was changed." in err
-
-
 def test_rebuild_on_the_local_provider_needs_no_gemini_key(monkeypatch):
     """The migration's whole point: an index built with no Google
     credentials in the environment (ADR 0010)."""
-    monkeypatch.setattr(index_cli, "GEMINI_API_KEY", "")
     monkeypatch.setattr(
         index_cli, "EMBEDDING_PROVIDER", index_cli.EMBEDDING_PROVIDER_LOCAL
     )
@@ -87,7 +73,6 @@ def test_rebuild_on_the_local_provider_needs_no_gemini_key(monkeypatch):
 
 def test_rebuild_refuses_an_unusable_index_version(monkeypatch, capsys):
     """Even with a key: no version, no rebuild — and no rows touched."""
-    monkeypatch.setattr(index_cli, "GEMINI_API_KEY", "some-key")
     monkeypatch.setattr(
         index_cli, "current_embedding_version",
         lambda: (_ for _ in ()).throw(IndexVersionUnavailable("unset dims")),
@@ -146,7 +131,6 @@ def test_rebuild_abort_message_does_not_promise_untouched_rows(
     is false: `reindex_translation` can delete rows and commit before the
     first embedding call, so a provider outage can leave the index smaller
     than it was."""
-    monkeypatch.setattr(index_cli, "GEMINI_API_KEY", "some-key")
     monkeypatch.setattr(
         index_cli, "resolve_translations",
         lambda cursor, spec: [{"code": 1, "alias": "syn"}],
@@ -175,7 +159,6 @@ def test_drop_other_versions_reaches_the_reindexer(monkeypatch, capsys, flag):
     """The flag is the only thing standing between a migration and the loss
     of the index that is currently serving traffic — so it is asserted where
     it is used, not where it is parsed."""
-    monkeypatch.setattr(index_cli, "GEMINI_API_KEY", "some-key")
     monkeypatch.setattr(
         index_cli, "resolve_translations",
         lambda cursor, spec: [{"code": 1, "alias": "syn"}],
@@ -218,6 +201,8 @@ def test_batch_size_default_follows_the_provider():
     assert parser.parse_args(["rebuild"]).batch_size == (
         index_cli.LOCAL_DEFAULT_BATCH_SIZE
         if index_cli.EMBEDDING_PROVIDER == index_cli.EMBEDDING_PROVIDER_LOCAL
+        else index_cli.REMOTE_DEFAULT_BATCH_SIZE
+        if index_cli.EMBEDDING_PROVIDER == index_cli.EMBEDDING_PROVIDER_OPENAI_COMPAT
         else index_cli.DEFAULT_BATCH_SIZE
     )
     assert parser.parse_args(["rebuild", "--batch-size", "7"]).batch_size == 7

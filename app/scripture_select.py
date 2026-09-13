@@ -60,6 +60,7 @@ from auth import RequireAPIKey
 from chunking import CHUNKING_VERSION
 from client_ip import resolve_client_ip
 from config import (
+    AI_ENABLED,
     AI_SCRIPTURE_INDEX_CACHE_SECONDS,
     AI_SCRIPTURE_PRIMARY_TRANSLATIONS,
     AI_SCRIPTURE_PROVIDER_TIMEOUT_SECONDS,
@@ -81,7 +82,7 @@ from passage_render import (
     render_passage,
 )
 from query_rewrite import REWRITE_VARIANTS, build_query_rewriter
-from embeddings import build_embedding_client
+from embeddings import EmbeddingUnavailable, build_embedding_client
 from rate_limit import RateLimiter, RateLimitError
 from retrieval import (
     FinalSelection,
@@ -974,6 +975,13 @@ _clients_lock = threading.Lock()
 _clients: tuple | None = None
 
 
+class _DisabledEmbeddingClient:
+    """Make AI_ENABLED=false take the established safe-pool path."""
+
+    def embed_query(self, text: str, deadline: Deadline | None = None):
+        raise EmbeddingUnavailable("AI is disabled", provider_down=True)
+
+
 def _provider_clients() -> tuple:
     """Lazily built (rewriter, embedder, reranker) with serve-time budgets.
 
@@ -999,8 +1007,13 @@ def _provider_clients() -> tuple:
                 build_query_rewriter(
                     timeout=_PROVIDER_TIMEOUT_SECONDS, attempts=_PROVIDER_ATTEMPTS
                 ),
-                build_embedding_client(
-                    timeout=_PROVIDER_TIMEOUT_SECONDS, max_retries=_PROVIDER_ATTEMPTS
+                (
+                    build_embedding_client(
+                        timeout=_PROVIDER_TIMEOUT_SECONDS,
+                        max_retries=_PROVIDER_ATTEMPTS,
+                    )
+                    if AI_ENABLED
+                    else _DisabledEmbeddingClient()
                 ),
                 build_passage_reranker(
                     timeout=_PROVIDER_TIMEOUT_SECONDS, attempts=_PROVIDER_ATTEMPTS

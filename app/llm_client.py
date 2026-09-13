@@ -114,7 +114,7 @@ def endpoint_host(endpoint: str) -> str:
 def auth_headers(api_key: str) -> dict[str, str]:
     """Bearer header, or none at all when the endpoint needs no key.
 
-    An empty `AI_OPENAI_COMPAT_API_KEY` is an explicit statement ("this
+    An empty stage-specific `AI_*_API_KEY` is an explicit statement ("this
     endpoint is unauthenticated"), validated as such in config; sending
     `Authorization: Bearer ` would be a different, wrong request.
     """

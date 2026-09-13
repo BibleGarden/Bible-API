@@ -169,6 +169,24 @@ def post(payload: dict, api_key: str | None = "test-api-key", **kwargs):
     )
 
 
+def test_disabled_ai_uses_the_safe_pool_trigger(monkeypatch):
+    monkeypatch.setattr(scripture_select, "AI_ENABLED", False)
+    monkeypatch.setattr(scripture_select, "_clients", None)
+    monkeypatch.setattr(scripture_select, "build_query_rewriter", lambda **kw: "r")
+    monkeypatch.setattr(scripture_select, "build_passage_reranker", lambda **kw: "p")
+    monkeypatch.setattr(
+        scripture_select,
+        "build_embedding_client",
+        lambda **kw: pytest.fail("disabled AI must not call the embedding provider"),
+    )
+
+    clients = scripture_select._provider_clients()
+    assert clients[0] == "r" and clients[2] == "p"
+    with pytest.raises(scripture_select.EmbeddingUnavailable) as exc:
+        clients[1].embed_query("not sent")
+    assert exc.value.provider_down is True
+
+
 # ---------------------------------------------------------------------------
 # Contract
 # ---------------------------------------------------------------------------
