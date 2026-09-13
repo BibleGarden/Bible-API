@@ -319,10 +319,10 @@ with `fallback_reason=ai_unavailable` and makes no provider call. Embedding
 identity remains required because the stored index is an independent data
 contract.
 
-When `AI_ENABLED=true`, rewrite and rerank each require their own provider,
-model and stage-specific API-key presence. `openai_compat` additionally
-requires that stage's endpoint; Gemini has no endpoint. No endpoint or key is
-inherited from another stage.
+When `AI_ENABLED=true`, rewrite and rerank each require their own provider and
+model. Gemini requires a non-empty stage key; `openai_compat` requires its own
+endpoint and a present stage-key variable, which may be empty for no-auth. No
+endpoint or key is inherited from another stage.
 
 Embeddings keep their separate required block. `openai_compat` requires
 `EMBEDDING_ENDPOINT` and present `EMBEDDING_API_KEY`; Gemini uses the
