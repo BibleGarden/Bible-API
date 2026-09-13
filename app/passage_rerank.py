@@ -42,7 +42,6 @@ from dataclasses import dataclass
 import httpx
 
 from config import (
-    GEMINI_API_KEY,
     AI_SCRIPTURE_RERANK_MODEL,
     SCRIPTURE_RERANK_PROVIDER,
     StageProvider,
@@ -338,7 +337,7 @@ class GeminiPassageReranker:
 
     def __init__(
         self,
-        api_key: str = GEMINI_API_KEY,
+        api_key: str = SCRIPTURE_RERANK_PROVIDER.api_key,
         model: str = AI_SCRIPTURE_RERANK_MODEL,
         http_client: httpx.Client | None = None,
         timeout: float = 20.0,
@@ -410,7 +409,7 @@ class GeminiPassageReranker:
         if not candidate_texts:
             raise PassageRerankError("no candidates to rerank")
         if not self.api_key:
-            raise PassageRerankError("GEMINI_API_KEY is not configured")
+            raise PassageRerankError("AI_SCRIPTURE_RERANK_API_KEY is not configured")
         if not _MODEL_PATTERN.fullmatch(self.model):
             raise PassageRerankError("rerank model name contains invalid characters")
 
@@ -452,7 +451,7 @@ class GeminiPassageReranker:
                 response = self._client.post(
                     url,
                     json=payload,
-                    headers={"x-goog-api-key": self.api_key},
+                    headers={"x-goog-api-key": self.api_key} if self.api_key else {},
                     timeout=timeout,
                 )
                 if response.status_code in RETRYABLE_STATUS:

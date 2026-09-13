@@ -313,124 +313,27 @@ bug and are rejected with 422.
 
 ## Configuration
 
-The models of the three AI stages — `AI_SCRIPTURE_REWRITE_MODEL` (rewrite),
-`EMBEDDING_MODEL` + `EMBEDDING_DIMENSIONS` (vector index) and
-`AI_SCRIPTURE_RERANK_MODEL` (final choice) — have **no defaults in code**: a
-missing one aborts startup with an aggregated list of what is unset. Their
-values are pinned by the benchmark (ADR 0002, 0004, 0005) but must be spelled
-out in the environment; the 2026-08-29 degradation was invisible because a
-silent default sent the rewrite stage to a model the key could not reach.
+`AI_ENABLED` is the sole explicit switch for the four chat/audio stages.
+When it is `false`, scripture selection takes the established safe-pool path
+with `fallback_reason=ai_unavailable` and makes no provider call. Embedding
+identity remains required because the stored index is an independent data
+contract.
 
-The two provider-call models are required only when `GEMINI_API_KEY` is set.
-`EMBEDDING_MODEL` and `EMBEDDING_DIMENSIONS` (positive) are required always:
-they name the stored index this endpoint READS, which the no-AI answer below
-also needs. Without them the index version would degrade to `c3:@0` — an
-index nobody ever wrote — and the documented safe-pool 200 would turn into a
-503.
+When `AI_ENABLED=true`, rewrite and rerank each require their own provider and
+model. Gemini requires a non-empty stage key; `openai_compat` requires its own
+endpoint and a present stage-key variable, which may be empty for no-auth. No
+endpoint or key is inherited from another stage.
 
-The operational parameters below (limits, TTL, timeout) stay optional and keep
-their defaults — but a non-numeric value in any of them is a startup error,
-never a silent fallback.
+Embeddings keep their separate required block. `openai_compat` requires
+`EMBEDDING_ENDPOINT` and present `EMBEDDING_API_KEY`; Gemini uses the
+same key variable without an endpoint and requires it to be non-empty;
+`local` uses `EMBEDDING_MODEL_PATH` without endpoint/key. An explicitly empty
+OpenAI-compatible key means no Authorization header.
 
-### Which provider serves which stage (ClickUp 86cbegg2f, ADR 0009)
-
-`AI_SCRIPTURE_REWRITE_PROVIDER` and `AI_SCRIPTURE_RERANK_PROVIDER` name the
-transport of their stage — `gemini` or `openai_compat` (any OpenAI-compatible
-`/chat/completions` server) — and are required, together with
-`AI_QUESTION_PROVIDER`, as soon as the AI surface is configured at all. The
-model variable of each stage is unchanged; the provider decides how it is
-read. An `openai_compat` stage additionally needs an endpoint and a key
-statement, shared (`AI_OPENAI_COMPAT_ENDPOINT` / `AI_OPENAI_COMPAT_API_KEY`,
-the key may be empty) or per stage
-(`AI_SCRIPTURE_RERANK_ENDPOINT` / `AI_SCRIPTURE_RERANK_API_KEY`).
-
-What does **not** change with the provider: the prompts (rewrite v8 since
-2026-09-05, ClickUp 86cbegg36 — v7 when this section was written; rerank
-v9), the parsers, the server-side validation of the rerank answer, the
-fallbacks and every `fallback_reason`. `build_query_rewriter` /
-`build_passage_reranker` return the configured transport and
-`ScriptureRetriever` cannot tell them apart. The one contract that has no
-counterpart outside Gemini is the rerank `responseSchema`; on
-`openai_compat` the request asks for `response_format: json_object` and
-`parse_rerank_response` carries the rest — the half the server ever trusted
-(ADR 0005).
-
-The embedding stage has its own provider variable, `EMBEDDING_PROVIDER`
-(ClickUp 86cbegg2r/86cbehd6h, ADR 0010/0014): `gemini` (the API), `local`
-(BAAI/bge-m3 on CPU inside this process, weights from a read-only volume, no
-network and no key) or `openai_compat` (**the production value since
-2026-09-05** — the same bge-m3 on the company server, `POST
-{EMBEDDING_ENDPOINT}/embeddings`, no weights in this process). The last two
-name the SAME index version and the same vectors, so switching between them
-is an `.env` edit and a restart, never a rebuild. The variable is separate
-from the three chat providers, and required in every deployment rather than
-only when AI is configured, because the model and its dimensions name the
-**stored index version** — `c3:BAAI/bge-m3@1024` against
-`c3:gemini-embedding-001@768` — which the read path needs even when nothing
-else is configured. `build_embedding_client` returns the configured client
-and `ScriptureRetriever` cannot tell those apart either.
-
-Two consequences inside a selection. Variant embeddings are **not**
-overlapped on the local provider (`embed_workers=1`): there is no round trip
-to overlap and torch already uses every core for one encode. Measured: 39 ms
-median per query, 334 ms for six variants in sequence and 320 ms for the same
-six through a thread pool — against ~0.31 s of concurrent network on Gemini,
-so the stage costs the same wall time and spends CPU instead of waiting. On
-`openai_compat` there is a round trip again, so the pool comes back
-(`embed_workers=6`, as on Gemini): 137 ms median for one query, 842 ms for
-six in sequence against 592 ms through the pool (ADR 0014).
-
-And the retrieval
-quality is the one measured in 86cbe4n7e (hit@10 0.875, recall@10 0.688,
-MRR 0.524 against 1.000 / 0.789 / 0.664): the passage is found and ranked
-worse, which is the work the grounded rerank does over the candidate list.
-
-`AI_SCRIPTURE_PROVIDER_TIMEOUT_SECONDS` (default 8, the measured Gemini
-value) is the ceiling of ONE stage call inside the selection budget. It has
-to be raised together with `AI_SCRIPTURE_TIMEOUT_SECONDS` for a slower
-self-hosted model: `provider_timeout` takes the minimum of the two, so a
-larger total budget alone changes nothing.
-
-### Which key pays for which stage
-
-`AI_SCRIPTURE_REWRITE_API_KEY` (optional) is the key of the **rewrite stage
-only**. Unset or blank means "one shared key": rewrites go out on the shared
-key of that stage's provider (`GEMINI_API_KEY`, or
-`AI_OPENAI_COMPAT_API_KEY`), exactly as before the variable existed. That default is
-operational, not a hidden fallback in the ADR 0008 sense — the absent value
-has a single intended meaning, and the *configured* behaviour is the same
-either way: same model, same prompt, same request. What the key changes is
-the quota and the bill — and, as a consequence, availability: a stage on an
-exhausted free quota is answered with 429 and degrades to `rewrite_failed`,
-which is logged rather than silent.
-
-The split exists because the stages have very different quota pressure.
-Rewrite is pinned to `gemini-3.7-flash` (ADR 0004) and one selection spends a
-rewrite call per request, which exhausts that model's free daily quota;
-embeddings (`gemini-embedding-001`) and the rerank
-(`gemini-3.5-flash-lite`, ADR 0005) sit comfortably inside the free quotas of
-their lite models. Moving one stage to a paid key therefore buys the whole
-endpoint's reliability at the cost of ~1 call per selection.
-
-The key is resolved in exactly one place — `config.resolve_stage`, of which
-`config.resolve_rewrite_api_key` → `config.REWRITE_API_KEY` is a wrapper —
-and reaches the provider through the stage's client, so every creation point
-(`scripture_select._provider_clients`, `app/retrieval_cli.py`, and
-[retrieval_benchmark.py](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/retrieval_benchmark.py) through `require_rewrite_api_key()`)
-bills the same key without repeating the rule. Since ADR 0009 the two other
-chat stages have the same option (`AI_QUESTION_API_KEY`,
-`AI_SCRIPTURE_RERANK_API_KEY`) and fall back to their provider's shared key.
-`GeminiEmbeddingClient` reads `GEMINI_API_KEY` directly; on
-`EMBEDDING_PROVIDER=local` the embedding stage bills nothing at all, and on
-`openai_compat` it carries `EMBEDDING_API_KEY` — falling back to the shared
-`AI_OPENAI_COMPAT_API_KEY` through the same `config.resolve_stage`, which is
-why the embedding server may be a different host from the chat one
-(ADR 0014).
-
-A stage key set while that stage runs on Gemini and `GEMINI_API_KEY` is empty
-is a configuration error in the aggregated startup list: it pays for one
-stage of a pipeline whose remaining stages cannot run at all.
-
+The models, prompts, parsers, retrieval fallbacks and operational timeout
+defaults described below are unchanged. The complete fail-fast matrix and
+removed legacy variables are in
+`architect/adr/0019-explicit-ai-configuration.md`.
 ### Rewrite prompt and implicit provider caching
 
 The rewrite request is built so the static part is strictly a prefix of the
@@ -582,8 +485,9 @@ selection costs ~8 provider calls:
 The in-memory client identifier is an HMAC-SHA-256 pseudonym built with
 `AI_CLIENT_HMAC_KEY` (shared with the Twinkler endpoints); the
 address itself is not retained. Missing HMAC configuration fails closed
-with 503. Counters are process-local, so production runs a single API
-worker. Client addresses come from the direct peer; `X-Forwarded-For` is
+with 503 while `AI_ENABLED=true`. Disabled AI bypasses this AI-only limiter
+and serves the safe pool. Counters are process-local, so production runs a
+single API worker. Client addresses come from the direct peer; `X-Forwarded-For` is
 honoured only for trusted reverse proxies — a name in `TRUSTED_PROXY_HOSTS`
 resolved at runtime, or an address/network in `TRUSTED_PROXY_IPS`
 (`app/trusted_proxies.py`, ClickUp 86cbbq6vz) — and then the client is its

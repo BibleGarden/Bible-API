@@ -381,14 +381,18 @@ def test_choose_returns_validated_choice_and_sends_schema():
     assert "between 1 and 2" in system
 
 
-def test_choose_requires_candidates_api_key_and_sane_model():
+def test_choose_requires_candidates_and_sane_model():
     ok = lambda r: httpx.Response(200)  # noqa: E731 — never reached
     with pytest.raises(PassageRerankError, match="no candidates"):
         make_reranker(ok).choose("тема", [], [])
-    with pytest.raises(PassageRerankError, match="not configured"):
-        make_reranker(ok, api_key="").choose("тема", [], ["текст"])
     with pytest.raises(PassageRerankError, match="invalid characters"):
         make_reranker(ok, model="bad model!").choose("тема", [], ["текст"])
+
+
+def test_empty_gemini_api_key_is_rejected():
+    reranker = make_reranker(lambda request: httpx.Response(200), api_key="")
+    with pytest.raises(PassageRerankError, match="AI_SCRIPTURE_RERANK_API_KEY"):
+        reranker.choose("тема", [], ["текст"])
 
 
 def test_choose_retries_transient_errors(monkeypatch):

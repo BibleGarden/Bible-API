@@ -60,6 +60,7 @@ from auth import RequireAPIKey
 from chunking import CHUNKING_VERSION
 from client_ip import resolve_client_ip
 from config import (
+    AI_ENABLED,
     AI_SCRIPTURE_INDEX_CACHE_SECONDS,
     AI_SCRIPTURE_PRIMARY_TRANSLATIONS,
     AI_SCRIPTURE_PROVIDER_TIMEOUT_SECONDS,
@@ -81,7 +82,7 @@ from passage_render import (
     render_passage,
 )
 from query_rewrite import REWRITE_VARIANTS, build_query_rewriter
-from embeddings import build_embedding_client
+from embeddings import EmbeddingUnavailable, build_embedding_client
 from rate_limit import RateLimiter, RateLimitError
 from retrieval import (
     FinalSelection,
@@ -974,6 +975,13 @@ _clients_lock = threading.Lock()
 _clients: tuple | None = None
 
 
+class _DisabledEmbeddingClient:
+    """Make AI_ENABLED=false take the established safe-pool path."""
+
+    def embed_query(self, text: str, deadline: Deadline | None = None):
+        raise EmbeddingUnavailable("AI is disabled", provider_down=True)
+
+
 def _provider_clients() -> tuple:
     """Lazily built (rewriter, embedder, reranker) with serve-time budgets.
 
@@ -985,7 +993,7 @@ def _provider_clients() -> tuple:
     (`AI_SCRIPTURE_REWRITE_PROVIDER` / `AI_SCRIPTURE_RERANK_PROVIDER` and the
     endpoint/key/model that belong to it — ADR 0009), and each stage's key is
     still its own (`AI_SCRIPTURE_*_API_KEY` when the deployment splits
-    billing, the provider's shared key otherwise). The embedder is chosen the
+    billing). No key is inherited from another stage. The embedder is chosen the
     same way, by `EMBEDDING_PROVIDER` (ADR 0010/0014); on `local` the timeout
     and retry budget below are meaningless and ignored — there is no call to
     time out — and the weights are already in memory, loaded at start-up. On
@@ -999,8 +1007,13 @@ def _provider_clients() -> tuple:
                 build_query_rewriter(
                     timeout=_PROVIDER_TIMEOUT_SECONDS, attempts=_PROVIDER_ATTEMPTS
                 ),
-                build_embedding_client(
-                    timeout=_PROVIDER_TIMEOUT_SECONDS, max_retries=_PROVIDER_ATTEMPTS
+                (
+                    build_embedding_client(
+                        timeout=_PROVIDER_TIMEOUT_SECONDS,
+                        max_retries=_PROVIDER_ATTEMPTS,
+                    )
+                    if AI_ENABLED
+                    else _DisabledEmbeddingClient()
                 ),
                 build_passage_reranker(
                     timeout=_PROVIDER_TIMEOUT_SECONDS, attempts=_PROVIDER_ATTEMPTS
@@ -1475,8 +1488,9 @@ async def scripture_select(
             status_code=503, detail="Scripture selection temporarily unavailable"
         ) from error
 
-    client_key = resolve_client_ip(http_request)
-    await _enforce_rate_limit(client_key)
+    if AI_ENABLED:
+        client_key = resolve_client_ip(http_request)
+        await _enforce_rate_limit(client_key)
 
     exclusions, stale = split_exclusions(
         request.exclude_canonical_ids, CHUNKING_VERSION

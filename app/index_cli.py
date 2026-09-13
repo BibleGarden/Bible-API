@@ -41,10 +41,8 @@ import time
 
 from config import (
     EMBEDDING_PROVIDER,
-    EMBEDDING_PROVIDER_GEMINI,
     EMBEDDING_PROVIDER_LOCAL,
     EMBEDDING_PROVIDER_OPENAI_COMPAT,
-    GEMINI_API_KEY,
 )
 from database import create_connection
 from embeddings import (
@@ -113,14 +111,6 @@ def cmd_rebuild(connection, cursor, args) -> int:
     # that disappeared, or every other version with --drop-other-versions),
     # so an unresolvable target version — or an embedder that cannot produce
     # a single vector — must stop the run here rather than on the first call.
-    if EMBEDDING_PROVIDER == EMBEDDING_PROVIDER_GEMINI and not GEMINI_API_KEY:
-        print(
-            "GEMINI_API_KEY is not configured — a rebuild on "
-            f"EMBEDDING_PROVIDER={EMBEDDING_PROVIDER} has to embed every "
-            "chunk through the Gemini API. Nothing was changed.",
-            file=sys.stderr,
-        )
-        return 1
     try:
         version = current_embedding_version()
     except IndexVersionUnavailable as exc:

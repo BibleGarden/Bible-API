@@ -169,6 +169,49 @@ def post(payload: dict, api_key: str | None = "test-api-key", **kwargs):
     )
 
 
+def test_disabled_ai_uses_the_safe_pool_trigger(monkeypatch):
+    monkeypatch.setattr(scripture_select, "AI_ENABLED", False)
+    monkeypatch.setattr(scripture_select, "_clients", None)
+    monkeypatch.setattr(scripture_select, "build_query_rewriter", lambda **kw: "r")
+    monkeypatch.setattr(scripture_select, "build_passage_reranker", lambda **kw: "p")
+    monkeypatch.setattr(
+        scripture_select,
+        "build_embedding_client",
+        lambda **kw: pytest.fail("disabled AI must not call the embedding provider"),
+    )
+
+    clients = scripture_select._provider_clients()
+    assert clients[0] == "r" and clients[2] == "p"
+    with pytest.raises(scripture_select.EmbeddingUnavailable) as exc:
+        clients[1].embed_query("not sent")
+    assert exc.value.provider_down is True
+
+
+def test_disabled_ai_endpoint_bypasses_hmac_and_returns_safe_pool(
+    monkeypatch, selection_environment
+):
+    """Disabled scripture selection must not enter the AI-only limiter."""
+    monkeypatch.setattr(scripture_select, "AI_ENABLED", False)
+    monkeypatch.setattr(client_ip, "AI_CLIENT_HMAC_KEY", "")
+    selection_environment.return_value = make_final(
+        method="fallback_top1",
+        fallback_reason="safe_pool",
+        source="safe_pool",
+        selection_reason="ai_unavailable",
+    )
+    provider_factory = Mock(side_effect=AssertionError("provider call"))
+    monkeypatch.setattr(scripture_select, "build_query_rewriter", provider_factory)
+    monkeypatch.setattr(scripture_select, "build_embedding_client", provider_factory)
+    monkeypatch.setattr(scripture_select, "build_passage_reranker", provider_factory)
+
+    response = post({"language": "ru", "topic": TOPIC})
+
+    assert response.status_code == 200
+    assert response.json()["fallback_reason"] == "ai_unavailable"
+    assert list(scripture_select._limiter.request_times) == []
+    provider_factory.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # Contract
 # ---------------------------------------------------------------------------

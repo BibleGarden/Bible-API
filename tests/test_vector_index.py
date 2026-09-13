@@ -74,9 +74,9 @@ class RecordingCursor:
 
 
 def test_load_index_queries_a_fully_specified_version():
-    """Regression guard for the keyless contract: the index version describes
-    the STORED corpus, so it must not depend on GEMINI_API_KEY (config
-    requires EMBEDDING_MODEL/DIMENSIONS with or without a key). When it did,
+    """Regression guard: the index version describes the STORED corpus, so it
+    must not depend on a provider credential (config requires
+    EMBEDDING_MODEL/DIMENSIONS with or without one). When it did,
     a keyless deployment queried `c3:@0`, got an empty index and answered 503
     instead of the documented safe-pool 200 (`ai_unavailable`)."""
     cursor = RecordingCursor()
@@ -433,14 +433,14 @@ def test_persistent_failure_raises_after_retries():
     assert calls["n"] == 6  # _MAX_RETRIES
 
 
-def test_missing_api_key_raises():
+def test_empty_gemini_api_key_raises():
     client = GeminiEmbeddingClient(
         config=EmbeddingConfig(model="m", dimensions=4, api_key=""),
         http_client=httpx.Client(
-            transport=httpx.MockTransport(lambda r: embedding_response())
+            transport=httpx.MockTransport(lambda request: embedding_response())
         ),
     )
-    with pytest.raises(EmbeddingUnavailable):
+    with pytest.raises(EmbeddingUnavailable, match="EMBEDDING_API_KEY"):
         client.embed_query("q")
 
 

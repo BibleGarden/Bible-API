@@ -87,16 +87,16 @@ def test_wrong_dimension_count_is_not_provider_down():
     assert exc_info.value.provider_down is False
 
 
-def test_missing_api_key_is_provider_down():
+def test_empty_gemini_api_key_is_provider_down():
     client = GeminiEmbeddingClient(
         config=EmbeddingConfig(model="m", dimensions=DIMS, api_key=""),
         http_client=httpx.Client(
-            transport=httpx.MockTransport(lambda r: httpx.Response(200))
+            transport=httpx.MockTransport(lambda request: httpx.Response(200))
         ),
     )
-    with pytest.raises(EmbeddingUnavailable) as exc_info:
+    with pytest.raises(EmbeddingUnavailable) as exc:
         client.embed_query("текст")
-    assert exc_info.value.provider_down is True
+    assert exc.value.provider_down is True
 
 
 def test_exhausted_retries_on_5xx_is_provider_down():
