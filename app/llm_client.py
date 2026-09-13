@@ -34,20 +34,25 @@ their Gemini counterparts) and `AsyncChatClient` is awaited by the FastAPI
 handler of `/api/ai/question`. Everything they share — URL, headers, payload,
 answer extraction, error wording — is module-level functions above them.
 
-Privacy and key hygiene (same policy as the Gemini stages): the prayer text
-and the answer are never logged or embedded in an error, and neither is the
-API key. Transport failures are reported by category (exception type, HTTP
-status) and never by quoting the request URL, which is why
-`config.validate_endpoint` also refuses an endpoint carrying credentials or a
-query string — a key belongs in `AI_*_API_KEY`, never in a URL that an
-exception could print.
+Privacy and key hygiene (same policy as the Gemini stages): by default the
+prayer text and the answer are never logged or embedded in an error. The
+question endpoint can explicitly pass a diagnostic logger in a controlled
+local/test environment; that logger receives request and response bodies but
+never headers, endpoint data or the API key. Transport failures are reported
+by category (exception type, HTTP status) and never by quoting the request
+URL, which is why `config.validate_endpoint` also refuses an endpoint carrying
+credentials or a query string — a key belongs in `AI_*_API_KEY`, never in a
+URL that an exception could print.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
 import re
 import time
+import uuid
 from urllib.parse import urlsplit
 
 import httpx
@@ -84,6 +89,53 @@ _RETRY_BASE_SECONDS = 2.0
 # Kept literal here as a transport guard as well as in config validation: the
 # client is also used by tests and tooling that can construct it directly.
 REASONING_EFFORTS = ("omit", "none", "low", "medium", "high")
+
+
+def log_diagnostic_request(
+    logger: logging.Logger,
+    provider: str,
+    payload: dict,
+    attempt: int,
+    api_key: str,
+) -> str:
+    """Log a content-bearing request body without headers or endpoint data."""
+    call_id = uuid.uuid4().hex
+    body = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    logger.info(
+        "AI question provider request: call_id=%s provider=%s attempt=%d payload=%s",
+        call_id,
+        provider,
+        attempt,
+        _redact_api_key(body, api_key),
+    )
+    return call_id
+
+
+def log_diagnostic_response(
+    logger: logging.Logger,
+    provider: str,
+    response: httpx.Response,
+    attempt: int,
+    api_key: str,
+    call_id: str,
+) -> None:
+    """Log the raw response body with API-key redaction, never its headers."""
+    body = _redact_api_key(response.text, api_key)
+    logger.info(
+        "AI question provider response: call_id=%s provider=%s attempt=%d "
+        "status=%d body=%s",
+        call_id,
+        provider,
+        attempt,
+        response.status_code,
+        json.dumps(body, ensure_ascii=False),
+    )
+
+
+def _redact_api_key(body: str, api_key: str) -> str:
+    if not api_key:
+        return body
+    return body.replace(api_key, "[REDACTED_API_KEY]")
 
 
 class LLMError(RuntimeError):
@@ -394,6 +446,7 @@ class AsyncChatClient(_ChatBase):
         attempts: int = 3,
         max_tokens: int = DEFAULT_MAX_TOKENS,
         sleep=asyncio.sleep,
+        diagnostic_logger: logging.Logger | None = None,
     ):
         super().__init__(
             endpoint,
@@ -407,6 +460,7 @@ class AsyncChatClient(_ChatBase):
         # Injectable for the same reason `ChatClient` takes one: a test of the
         # retry ladder must not spend the backoff in real seconds.
         self._sleep = sleep
+        self._diagnostic_logger = diagnostic_logger
 
     async def complete(
         self,
@@ -430,7 +484,25 @@ class AsyncChatClient(_ChatBase):
                 raise LLMError("chat budget exhausted") from last_error
             try:
                 async with httpx.AsyncClient(timeout=timeout) as client:
+                    diagnostic_call_id = ""
+                    if self._diagnostic_logger is not None:
+                        diagnostic_call_id = log_diagnostic_request(
+                            self._diagnostic_logger,
+                            "openai_compat",
+                            payload,
+                            attempt + 1,
+                            self.api_key,
+                        )
                     response = await client.post(url, json=payload, headers=headers)
+                    if self._diagnostic_logger is not None:
+                        log_diagnostic_response(
+                            self._diagnostic_logger,
+                            "openai_compat",
+                            response,
+                            attempt + 1,
+                            self.api_key,
+                            diagnostic_call_id,
+                        )
                     if response.status_code in RETRYABLE_STATUS:
                         last_error = LLMError(
                             f"chat request failed (HTTP {response.status_code})"

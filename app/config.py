@@ -544,6 +544,14 @@ def invalid_required_values(env: Mapping[str, str]) -> list[str]:
     raw_ai_enabled = env.get("AI_ENABLED")
     if raw_ai_enabled and raw_ai_enabled not in ("true", "false"):
         problems.append("AI_ENABLED: expected exactly 'true' or 'false'")
+    if (
+        raw_ai_enabled == "false"
+        and env.get("AI_QUESTION_LOG_PROVIDER_BODIES") == "true"
+    ):
+        problems.append(
+            "AI_QUESTION_LOG_PROVIDER_BODIES: true while AI_ENABLED=false — "
+            "there is no question-provider call to diagnose"
+        )
     for name in REMOVED_AI_VARS:
         if name in env:
             problems.append(
@@ -729,6 +737,17 @@ def _get_float(name: str, default: float) -> float:
         return default
 
 
+def _get_optional_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return parse_bool(name, raw)
+    except ConfigError as exc:
+        _problems.append(str(exc))
+        return default
+
+
 def _required_reason(env: Mapping[str, str], name: str) -> str:
     """"<NAME> is required" plus the rule that made it required."""
     if name == EMBEDDING_PROVIDER_VAR:
@@ -867,6 +886,12 @@ IMPORT_HTTP_TIMEOUT_SECONDS = _get_float("IMPORT_HTTP_TIMEOUT_SECONDS", 300.0)
 # the independently configured embedding index available, while stage config
 # is rejected as unused. True requires four complete stage declarations.
 AI_ENABLED = os.getenv("AI_ENABLED") == "true"
+# Local/test incident diagnostic. The explicit name is intentionally noisy:
+# enabling it writes prayer-derived request bodies and raw provider responses
+# to the service log. Production keeps the default false.
+AI_QUESTION_LOG_PROVIDER_BODIES = _get_optional_bool(
+    "AI_QUESTION_LOG_PROVIDER_BODIES", False
+)
 # Models of the two chat-shaped endpoints, named after the method each one
 # serves: POST /api/ai/question and POST /api/ai/transcribe.
 AI_QUESTION_MODEL = os.getenv("AI_QUESTION_MODEL", "")

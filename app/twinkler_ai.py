@@ -18,6 +18,7 @@ from auth import RequireAPIKey
 from client_ip import resolve_client_ip
 from config import (
     AI_ENABLED,
+    AI_QUESTION_LOG_PROVIDER_BODIES,
     AI_QUESTION_MODEL,
     AI_QUESTION_TIMEOUT_SECONDS,
     AI_TRANSCRIBE_MODEL,
@@ -29,7 +30,12 @@ from config import (
 )
 from deadline import Deadline
 from gemini_retry import provider_timeout
-from llm_client import AsyncChatClient, LLMError
+from llm_client import (
+    AsyncChatClient,
+    LLMError,
+    log_diagnostic_request,
+    log_diagnostic_response,
+)
 from person_gender import detect_gender
 from question_format import SubjectMemory, parse_question, subject_excerpt
 from question_novelty import NOT_A_REPEAT, Verdict, is_repeat
@@ -683,6 +689,9 @@ async def _complete_openai_compat(
         QUESTION_PROVIDER.reasoning_effort,
         timeout=AI_QUESTION_TIMEOUT_SECONDS,
         attempts=1,
+        diagnostic_logger=(
+            logger if AI_QUESTION_LOG_PROVIDER_BODIES else None
+        ),
     )
     try:
         text = await client.complete(
@@ -783,6 +792,15 @@ async def complete(
         raise GeminiError("no time left in the request budget")
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
+            diagnostic_call_id = ""
+            if AI_QUESTION_LOG_PROVIDER_BODIES:
+                diagnostic_call_id = log_diagnostic_request(
+                    logger,
+                    "gemini",
+                    payload,
+                    1,
+                    QUESTION_PROVIDER.api_key,
+                )
             response = await client.post(
                 url,
                 headers=(
@@ -792,6 +810,15 @@ async def complete(
                 ),
                 json=payload,
             )
+            if AI_QUESTION_LOG_PROVIDER_BODIES:
+                log_diagnostic_response(
+                    logger,
+                    "gemini",
+                    response,
+                    1,
+                    QUESTION_PROVIDER.api_key,
+                    diagnostic_call_id,
+                )
             response.raise_for_status()
             data = response.json()
     except httpx.TimeoutException as error:
