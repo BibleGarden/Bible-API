@@ -3614,3 +3614,25 @@ def test_the_gemini_path_is_still_the_default_provider(monkeypatch):
     assert twinkler_ai.TRANSCRIBE_PROVIDER.api_key == ""
     with pytest.raises(twinkler_ai.GeminiError, match="AI_TRANSCRIBE_API_KEY"):
         asyncio.run(twinkler_ai.transcribe(b"m4a", "audio/mp4", None))
+
+
+@pytest.mark.parametrize("prefetch_value", [None, False, True])
+def test_prefetch_policy_preserves_question_generation(
+    monkeypatch, debug_question_language, allow_ai_requests, prefetch_value
+):
+    from prefetch import PrefetchPolicy
+
+    policy = PrefetchPolicy(prefetch_value is True, 1, 1)
+    monkeypatch.setattr(twinkler_ai, "question_policy", policy)
+    generated = AsyncMock(return_value=model_answer("Что помогло тебе сегодня?"))
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+    body = question_body(topic="Family")
+    if prefetch_value is not None:
+        body["prefetch"] = prefetch_value
+    response = client.post(
+        "/api/ai/question", headers={"X-API-Key": "test-api-key"}, json=body
+    )
+    assert response.status_code == 200
+    generated.assert_awaited_once()
+    allow_ai_requests.assert_called_once()
+    assert len(policy.limiter.request_times) == (1 if prefetch_value else 0)

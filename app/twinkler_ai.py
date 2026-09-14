@@ -39,6 +39,7 @@ from llm_client import (
     log_diagnostic_response,
 )
 from person_gender import detect_gender
+from prefetch import question_policy
 from question_format import SubjectMemory, parse_question, subject_excerpt
 from question_novelty import NOT_A_REPEAT, Verdict, is_repeat
 from question_prompt import (
@@ -201,6 +202,11 @@ class CompleteRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    prefetch: bool = Field(
+        default=False,
+        strict=True,
+        description="Speculative generation; the server may decline without calling AI",
+    )
     topic: str = Field(
         max_length=MAX_TOPIC_LENGTH,
         description="What the person is praying about; empty when they named nothing",
@@ -1047,7 +1053,11 @@ async def _transcribe_gemini(
         403: {"model": ErrorResponse, "description": "Invalid or missing API key"},
         429: {
             "model": ErrorResponse,
-            "description": "Global or per-client request limit exceeded",
+            "description": (
+                "Request limit exceeded, or speculative generation declined: "
+                "prefetch_disabled / prefetch_limit_exceeded. "
+                "Retry-After is absent when prefetch is disabled."
+            ),
             "headers": {
                 "Retry-After": {
                     "description": "Seconds until another request can be attempted",
@@ -1071,6 +1081,8 @@ async def twinkler_complete(
     http_request: Request,
     api_key: bool = RequireAPIKey,
 ) -> QuestionResponse:
+    if request.prefetch:
+        question_policy.enforce(resolve_client_ip(http_request))
     if not AI_ENABLED:
         raise HTTPException(status_code=502, detail="AI service unavailable")
     client_key = resolve_client_ip(http_request)

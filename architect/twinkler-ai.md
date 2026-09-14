@@ -81,7 +81,8 @@ both `novel` (ClickUp 86cbehyg0, "The question must be new" below) and
 of this question, `null` when its answer could not be read as the structured
 object) are additive, and a client that reads only `text` behaves exactly as
 before. Documented errors are `403`,
-`429` with `Retry-After`, `502`, and `503`; validation errors use `422`.
+`429` (`Retry-After` is absent for `prefetch_disabled`), `502`, and `503`;
+validation errors use `422`.
 
 The question language is resolved once from the person's language-source
 chain and must be one of `ru`, `uk` or `en`. A supported detected code always
@@ -750,7 +751,7 @@ to remove.
 
 ### Order in the request path, and what is logged
 
-Authentication and the rate-limit reservation are unchanged and come first;
+Authentication, prefetch admission when requested, and rate-limit reservation come first;
 the safety check runs after them. **A tier-1 answer therefore consumes the
 client's quota**, deliberately: the limit counts replies, not provider calls,
 so the two paths behave identically and one of them cannot be used to probe
@@ -777,7 +778,7 @@ A pattern id names the rule, never the words that matched it, so the whole
 finding is safe to log. Prayer text is not logged here any more than anywhere
 else in this service.
 
-The full order of one answered request is: authentication → rate-limit
+The full order of one answered request is: authentication → prefetch admission → rate-limit
 reservation → tier 1 → first generation → tier 2 → novelty check → (second
 generation → tier 2 → novelty check) → answer. Every answered request that
 reached a model also logs one `INFO` line — the fact, no text at all:
@@ -861,6 +862,13 @@ limiter and pseudonymisation rules described below. Because the HMAC key is
 required at startup whenever AI is enabled, its former request-time 503 state
 is no longer reachable from a valid configuration.
 ## Rate limiting and observability
+
+An optional strict boolean `prefetch` (default `false`) marks speculative
+questions, including closing reflections. `question_policy` in `app/prefetch.py`
+checks it after authentication and before the ordinary quota, safety processing
+or generation. Disabled or exhausted prefetch returns HTTP 429 with a stable
+`detail` code; accepted prefetch still passes the ordinary limiter. See
+[README](../README.md#ai-endpoints) for the switches, defaults and client behavior.
 
 Before calling Gemini, the service reserves a request in an in-memory rolling
 window protected by a process lock. Two 60-second limits are enforced:

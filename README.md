@@ -62,6 +62,25 @@ All endpoints require `X-API-Key` header.
 
 ### AI endpoints
 
+Question and scripture requests accept an optional strict boolean `prefetch`
+(default `false`). Clients set it to `true` only for speculative work. The
+server can decline before generation or corpus loading with HTTP 429 and
+`{"detail":"prefetch_disabled"}` or `{"detail":"prefetch_limit_exceeded"}`.
+Only the latter includes `Retry-After` seconds. Clients keep a declined slot
+empty, without retrying or showing an error; actual demand sends an ordinary
+request. Existing requests without the field retain their behavior.
+
+Prefetch is disabled by default, independently for questions and scripture.
+`AI_QUESTION_PREFETCH_ENABLED` and `AI_SCRIPTURE_PREFETCH_ENABLED` enable it.
+Each has `AI_<QUESTION|SCRIPTURE>_PREFETCH_REQUESTS_PER_MINUTE` (default 2) and
+`AI_<QUESTION|SCRIPTURE>_PREFETCH_REQUESTS_PER_CLIENT_PER_MINUTE` (default 1).
+Limits must be positive integers; invalid configuration stops startup. Accepted
+prefetch also consumes the existing total quota; a policy refusal does not.
+Counters use rolling 60-second windows, HMAC client-IP pseudonyms and the
+existing single-worker, process-local storage. This controls request frequency,
+not provider spending in currency. Apply configuration through the deployment
+runbook; roll out the API before a client that sends `prefetch`.
+
 `POST /api/ai/question` asks one leading question about a prayer. It accepts
 `{ "topic", "stage", "messages" }` — the topic (may be empty), the stage
 (`first`, `next` or `reflect`) and the conversation so far as
