@@ -4,6 +4,10 @@ Status: accepted (2026-09-13).
 Ticket: ClickUp 86cbehk24.
 Evaluation: BibleGarden/AI-Evaluation@ec757fe.
 
+Question-prompt routing for an unsupported or undetermined result was amended
+by ADR 0021 on 2026-09-14. The detector and safety-reply routing in this ADR
+are unchanged.
+
 ## Context
 
 The hand-written detector in `safety.py` distinguished Russian, Ukrainian and

@@ -25,12 +25,10 @@ def test_system_prompt_is_complete_and_localized(language, heading, language_rul
         assert "Бери род" not in prompt
 
 
-def test_universal_prompt_chooses_language_from_latest_person_words():
-    prompt = question_prompt.build_question_prompt(None)
-
-    assert "latest substantive words" in prompt
-    assert "assistant questions" in prompt
-    assert "Never choose English merely because" in prompt
+@pytest.mark.parametrize("language", [None, "es", ""])
+def test_system_prompt_rejects_a_language_without_a_complete_prompt(language):
+    with pytest.raises(ValueError, match="unsupported question language"):
+        question_prompt.build_question_prompt(language)
 
 
 def test_first_without_topic_does_not_invent_one():
@@ -109,6 +107,71 @@ def test_each_stage_uses_requested_language(language, heading, stage):
         assert 'Задай' not in text and 'Постав' not in text
 
 
+STAGE_GOLDENS = {
+    ("ru", "first"): (
+        "Молитва без заданной темы.\n"
+        "Задай простой первый вопрос, который поможет человеку выбрать, о чём "
+        "ему сейчас важно помолиться. Не предлагай тему за него."
+    ),
+    ("ru", "next"): (
+        "Молитва без заданной темы.\n"
+        "Угол этого вопроса: что для человека важно.\n"
+        "Продолжи молитву к заявленной цели. С учётом всего разговора выбери "
+        "одну важную для этой цели вещь, которую человек ещё не прояснил, и "
+        "спроси о ней. Не проси повторить уже данный ответ и не своди разговор "
+        "к разбору чувств или последней фразы."
+    ),
+    ("ru", "reflect"): (
+        "Молитва без заданной темы.\n"
+        "Задай итоговый вопрос, который поможет человеку самому назвать главное "
+        "из молитвы или то, с чем он хочет обратиться к Богу."
+    ),
+    ("uk", "first"): (
+        "Молитва без заданої теми.\n"
+        "Постав просте перше запитання, яке допоможе людині обрати, про що їй "
+        "зараз важливо помолитися. Не пропонуй тему замість неї."
+    ),
+    ("uk", "next"): (
+        "Молитва без заданої теми.\n"
+        "Кут цього запитання: що для людини важливо.\n"
+        "Продовж молитву до заявленої мети. З огляду на всю розмову обери одну "
+        "важливу для цієї мети річ, яку людина ще не прояснила, і запитай про "
+        "неї. Не проси повторити вже дану відповідь і не зводь розмову до "
+        "аналізу почуттів чи останньої фрази."
+    ),
+    ("uk", "reflect"): (
+        "Молитва без заданої теми.\n"
+        "Постав підсумкове запитання, яке допоможе людині самій назвати головне "
+        "з молитви або те, з чим вона хоче звернутися до Бога."
+    ),
+    ("en", "first"): (
+        "Prayer without a stated topic.\n"
+        "Ask a simple first question that helps the person choose what matters "
+        "for their prayer now. Do not supply a topic for them."
+    ),
+    ("en", "next"): (
+        "Prayer without a stated topic.\n"
+        "The angle of this question: what matters to the person.\n"
+        "Continue the prayer towards its stated goal. Considering the whole "
+        "conversation, choose one thing that matters to that goal and remains "
+        "unexplored, and ask about it. Do not ask for an answer already given "
+        "or reduce the conversation to feelings or its last phrase."
+    ),
+    ("en", "reflect"): (
+        "Prayer without a stated topic.\n"
+        "Ask a closing question that helps the person name for themselves what "
+        "matters most from this prayer or what they want to bring to God."
+    ),
+}
+
+
+@pytest.mark.parametrize(("language", "stage"), STAGE_GOLDENS)
+def test_stage_instruction_golden(language, stage):
+    assert question_prompt.build_user_message("", stage, [], language=language) == (
+        STAGE_GOLDENS[(language, stage)]
+    )
+
+
 # ---------------------------------------------------------------------------
 # v6: the structured answer, the angle of the step, the gender from code
 # (ClickUp 86cbejvt2)
@@ -125,7 +188,6 @@ def test_the_version_moved_to_six():
         ("ru", "Угол этого вопроса: что для человека важно."),
         ("uk", "Кут цього запитання: що для людини важливо."),
         ("en", "The angle of this question: what matters to the person."),
-        (None, "The angle of this question: what matters to the person."),
     ],
 )
 def test_the_angle_is_localized(language, expected):
@@ -229,17 +291,12 @@ def test_english_states_no_gender_at_all():
         assert "feminine" not in message and "masculine" not in message
 
 
-def test_the_universal_message_states_it_because_the_language_is_unknown():
-    """`None` language may well be an inflected one — the rule has to be there."""
-    message = question_prompt.build_user_message(
-        "Topic", "first", [], language=None, gender="f"
-    )
-
-    assert "feminine" in message
-    unknown = question_prompt.build_user_message(
-        "Topic", "first", [], language=None, gender=None
-    )
-    assert "needs no gendered forms" in unknown
+@pytest.mark.parametrize("language", [None, "es", ""])
+def test_stage_message_rejects_a_language_without_complete_text(language):
+    with pytest.raises(ValueError, match="unsupported question language"):
+        question_prompt.build_user_message(
+            "Topic", "first", [], language=language, gender="f"
+        )
 
 
 def test_no_gender_line_when_the_person_wrote_nothing_at_all():

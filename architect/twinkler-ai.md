@@ -82,6 +82,14 @@ object) are additive, and a client that reads only `text` behaves exactly as
 before. Documented errors are `403`,
 `429` with `Retry-After`, `502`, and `503`; validation errors use `422`.
 
+The question language is resolved once from the person's language-source
+chain and must be one of `ru`, `uk` or `en`. An unsupported code or an
+undetermined language returns `422` before a provider call. A local process
+may set `DEBUG=true` to route only those two expected cases to the complete
+English prompt; `DEBUG` defaults to `false`, accepts only exact `true`/`false`,
+and must remain false outside development. An exception from the detector is
+an internal failure and is never converted into this English route.
+
 A **reply** showing despair or self-harm is answered with a fixed warm text
 instead of a model answer, and no provider is called — the response shape and
 status are unchanged (see "The despair rule is code" below).
@@ -89,64 +97,22 @@ status are unchanged (see "The despair rule is code" below).
 ### The stage instructions are the server's (ClickUp 86cbegmzz)
 
 The client used to assemble these blocks itself and put the result into
-`user`. `app/question_prompt.build_user_message(topic, stage, messages)` now
-does it, **verbatim** — the wording below is quoted from the contract the
-mobile agent confirmed on 2026-09-05 (ADR-0019 on their side), down to the
-em-dash bullets and the word «тёплый» in `reflect`. It is previous behaviour
-moving across the wire boundary, not a new prompt: keeping it identical is
-what makes a v2 → v3 comparison mean anything.
+`user`. `app/question_prompt.build_user_message` now assembles the whole user
+message in the language resolved from the person's words. Russian, Ukrainian
+and English each have complete text for `first`, `next` and `reflect`; the
+system prompt and stage blocks always receive the same resolved code.
 
-The blocks are **Russian whatever language the prayer is in**, exactly as the
-client always sent them. Only the person's own words carry the language, and
-the system prompt names it separately (below), so the instruction language was
-never observed to leak into an answer. If a measurement ever shows a model
-drifting into Russian because of it, translating the blocks per language is
-the change to make — and it is a change, so it needs a version bump.
+The current wording is versioned production prompt material in
+`app/question_prompt.py`. `tests/test_question_prompt.py` pins all nine
+language/stage combinations as full golden strings, while
+`tests/test_llm_client.py` proves both providers send identical system and user
+bytes for the same nine combinations. Topic, turns, skipped questions and
+remembered subjects are JSON-quoted as data. Blank blocks are omitted.
 
-**`first`** — the goal line, then the instruction:
-
-```
-Человек начинает молитву. Его цель: «{topic}».
-Задай первый наводящий вопрос — про то, что сейчас происходит и что он чувствует. Не пересказывай цель дословно. Ответь только текстом вопроса, без кавычек и пояснений.
-```
-
-With no topic the first line is `Человек начинает молитву без конкретной темы.`
-
-**`next`** — the goal line, the questions already asked, the answers, the
-instruction. A block with nothing in it is omitted, not left empty. The
-instruction line below is the **v4** one (2026-09-06, "v4" further down); the
-three blocks above it are unchanged since 86cbegmzz, and a request carrying
-`skipped_questions` gets one more block between them (the next section):
-
-```
-Цель молитвы: «{topic}».
-Уже прозвучали вопросы:
-— {each assistant turn}
-Что человек ответил (опирайся на это, но не цитируй дословно):
-— {each user turn}
-Задай один новый вопрос: разверни то, что человек написал в последнем ответе. Не повторяй мысль уже прозвучавшего вопроса другими словами. Не спорь с тем, что он сказал, и не ставь это под сомнение, если он сам не усомнился. Ответь только текстом вопроса, без кавычек и пояснений.
-```
-
-With no topic the first line is `Молитва без конкретной темы.`
-
-**`reflect`** — the closing question. It never lists our questions: it looks
-back at what the *person* said.
-
-```
-Молитва закончилась, человек готов записать один вывод.
-Цель была: «{topic}».
-Его ответы во время молитвы:
-— {each user turn}
-Задай один тёплый итоговый вопрос, который поможет ему назвать главное из этой молитвы. Не цитируй его ответы дословно. Ответь только текстом вопроса.
-```
-
-The goal line is omitted when there is no topic; with no answers the third
-block is the single line `Он молился молча, письменных ответов нет.`
-
-A turn is copied verbatim into its bullet and never re-split, so a multi-line
-answer is one bullet. The topic is trimmed; a whitespace-only topic is "no
-topic". `tests/test_question_prompt.py` holds every assembly as a golden
-string, written out in full rather than imported from the module it checks.
+Prompt v3 first moved the then-Russian blocks from the client to the server;
+v4 revised the `next` instruction; v5 replaced those historical blocks with
+the complete localized messages used by v6. The version history below records
+those changes without presenting old wording as the current contract.
 
 ### Replaced questions: `skipped_questions` (ClickUp 86cbehyfe)
 
@@ -246,8 +212,8 @@ of the despair rule now agree with each other on which part:
 | --- | --- | --- |
 | the model | the whole assembled message | that is the request |
 | **both tiers** of the despair rule | the **last `user` turn** — or `topic` when `stage` is `first`, where the topic is the newest thing the person wrote | see below |
-| the answer's language (prompt, and tier 2's fixed reply) | the last `user` turn → the topic → their earlier replies, newest first → else the last `assistant` turn → else English | the person's own words decide; a question of ours must not vote |
-| `skipped_questions` | read by **nothing** but the model | our own generated text, wrapped in a Russian block whatever the prayer's language: it can neither name the language nor speak despair on the person's behalf (ClickUp 86cbehyfe) |
+| the answer's language (prompt, and tier 2's fixed reply) | the last `user` turn → the topic → their earlier replies, newest first → else the last `assistant` turn → else undetermined | the person's own words decide; an unsupported/undetermined result is 422 unless local `DEBUG=true` |
+| `skipped_questions` | read by **nothing** but the model | our own generated text inside the localized block: it can neither name the language nor speak despair on the person's behalf (ClickUp 86cbehyfe) |
 
 That language chain is walked by **decidability, not presence**: the offline
 `py3langid` detector returns `None` when its normalized top probability is
@@ -400,9 +366,9 @@ The system prompt of `POST /api/ai/question` lives in
 that file and bumping the version.
 
 `build_question_prompt(language)` chooses a complete localized prompt. The
-production languages are Russian, Ukrainian and English; an undetermined
-language receives the universal English instruction to infer the answer
-language from the person's latest substantive words.
+production languages are Russian, Ukrainian and English. Other and
+undetermined languages are rejected by the routing policy described in the
+public contract; local `DEBUG=true` explicitly selects the English prompt.
 
 ### v6: a structured answer, the angle and the gender from code (ClickUp 86cbejvt2, 2026-09-06)
 
@@ -493,8 +459,9 @@ forbids invented feelings, circumstances, people and spiritual meanings.
 
 The system and stage instructions have complete Russian, Ukrainian and
 English versions. Russian and Ukrainian carry their own register and gender
-rules; English contains no Cyrillic grammar examples. The universal version
-is used when `detect_language` abstains or returns another ISO language code.
+rules; English contains no Cyrillic grammar examples. There is no universal
+prompt and prompt construction rejects a code outside the three complete
+entries.
 Language detection and prompt localization are separate policies: identifying
 Spanish, Polish or Portuguese does not pretend that a localized prompt exists.
 
@@ -525,12 +492,10 @@ pinned by the parity tests in `tests/test_llm_client.py`).
 
 `detect_language` returns `None` when the bundled offline model's normalized
 top probability is below `0.9` (including short ambiguous messages such as
-"Помоги" and "дякую"). Then
-the placeholder becomes `UNDETERMINED_LANGUAGE` — "exactly the language of the
-person's message", which is v1's behaviour — and **not** English: naming
-English over a Cyrillic message would manufacture the very violation this
-version removes. On the benchmark set the detector named the language for 22
-inputs of 27 and was never wrong.
+"Помоги" and "дякую"). Since 2026-09-14 (ClickUp 86cbehkmg), an
+undetermined or unsupported language returns `422`; `DEBUG=true` is the sole
+development-only English route. This supersedes v2's historical universal
+prompt for those cases without changing any ru/uk/en prompt bytes.
 
 The other rules v2 adds are all about precision, never about warmth (Maria,
 2026-09-05: a prompt must not make the model faceless and monotonously
@@ -574,22 +539,12 @@ A prompt that describes a layout it no longer receives misleads its next
 reader. Every other rule of v2 is byte for byte unchanged: they belong to the
 person, not to the request shape.
 
-Two v2 properties this was built on, and both held:
-
-- **The language seam is a function of text, not of the request.**
-  `twinkler_ai.question_prompt_for(text)` still resolves the language and
-  builds the prompt; what changed is who chooses the text —
-  `twinkler_ai.language_source` hands it the **last `user` turn** (see "Which
-  text each rule reads"). `detect_language` and `build_question_prompt` never
-  see the request shape. The one addition: an **empty** source — a
-  `next`/`reflect` request with no topic and no history — names English rather
-  than v2's "answer in exactly the language of the person's message", which
-  points at nothing when there is no message.
-- **Both providers still send identical bytes**, now for two strings instead
-  of one: the system prompt and the assembled message.
-  `tests/test_llm_client.py` runs the parity check for all three stages, and
-  separately pins that an English conversation is not answered in Russian
-  because the (Russian) stage blocks outvoted the reply.
+The current implementation keeps the useful seam while resolving it once per
+request: `request_question_language` returns the selected source and validated
+code, and that code builds both prompt strings and every retry. The original
+three-stage provider parity check is now a 3×3 language/stage matrix. Empty,
+undetermined and unsupported sources follow the explicit 2026-09-14 routing
+policy in the public contract above.
 
 The `reflect` stage asks for a closing question that helps formulate a
 takeaway. That is still one question, so the form rules hold; if it ever stops

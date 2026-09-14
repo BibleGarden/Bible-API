@@ -11,6 +11,7 @@ import os
 os.environ.setdefault("API_KEY", "test-api-key")
 os.environ["AI_CLIENT_HMAC_KEY"] = "test-hmac-key"
 os.environ["AI_ENABLED"] = "true"
+os.environ["DEBUG"] = "false"
 # Operational container settings must not enable content-bearing diagnostics
 # in the hermetic test configuration unless a test opts in explicitly.
 os.environ["AI_QUESTION_LOG_PROVIDER_BODIES"] = "false"

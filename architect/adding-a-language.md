@@ -352,33 +352,22 @@ This is the layer where getting it wrong is not a quality problem. Read
 `architect/twinkler-ai.md`, "The despair rule is code, not an instruction"
 (ClickUp 86cbegg23), before touching anything here.
 
-**6.1 — `app/question_prompt.py:109`, `LANGUAGE_NAMES`: add the English name.**
-`{"ru": "Russian", "uk": "Ukrainian", "en": "English"}`. The system prompt
-names the answer language twice (`:124-127`, `:153`) from this map. An unknown
-language falls back to `UNDETERMINED_LANGUAGE = "exactly the language of the
-person's message"` (`:115`) — v1 behaviour, the model detects it itself. So a
-missing entry degrades quietly rather than failing: **that is exactly why this
-item must be ticked deliberately.**
+**6.1 — Add a complete system prompt in `app/question_prompt.py`.**
+`_SYSTEM_PROMPTS` is the supported set: `ru`, `uk`, `en`. There is no universal
+prompt. A missing language is rejected before a provider call, except that a
+local `DEBUG=true` process explicitly routes it to the complete English prompt.
+Adding an entry changes prompt wording, so bump `QUESTION_PROMPT_VERSION`.
 
-**6.2 — The register sentence assumes ru/uk.** The prompt says "Where the
-language distinguishes registers, use the informal, intimate one **(Russian ty,
-Ukrainian ty)**" (`app/question_prompt.py:127-128`) and "In inflected languages
-such as Russian and Ukrainian…" (`:148`). A new language with a T/V
-distinction (French, German, Polish, Spanish…) needs its own parenthetical, and
-that is a **prompt change → bump `QUESTION_PROMPT_VERSION`** (`:104`, currently
-3).
+**6.2 — Review register and gender rules in that complete prompt.** A language
+with T/V or gendered second-person forms needs its own reviewed wording. Do not
+inherit the English wording and assume the model will infer those rules.
 
-**6.3 — The stage instructions are Russian regardless of the prayer's
-language.** `app/question_prompt.py:172-211` — `FIRST_INSTRUCTION` (`:185`),
-`NEXT_INSTRUCTION` (`:197`), `REFLECT_INSTRUCTION` (`:207`), and the headers
-around them (`:193-194`, `:205-206`), are
-Russian text sent for every language. The docstring (`:82-88`) records this as a
-**deliberate decision with a stated exit**: the person's own words carry the
-language, the system prompt names it, and the instruction language was measured
-never to leak into the answer — "translating the blocks per language is the
-change to make, and it is a change, so it needs a version". Treat this as an
-open decision (see the end of this document), not as a to-do you may silently
-skip.
+**6.3 — Add all three localized stage blocks.** `_STAGE_TEXTS[language]` must
+contain every header, role label, angle, gender line and `first`, `next`,
+`reflect` instruction. Extend the 3×3 full-string goldens in
+`tests/test_question_prompt.py` and the provider-parity matrix in
+`tests/test_llm_client.py`. The same resolved language code must build both the
+system prompt and user message; no prompt builder has a language fallback.
 
 **6.4 — `app/safety.py`, `SAFETY_REPLY_LANGUAGES = ("ru", "uk", "en")`.**
 This is the fixed-reply set, not the detector's language set. The offline
@@ -432,14 +421,16 @@ signal. `_RU_DIE_TAIL` (`:285`), `_UK_DIE_TAIL` (`:289`), `_EN_DIE_TAIL`
 ("умереть от стыда") is a closed list. `_RU_MEANING_TAIL` (`:297`),
 `_UK_MEANING_TAIL` (`:298`) — "нет смысла в жизни без Бога" is a sermon.
 
-**6.10 — `app/twinkler_ai.py`: nothing per language.** `language_source()`
-(`:241-272`) picks the text whose language the answer must be in;
-`question_prompt_for` (`:198-219`) turns it into the prompt. Both go through
-`safety.detect_language`, so they inherit 6.6 and need no separate change.
+**6.10 — Extend question routing.** `request_question_language()` walks the
+person's existing language-source chain once, then validates the detected code
+against `SUPPORTED_LANGUAGES`. A new prompt language must be accepted there via
+the derived set. Keep detector exceptions visible; only a normal `None` or an
+unsupported returned code may use the `DEBUG=true` English route.
 
-**6.11 — [gen_questions.py:492](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/gen_questions.py#L492) and `:611`** default to `"en"` when
-the source text is blank — the offline probe generator's own copy of the same
-assumption.
+**6.11 — Update the evaluation stand after the application change.** Its
+question generator must consume the production prompt version and use the same
+strict routing contract. Do not preserve an unconditional empty-source English
+default in evaluation code.
 
 ---
 
@@ -750,9 +741,9 @@ the list is complete. Every "✅" was verified in the file named.
 | 5.1 | `query_rewrite._LANGUAGES["uk"]` | ✅ `:99-103` (register hint present) |
 | 5.2 | Six worked examples + de-fingerprint tests | ✅ `_EXAMPLES["uk"]` `:243`; `_EXAMPLE_LANGUAGE_ORDER` `:296` |
 | 5.3 | Rerank | ✅ nothing per language |
-| 6.1 | `LANGUAGE_NAMES["uk"]` | ✅ `app/question_prompt.py:109` |
-| 6.2 | Register sentence | ✅ "Ukrainian ty" named explicitly (`:128`) |
-| 6.3 | Stage instructions | ⚠️ **Russian for Ukrainian prayers too** — documented decision (`:82-88`), not an omission |
+| 6.1 | Complete system prompt | ✅ `_SYSTEM_PROMPTS["uk"]` |
+| 6.2 | Register and gender rules | ✅ complete Ukrainian wording |
+| 6.3 | Stage instructions | ✅ `_STAGE_TEXTS["uk"]`, golden-tested for all three stages |
 | 6.4 | `SAFETY_REPLY_LANGUAGES` | ✅ `app/safety.py` |
 | 6.5 | `SAFETY_REPLIES["uk"]` | ✅ `:108-112`, version 2, hash-pinned |
 | 6.6 | Detection | ✅ py3langid model + `0.9` threshold (ADR 0018) |
@@ -825,10 +816,9 @@ table to work through; the checklist above is its narrative.
 | `app/safety.py:297,298` | `_RU/_UK_MEANING_TAIL` guards | **add** |
 | `app/safety.py:301+` | `EXPLICIT_PATTERNS` — 21 (ru 7 / uk 7 / en 7) | **add ≈7** |
 | `app/safety.py:467+` | `WEAK_PATTERNS` — 26 (ru 9 / uk 9 / en 8) | **add ≈8** |
-| `app/question_prompt.py:109` | `LANGUAGE_NAMES = {"ru": "Russian", "uk": "Ukrainian", "en": "English"}` | **add** |
-| `app/question_prompt.py:127-128` | prompt names the informal register as "(Russian ty, Ukrainian ty)" | **edit + bump `QUESTION_PROMPT_VERSION` (`:104`)** |
-| `app/question_prompt.py:148` | "In inflected languages such as Russian and Ukrainian…" | same |
-| `app/question_prompt.py:172-211` | stage instruction blocks (`:185`, `:197`, `:207`) — **Russian for every language** | open decision (6.3) |
+| `app/question_prompt.py` | `_SYSTEM_PROMPTS`, the strict `SUPPORTED_LANGUAGES` set and register/gender wording | **add a complete prompt + bump `QUESTION_PROMPT_VERSION`** |
+| `app/question_prompt.py` | `_STAGE_TEXTS` — all headers, roles, angles and three stage instructions | **add a complete language entry + 3 golden cases** |
+| `app/twinkler_ai.py` | one resolved question-language code shared by system and stage prompts | **extend via the derived supported set; keep non-debug rejection** |
 | `app/scripture_select.py:155-158` | `class Language(str, Enum)` — the public OpenAPI enum | **add a member** |
 | `app/scripture_select.py:632` | `AI_SCRIPTURE_PRIMARY_TRANSLATIONS` docstring example `"ru=syn,en=bsb,uk=16"` | doc |
 | `app/config.py:1075` | same variable's format comment `"ru=syn,en=bsb,uk=ubh"` | doc |
@@ -946,13 +936,7 @@ table to work through; the checklist above is its narrative.
    Polish and Portuguese no longer become English merely because they use the
    Latin script. Detection coverage is separate from localized prompt and
    fixed-reply coverage.
-2. **Stage instructions in Russian for every language**
-   (`app/question_prompt.py:172-215`, decision recorded at `:82-88`). Measured
-   not to leak into answers today on ru/uk/en. Does that hold for a language
-   more distant from Russian, on a model with weaker cross-lingual instruction
-   following? Translating the blocks is a prompt change and needs a
-   `QUESTION_PROMPT_VERSION` bump plus a measured comparison.
-3. **Does bge-m3 cover the candidate language well enough?** ADR 0010 accepted a
+2. **Does bge-m3 cover the candidate language well enough?** ADR 0010 accepted a
    measured quality drop for the existing three (MRR 0.664 → 0.524, thresholds
    0.4.0). The model is multilingual, but its quality per language is not
    uniform and we have measured only ru/en/uk. A candidate language needs its

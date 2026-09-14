@@ -101,7 +101,7 @@
         {"role": "assistant", "text": "Що зараз найважче?"},
         {"role": "user", "text": "Не можу заснути, весь час думаю про брата на фронті."}
       ],
-      "note": "A prayer without a topic, in Ukrainian: the block is «Молитва без конкретной темы.» and the answer must still be Ukrainian — the language comes from the person's last reply, never from the Russian stage instructions."
+      "note": "A prayer without a topic, in Ukrainian: both the stage block and answer language come from the person's last reply."
     },
     {
       "id": "probe-next-language-switch",
