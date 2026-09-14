@@ -56,19 +56,31 @@ AI_REQUIRED_VARS = (
 # ---------------------------------------------------------------------------
 # Provider per stage (ADR 0009, ADR 0012, amended by ADR 0019).
 #
-# Question, rewrite and rerank accept gemini or openai_compat. Transcription
+# Question accepts gemini, openai_compat or the strict OpenRouter profile.
+# Rewrite and rerank accept only gemini or openai_compat; transcription
 # additionally accepts local. With AI_ENABLED=true every stage names its own
-# provider, model and remote API key; openai_compat also names its endpoint
-# and, for chat, its reasoning effort. No value is inherited from another
-# stage.
+# provider, model and remote API key. No value is inherited from another
+# stage, and OpenRouter is never inferred from an endpoint hostname.
 #
 # Embeddings are configured below as an independent fifth stage.
 # ---------------------------------------------------------------------------
 PROVIDER_GEMINI = "gemini"
 PROVIDER_OPENAI_COMPAT = "openai_compat"
+PROVIDER_OPENROUTER = "openrouter"
 AI_PROVIDERS = (PROVIDER_GEMINI, PROVIDER_OPENAI_COMPAT)
+QUESTION_PROVIDERS = (*AI_PROVIDERS, PROVIDER_OPENROUTER)
+CHAT_COMPLETIONS_PROVIDERS = (PROVIDER_OPENAI_COMPAT, PROVIDER_OPENROUTER)
 
 ReasoningEffort = Literal["omit", "none", "low", "medium", "high"]
+
+# The OpenRouter provider is deliberately a pinned question-only profile, not
+# a generic JSON escape hatch. A provider/model change is an architectural
+# decision, and accepting another URL or model under this name would silently
+# retain OpenRouter-specific privacy/routing semantics for an unreviewed call.
+OPENROUTER_QUESTION_ENDPOINT = "https://openrouter.ai/api/v1"
+OPENROUTER_QUESTION_MODEL = "google/gemma-4-31b-it"
+OPENROUTER_QUESTION_REASONING_EFFORT: ReasoningEffort = "none"
+
 REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
     "omit",
     "none",
@@ -277,6 +289,14 @@ class StageProvider:
         return self.provider == PROVIDER_OPENAI_COMPAT
 
     @property
+    def is_openrouter(self) -> bool:
+        return self.provider == PROVIDER_OPENROUTER
+
+    @property
+    def is_chat_completions(self) -> bool:
+        return self.provider in CHAT_COMPLETIONS_PROVIDERS
+
+    @property
     def is_local(self) -> bool:
         """Only the transcription stage can answer yes (ADR 0012)."""
         return self.provider == TRANSCRIBE_PROVIDER_LOCAL
@@ -421,7 +441,7 @@ def resolve_stage(env: Mapping[str, str], stage: StageVars) -> StageProvider:
     )
     if provider == TRANSCRIBE_PROVIDER_LOCAL:
         return StageProvider(stage.stage, provider, model, "", "", None)
-    if provider == PROVIDER_OPENAI_COMPAT:
+    if provider in CHAT_COMPLETIONS_PROVIDERS:
         return StageProvider(
             stage.stage,
             provider,
@@ -464,14 +484,14 @@ def _remote_missing(env: Mapping[str, str], stage: StageVars) -> list[str]:
     """Variables a remote stage must state explicitly."""
     missing = []
     provider = env.get(stage.provider_var, "").strip()
-    if provider == PROVIDER_OPENAI_COMPAT:
+    if provider in CHAT_COMPLETIONS_PROVIDERS:
         if not env.get(stage.endpoint_var, "").strip():
             missing.append(stage.endpoint_var)
         if stage.reasoning_effort_var is not None and not env.get(
             stage.reasoning_effort_var, ""
         ).strip():
             missing.append(stage.reasoning_effort_var)
-    if provider == PROVIDER_GEMINI:
+    if provider in (PROVIDER_GEMINI, PROVIDER_OPENROUTER):
         if not env_var_present(env, stage.api_key_var) or not env.get(
             stage.api_key_var, ""
         ).strip():
@@ -525,7 +545,11 @@ def missing_required_vars(env: Mapping[str, str]) -> list[str]:
         missing.append(TRANSCRIBE_MODEL_PATH_VAR)
     for stage in (*AI_STAGE_VARS, TRANSCRIBE_STAGE_VARS):
         provider = env.get(stage.provider_var, "").strip()
-        if provider in (PROVIDER_GEMINI, PROVIDER_OPENAI_COMPAT):
+        if provider in (
+            PROVIDER_GEMINI,
+            PROVIDER_OPENAI_COMPAT,
+            PROVIDER_OPENROUTER,
+        ):
             missing.extend(
                 name for name in _remote_missing(env, stage) if name not in missing
             )
@@ -646,12 +670,15 @@ def invalid_required_values(env: Mapping[str, str]) -> list[str]:
 
     for stage in AI_STAGE_VARS:
         provider = env.get(stage.provider_var, "").strip()
-        if provider and provider not in AI_PROVIDERS:
+        allowed_providers = (
+            QUESTION_PROVIDERS if stage.stage == "question" else AI_PROVIDERS
+        )
+        if provider and provider not in allowed_providers:
             problems.append(
                 f"{stage.provider_var}: unknown provider {provider!r}, "
-                f"expected one of {', '.join(AI_PROVIDERS)}"
+                f"expected one of {', '.join(allowed_providers)}"
             )
-        if provider == PROVIDER_OPENAI_COMPAT:
+        if provider in CHAT_COMPLETIONS_PROVIDERS:
             value = env.get(stage.endpoint_var, "").strip()
             if value:
                 problem = validate_endpoint(stage.endpoint_var, value)
@@ -665,19 +692,46 @@ def invalid_required_values(env: Mapping[str, str]) -> list[str]:
                         f"{reasoning_effort!r}, expected one of "
                         f"{', '.join(REASONING_EFFORTS)}"
                     )
+            if provider == PROVIDER_OPENROUTER:
+                raw_model = env.get(stage.model_var, "")
+                if raw_model.strip() and raw_model != OPENROUTER_QUESTION_MODEL:
+                    problems.append(
+                        f"{stage.model_var}: {PROVIDER_OPENROUTER} question "
+                        f"profile requires exactly {OPENROUTER_QUESTION_MODEL!r}"
+                    )
+                raw_endpoint = env.get(stage.endpoint_var, "")
+                if (
+                    raw_endpoint.strip()
+                    and raw_endpoint != OPENROUTER_QUESTION_ENDPOINT
+                ):
+                    problems.append(
+                        f"{stage.endpoint_var}: {PROVIDER_OPENROUTER} question "
+                        f"profile requires exactly {OPENROUTER_QUESTION_ENDPOINT!r}"
+                    )
+                raw_reasoning = env.get(stage.reasoning_effort_var or "", "")
+                if (
+                    raw_reasoning.strip()
+                    and raw_reasoning != OPENROUTER_QUESTION_REASONING_EFFORT
+                ):
+                    problems.append(
+                        f"{stage.reasoning_effort_var}: {PROVIDER_OPENROUTER} "
+                        "question profile requires exactly 'none' (sent as "
+                        "reasoning.enabled=false)"
+                    )
         elif env_var_present(env, stage.endpoint_var):
             problems.append(
                 f"{stage.endpoint_var}: set while {stage.provider_var}="
-                f"{provider or '<unset>'} — only openai_compat uses an endpoint"
+                f"{provider or '<unset>'} — only chat-completions providers "
+                "use an endpoint"
             )
-        if provider != PROVIDER_OPENAI_COMPAT and (
+        if provider not in CHAT_COMPLETIONS_PROVIDERS and (
             stage.reasoning_effort_var is not None
             and env_var_present(env, stage.reasoning_effort_var)
         ):
             problems.append(
                 f"{stage.reasoning_effort_var}: set while {stage.provider_var}="
-                f"{provider or '<unset>'} — only openai_compat chat uses "
-                "reasoning effort"
+                f"{provider or '<unset>'} — only openai_compat chat and the "
+                "question-only openrouter profile use reasoning configuration"
             )
     transcribe_provider = env.get(TRANSCRIBE_PROVIDER_VAR, "").strip()
     if transcribe_provider and transcribe_provider not in TRANSCRIBE_PROVIDERS:
@@ -793,7 +847,11 @@ def _required_reason(env: Mapping[str, str], name: str) -> str:
         values = (
             TRANSCRIBE_PROVIDERS
             if name == TRANSCRIBE_PROVIDER_VAR
-            else AI_PROVIDERS
+            else (
+                QUESTION_PROVIDERS
+                if name == QUESTION_STAGE_VARS.provider_var
+                else AI_PROVIDERS
+            )
         )
         return (
             f"{name} is required when AI_ENABLED=true: one of "
@@ -806,20 +864,32 @@ def _required_reason(env: Mapping[str, str], name: str) -> str:
         )
     for stage in (*AI_STAGE_VARS, TRANSCRIBE_STAGE_VARS, EMBEDDING_STAGE_VARS):
         if name == stage.endpoint_var:
+            provider = env.get(stage.provider_var, "").strip()
             return (
                 f"{name} is required when {stage.provider_var}="
-                f"{PROVIDER_OPENAI_COMPAT}"
+                f"{provider or PROVIDER_OPENAI_COMPAT}"
             )
         if name == stage.api_key_var:
             provider = env.get(stage.provider_var, "").strip()
-            if provider == PROVIDER_GEMINI:
-                return f"{name} must be non-empty when {stage.provider_var}=gemini"
+            if provider in (PROVIDER_GEMINI, PROVIDER_OPENROUTER):
+                return (
+                    f"{name} must be non-empty when {stage.provider_var}="
+                    f"{provider}"
+                )
             return (
                 f"{name} must be present for remote provider "
                 f"{provider or '<unset>'}; it may "
                 "be empty to state that no Authorization header is required"
             )
         if name == stage.reasoning_effort_var:
+            provider = env.get(stage.provider_var, "").strip()
+            if provider == PROVIDER_OPENROUTER:
+                return (
+                    f"{name} is required when {stage.provider_var}="
+                    f"{PROVIDER_OPENROUTER}: exactly "
+                    f"{OPENROUTER_QUESTION_REASONING_EFFORT!r} (sent as "
+                    "reasoning.enabled=false)"
+                )
             return (
                 f"{name} is required when {stage.provider_var}="
                 f"{PROVIDER_OPENAI_COMPAT}: one of "

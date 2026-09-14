@@ -3,6 +3,10 @@
 Status: accepted (2026-09-05).
 Ticket: ClickUp 86cbegg2f (step 2 of the local-models umbrella 86cbe4mtq).
 
+> Note (2026-09-14, ClickUp 86cbh9vh6): ADR 0022 adds `openrouter` as a
+> distinct strict profile for the question stage only. It reuses Chat
+> Completions but does not change the generic `openai_compat` wire contract.
+
 ## Context
 
 Bible API's AI surface is four provider calls: the guiding question

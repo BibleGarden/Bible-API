@@ -816,20 +816,31 @@ without contacting a provider or entering the HMAC-backed limiter.
 `true` requires `AI_CLIENT_HMAC_KEY` and complete, stage-specific
 configuration for all four AI stages.
 
-For question, `AI_QUESTION_PROVIDER` is `gemini` or
-`openai_compat`. Both transports receive the same prompt and assembled user
-message. Gemini reads only `AI_QUESTION_MODEL` and the present
-`AI_QUESTION_API_KEY`; OpenAI-compatible transport additionally reads
-`AI_QUESTION_ENDPOINT` and the required `AI_QUESTION_REASONING_EFFORT`.
+For question, `AI_QUESTION_PROVIDER` is `gemini`, `openai_compat` or the
+question-only strict `openrouter` profile. All transports receive the same
+prompt and assembled user message. Gemini reads only `AI_QUESTION_MODEL` and
+the present `AI_QUESTION_API_KEY`; chat-completions transports additionally
+read `AI_QUESTION_ENDPOINT` and the required
+`AI_QUESTION_REASONING_EFFORT`.
 `none`, `low`, `medium` and `high` are sent exactly as `reasoning_effort`;
 `omit` explicitly leaves that field out for an endpoint/model without the
-setting. A Gemini key must be non-empty; an explicitly empty OpenAI-compatible
+setting. A Gemini key must be non-empty; an explicitly empty `openai_compat`
 key omits the authentication header, and any question reasoning variable on
 Gemini is a startup error.
 
-Both question transports use the same operational output ceiling,
-`AI_QUESTION_MAX_TOKENS` (default 4096): OpenAI-compatible sends it as
-`max_tokens`, Gemini as `generationConfig.maxOutputTokens`. Hidden reasoning
+`openrouter` is selected only by the explicit provider value, never inferred
+from the endpoint hostname. It is pinned to
+`google/gemma-4-31b-it`, `https://openrouter.ai/api/v1`, a non-empty key and
+`AI_QUESTION_REASONING_EFFORT=none`; any deviation aborts startup. Its request
+contains the fixed objects
+`provider: {allow_fallbacks: false, data_collection: "deny"}` and
+`reasoning: {enabled: false}` and omits flat `reasoning_effort`. There is no
+environment JSON override. Rewrite, rerank, transcription and embeddings do
+not accept `openrouter` and retain their existing transports.
+
+All question transports use the same operational output ceiling,
+`AI_QUESTION_MAX_TOKENS` (default 4096): chat-completions transports send it
+as `max_tokens`, Gemini as `generationConfig.maxOutputTokens`. Hidden reasoning
 is charged against that allowance by reasoning models, so the value is a
 safety ceiling rather than the expected answer length. An explicit blank,
 non-integer or non-positive value aborts startup. Rewrite, rerank and
@@ -845,9 +856,10 @@ Provider timeouts, parsing, retries, prompts and public responses are
 unchanged. No stage inherits another stage's endpoint or key.
 Transcription has no reasoning setting. The full fail-fast matrix is
 `architect/adr/0019-explicit-ai-configuration.md`; the reasoning extension and
-the initial 2026-09-13 local trial are ADR 0020. The current local question
-stage uses `low`; rewrite and rerank retain their independently configured
-reasoning values.
+the initial 2026-09-13 local trial are ADR 0020. The earlier Cerebras question
+trial used `low`; the current local question stage is the OpenRouter profile
+with reasoning explicitly disabled. Rewrite and rerank retain their
+independently configured reasoning values. See ADR 0022.
 
 ### The ceiling bounds the call, not one attempt
 

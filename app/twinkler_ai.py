@@ -704,7 +704,7 @@ def _extract_text(data: Any) -> str:
 async def _complete_openai_compat(
     user: str, prompt: str, deadline: Deadline | None = None
 ) -> str:
-    """The question stage on an OpenAI-compatible endpoint (ADR 0009).
+    """The question stage on a chat-completions endpoint (ADR 0009/0022).
 
     Same prompt (built once by the caller, so both transports send the same
     bytes), same question-stage generation settings (temperature 0.7 and the
@@ -753,6 +753,7 @@ async def _complete_openai_compat(
         diagnostic_logger=(
             logger if AI_QUESTION_LOG_PROVIDER_BODIES else None
         ),
+        request_profile=QUESTION_PROVIDER.provider,
     )
     try:
         text = await client.complete(
@@ -813,7 +814,7 @@ async def complete(
         )
     if not AI_ENABLED:
         raise AIError("AI is disabled by AI_ENABLED=false")
-    if QUESTION_PROVIDER.is_openai_compat:
+    if QUESTION_PROVIDER.is_chat_completions:
         return await _complete_openai_compat(user, prompt, deadline)
     if not QUESTION_PROVIDER.api_key:
         raise GeminiError("AI_QUESTION_API_KEY is not configured")

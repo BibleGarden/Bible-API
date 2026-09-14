@@ -168,17 +168,23 @@ def log_ai_providers() -> None:
         SCRIPTURE_RERANK_PROVIDER,
         TRANSCRIBE_PROVIDER,
     ):
-        if stage.is_openai_compat:
+        if stage.is_chat_completions:
             where = f" at {endpoint_host(stage.endpoint) or '<no endpoint>'}"
         elif stage.is_local:
             where = f" from {AI_TRANSCRIBE_MODEL_PATH or '<no path>'}"
         else:
             where = ""
-        reasoning = (
-            f" reasoning_effort={stage.reasoning_effort}"
-            if stage.reasoning_effort is not None
-            else ""
-        )
+        if stage.is_openrouter:
+            reasoning = (
+                " reasoning=disabled allow_fallbacks=false "
+                "data_collection=deny"
+            )
+        else:
+            reasoning = (
+                f" reasoning_effort={stage.reasoning_effort}"
+                if stage.reasoning_effort is not None
+                else ""
+            )
         question_limits = (
             f" max_tokens={AI_QUESTION_MAX_TOKENS} "
             f"timeout_seconds={AI_QUESTION_TIMEOUT_SECONDS:g}"

@@ -134,6 +134,7 @@ migration fallbacks. `AI_ENABLED` is required in every deployment:
 | AI disabled | `AI_ENABLED=false` | every stage-specific `AI_*_PROVIDER/MODEL/ENDPOINT/API_KEY/REASONING_EFFORT` and `AI_CLIENT_HMAC_KEY` |
 | Gemini stage | `AI_ENABLED=true`, stage `PROVIDER=gemini`, `MODEL`, non-empty stage `API_KEY` | stage `ENDPOINT`; chat-stage `REASONING_EFFORT` |
 | OpenAI-compatible chat stage | `AI_ENABLED=true`, stage `PROVIDER=openai_compat`, `MODEL`, `ENDPOINT`, present stage `API_KEY` (may be empty), `REASONING_EFFORT=omit\|none\|low\|medium\|high` | shared endpoint/key/reasoning variables |
+| Strict OpenRouter question | `AI_QUESTION_PROVIDER=openrouter`, `MODEL=google/gemma-4-31b-it`, `ENDPOINT=https://openrouter.ai/api/v1`, non-empty `API_KEY`, `REASONING_EFFORT=none` | OpenRouter on rewrite/rerank; any other model, endpoint or reasoning value; environment-provided request JSON |
 | OpenAI-compatible transcription | `AI_TRANSCRIBE_PROVIDER=openai_compat`, `MODEL`, `ENDPOINT`, present `API_KEY` (may be empty) | transcription reasoning variables |
 | Local transcription | `AI_TRANSCRIBE_PROVIDER=local`, `MODEL`, `MODEL_PATH` | transcription `ENDPOINT` and `API_KEY` |
 | Embeddings | `EMBEDDING_PROVIDER`, `MODEL`, `DIMENSIONS` in every deployment | provider-specific unused fields |
@@ -141,13 +142,13 @@ migration fallbacks. `AI_ENABLED` is required in every deployment:
 | Gemini embeddings | non-empty `EMBEDDING_API_KEY` | `EMBEDDING_ENDPOINT` and `EMBEDDING_MODEL_PATH` |
 | Local embeddings | `EMBEDDING_MODEL_PATH` | `EMBEDDING_ENDPOINT` and `EMBEDDING_API_KEY` |
 
-An OpenAI-compatible API-key variable may be present and empty. That is the
+An `openai_compat` API-key variable may be present and empty. That is the
 explicit statement that the endpoint needs no Authorization header. Gemini
-keys must be non-empty. Provider secrets are exported from the shell before
-`docker compose up` and are never placed in `.env`:
+and OpenRouter keys must be non-empty. Provider secrets are exported from the
+shell before `docker compose up` and are never placed in `.env`:
 
 ```bash
-export AI_QUESTION_API_KEY='cerebras-key'
+export AI_QUESTION_API_KEY='question-provider-key'
 export AI_SCRIPTURE_REWRITE_API_KEY=
 export AI_SCRIPTURE_RERANK_API_KEY=
 export AI_TRANSCRIBE_API_KEY='audio-key'
@@ -202,17 +203,17 @@ This does not erase copies already exported to an external log collector,
 backup or host snapshot; remove those through that system's own scoped
 retention procedure if such a copy exists.
 
-A mixed deployment can use Cerebras for the user-facing question and a local
+A mixed deployment can use OpenRouter for the user-facing question and a local
 Qwen server through its OpenAI-compatible endpoint for rewrite and rerank:
 
 ```dotenv
 AI_ENABLED=true
 AI_CLIENT_HMAC_KEY=generate-a-separate-random-secret
 
-AI_QUESTION_PROVIDER=openai_compat
-AI_QUESTION_MODEL=your-cerebras-model
-AI_QUESTION_ENDPOINT=https://api.cerebras.ai/v1
-AI_QUESTION_REASONING_EFFORT=omit
+AI_QUESTION_PROVIDER=openrouter
+AI_QUESTION_MODEL=google/gemma-4-31b-it
+AI_QUESTION_ENDPOINT=https://openrouter.ai/api/v1
+AI_QUESTION_REASONING_EFFORT=none
 
 AI_SCRIPTURE_REWRITE_PROVIDER=openai_compat
 AI_SCRIPTURE_REWRITE_MODEL=qwen3-30b
@@ -229,26 +230,25 @@ AI_TRANSCRIBE_MODEL=deepdml/faster-whisper-large-v3-turbo-ct2
 AI_TRANSCRIBE_ENDPOINT=https://your-audio-server/v1
 ```
 
-For Maria's current local configuration, the chat block is the following. The
-trial started on 2026-09-13 with `none` on every Cerebras chat stage; on
-2026-09-14 the question stage moved to `low` because it produced better
-questions, while rerank remained on the independently served company model.
-The Cerebras key is shared only by question and rewrite. Rerank uses its own
-`llm.ai2.ru` key; neither secret is stored in `.env`:
+For Maria's current local configuration, the question stage uses the strict
+OpenRouter profile while rewrite remains on Cerebras and rerank on the
+independently served company model. The three keys stay separate stage inputs;
+none is stored in `.env`:
 
 ```bash
+: "${OPENROUTER_API_KEY:?export the shell-only OpenRouter key first}"
 : "${CEREBRAS_API_KEY:?export the existing shell-only Cerebras key first}"
 : "${VLLM_SECONDARY_API_KEY:?export the shell-only llm.ai2.ru dev key first}"
-export AI_QUESTION_API_KEY="$CEREBRAS_API_KEY"
+export AI_QUESTION_API_KEY="$OPENROUTER_API_KEY"
 export AI_SCRIPTURE_REWRITE_API_KEY="$CEREBRAS_API_KEY"
 export AI_SCRIPTURE_RERANK_API_KEY="$VLLM_SECONDARY_API_KEY"
 ```
 
 ```dotenv
-AI_QUESTION_PROVIDER=openai_compat
-AI_QUESTION_MODEL=qwen-3.8-27b
-AI_QUESTION_ENDPOINT=https://api.cerebras.ai/v1
-AI_QUESTION_REASONING_EFFORT=low
+AI_QUESTION_PROVIDER=openrouter
+AI_QUESTION_MODEL=google/gemma-4-31b-it
+AI_QUESTION_ENDPOINT=https://openrouter.ai/api/v1
+AI_QUESTION_REASONING_EFFORT=none
 AI_QUESTION_TIMEOUT_SECONDS=20
 AI_QUESTION_MAX_TOKENS=4096
 
@@ -269,9 +269,19 @@ that leaves the field out; it is not a default or fallback. Missing or invalid
 reasoning configuration aborts startup for an OpenAI-compatible chat stage.
 Transcription and embeddings do not have a reasoning setting.
 
-`AI_QUESTION_MAX_TOKENS` is the question stage's output safety ceiling for
-both transports: OpenAI-compatible requests send it as `max_tokens`, while
-Gemini requests send it as `maxOutputTokens`. It defaults to `4096`; an
+The `openrouter` value is a distinct question-only request profile, never an
+endpoint-host inference. It requires the exact model, endpoint and `none`
+reasoning declaration shown above, plus a non-empty key. Its
+OpenAI-compatible request always contains
+`provider: {allow_fallbacks: false, data_collection: "deny"}` and
+`reasoning: {enabled: false}`, and never contains the flat
+`reasoning_effort` field. These objects are fixed in reviewed code; no
+environment variable can inject or replace provider JSON. Rewrite, rerank,
+transcription and embeddings retain their previous providers and wire shapes.
+
+`AI_QUESTION_MAX_TOKENS` is the question stage's output safety ceiling for all
+transports: chat-completions requests send it as `max_tokens`, while Gemini
+requests send it as `maxOutputTokens`. It defaults to `4096`; an
 explicit blank, non-integer or non-positive value aborts startup. The limit is
 not shared with scripture rewrite, scripture rerank or transcription.
 

@@ -42,6 +42,7 @@ FORBIDDEN_REASONING_VARS = (
     "EMBEDDING_REASONING_EFFORT",
 )
 REASONING_EFFORTS = ("omit", "none", "low", "medium", "high")
+QUESTION_PROVIDERS = ("gemini", "openai_compat", "openrouter")
 INTEGER_OPERATIONAL_VARS = (
     "DB_PORT",
     "IMPORT_MAX_PAYLOAD_MB",
@@ -172,6 +173,15 @@ AI_ENV = {
     "AI_TRANSCRIBE_MODEL_PATH": "/models/whisper/small",
 }
 
+OPENROUTER_ENV = {
+    **AI_ENV,
+    "AI_QUESTION_PROVIDER": "openrouter",
+    "AI_QUESTION_MODEL": "google/gemma-4-31b-it",
+    "AI_QUESTION_ENDPOINT": "https://openrouter.ai/api/v1",
+    "AI_QUESTION_API_KEY": "openrouter-key",
+    "AI_QUESTION_REASONING_EFFORT": "none",
+}
+
 GEMINI_AI_ENV = {
     **BASE_ENV,
     "AI_ENABLED": "true",
@@ -291,6 +301,7 @@ def test_literal_contract_matches_the_production_lists():
     assert config.REMOVED_AI_VARS == REMOVED_AI_VARS
     assert config.FORBIDDEN_REASONING_VARS == FORBIDDEN_REASONING_VARS
     assert config.REASONING_EFFORTS == REASONING_EFFORTS
+    assert config.QUESTION_PROVIDERS == QUESTION_PROVIDERS
     configured_stages = (
         *config.AI_STAGE_VARS,
         config.TRANSCRIBE_STAGE_VARS,
@@ -382,6 +393,52 @@ def test_enabled_ai_requires_hmac_and_all_four_stages():
 def test_complete_mixed_environment_has_no_problems():
     assert config.missing_required_vars(AI_ENV) == []
     assert config.invalid_required_values(AI_ENV) == []
+
+
+def test_strict_openrouter_question_environment_has_no_problems():
+    assert config.missing_required_vars(OPENROUTER_ENV) == []
+    assert config.invalid_required_values(OPENROUTER_ENV) == []
+    stage = config.resolve_stage(OPENROUTER_ENV, config.QUESTION_STAGE_VARS)
+    assert stage.is_openrouter
+    assert stage.is_chat_completions
+    assert not stage.is_openai_compat
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("AI_QUESTION_MODEL", "google/gemma-4-27b-it"),
+        ("AI_QUESTION_ENDPOINT", "https://openrouter.ai/api/v1/"),
+        ("AI_QUESTION_REASONING_EFFORT", "omit"),
+    ],
+)
+def test_openrouter_question_profile_rejects_any_non_exact_contract(name, value):
+    problems = config.invalid_required_values({**OPENROUTER_ENV, name: value})
+    assert any(name in problem and "requires exactly" in problem for problem in problems)
+
+
+@pytest.mark.parametrize("value", [None, "", "   "])
+def test_openrouter_question_requires_a_non_empty_key(value):
+    env = dict(OPENROUTER_ENV)
+    if value is None:
+        del env["AI_QUESTION_API_KEY"]
+    else:
+        env["AI_QUESTION_API_KEY"] = value
+    assert "AI_QUESTION_API_KEY" in config.missing_required_vars(env)
+    with pytest.raises(config.ConfigError, match="AI_QUESTION_API_KEY"):
+        config._validate(env, [])
+
+
+@pytest.mark.parametrize(
+    "provider_var",
+    ["AI_SCRIPTURE_REWRITE_PROVIDER", "AI_SCRIPTURE_RERANK_PROVIDER"],
+)
+def test_openrouter_is_question_only(provider_var):
+    problems = config.invalid_required_values({**AI_ENV, provider_var: "openrouter"})
+    assert any(
+        provider_var in problem and "unknown provider" in problem
+        for problem in problems
+    )
 
 
 @pytest.mark.parametrize(
