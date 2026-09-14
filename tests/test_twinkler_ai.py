@@ -639,6 +639,96 @@ def test_the_topic_answers_for_an_undecidable_reply_in_english_too():
 
 
 @pytest.mark.parametrize(
+    ("default_language", "marker"),
+    [
+        ("ru", "Молитва без заданной темы."),
+        ("uk", "Молитва без заданої теми."),
+        ("en", "Prayer without a stated topic."),
+    ],
+)
+def test_empty_first_uses_each_explicit_default_language(
+    monkeypatch, default_language, marker
+):
+    monkeypatch.setattr(twinkler_ai, "DEBUG", False)
+    generated = AsyncMock(return_value=model_answer("Answer?"))
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+    body = question_body()
+    body["default_language"] = default_language
+
+    response = client.post(
+        "/api/ai/question",
+        headers={"X-API-Key": "test-api-key"},
+        json=body,
+    )
+
+    assert response.status_code == 200
+    sent_message, language = generated.await_args.args[:2]
+    assert marker in sent_message
+    assert language == twinkler_ai.ResolvedQuestionLanguage("", default_language)
+
+
+@pytest.mark.parametrize(
+    ("stage", "marker"),
+    [("next", "Продовж молитву"), ("reflect", "Постав підсумкове запитання")],
+)
+def test_default_language_handles_stages_without_user_answers(
+    monkeypatch, stage, marker
+):
+    monkeypatch.setattr(twinkler_ai, "DEBUG", False)
+    generated = AsyncMock(return_value=model_answer("Запитання?"))
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+    body = question_body(stage=stage)
+    body["default_language"] = "uk"
+
+    response = client.post(
+        "/api/ai/question",
+        headers={"X-API-Key": "test-api-key"},
+        json=body,
+    )
+
+    assert response.status_code == 200
+    assert marker in generated.await_args.args[0]
+    assert generated.await_args.args[1] == twinkler_ai.ResolvedQuestionLanguage(
+        "", "uk"
+    )
+
+
+def test_ambiguous_person_words_use_the_explicit_default(monkeypatch):
+    monkeypatch.setattr(twinkler_ai, "DEBUG", False)
+    request = twinkler_ai.CompleteRequest(
+        topic="Помоги", stage="first", messages=[], default_language="uk"
+    )
+
+    assert twinkler_ai.request_question_language(request) == (
+        twinkler_ai.ResolvedQuestionLanguage("Помоги", "uk")
+    )
+
+
+def test_detected_supported_language_wins_over_the_explicit_default(monkeypatch):
+    monkeypatch.setattr(twinkler_ai, "DEBUG", False)
+    text = "I want to pray about my father because our last talk still troubles me"
+    request = twinkler_ai.CompleteRequest(
+        topic=text, stage="first", messages=[], default_language="uk"
+    )
+
+    assert twinkler_ai.request_question_language(request) == (
+        twinkler_ai.ResolvedQuestionLanguage(text, "en")
+    )
+
+
+def test_source_chain_finishes_before_using_the_explicit_default(monkeypatch):
+    monkeypatch.setattr(twinkler_ai, "DEBUG", False)
+    request = twinkler_ai.CompleteRequest(
+        topic="Я не знаю, что делать с обидой на брата, и хочу помолиться об этом",
+        stage="next",
+        messages=[{"role": "user", "text": "Помоги"}],
+        default_language="en",
+    )
+
+    assert twinkler_ai.request_question_language(request).code == "ru"
+
+
+@pytest.mark.parametrize(
     "topic",
     [
         "Necesito ayuda porque estoy muy triste",
@@ -649,7 +739,9 @@ def test_the_topic_answers_for_an_undecidable_reply_in_english_too():
 def test_detected_unsupported_language_is_rejected_outside_debug(monkeypatch, topic):
     monkeypatch.setattr(twinkler_ai, "DEBUG", False)
     assert safety.detect_language(topic) in {"es", "pl", "pt"}
-    request = twinkler_ai.CompleteRequest(topic=topic, stage="first", messages=[])
+    request = twinkler_ai.CompleteRequest(
+        topic=topic, stage="first", messages=[], default_language="ru"
+    )
     with pytest.raises(twinkler_ai.UnsupportedQuestionLanguage):
         twinkler_ai.request_question_language(request)
 
@@ -678,21 +770,69 @@ def test_question_endpoint_rejects_unroutable_language_before_provider(
     generated.assert_not_awaited()
 
 
-def test_debug_routes_unroutable_question_to_english(monkeypatch):
+@pytest.mark.parametrize(
+    ("topic", "default_language"),
+    [
+        ("Necesito ayuda porque estoy muy triste", None),
+        ("Necesito ayuda porque estoy muy triste", "ru"),
+        ("Помоги", None),
+    ],
+)
+def test_debug_routes_unroutable_question_to_english(
+    monkeypatch, topic, default_language
+):
     monkeypatch.setattr(twinkler_ai, "DEBUG", True)
     generated = AsyncMock(return_value=model_answer("What matters now?"))
     monkeypatch.setattr(twinkler_ai, "complete", generated)
 
+    body = question_body(topic=topic)
+    body["default_language"] = default_language
     response = client.post(
         "/api/ai/question",
         headers={"X-API-Key": "test-api-key"},
-        json=question_body(topic="Помоги"),
+        json=body,
     )
 
     assert response.status_code == 200
     sent_message, language = generated.await_args.args[:2]
     assert "Prayer goal (data)" in sent_message
-    assert language == twinkler_ai.ResolvedQuestionLanguage("Помоги", "en")
+    assert language == twinkler_ai.ResolvedQuestionLanguage(topic, "en")
+
+
+@pytest.mark.parametrize("default_language", ["", "RU", "es", 1, False, {}, []])
+def test_invalid_default_language_is_422_even_in_debug(
+    monkeypatch, default_language
+):
+    monkeypatch.setattr(twinkler_ai, "DEBUG", True)
+    generated = AsyncMock(return_value=model_answer("unused"))
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+    body = question_body(topic="Помоги")
+    body["default_language"] = default_language
+
+    response = client.post(
+        "/api/ai/question",
+        headers={"X-API-Key": "test-api-key"},
+        json=body,
+    )
+
+    assert response.status_code == 422
+    generated.assert_not_awaited()
+
+
+@pytest.mark.parametrize("include_null", [False, True])
+def test_missing_and_null_default_keep_strict_routing(monkeypatch, include_null):
+    monkeypatch.setattr(twinkler_ai, "DEBUG", False)
+    body = question_body(topic="Помоги")
+    if include_null:
+        body["default_language"] = None
+
+    response = client.post(
+        "/api/ai/question",
+        headers={"X-API-Key": "test-api-key"},
+        json=body,
+    )
+
+    assert response.status_code == 422
 
 
 def test_detector_failure_is_not_a_debug_fallback(monkeypatch):
@@ -706,9 +846,51 @@ def test_detector_failure_is_not_a_debug_fallback(monkeypatch):
     with pytest.raises(RuntimeError, match="detector unavailable"):
         twinkler_ai.request_question_language(
             twinkler_ai.CompleteRequest(
-                topic="ordinary words", stage="first", messages=[]
+                topic="ordinary words",
+                stage="first",
+                messages=[],
+                default_language="uk",
             )
         )
+
+
+def test_assistant_only_context_keeps_the_existing_source_chain(monkeypatch):
+    monkeypatch.setattr(twinkler_ai, "DEBUG", False)
+    supported = twinkler_ai.CompleteRequest.model_construct(
+        topic="",
+        stage="reflect",
+        messages=[
+            twinkler_ai.QuestionMessage(
+                role="assistant",
+                text="What would you like to bring to God in this prayer?",
+            )
+        ],
+        skipped_questions=[],
+        default_language="ru",
+    )
+    undecidable = twinkler_ai.CompleteRequest.model_construct(
+        topic="",
+        stage="reflect",
+        messages=[twinkler_ai.QuestionMessage(role="assistant", text="Помоги")],
+        skipped_questions=[],
+        default_language="uk",
+    )
+    unsupported = twinkler_ai.CompleteRequest.model_construct(
+        topic="",
+        stage="reflect",
+        messages=[
+            twinkler_ai.QuestionMessage(
+                role="assistant", text="Necesito ayuda porque estoy muy triste"
+            )
+        ],
+        skipped_questions=[],
+        default_language="ru",
+    )
+
+    assert twinkler_ai.request_question_language(supported).code == "en"
+    assert twinkler_ai.request_question_language(undecidable).code == "uk"
+    with pytest.raises(twinkler_ai.UnsupportedQuestionLanguage):
+        twinkler_ai.request_question_language(unsupported)
 
 
 def test_an_earlier_reply_answers_when_neither_the_last_one_nor_the_topic_can():
@@ -1073,6 +1255,23 @@ def test_an_explicit_despair_message_never_reaches_the_model(monkeypatch, body):
     assert response.json() == answered(safety.SAFETY_REPLIES["ru"], True, subject=None)
     generated.assert_not_awaited()
     assert "?" not in response.json()["text"]
+
+
+def test_default_language_does_not_select_the_safety_reply(monkeypatch):
+    generated = AsyncMock(return_value=model_answer("unused"))
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+    body = question_body(topic=_probe_topic("probe-despair"))
+    body["default_language"] = "uk"
+
+    response = client.post(
+        "/api/ai/question",
+        headers={"X-API-Key": "test-api-key"},
+        json=body,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["text"] == safety.SAFETY_REPLIES["ru"]
+    generated.assert_not_awaited()
 
 
 def test_despair_in_an_older_reply_lets_the_conversation_go_on(monkeypatch):
@@ -1485,6 +1684,25 @@ def post_question(body):
     return client.post(
         "/api/ai/question", headers={"X-API-Key": "test-api-key"}, json=body
     )
+
+
+def test_default_language_reaches_the_novelty_retry_unchanged(monkeypatch):
+    new_question = "Що для тебе зараз найважливіше?"
+    generated = ScriptedComplete(SKIPPED_ONE, new_question)
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+    body = question_body(topic="Помоги", stage="next", skipped=(SKIPPED_ONE,))
+    body["default_language"] = "uk"
+
+    response = post_question(body)
+
+    assert response.status_code == 200
+    assert response.json()["text"] == new_question
+    assert len(generated.calls) == 2
+    assert all(
+        call.language == twinkler_ai.ResolvedQuestionLanguage("Помоги", "uk")
+        for call in generated.calls
+    )
+    assert all("Мета молитви (дані)" in call.user for call in generated.calls)
 
 
 def test_a_question_that_repeats_nothing_is_answered_with_one_call(monkeypatch):
@@ -2638,6 +2856,19 @@ def test_openapi_documents_public_errors():
         operation["responses"]
     )
     assert "Retry-After" in operation["responses"]["429"]["headers"]
+
+
+def test_openapi_documents_optional_default_language_contract():
+    schema = app.openapi()["components"]["schemas"]["CompleteRequest"]
+    field = schema["properties"]["default_language"]
+
+    assert "default_language" not in schema["required"]
+    assert field["anyOf"] == [
+        {"type": "string", "enum": ["ru", "uk", "en"]},
+        {"type": "null"},
+    ]
+    assert "only after language detection abstains" in field["description"]
+    assert "does not affect safety replies" in field["description"]
 
 
 def test_sends_expected_gemini_request(monkeypatch):

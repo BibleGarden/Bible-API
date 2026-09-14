@@ -193,6 +193,10 @@ class CompleteRequest(BaseModel):
     model could not know its question had been declined and offered the same
     thought again. It is optional and defaults to empty — a request without it
     is byte for byte the request the endpoint answered before.
+
+    `default_language` joined on 2026-09-14 (ClickUp 86cbh47mf). It carries
+    the UI language only for the case where the full detector chain abstains;
+    it is not person-authored content and no safety or content limit reads it.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -216,6 +220,16 @@ class CompleteRequest(BaseModel):
             "(an over-long history is trimmed from the front) and it must end "
             "with one. Empty for `first`, and normal for the other two stages "
             "when the person answered nothing or forbade sending the answers"
+        ),
+    )
+    default_language: Literal["ru", "uk", "en"] | None = Field(
+        default=None,
+        description=(
+            "Optional UI language used for the question prompt only after "
+            "language detection abstains across the entire source chain. It "
+            "never overrides a detected language, including an unsupported "
+            "one, and does not affect safety replies, transcription, or "
+            "scripture and quotation languages"
         ),
     )
     skipped_questions: list[str] = Field(
@@ -382,10 +396,14 @@ class ResolvedQuestionLanguage:
     code: str
 
 
-def resolve_question_language(language: str | None) -> str:
+def resolve_question_language(
+    language: str | None, default_language: str | None = None
+) -> str:
     """Return a supported language, with an English valve only in DEBUG."""
     if language in SUPPORTED_LANGUAGES:
         return language
+    if language is None and default_language in SUPPORTED_LANGUAGES:
+        return default_language
     if DEBUG:
         return DEFAULT_LANGUAGE
     raise UnsupportedQuestionLanguage(
@@ -522,7 +540,10 @@ def _language_source_and_code(
 def request_question_language(request: CompleteRequest) -> ResolvedQuestionLanguage:
     """Resolve and validate one language for every prompt part in a request."""
     source, detected = _language_source_and_code(request)
-    return ResolvedQuestionLanguage(source, resolve_question_language(detected))
+    return ResolvedQuestionLanguage(
+        source,
+        resolve_question_language(detected, request.default_language),
+    )
 
 
 def safety_input_text(request: CompleteRequest) -> str | None:

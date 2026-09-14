@@ -80,6 +80,14 @@ server:
 `first` carries no history; a non-empty history ends with a `user` turn;
 `messages: []` is normal for the other two stages.
 
+An optional `default_language` is `"ru"`, `"uk"`, `"en"` or `null` (the
+default). It is a UI language hint used only when the detector abstains across
+the entire existing source chain. Any detected language wins; in particular,
+the hint never turns a detected unsupported language into a supported one.
+It affects the question system and stage prompts only, including retries, and
+does not select safety replies, transcription, scripture or quotation
+languages.
+
 An optional `skipped_questions` (list of strings, at most 10 of at most 300
 characters, empty by default) carries the questions the person asked to
 replace, so the next one takes another direction. It must be empty with

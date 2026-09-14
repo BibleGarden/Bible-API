@@ -368,6 +368,9 @@ contain every header, role label, angle, gender line and `first`, `next`,
 `tests/test_question_prompt.py` and the provider-parity matrix in
 `tests/test_llm_client.py`. The same resolved language code must build both the
 system prompt and user message; no prompt builder has a language fallback.
+Also extend `CompleteRequest.default_language` with the new code in the same
+change. The field remains only an abstention hint: it must not override a
+detected code or select a safety reply.
 
 **6.4 — `app/safety.py`, `SAFETY_REPLY_LANGUAGES = ("ru", "uk", "en")`.**
 This is the fixed-reply set, not the detector's language set. The offline
