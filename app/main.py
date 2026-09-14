@@ -28,6 +28,8 @@ from middleware import RequestStatsMiddleware
 from trusted_proxies import TRUSTED_PROXIES, ensure_visible_handler
 from config import (
     AI_QUESTION_LOG_PROVIDER_BODIES,
+    AI_QUESTION_MAX_TOKENS,
+    AI_QUESTION_TIMEOUT_SECONDS,
     EMBEDDING_DIMENSIONS,
     EMBEDDING_MODEL,
     EMBEDDING_MODEL_PATH,
@@ -149,8 +151,8 @@ def log_ai_providers() -> None:
     Which model served a request is the question the 2026-08-29 incident was
     debugged blind for, and a provider is one level above a model — so it is
     said out loud, once, next to the trusted-proxy banner. Never the key
-    itself: only the host, validated reasoning mode and whether a key is
-    configured.
+    itself: only the host, validated reasoning mode, effective question
+    ceilings and whether a key is configured.
     `grep 'AI stage'` after a deploy.
 
     The handler is ensured for THIS logger: `trusted_proxies` installs one on
@@ -177,13 +179,20 @@ def log_ai_providers() -> None:
             if stage.reasoning_effort is not None
             else ""
         )
+        question_limits = (
+            f" max_tokens={AI_QUESTION_MAX_TOKENS} "
+            f"timeout_seconds={AI_QUESTION_TIMEOUT_SECONDS:g}"
+            if stage.stage == "question"
+            else ""
+        )
         logger.info(
-            "AI stage %s: provider=%s model=%s%s%s key=%s",
+            "AI stage %s: provider=%s model=%s%s%s%s key=%s",
             stage.stage,
             stage.provider or "<none: AI not configured>",
             stage.model or "<none>",
             where,
             reasoning,
+            question_limits,
             "set" if stage.api_key else "none",
         )
     if AI_QUESTION_LOG_PROVIDER_BODIES:

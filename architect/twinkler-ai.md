@@ -827,17 +827,27 @@ setting. A Gemini key must be non-empty; an explicitly empty OpenAI-compatible
 key omits the authentication header, and any question reasoning variable on
 Gemini is a startup error.
 
+Both question transports use the same operational output ceiling,
+`AI_QUESTION_MAX_TOKENS` (default 4096): OpenAI-compatible sends it as
+`max_tokens`, Gemini as `generationConfig.maxOutputTokens`. Hidden reasoning
+is charged against that allowance by reasoning models, so the value is a
+safety ceiling rather than the expected answer length. An explicit blank,
+non-integer or non-positive value aborts startup. Rewrite, rerank and
+transcription keep their independent limits.
+
 Transcription uses `AI_TRANSCRIBE_PROVIDER` with `gemini`,
 `openai_compat` or `local`. Remote providers read only the transcription
 stage's model/key and, for OpenAI compatibility, endpoint. Local
 faster-whisper reads `AI_TRANSCRIBE_MODEL` and
 `AI_TRANSCRIBE_MODEL_PATH` and has no endpoint/key.
 
-Provider timeouts, request envelopes, parsing, retries, prompts and public
-responses are unchanged. No stage inherits another stage's endpoint or key.
+Provider timeouts, parsing, retries, prompts and public responses are
+unchanged. No stage inherits another stage's endpoint or key.
 Transcription has no reasoning setting. The full fail-fast matrix is
 `architect/adr/0019-explicit-ai-configuration.md`; the reasoning extension and
-the 2026-09-13 local trial are ADR 0020.
+the initial 2026-09-13 local trial are ADR 0020. The current local question
+stage uses `low`; rewrite and rerank retain their independently configured
+reasoning values.
 
 ### The ceiling bounds the call, not one attempt
 

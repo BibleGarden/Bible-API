@@ -48,6 +48,7 @@ INTEGER_OPERATIONAL_VARS = (
     "AI_TRANSCRIBE_THREADS",
     "AI_TRANSCRIBE_BEAM_SIZE",
     "AI_REQUESTS_PER_MINUTE",
+    "AI_QUESTION_MAX_TOKENS",
     "AI_QUESTION_PREFETCH_REQUESTS_PER_MINUTE",
     "AI_QUESTION_PREFETCH_REQUESTS_PER_CLIENT_PER_MINUTE",
     "AI_SCRIPTURE_PREFETCH_REQUESTS_PER_MINUTE",
@@ -989,7 +990,25 @@ def test_import_rejects_unknown_provider_and_unused_endpoint_together(monkeypatc
 def test_operational_defaults_are_unchanged(monkeypatch):
     module = _reload_config(monkeypatch, AI_ENV)
     assert module.AI_QUESTION_TIMEOUT_SECONDS == 20.0
+    assert module.AI_QUESTION_MAX_TOKENS == 4096
     assert module.AI_SCRIPTURE_PROVIDER_TIMEOUT_SECONDS == 8.0
+
+
+def test_question_max_tokens_accepts_a_positive_override(monkeypatch):
+    module = _reload_config(
+        monkeypatch,
+        {**AI_ENV, "AI_QUESTION_MAX_TOKENS": "8192"},
+    )
+    assert module.AI_QUESTION_MAX_TOKENS == 8192
+
+
+@pytest.mark.parametrize("value", ["", " ", "0", "-1", "many", "1.5"])
+def test_invalid_question_max_tokens_stops_startup(monkeypatch, value):
+    with pytest.raises(RuntimeError, match="AI_QUESTION_MAX_TOKENS"):
+        _reload_config(
+            monkeypatch,
+            {**AI_ENV, "AI_QUESTION_MAX_TOKENS": value},
+        )
 
 
 @pytest.mark.parametrize("stage", ["QUESTION", "SCRIPTURE"])

@@ -20,6 +20,7 @@ from client_ip import resolve_client_ip
 from config import (
     AI_ENABLED,
     AI_QUESTION_LOG_PROVIDER_BODIES,
+    AI_QUESTION_MAX_TOKENS,
     AI_QUESTION_MODEL,
     AI_QUESTION_TIMEOUT_SECONDS,
     AI_TRANSCRIBE_MODEL,
@@ -706,10 +707,10 @@ async def _complete_openai_compat(
     """The question stage on an OpenAI-compatible endpoint (ADR 0009).
 
     Same prompt (built once by the caller, so both transports send the same
-    bytes), same generation settings (temperature
-    0.7, 1024 output tokens) and the same public failure — `AIError`, which
-    the handler turns into `502 AI service unavailable` without provider
-    detail.
+    bytes), same question-stage generation settings (temperature 0.7 and the
+    `AI_QUESTION_MAX_TOKENS` output ceiling) and the same public failure —
+    `AIError`, which the handler turns into `502 AI service unavailable`
+    without provider detail.
 
     **`json_object` is ON since prompt v6** (ClickUp 86cbejvt2). It used to be
     off with the comment "this answer is prose for a person, not a parsed
@@ -748,6 +749,7 @@ async def _complete_openai_compat(
         QUESTION_PROVIDER.reasoning_effort,
         timeout=AI_QUESTION_TIMEOUT_SECONDS,
         attempts=1,
+        max_tokens=AI_QUESTION_MAX_TOKENS,
         diagnostic_logger=(
             logger if AI_QUESTION_LOG_PROVIDER_BODIES else None
         ),
@@ -826,7 +828,7 @@ async def complete(
         "system_instruction": {"parts": [{"text": prompt}]},
         "contents": [{"role": "user", "parts": [{"text": user}]}],
         "generationConfig": {
-            "maxOutputTokens": 1024,
+            "maxOutputTokens": AI_QUESTION_MAX_TOKENS,
             "temperature": 0.7,
         },
     }

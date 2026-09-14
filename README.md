@@ -229,23 +229,28 @@ AI_TRANSCRIBE_MODEL=deepdml/faster-whisper-large-v3-turbo-ct2
 AI_TRANSCRIBE_ENDPOINT=https://your-audio-server/v1
 ```
 
-For Maria's local Qwen/Cerebras trial of 2026-09-13, the desired chat block is
-the following. The same existing Cerebras secret is exported into the three
-stage-specific key variables from the invoking shell; it is not stored in
-`.env`:
+For Maria's current local configuration, the chat block is the following. The
+trial started on 2026-09-13 with `none` on every Cerebras chat stage; on
+2026-09-14 the question stage moved to `low` because it produced better
+questions, while rerank remained on the independently served company model.
+The Cerebras key is shared only by question and rewrite. Rerank uses its own
+`llm.ai2.ru` key; neither secret is stored in `.env`:
 
 ```bash
 : "${CEREBRAS_API_KEY:?export the existing shell-only Cerebras key first}"
+: "${VLLM_SECONDARY_API_KEY:?export the shell-only llm.ai2.ru dev key first}"
 export AI_QUESTION_API_KEY="$CEREBRAS_API_KEY"
 export AI_SCRIPTURE_REWRITE_API_KEY="$CEREBRAS_API_KEY"
-export AI_SCRIPTURE_RERANK_API_KEY="$CEREBRAS_API_KEY"
+export AI_SCRIPTURE_RERANK_API_KEY="$VLLM_SECONDARY_API_KEY"
 ```
 
 ```dotenv
 AI_QUESTION_PROVIDER=openai_compat
 AI_QUESTION_MODEL=qwen-3.8-27b
 AI_QUESTION_ENDPOINT=https://api.cerebras.ai/v1
-AI_QUESTION_REASONING_EFFORT=none
+AI_QUESTION_REASONING_EFFORT=low
+AI_QUESTION_TIMEOUT_SECONDS=20
+AI_QUESTION_MAX_TOKENS=4096
 
 AI_SCRIPTURE_REWRITE_PROVIDER=openai_compat
 AI_SCRIPTURE_REWRITE_MODEL=qwen-3.8-27b
@@ -253,9 +258,9 @@ AI_SCRIPTURE_REWRITE_ENDPOINT=https://api.cerebras.ai/v1
 AI_SCRIPTURE_REWRITE_REASONING_EFFORT=none
 
 AI_SCRIPTURE_RERANK_PROVIDER=openai_compat
-AI_SCRIPTURE_RERANK_MODEL=qwen-3.8-27b
-AI_SCRIPTURE_RERANK_ENDPOINT=https://api.cerebras.ai/v1
-AI_SCRIPTURE_RERANK_REASONING_EFFORT=none
+AI_SCRIPTURE_RERANK_MODEL=qwen3-30b-a3b-instruct-2507
+AI_SCRIPTURE_RERANK_ENDPOINT=https://llm.ai2.ru/v1
+AI_SCRIPTURE_RERANK_REASONING_EFFORT=omit
 ```
 
 `none`, `low`, `medium` and `high` are sent byte-for-byte as the
@@ -263,6 +268,12 @@ AI_SCRIPTURE_RERANK_REASONING_EFFORT=none
 that leaves the field out; it is not a default or fallback. Missing or invalid
 reasoning configuration aborts startup for an OpenAI-compatible chat stage.
 Transcription and embeddings do not have a reasoning setting.
+
+`AI_QUESTION_MAX_TOKENS` is the question stage's output safety ceiling for
+both transports: OpenAI-compatible requests send it as `max_tokens`, while
+Gemini requests send it as `maxOutputTokens`. It defaults to `4096`; an
+explicit blank, non-integer or non-positive value aborts startup. The limit is
+not shared with scripture rewrite, scripture rerank or transcription.
 
 A disabled AI surface is intentionally short; embeddings remain fully
 configured because scripture retrieval and index identity are separate:

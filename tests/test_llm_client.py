@@ -865,12 +865,13 @@ def test_the_question_stage_asks_for_the_v6_object(monkeypatch):
         "QUESTION_PROVIDER",
         stage("question", reasoning_effort="none"),
     )
+    monkeypatch.setattr(twinkler_ai, "AI_QUESTION_MAX_TOKENS", 8192)
     with mock_async(handler):
         asyncio.run(twinkler_ai.complete("Запрос", question_language("Запрос", "ru")))
 
     assert captured["response_format"] == {"type": "json_object"}
     assert captured["temperature"] == 0.7
-    assert captured["max_tokens"] == llm_client.DEFAULT_MAX_TOKENS
+    assert captured["max_tokens"] == 8192
     assert captured["reasoning_effort"] == "none"
 
 
@@ -1104,6 +1105,8 @@ def test_the_startup_banner_names_the_providers_and_never_the_key(monkeypatch, c
     monkeypatch.setattr(
         main, "SCRIPTURE_RERANK_PROVIDER", stage("scripture_rerank")
     )
+    monkeypatch.setattr(main, "AI_QUESTION_MAX_TOKENS", 8192)
+    monkeypatch.setattr(main, "AI_QUESTION_TIMEOUT_SECONDS", 23.5)
     with caplog.at_level(logging.INFO):
         main.log_ai_providers()
 
@@ -1117,6 +1120,12 @@ def test_the_startup_banner_names_the_providers_and_never_the_key(monkeypatch, c
     assert "llm.example" in caplog.text          # the host, for the operator
     assert SECRET_KEY not in caplog.text         # never the key itself
     assert "8443" not in caplog.text             # host only, not the URL
+    question_line = next(
+        line for line in caplog.text.splitlines() if "AI stage question" in line
+    )
+    assert "max_tokens=8192 timeout_seconds=23.5" in question_line
+    assert caplog.text.count("max_tokens=") == 1
+    assert caplog.text.count("timeout_seconds=") == 1
 
 
 def test_the_ai_banner_is_visible_when_uvicorn_left_the_root_bare():
