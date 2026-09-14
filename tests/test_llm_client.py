@@ -67,6 +67,10 @@ GEMINI_HOST = "generativelanguage.googleapis.com"
 SECRET_KEY = "sk-do-not-print-me"
 
 
+def question_language(source: str, code: str) -> twinkler_ai.ResolvedQuestionLanguage:
+    return twinkler_ai.ResolvedQuestionLanguage(source, code)
+
+
 def stage(name: str, model: str = "qwen3-30b", **kwargs) -> config.StageProvider:
     provider = kwargs.pop("provider", config.PROVIDER_OPENAI_COMPAT)
     reasoning_effort = kwargs.pop(
@@ -557,7 +561,9 @@ def test_no_gemini_host_is_dialled_by_a_fully_local_selection(monkeypatch):
     assert len(embedder.embed_query("в1")) == config.EMBEDDING_DIMENSIONS
     assert reranker.choose("Тема", [], ["текст"]).index == 0
     with mock_async(question):
-        assert asyncio.run(twinkler_ai.complete("Запрос")) == "Ответ"
+        assert asyncio.run(
+            twinkler_ai.complete("Запрос", question_language("Запрос", "ru"))
+        ) == "Ответ"
 
     dialled = rewrite.hosts + rerank.hosts + question.hosts
     assert dialled == ["llm.example"] * 3
@@ -698,7 +704,9 @@ def test_question_parity_between_providers(monkeypatch):
         stage("question", "gemini-test", provider=config.PROVIDER_GEMINI, endpoint=""),
     )
     with mock_async(gemini):
-        on_gemini = asyncio.run(twinkler_ai.complete("Мне тяжело"))
+        on_gemini = asyncio.run(
+            twinkler_ai.complete("Мне тяжело", question_language("Мне тяжело", "ru"))
+        )
 
     monkeypatch.setattr(
         twinkler_ai,
@@ -706,12 +714,14 @@ def test_question_parity_between_providers(monkeypatch):
         stage("question", reasoning_effort="none"),
     )
     with mock_async(openai_compat):
-        on_local = asyncio.run(twinkler_ai.complete("Мне тяжело"))
+        on_local = asyncio.run(
+            twinkler_ai.complete("Мне тяжело", question_language("Мне тяжело", "ru"))
+        )
 
     assert on_local == on_gemini == QUESTION_ANSWER
     assert captured["gemini"] == captured["openai_compat"]
     assert captured["openai_compat"]["system"] == build_question_prompt(
-        detect_language("Мне тяжело")
+        "ru"
     )
     assert captured["openai_compat"]["user"] == "Мне тяжело"
 
@@ -721,34 +731,36 @@ def test_question_parity_between_providers(monkeypatch):
 # providers" has to be re-established for the assembled message, not only for
 # the system prompt: an assembly that ran on one transport and not the other
 # would be invisible to every other test in this file.
+QUESTION_LANGUAGE_DATA = {
+    "ru": ("Отношения с семьёй", "Мне одиноко и я хочу восстановить общение."),
+    "uk": ("Стосунки з родиною", "Мені самотньо і я хочу відновити спілкування."),
+    "en": ("Relationships with family", "I feel alone and want to reconnect."),
+}
 QUESTION_REQUESTS = [
-    ("Отношения с семьёй", "first", [], "Отношения с семьёй"),
     (
-        "Отношения с семьёй",
-        "next",
-        [
-            ("assistant", "Что сейчас тревожит тебя?"),
-            ("user", "Мне одиноко.\nХочу восстановить общение."),
-        ],
-        "Мне одиноко.\nХочу восстановить общение.",
-    ),
-    (
-        "Прошу сил",
-        "reflect",
-        [("user", "Сегодня было легче, чем вчера.")],
-        "Сегодня было легче, чем вчера.",
-    ),
+        language,
+        topic,
+        question_stage,
+        [] if question_stage == "first" else [("user", reply)],
+        topic if question_stage == "first" else reply,
+    )
+    for language, (topic, reply) in QUESTION_LANGUAGE_DATA.items()
+    for question_stage in ("first", "next", "reflect")
 ]
 
 
 @pytest.mark.parametrize(
-    ("topic", "question_stage", "messages", "language_source"), QUESTION_REQUESTS
+    ("language", "topic", "question_stage", "messages", "language_source"),
+    QUESTION_REQUESTS,
 )
 def test_question_parity_on_every_stage(
-    monkeypatch, topic, question_stage, messages, language_source
+    monkeypatch, language, topic, question_stage, messages, language_source
 ):
     gemini, openai_compat, captured = both_transports(QUESTION_ANSWER)
-    user_message = build_user_message(topic, question_stage, messages)
+    user_message = build_user_message(
+        topic, question_stage, messages, language=language
+    )
+    resolved = twinkler_ai.ResolvedQuestionLanguage(language_source, language)
 
     monkeypatch.setattr(twinkler_ai, "AI_QUESTION_MODEL", "gemini-test")
     monkeypatch.setattr(
@@ -756,7 +768,7 @@ def test_question_parity_on_every_stage(
         stage("question", "gemini-test", provider=config.PROVIDER_GEMINI, endpoint=""),
     )
     with mock_async(gemini):
-        on_gemini = asyncio.run(twinkler_ai.complete(user_message, language_source))
+        on_gemini = asyncio.run(twinkler_ai.complete(user_message, resolved))
 
     monkeypatch.setattr(
         twinkler_ai,
@@ -764,16 +776,12 @@ def test_question_parity_on_every_stage(
         stage("question", reasoning_effort="none"),
     )
     with mock_async(openai_compat):
-        on_local = asyncio.run(twinkler_ai.complete(user_message, language_source))
+        on_local = asyncio.run(twinkler_ai.complete(user_message, resolved))
 
     assert on_local == on_gemini == QUESTION_ANSWER
     assert captured["gemini"] == captured["openai_compat"]
     assert captured["openai_compat"]["user"] == user_message
-    # The language comes from the person's words, NOT from the assembled
-    # message — which is Russian stage instructions whatever the prayer is.
-    assert captured["openai_compat"]["system"] == build_question_prompt(
-        detect_language(language_source)
-    )
+    assert captured["openai_compat"]["system"] == build_question_prompt(language)
 
 
 def test_the_stage_instructions_do_not_choose_the_language(monkeypatch):
@@ -813,9 +821,6 @@ def test_the_stage_instructions_do_not_choose_the_language(monkeypatch):
         ("Мне очень тяжело сейчас и я не знаю, что делать дальше", "ru"),
         ("Син не дзвонить уже місяць", "uk"),
         ("I got the job! Three years of trying", "en"),
-        # No evidence of ru vs uk: the prompt keeps v1's "detect it yourself"
-        # rather than inventing a language (86cbegg3f).
-        ("Помоги", None),
     ],
 )
 def test_the_language_named_in_the_prompt_is_the_same_on_both_providers(
@@ -861,7 +866,7 @@ def test_the_question_stage_asks_for_the_v6_object(monkeypatch):
         stage("question", reasoning_effort="none"),
     )
     with mock_async(handler):
-        asyncio.run(twinkler_ai.complete("Запрос"))
+        asyncio.run(twinkler_ai.complete("Запрос", question_language("Запрос", "ru")))
 
     assert captured["response_format"] == {"type": "json_object"}
     assert captured["temperature"] == 0.7
@@ -901,8 +906,8 @@ def test_openai_question_diagnostics_log_bodies_without_credentials(
     )
     with caplog.at_level(logging.INFO, logger=twinkler_ai.logger.name):
         with mock_async(handler):
-            asyncio.run(twinkler_ai.complete(request_text))
-            asyncio.run(twinkler_ai.complete(request_text))
+            asyncio.run(twinkler_ai.complete(request_text, question_language(request_text, "en")))
+            asyncio.run(twinkler_ai.complete(request_text, question_language(request_text, "en")))
 
     messages = [record.getMessage() for record in caplog.records]
     request_lines = [
@@ -955,7 +960,7 @@ def test_question_provider_bodies_are_not_logged_by_default(monkeypatch, caplog)
                 json=chat_response("Provider answer"),
             )
         ):
-            asyncio.run(twinkler_ai.complete(request_text))
+            asyncio.run(twinkler_ai.complete(request_text, question_language(request_text, "en")))
 
     assert request_text not in caplog.text
     assert "Provider answer" not in caplog.text
@@ -985,7 +990,12 @@ def test_empty_openai_content_is_logged_before_the_expected_error(
             with pytest.raises(
                 twinkler_ai.AIError, match="response content is empty"
             ):
-                asyncio.run(twinkler_ai.complete("private prayer text"))
+                asyncio.run(
+                    twinkler_ai.complete(
+                        "private prayer text",
+                        question_language("private prayer text", "en"),
+                    )
+                )
 
     request_line = next(
         record.getMessage()
@@ -1041,7 +1051,7 @@ def test_gemini_question_diagnostics_log_bodies_without_credentials(
         twinkler_ai, "AI_QUESTION_LOG_PROVIDER_BODIES", True
     )
     with caplog.at_level(logging.INFO, logger=twinkler_ai.logger.name):
-        asyncio.run(twinkler_ai.complete(request_text))
+        asyncio.run(twinkler_ai.complete(request_text, question_language(request_text, "en")))
 
     messages = [record.getMessage() for record in caplog.records]
     request_line = next(
@@ -1067,7 +1077,7 @@ def test_a_failing_local_question_is_the_same_502_as_a_failing_gemini_one(monkey
     monkeypatch.setattr(twinkler_ai, "QUESTION_PROVIDER", stage("question"))
     with mock_async(lambda r: httpx.Response(500)):
         with pytest.raises(twinkler_ai.GeminiError):
-            asyncio.run(twinkler_ai.complete("Запрос"))
+            asyncio.run(twinkler_ai.complete("Запрос", question_language("Запрос", "ru")))
 
 
 def test_the_stage_errors_stay_the_stage_errors():
@@ -1161,7 +1171,9 @@ def test_the_question_timeout_variable_reaches_the_gemini_client(monkeypatch):
     )
     monkeypatch.setattr(twinkler_ai, "AI_QUESTION_TIMEOUT_SECONDS", 3.5)
 
-    assert asyncio.run(twinkler_ai.complete("Мне тяжело")) == "Ответ"
+    assert asyncio.run(
+        twinkler_ai.complete("Мне тяжело", question_language("Мне тяжело", "ru"))
+    ) == "Ответ"
     # Carved across httpx's four phases since ClickUp 86cbehyg0, where this
     # call handed over the bare number: httpx applies a bare `timeout` to
     # EACH phase, so 3.5 would authorise 14 s for one call — and twice that

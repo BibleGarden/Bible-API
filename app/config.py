@@ -886,6 +886,11 @@ IMPORT_HTTP_TIMEOUT_SECONDS = _get_float("IMPORT_HTTP_TIMEOUT_SECONDS", 300.0)
 # the independently configured embedding index available, while stage config
 # is rejected as unused. True requires four complete stage declarations.
 AI_ENABLED = os.getenv("AI_ENABLED") == "true"
+# Development-only language-routing valve. Production keeps this false: an
+# unsupported or undetermined question language is a client-visible 422. In a
+# local debug session it selects the complete English prompt instead, so a
+# developer can inspect the rest of the flow without adding prompt fallbacks.
+DEBUG = _get_optional_bool("DEBUG", False)
 # Local/test incident diagnostic. The explicit name is intentionally noisy:
 # enabling it writes prayer-derived request bodies and raw provider responses
 # to the service log. Production keeps the default false.

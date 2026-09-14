@@ -121,7 +121,13 @@ def _assert_called_with(generated, message: str, language_source_text: str) -> N
     presence are what these tests pin.
     """
     assert generated.await_count == 1
-    assert generated.await_args.args[:2] == (message, language_source_text)
+    assert generated.await_args.args[0] == message
+    language = generated.await_args.args[1]
+    assert isinstance(language, twinkler_ai.ResolvedQuestionLanguage)
+    assert language.source == language_source_text
+    assert language.code == twinkler_ai.resolve_question_language(
+        safety.detect_language(language_source_text)
+    )
     assert isinstance(generated.await_args.args[2], twinkler_ai.Deadline)
 
 
@@ -139,6 +145,12 @@ def allow_ai_requests(monkeypatch):
     return reservation
 
 
+@pytest.fixture
+def debug_question_language(monkeypatch):
+    """Opt in short placeholder inputs to the documented debug routing."""
+    monkeypatch.setattr(twinkler_ai, "DEBUG", True)
+
+
 def test_question_prompt_is_a_usable_constant():
     """The prompt is code, not configuration (ClickUp 86cbbmy8d).
 
@@ -152,7 +164,7 @@ def test_question_prompt_is_a_usable_constant():
     assert template.strip() == template != ""
     # The provider request budget the removed guard used to enforce — checked
     # on what is actually sent, which is the filled template.
-    for language in ("ru", "uk", "en", None):
+    for language in ("ru", "uk", "en"):
         prompt = question_prompt.build_question_prompt(language)
         assert prompt.strip() == prompt != ""
         assert len(prompt) <= 8000
@@ -198,20 +210,18 @@ def test_the_prompt_uses_a_complete_localized_language_section(language, marker)
     assert "# " in prompt
 
 
-def test_an_undecidable_language_keeps_the_v1_instruction():
-    """`None` must not become English.
-
-    `detect_language` answers `None` for a short message below the reviewed
-    confidence threshold ("Помоги"). Naming English there would manufacture
-    the very violation this version removes,
-    so the prompt falls back to v1's behaviour — the model decides — for
-    exactly those inputs.
-    """
-    prompt = question_prompt.build_question_prompt(None)
-
-    assert "Detect the language from the person's own words" in prompt
-    assert "Never choose English merely because" in prompt
+def test_an_undecidable_language_is_rejected_outside_debug(monkeypatch):
+    monkeypatch.setattr(twinkler_ai, "DEBUG", False)
     assert safety.detect_language("Помоги") is None
+    with pytest.raises(twinkler_ai.UnsupportedQuestionLanguage):
+        twinkler_ai.question_prompt_for("Помоги")
+
+
+def test_debug_routes_an_undecidable_language_to_english(monkeypatch):
+    monkeypatch.setattr(twinkler_ai, "DEBUG", True)
+    assert twinkler_ai.question_prompt_for("Помоги") == (
+        question_prompt.build_question_prompt("en")
+    )
 
 
 def test_the_despair_sentence_left_the_prompt_for_safety_py():
@@ -260,7 +270,7 @@ def test_v6_takes_the_gender_out_of_the_prompt_and_into_the_message():
 
 def test_v6_asks_for_the_structured_answer_in_every_language():
     """One JSON object, and the same two fields whatever the prompt language."""
-    for language in ("ru", "uk", "en", None):
+    for language in ("ru", "uk", "en"):
         prompt = question_prompt.build_question_prompt(language)
         assert '"subject"' in prompt and '"question"' in prompt
         assert "JSON" in prompt
@@ -300,7 +310,6 @@ def test_v6_examples_are_from_a_domain_the_app_never_sees():
         "ru": ("# Примеры хорошего вопроса", "# Чего избегать"),
         "uk": ("# Приклади доброго запитання", "# Чого уникати"),
         "en": ("# Examples of a good question", "# Avoid"),
-        None: ("# Examples of a good question", "# Avoid"),
     }
 
     for language, (opening, closing) in blocks.items():
@@ -402,10 +411,14 @@ def test_complete_sends_the_prompt_constant(monkeypatch):
 
     monkeypatch.setattr(twinkler_ai.httpx, "AsyncClient", async_client)
 
-    asyncio.run(twinkler_ai.complete("Запрос"))
+    asyncio.run(
+        twinkler_ai.complete(
+            "Запрос", twinkler_ai.ResolvedQuestionLanguage("Запрос", "ru")
+        )
+    )
     assert sent["system_instruction"]["parts"] == [
         {"text": question_prompt.build_question_prompt(
-            safety.detect_language("Запрос")
+            "ru"
         )}
     ]
 
@@ -443,22 +456,32 @@ def test_returns_generated_text(monkeypatch):
     response = client.post(
         "/api/ai/question",
         headers={"X-API-Key": "test-api-key"},
-        json=question_body(topic="Запрос"),
+        json=question_body(topic="Я хочу помолиться об отношениях с семьёй"),
     )
 
     assert response.status_code == 200
     assert response.json() == answered("Ответ", True)
     _assert_called_with(
         generated,
-        question_prompt.build_user_message("Запрос", "first", [], language=None),
-        "Запрос",
+        question_prompt.build_user_message(
+            "Я хочу помолиться об отношениях с семьёй",
+            "first",
+            [],
+            language="ru",
+        ),
+        "Я хочу помолиться об отношениях с семьёй",
     )
 
 
 @pytest.mark.parametrize(
     ("body", "expected_language_source"),
     [
-        (question_body(topic="Умерла мама"), "Умерла мама"),
+        (
+            question_body(
+                topic="Мне очень тяжело после смерти мамы, и я хочу помолиться"
+            ),
+            "Мне очень тяжело после смерти мамы, и я хочу помолиться",
+        ),
         (
             question_body(
                 topic="Отношения с семьёй",
@@ -470,9 +493,6 @@ def test_returns_generated_text(monkeypatch):
             ),
             "Отношения с семьёй",
         ),
-        # No topic, no history: legal for next/reflect, and there is nothing
-        # to detect a language from at all.
-        (question_body(stage="next"), ""),
         (
             question_body(
                 topic="Прошу сил",
@@ -500,10 +520,8 @@ def test_the_model_gets_the_assembled_message_and_the_language_of_the_person(
         body["topic"],
         body["stage"],
         [(message["role"], message["text"]) for message in body["messages"]],
-        language=(
+        language=twinkler_ai.resolve_question_language(
             safety.detect_language(expected_language_source)
-            if expected_language_source
-            else "en"
         ),
         # Nothing was generated in this process before the call, so every
         # question already in the history is named by an excerpt of itself
@@ -528,7 +546,9 @@ def test_the_language_follows_the_last_reply_not_the_question_it_answers(
     sent = {}
 
     async def fake_complete(user, language_source_text=None, deadline=None):
-        sent["prompt"] = twinkler_ai.question_prompt_for(language_source_text)
+        sent["prompt"] = question_prompt.build_question_prompt(
+            language_source_text.code
+        )
         return "Answer"
 
     monkeypatch.setattr(twinkler_ai, "complete", fake_complete)
@@ -550,19 +570,16 @@ def test_the_language_follows_the_last_reply_not_the_question_it_answers(
     assert sent["prompt"] == question_prompt.build_question_prompt("en")
 
 
-def test_without_any_words_of_the_person_the_prompt_names_english(monkeypatch):
-    """`next`/`reflect`, empty topic, empty history — the documented fallback.
-
-    Not `UNDETERMINED_LANGUAGE`: "answer in exactly the language of the
-    person's message" points at nothing when there is no message.
-    """
-    assert twinkler_ai.question_prompt_for("") == question_prompt.build_question_prompt("en")
+def test_without_any_words_of_the_person_is_undetermined(monkeypatch):
+    monkeypatch.setattr(twinkler_ai, "DEBUG", False)
+    with pytest.raises(twinkler_ai.UnsupportedQuestionLanguage):
+        twinkler_ai.question_prompt_for("")
     assert twinkler_ai.language_source(
         twinkler_ai.CompleteRequest(topic="", stage="reflect", messages=[])
     ) == ""
 
 
-def test_the_language_falls_back_to_the_assistant_turn_last():
+def test_the_language_falls_back_to_the_assistant_turn_last(monkeypatch):
     """Only when the person wrote nothing at all: no topic, no reply of theirs.
 
     Unreachable through HTTP — a non-empty history must end with a `user`
@@ -580,9 +597,9 @@ def test_the_language_falls_back_to_the_assistant_turn_last():
     )
 
     assert twinkler_ai.language_source(request) == "Що зараз найважче?"
-    assert twinkler_ai.question_prompt_for(
-        twinkler_ai.language_source(request)
-    ) == question_prompt.build_question_prompt(None)
+    monkeypatch.setattr(twinkler_ai, "DEBUG", False)
+    with pytest.raises(twinkler_ai.UnsupportedQuestionLanguage):
+        twinkler_ai.request_question_language(request)
 
 
 # --- the language chain is walked by decidability (86cbegmzz, review) -----
@@ -629,11 +646,69 @@ def test_the_topic_answers_for_an_undecidable_reply_in_english_too():
         "Preciso de ajuda porque estou muito triste",
     ],
 )
-def test_detected_unsupported_language_uses_the_universal_prompt(topic):
+def test_detected_unsupported_language_is_rejected_outside_debug(monkeypatch, topic):
+    monkeypatch.setattr(twinkler_ai, "DEBUG", False)
     assert safety.detect_language(topic) in {"es", "pl", "pt"}
-    assert _prompt_language_of(topic=topic, stage="first", messages=[]) == (
-        question_prompt.build_question_prompt(None)
+    request = twinkler_ai.CompleteRequest(topic=topic, stage="first", messages=[])
+    with pytest.raises(twinkler_ai.UnsupportedQuestionLanguage):
+        twinkler_ai.request_question_language(request)
+
+
+@pytest.mark.parametrize(
+    "topic",
+    ["Necesito ayuda porque estoy muy triste", "Помоги"],
+)
+def test_question_endpoint_rejects_unroutable_language_before_provider(
+    monkeypatch, topic
+):
+    monkeypatch.setattr(twinkler_ai, "DEBUG", False)
+    generated = AsyncMock(return_value=model_answer("unused"))
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+
+    response = client.post(
+        "/api/ai/question",
+        headers={"X-API-Key": "test-api-key"},
+        json=question_body(topic=topic),
     )
+
+    assert response.status_code == 422
+    assert response.json() == {
+        "detail": "question language is unsupported or could not be determined"
+    }
+    generated.assert_not_awaited()
+
+
+def test_debug_routes_unroutable_question_to_english(monkeypatch):
+    monkeypatch.setattr(twinkler_ai, "DEBUG", True)
+    generated = AsyncMock(return_value=model_answer("What matters now?"))
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+
+    response = client.post(
+        "/api/ai/question",
+        headers={"X-API-Key": "test-api-key"},
+        json=question_body(topic="Помоги"),
+    )
+
+    assert response.status_code == 200
+    sent_message, language = generated.await_args.args[:2]
+    assert "Prayer goal (data)" in sent_message
+    assert language == twinkler_ai.ResolvedQuestionLanguage("Помоги", "en")
+
+
+def test_detector_failure_is_not_a_debug_fallback(monkeypatch):
+    monkeypatch.setattr(twinkler_ai, "DEBUG", True)
+    monkeypatch.setattr(
+        twinkler_ai,
+        "detect_language",
+        Mock(side_effect=RuntimeError("detector unavailable")),
+    )
+
+    with pytest.raises(RuntimeError, match="detector unavailable"):
+        twinkler_ai.request_question_language(
+            twinkler_ai.CompleteRequest(
+                topic="ordinary words", stage="first", messages=[]
+            )
+        )
 
 
 def test_an_earlier_reply_answers_when_neither_the_last_one_nor_the_topic_can():
@@ -653,13 +728,14 @@ def test_an_earlier_reply_answers_when_neither_the_last_one_nor_the_topic_can():
     ) == question_prompt.build_question_prompt("ru")
 
 
-def test_when_nothing_the_person_wrote_decides_the_prompt_says_so():
+def test_when_nothing_the_person_wrote_decides_the_prompt_is_rejected(monkeypatch):
     """v2's wording, and our own question still does not get a vote.
 
     The assistant turn here IS decidable Russian. It must not be reached: a
     question of ours is not evidence about the language of their answer.
     """
-    prompt = _prompt_language_of(
+    monkeypatch.setattr(twinkler_ai, "DEBUG", False)
+    request = twinkler_ai.CompleteRequest(
         topic="Помоги",
         stage="next",
         messages=[
@@ -668,7 +744,8 @@ def test_when_nothing_the_person_wrote_decides_the_prompt_says_so():
         ],
     )
 
-    assert prompt == question_prompt.build_question_prompt(None)
+    with pytest.raises(twinkler_ai.UnsupportedQuestionLanguage):
+        twinkler_ai.request_question_language(request)
 
 
 # --- the questions the person asked to replace (ClickUp 86cbehyfe) --------
@@ -686,6 +763,7 @@ SKIPPED_TWO = "А что, если завтра всё окажется не т�
 
 def _model_message(monkeypatch, body) -> str:
     """Post `body` and return the message the model was handed."""
+    monkeypatch.setattr(twinkler_ai, "DEBUG", True)
     generated = AsyncMock(return_value=model_answer("Ответ"))
     monkeypatch.setattr(twinkler_ai, "complete", generated)
 
@@ -718,7 +796,7 @@ def test_a_request_without_the_field_is_answered_exactly_as_before(monkeypatch):
         "Тема",
         "next",
         list(messages),
-        language=None,
+        language="en",
         used_subjects=[question_format.subject_excerpt(messages[0][1])],
     )
     assert "попросил другой вопрос" not in without
@@ -768,7 +846,7 @@ def test_reflect_accepts_the_field_and_does_not_render_it(monkeypatch):
     )
 
     assert with_skipped == question_prompt.build_user_message(
-        "Тема", "reflect", list(messages), language=None
+        "Тема", "reflect", list(messages), language="en"
     )
     assert SKIPPED_ONE not in with_skipped
 
@@ -806,7 +884,9 @@ def test_the_skipped_questions_have_their_own_limits(skipped, why):
     assert "skipped_questions" in response.text
 
 
-def test_the_skipped_questions_count_towards_the_total(monkeypatch):
+def test_the_skipped_questions_count_towards_the_total(
+    monkeypatch, debug_question_language
+):
     """16 000 characters is the ceiling for the whole request, not per field."""
     monkeypatch.setattr(twinkler_ai, "complete", AsyncMock(return_value=model_answer("Ответ")))
     body = question_body(
@@ -887,7 +967,9 @@ def test_the_skipped_questions_never_decide_the_language(monkeypatch):
     sent = {}
 
     async def fake_complete(user, language_source_text=None, deadline=None):
-        sent["prompt"] = twinkler_ai.question_prompt_for(language_source_text)
+        sent["prompt"] = question_prompt.build_question_prompt(
+            language_source_text.code
+        )
         return "Answer"
 
     monkeypatch.setattr(twinkler_ai, "complete", fake_complete)
@@ -915,7 +997,9 @@ def test_the_skipped_questions_never_decide_the_language(monkeypatch):
     ) == ["He is in hospital and I am afraid.", "Praying for my father"]
 
 
-def test_a_despair_phrase_in_a_skipped_question_never_fires_the_rule(monkeypatch):
+def test_a_despair_phrase_in_a_skipped_question_never_fires_the_rule(
+    monkeypatch, debug_question_language
+):
     """The person did not write it — we did, and the model was already
     answered for by tier 2 on its own reply."""
     generated = AsyncMock(return_value=model_answer("Что помогло тебе сегодня?"))
@@ -1091,10 +1175,10 @@ def test_the_same_topic_on_the_first_question_is_answered_in_code(monkeypatch):
 def test_the_fixed_reply_is_in_the_language_of_the_person_not_of_the_blocks(
     monkeypatch,
 ):
-    """The assembled message is Russian whatever the prayer is; the reply is not.
+    """The fixed reply follows the person's language, like the prompt blocks.
 
     Tier 2 reads the person's own last reply, same as tier 1, precisely so the
-    stage instructions cannot outvote an English prayer.
+    stage instructions cannot outvote the person's words.
     """
     monkeypatch.setattr(
         twinkler_ai,
@@ -1119,7 +1203,9 @@ def test_the_fixed_reply_is_in_the_language_of_the_person_not_of_the_blocks(
     assert response.json() == answered(safety.SAFETY_REPLIES["en"], True, subject=None)
 
 
-def test_tier_two_uses_the_pattern_language_when_detection_abstains(monkeypatch):
+def test_tier_two_uses_the_pattern_language_when_detection_abstains(
+    monkeypatch, debug_question_language
+):
     """The tier-2 pattern is positive language evidence, as it is in tier 1."""
     monkeypatch.setattr(
         twinkler_ai,
@@ -1151,7 +1237,7 @@ def test_tier_two_uses_the_pattern_language_when_detection_abstains(monkeypatch)
     ],
 )
 def test_tier_two_preserves_known_conversation_language(
-    monkeypatch, topic, expected_language
+    monkeypatch, debug_question_language, topic, expected_language
 ):
     """Known context wins over the language carried by the matched pattern."""
     monkeypatch.setattr(
@@ -1242,7 +1328,9 @@ def test_a_weak_signal_answered_with_a_question_is_replaced(monkeypatch):
     generated.assert_awaited_once()
 
 
-def test_a_weak_signal_answered_warmly_keeps_the_model_answer(monkeypatch):
+def test_a_weak_signal_answered_warmly_keeps_the_model_answer(
+    monkeypatch, debug_question_language
+):
     """Tier 2 is a floor under the answer, not a replacement for a good one."""
     warm = "You are not alone in this, and it matters that you are still here."
     monkeypatch.setattr(twinkler_ai, "complete", AsyncMock(return_value=model_answer(warm)))
@@ -1643,6 +1731,9 @@ def test_the_persons_own_replies_are_not_questions_they_were_shown(monkeypatch):
 
 
 def test_tier_two_runs_on_the_second_reply_as_well(monkeypatch):
+    # The short weak-signal phrase deliberately makes the detector abstain;
+    # this test exercises tier two rather than the production routing policy.
+    monkeypatch.setattr(twinkler_ai, "DEBUG", True)
     """The despair rule is not weakened by the retry (86cbehyg0).
 
     The first reply repeats the question already asked and carries no question
@@ -1883,7 +1974,9 @@ def test_the_novelty_check_reads_the_question_not_the_envelope(monkeypatch):
     assert len(generated.calls) == 2
 
 
-def test_tier_two_reads_the_question_not_the_envelope(monkeypatch):
+def test_tier_two_reads_the_question_not_the_envelope(
+    monkeypatch, debug_question_language
+):
     """A despair-shaped question inside the object is still replaced."""
     generated = ScriptedComplete()
     generated.replies = [model_answer("Что тебе сейчас труднее всего?")]
@@ -1998,7 +2091,7 @@ def test_the_format_line_says_raw_when_no_retry_was_affordable(
 
 
 def test_the_subject_of_a_shown_question_is_remembered_for_the_next_request(
-    monkeypatch,
+    monkeypatch, debug_question_language,
 ):
     """The server remembers what it asked about; the client sends only texts.
 
@@ -2031,7 +2124,7 @@ def test_the_subject_of_a_shown_question_is_remembered_for_the_next_request(
 
 
 def test_a_question_this_process_never_generated_is_named_by_an_excerpt(
-    monkeypatch,
+    monkeypatch, debug_question_language,
 ):
     """A restart, an expiry, another deployment: the block degrades, not fails.
 
@@ -2054,7 +2147,9 @@ def test_a_question_this_process_never_generated_is_named_by_an_excerpt(
     assert question_format.subject_excerpt(NEW_QUESTION) in message
 
 
-def test_no_subject_block_when_nothing_has_been_shown(monkeypatch):
+def test_no_subject_block_when_nothing_has_been_shown(
+    monkeypatch, debug_question_language
+):
     """The opening question of a prayer has no ground to avoid yet."""
     generated = ScriptedComplete(NEW_QUESTION)
     monkeypatch.setattr(twinkler_ai, "complete", generated)
@@ -2065,7 +2160,9 @@ def test_no_subject_block_when_nothing_has_been_shown(monkeypatch):
     assert "Предметы, о которых уже спрашивали" not in generated.calls[0].user
 
 
-def test_a_reply_the_despair_rule_replaced_is_never_remembered(monkeypatch):
+def test_a_reply_the_despair_rule_replaced_is_never_remembered(
+    monkeypatch, debug_question_language
+):
     """Tier 2 discarded the model's question, so its subject describes nothing.
 
     Remembering it would name a later block after a question nobody was ever
@@ -2215,7 +2312,9 @@ def test_the_gemini_call_is_bounded_by_the_request_budget(monkeypatch):
     assert sum(timeouts[1].values()) < sum(timeouts[0].values())
 
 
-def test_ignores_forwarded_for_from_untrusted_peer(monkeypatch, allow_ai_requests):
+def test_ignores_forwarded_for_from_untrusted_peer(
+    monkeypatch, allow_ai_requests, debug_question_language
+):
     generated = AsyncMock(return_value=model_answer("Ответ"))
     monkeypatch.setattr(twinkler_ai, "complete", generated)
 
@@ -2232,7 +2331,9 @@ def test_ignores_forwarded_for_from_untrusted_peer(monkeypatch, allow_ai_request
     allow_ai_requests.assert_called_once_with("testclient")
 
 
-def test_uses_forwarded_for_from_trusted_peer(monkeypatch, allow_ai_requests):
+def test_uses_forwarded_for_from_trusted_peer(
+    monkeypatch, allow_ai_requests, debug_question_language
+):
     generated = AsyncMock(return_value=model_answer("Ответ"))
     monkeypatch.setattr(twinkler_ai, "complete", generated)
     monkeypatch.setattr(
@@ -2367,7 +2468,9 @@ def test_the_422_says_what_is_wrong(payload, expected):
     assert expected in response.text
 
 
-def test_the_limits_are_the_ones_the_client_enforces(monkeypatch):
+def test_the_limits_are_the_ones_the_client_enforces(
+    monkeypatch, debug_question_language
+):
     """40 turns and 16 000 characters together are accepted, one more is not."""
     monkeypatch.setattr(twinkler_ai, "complete", AsyncMock(return_value=model_answer("Ответ")))
     body = question_body(
@@ -2397,7 +2500,7 @@ def test_the_limits_are_the_ones_the_client_enforces(monkeypatch):
     )
 
 
-def test_hides_provider_failure(monkeypatch):
+def test_hides_provider_failure(monkeypatch, debug_question_language):
     generated = AsyncMock(side_effect=twinkler_ai.GeminiError("provider details"))
     monkeypatch.setattr(twinkler_ai, "complete", generated)
 
@@ -2423,7 +2526,12 @@ def test_disabled_ai_is_502(monkeypatch):
     monkeypatch.setattr(twinkler_ai, "AI_ENABLED", False)
 
     with pytest.raises(twinkler_ai.AIError, match="AI_ENABLED=false"):
-        asyncio.run(twinkler_ai.complete("Запрос"))
+            asyncio.run(
+                twinkler_ai.complete(
+                    "Запрос",
+                    twinkler_ai.ResolvedQuestionLanguage("Запрос", "ru"),
+                )
+            )
 
     response = client.post(
         "/api/ai/question",
@@ -2450,7 +2558,7 @@ def test_missing_hmac_key_is_503(monkeypatch):
     assert error.value.detail == "AI service temporarily unavailable"
 
 
-def test_rate_limits_requests(monkeypatch):
+def test_rate_limits_requests(monkeypatch, debug_question_language):
     generated = AsyncMock(return_value=model_answer("Ответ"))
     limiter = AsyncMock()
     monkeypatch.setattr(twinkler_ai, "complete", generated)
@@ -2543,9 +2651,7 @@ def test_sends_expected_gemini_request(monkeypatch):
         assert request.headers["content-type"] == "application/json"
         assert json.loads(request.read()) == {
             "system_instruction": {
-                "parts": [{"text": question_prompt.build_question_prompt(
-                    safety.detect_language("Запрос")
-                )}]
+                "parts": [{"text": question_prompt.build_question_prompt("ru")}]
             },
             "contents": [{"role": "user", "parts": [{"text": "Запрос"}]}],
             "generationConfig": {"maxOutputTokens": 1024, "temperature": 0.7},
@@ -2564,7 +2670,11 @@ def test_sends_expected_gemini_request(monkeypatch):
     monkeypatch.setattr(twinkler_ai, "AI_QUESTION_MODEL", "gemini-test")
     monkeypatch.setattr(twinkler_ai.httpx, "AsyncClient", async_client)
 
-    assert asyncio.run(twinkler_ai.complete("Запрос")) == "Ответ"
+    assert asyncio.run(
+        twinkler_ai.complete(
+            "Запрос", twinkler_ai.ResolvedQuestionLanguage("Запрос", "ru")
+        )
+    ) == "Ответ"
 
 
 @pytest.mark.parametrize(
@@ -2584,7 +2694,12 @@ def test_handles_gemini_failures(monkeypatch, response, expected_message):
     monkeypatch.setattr(twinkler_ai.httpx, "AsyncClient", async_client)
 
     with pytest.raises(twinkler_ai.GeminiError, match=expected_message):
-        asyncio.run(twinkler_ai.complete("Запрос"))
+            asyncio.run(
+                twinkler_ai.complete(
+                    "Запрос",
+                    twinkler_ai.ResolvedQuestionLanguage("Запрос", "ru"),
+                )
+            )
 
 
 def test_rate_limit_reservation_is_hashed_in_memory(monkeypatch):
@@ -3090,7 +3205,9 @@ def test_a_remote_failure_is_the_same_502(monkeypatch):
     assert "fire" not in response.text
 
 
-def test_the_question_call_carries_the_endpoint_budget(monkeypatch):
+def test_the_question_call_carries_the_endpoint_budget(
+    monkeypatch, debug_question_language
+):
     """`AI_QUESTION_TIMEOUT_SECONDS` bounds the whole call (86cbegg3w).
 
     With `attempts=1` the carved `provider_timeout` already held the ceiling
@@ -3134,7 +3251,9 @@ def test_the_question_call_carries_the_endpoint_budget(monkeypatch):
     assert captured["timeout"] == twinkler_ai.AI_QUESTION_TIMEOUT_SECONDS
 
 
-def test_no_google_host_is_dialled_on_any_of_the_five_stages(monkeypatch):
+def test_no_google_host_is_dialled_on_any_of_the_five_stages(
+    monkeypatch, debug_question_language
+):
     """The tripwire of the whole local-models umbrella (ClickUp 86cbe4mtq).
 
     All FIVE stages away from Google at once — question, rewrite, rerank and

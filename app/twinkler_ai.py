@@ -1,6 +1,7 @@
 import base64
 import logging
 import re
+from dataclasses import dataclass
 from typing import Any, Literal
 
 import httpx
@@ -25,6 +26,7 @@ from config import (
     AI_TRANSCRIBE_TIMEOUT_SECONDS,
     AI_REQUESTS_PER_CLIENT_PER_MINUTE,
     AI_REQUESTS_PER_MINUTE,
+    DEBUG,
     QUESTION_PROVIDER,
     TRANSCRIBE_PROVIDER,
 )
@@ -39,7 +41,11 @@ from llm_client import (
 from person_gender import detect_gender
 from question_format import SubjectMemory, parse_question, subject_excerpt
 from question_novelty import NOT_A_REPEAT, Verdict, is_repeat
-from question_prompt import build_question_prompt, build_user_message
+from question_prompt import (
+    SUPPORTED_LANGUAGES,
+    build_question_prompt,
+    build_user_message,
+)
 from rate_limit import RateLimiter, RateLimitError
 from transcription import (
     LocalTranscriber,
@@ -364,6 +370,29 @@ class AIError(RuntimeError):
 GeminiError = AIError
 
 
+class UnsupportedQuestionLanguage(ValueError):
+    """The person's language has no complete question prompt."""
+
+
+@dataclass(frozen=True)
+class ResolvedQuestionLanguage:
+    """One detected language shared by system and stage prompt construction."""
+
+    source: str
+    code: str
+
+
+def resolve_question_language(language: str | None) -> str:
+    """Return a supported language, with an English valve only in DEBUG."""
+    if language in SUPPORTED_LANGUAGES:
+        return language
+    if DEBUG:
+        return DEFAULT_LANGUAGE
+    raise UnsupportedQuestionLanguage(
+        "question language is unsupported or could not be determined"
+    )
+
+
 def question_prompt_for(text: str) -> str:
     """The system prompt to answer `text` with (prompt v2, ClickUp 86cbegg3f).
 
@@ -374,18 +403,12 @@ def question_prompt_for(text: str) -> str:
     pure function of the string it is handed and `build_question_prompt` never
     sees the request shape at all.
 
-    An **empty** text is the one case the detector cannot speak for: its
-    `None` means "this message does not say which language it is", and the
-    prompt turns that into v1's "answer in exactly the language of the
-    person's message" — a sentence that points at nothing when there is no
-    message (a `next`/`reflect` request with an empty topic and no history:
-    legal, and asking for a generic question of that stage). English is the
-    documented default there, the same one `safety.safety_reply` falls back
-    to, so it is named rather than left to the model.
+    Unsupported and undetermined languages are rejected. A local process with
+    `DEBUG=true` may route either case to the complete English prompt; detector
+    failures still propagate and never activate that valve.
     """
-    if not text.strip():
-        return build_question_prompt(DEFAULT_LANGUAGE)
-    return build_question_prompt(detect_language(text))
+    language = detect_language(text) if text.strip() else None
+    return build_question_prompt(resolve_question_language(language))
 
 
 def person_language_candidates(request: CompleteRequest) -> list[str]:
@@ -396,8 +419,8 @@ def person_language_candidates(request: CompleteRequest) -> list[str]:
     conversation is *our* text and must never vote (an English answer to a
     Russian question is a language switch the person made, and the prompt
     honours it). `skipped_questions` is excluded for exactly that reason and
-    more strongly: those are our questions too, and the block around them is
-    Russian whatever language the prayer is in (ClickUp 86cbehyfe). Blank
+    more strongly: those are our questions too, whatever localized block
+    surrounds them (ClickUp 86cbehyfe). Blank
     texts are dropped, so the list is empty exactly when the person
     contributed nothing.
     """
@@ -472,25 +495,34 @@ def language_source(request: CompleteRequest) -> str:
     none of them — the evidence for `ru-001`/`ru-002`/`ru-005` is in an
     earlier reply, which is why the walk does not stop at the topic.
 
-    When no candidate is decidable the newest one is returned anyway, so the
-    prompt still gets that honest "the detector has no evidence" sentence
-    rather than a guess. Only when the person wrote nothing at all does the
-    last `assistant` question answer — it is at least the language the
-    conversation has been happening in — and an empty string, meaning English,
-    when there is not even that.
-
-    Still one *text*, not a language: `question_prompt_for` stays a pure
-    function of the string it is handed, both transports are handed the same
-    one, and `AI-Evaluation/evaluation/gen_questions.py` mirrors this selection (pinned
-    against it by `tests/test_gen_questions.py`).
+    When no candidate is decidable the newest one is retained as the source
+    with a `None` result. Only when the person wrote nothing does the last
+    `assistant` question supply context; no text at all remains undetermined.
+    `request_question_language` applies the strict/DEBUG policy and carries the
+    source plus one code to both prompt builders and both providers.
     """
+    return _language_source_and_code(request)[0]
+
+
+def _language_source_and_code(
+    request: CompleteRequest,
+) -> tuple[str, str | None]:
+    """Resolve the source and detector result together, without re-detection."""
     candidates = person_language_candidates(request)
     for text in candidates:
-        if detect_language(text) is not None:
-            return text
+        language = detect_language(text)
+        if language is not None:
+            return text, language
     if candidates:
-        return candidates[0]
-    return request.last_text("assistant") or ""
+        return candidates[0], None
+    source = request.last_text("assistant") or ""
+    return source, detect_language(source) if source else None
+
+
+def request_question_language(request: CompleteRequest) -> ResolvedQuestionLanguage:
+    """Resolve and validate one language for every prompt part in a request."""
+    source, detected = _language_source_and_code(request)
+    return ResolvedQuestionLanguage(source, resolve_question_language(detected))
 
 
 def safety_input_text(request: CompleteRequest) -> str | None:
@@ -710,18 +742,17 @@ async def _complete_openai_compat(
 
 async def complete(
     user: str,
-    language_source_text: str | None = None,
+    language_source_text: str | ResolvedQuestionLanguage | None = None,
     deadline: Deadline | None = None,
 ) -> str:
     """Answer one user message, or raise AIError (the caller's 502).
 
     `user` is the message sent to the model — since ClickUp 86cbegmzz the
     text `question_prompt.build_user_message` assembled from the request.
-    `language_source_text` is the text whose language the prompt names; it is
-    a *different* string now, because the assembled message is mostly Russian
-    stage instructions whatever language the person prays in. `None` means
-    "the message itself", which is what a single-string caller (the parity
-    tests, a one-off script) means by it.
+    `language_source_text` is normally the `ResolvedQuestionLanguage` produced
+    once by the handler and shared by the localized user message and system
+    prompt. A plain string keeps the diagnostic/one-off seam: its language is
+    detected here. `None` means to detect the `user` message itself.
 
     `AI_ENABLED=false` is the only disabled state. With it true, startup has
     already required this stage's provider, model and API-key presence plus
@@ -735,12 +766,9 @@ async def complete(
     configurable is exactly what the deployment supplies: the provider (ADR
     0009), the key and the model name.
 
-    Since prompt v2 (2026-09-05, ClickUp 86cbegg3f) the prompt names the
-    language to answer in, resolved by `safety.detect_language` — the same
-    detector the despair rule runs on the same message, never a second one.
-    It is resolved ONCE, through `question_prompt_for`, and handed to
-    whichever transport answers, so the two providers keep sending identical
-    bytes.
+    Since 2026-09-14 the request handler resolves the language once and hands
+    this function the validated code. Both transports therefore send the same
+    bytes without repeating detection during format or novelty retries.
 
     `deadline` is the handler's request budget (ClickUp 86cbehyg0). It is one
     object for the whole request, so the second generation of a repeated
@@ -748,9 +776,12 @@ async def complete(
     `None` — a one-off script, the parity tests — means "this call is the
     request", and both transports then build the budget they always did.
     """
-    prompt = question_prompt_for(
-        user if language_source_text is None else language_source_text
-    )
+    if isinstance(language_source_text, ResolvedQuestionLanguage):
+        prompt = build_question_prompt(language_source_text.code)
+    else:
+        prompt = question_prompt_for(
+            user if language_source_text is None else language_source_text
+        )
     if not AI_ENABLED:
         raise AIError("AI is disabled by AI_ENABLED=false")
     if QUESTION_PROVIDER.is_openai_compat:
@@ -1050,8 +1081,11 @@ async def twinkler_complete(
     # call (ClickUp 86cbegg3w, and the reason 86cbehyg0 could add a second
     # call without moving it).
     deadline = Deadline(AI_QUESTION_TIMEOUT_SECONDS)
-    language = language_source(request)
-    prompt_language = detect_language(language) if language.strip() else DEFAULT_LANGUAGE
+    try:
+        question_language = request_question_language(request)
+    except UnsupportedQuestionLanguage as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    prompt_language = question_language.code
     # Prompt v6: the grammatical gender is decided here and STATED in the
     # message, never asked of the model (ClickUp 86cbejvt2). `None` — nothing
     # matched, or the words contradict each other — is itself an instruction:
@@ -1067,7 +1101,7 @@ async def twinkler_complete(
     ] + list(request.skipped_questions)
 
     # `skipped_questions` reaches the model and nothing else: it is our own
-    # generated Russian text, so it votes on neither the answer's language
+    # generated text, so it votes on neither the answer's language
     # (`language_source`, above) nor the despair rule (`safety_input_text`,
     # above) — see architect/adr/0015-skipped-questions-in-question-request.md.
     user_message = build_user_message(
@@ -1080,7 +1114,7 @@ async def twinkler_complete(
         used_subjects(request),
     )
     try:
-        raw = await complete(user_message, language, deadline)
+        raw = await complete(user_message, question_language, deadline)
     except GeminiError as error:
         # Log the failure category, but never the prayer text or provider key.
         logger.warning("Twinkler AI request failed: %s", error)
@@ -1099,7 +1133,7 @@ async def twinkler_complete(
     format_kind = answer.kind
     if not answer.parsed and deadline.remaining() >= MIN_SECOND_ATTEMPT_SECONDS:
         try:
-            regenerated = await complete(user_message, language, deadline)
+            regenerated = await complete(user_message, question_language, deadline)
         except GeminiError as error:
             # NOT a 502, for the reason above: a question is already in hand.
             logger.warning("Twinkler AI format regeneration failed: %s", error)
@@ -1127,7 +1161,7 @@ async def twinkler_complete(
     # Both safety tiers and the novelty check read the QUESTION, never the
     # envelope around it: `subject` is our own field, and a despair phrase or a
     # repeat can only reach the person through the text they are shown.
-    guarded = _safety_guarded_reply(request, checked, language, text)
+    guarded = _safety_guarded_reply(request, checked, question_language.source, text)
     if guarded is not None:
         # Tier 2 replaced the answer: the fixed text repeats nothing the
         # person was shown, so it is novel by construction. Its subject is
@@ -1168,7 +1202,7 @@ async def twinkler_complete(
             used_subjects(request, subject or subject_excerpt(text)),
         )
         try:
-            second_raw = await complete(retry_message, language, deadline)
+            second_raw = await complete(retry_message, question_language, deadline)
         except GeminiError as error:
             # NOT a 502: an answer is already in hand, and the person is
             # better served by a repeated question than by an error.
@@ -1182,7 +1216,9 @@ async def twinkler_complete(
             second_answer = parse_question(second_raw)
         if second_answer is not None:
             second = second_answer.question
-            guarded = _safety_guarded_reply(request, checked, language, second)
+            guarded = _safety_guarded_reply(
+                request, checked, question_language.source, second
+            )
             if guarded is not None:
                 _log_novelty(request, attempts=2, verdict=NOT_A_REPEAT, novel=True)
                 return QuestionResponse(text=guarded, novel=True)

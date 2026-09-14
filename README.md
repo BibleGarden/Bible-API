@@ -261,6 +261,12 @@ deliberately exposes incomplete migrations. See
 configuration-resolution parts of ADR 0008, 0009, 0012 and 0014 without
 changing their provider transports, models, prompts or pipeline.
 
+`DEBUG` defaults to `false`. In local development only, `DEBUG=true` makes
+`POST /api/ai/question` use the complete English prompt when language
+detection returns no code or a code outside `ru`, `uk`, `en`. With the default
+false, either result is a `422` before a provider call. Only exact `true` and
+`false` are accepted; detector exceptions are never converted into this route.
+
 The system prompt is not configurable: it is the versioned
 `QUESTION_PROMPT_TEMPLATE` in `app/question_prompt.py`. Provider and model
 changes still require the benchmark and architectural process documented by
