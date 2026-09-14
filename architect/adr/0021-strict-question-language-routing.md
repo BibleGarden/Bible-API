@@ -48,3 +48,18 @@ caller cannot bypass the routing policy and receive an implicit prompt.
   `architect/adding-a-language.md`.
 - Prompt version 6 does not change: this decision changes routing, while the
   ru/uk/en prompt bytes remain unchanged.
+
+## Amendment: explicit UI default after abstention (2026-09-14)
+
+ClickUp 86cbh47mf adds optional request field `default_language` with values
+`ru`, `uk`, `en` or `null`; omission and `null` are equivalent. The field is
+used only when the existing source chain finishes with `None`. A supported
+detected code wins over the field, while a detected unsupported code remains
+unsupported and therefore follows this ADR's existing 422/DEBUG rule.
+
+The selected default builds both the system prompt and localized stage message
+and stays attached to format and novelty retries. It is request metadata, is
+not prompt data and does not count towards the 16 000-character content limit.
+Safety matching and fixed-reply language selection, transcription, scripture
+selection and quotation languages do not read it. Detector exceptions remain
+internal failures even when a default is supplied.

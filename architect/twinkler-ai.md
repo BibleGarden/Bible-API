@@ -39,10 +39,11 @@
 | `stage` | `first` (the opening question), `next` (the following one), `reflect` (the closing question that helps name one takeaway) |
 | `messages` | the conversation so far, chronological, ≤ 40 items; `role` is `assistant` (a question we asked) or `user` (their answer), `text` is non-empty |
 
-and one optional field:
+and two optional fields:
 
 | field | rules |
 | --- | --- |
+| `default_language` | `"ru"`, `"uk"`, `"en"` or `null` (default). The UI language is used for question prompts only after detection abstains across the complete source chain; it never overrides a detected code and is not included in the 16 000-character content limit |
 | `skipped_questions` | questions already shown and left unanswered — replaced or skipped — chronological, ≤ 10 items of ≤ 300 characters each; defaults to `[]`, and must be empty with `first` (ClickUp 86cbehyfe) |
 
 `topic`, every `text` and every skipped question together must not exceed
@@ -83,12 +84,17 @@ before. Documented errors are `403`,
 `429` with `Retry-After`, `502`, and `503`; validation errors use `422`.
 
 The question language is resolved once from the person's language-source
-chain and must be one of `ru`, `uk` or `en`. An unsupported code or an
-undetermined language returns `422` before a provider call. A local process
-may set `DEBUG=true` to route only those two expected cases to the complete
-English prompt; `DEBUG` defaults to `false`, accepts only exact `true`/`false`,
-and must remain false outside development. An exception from the detector is
-an internal failure and is never converted into this English route.
+chain and must be one of `ru`, `uk` or `en`. A supported detected code always
+wins. When the complete chain is undetermined, a non-null `default_language`
+selects both the system and stage prompt, including every retry. A detected
+unsupported code is never overwritten by that field. Without an applicable
+default, unsupported or undetermined language returns `422` before a provider
+call. A local process may set `DEBUG=true` to route those remaining cases to
+the complete English prompt; an unsupported detected code still routes to
+English rather than to `default_language`. `DEBUG` defaults to `false`,
+accepts only exact `true`/`false`, and must remain false outside development.
+An exception from the detector is an internal failure and is never converted
+into either route.
 
 A **reply** showing despair or self-harm is answered with a fixed warm text
 instead of a model answer, and no provider is called — the response shape and
@@ -212,7 +218,7 @@ of the despair rule now agree with each other on which part:
 | --- | --- | --- |
 | the model | the whole assembled message | that is the request |
 | **both tiers** of the despair rule | the **last `user` turn** — or `topic` when `stage` is `first`, where the topic is the newest thing the person wrote | see below |
-| the answer's language (prompt, and tier 2's fixed reply) | the last `user` turn → the topic → their earlier replies, newest first → else the last `assistant` turn → else undetermined | the person's own words decide; an unsupported/undetermined result is 422 unless local `DEBUG=true` |
+| the answer's language (prompt, and tier 2's fixed reply) | the last `user` turn → the topic → their earlier replies, newest first → else the last `assistant` turn → else undetermined | detected words decide; after complete abstention, `default_language` may select question prompts only. Safety does not read it |
 | `skipped_questions` | read by **nothing** but the model | our own generated text inside the localized block: it can neither name the language nor speak despair on the person's behalf (ClickUp 86cbehyfe) |
 
 That language chain is walked by **decidability, not presence**: the offline
