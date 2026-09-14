@@ -117,6 +117,7 @@ AI_DISABLED_FORBIDDEN = (
     "AI_QUESTION_ENDPOINT",
     "AI_QUESTION_API_KEY",
     "AI_QUESTION_REASONING_EFFORT",
+    "AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT",
     "AI_SCRIPTURE_REWRITE_PROVIDER",
     "AI_SCRIPTURE_REWRITE_MODEL",
     "AI_SCRIPTURE_REWRITE_ENDPOINT",
@@ -180,6 +181,7 @@ OPENROUTER_ENV = {
     "AI_QUESTION_ENDPOINT": "https://openrouter.ai/api/v1",
     "AI_QUESTION_API_KEY": "openrouter-key",
     "AI_QUESTION_REASONING_EFFORT": "none",
+    "AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT": "venice/bf16",
 }
 
 GEMINI_AI_ENV = {
@@ -217,6 +219,7 @@ AI_FIELDS = {
     "AI_QUESTION_ENDPOINT",
     "AI_QUESTION_API_KEY",
     "AI_QUESTION_REASONING_EFFORT",
+    "AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT",
     "AI_SCRIPTURE_REWRITE_PROVIDER",
     "AI_SCRIPTURE_REWRITE_MODEL",
     "AI_SCRIPTURE_REWRITE_ENDPOINT",
@@ -410,6 +413,7 @@ def test_strict_openrouter_question_environment_has_no_problems():
         ("AI_QUESTION_MODEL", "google/gemma-4-27b-it"),
         ("AI_QUESTION_ENDPOINT", "https://openrouter.ai/api/v1/"),
         ("AI_QUESTION_REASONING_EFFORT", "omit"),
+        ("AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT", "novita/bf16"),
     ],
 )
 def test_openrouter_question_profile_rejects_any_non_exact_contract(name, value):
@@ -427,6 +431,37 @@ def test_openrouter_question_requires_a_non_empty_key(value):
     assert "AI_QUESTION_API_KEY" in config.missing_required_vars(env)
     with pytest.raises(config.ConfigError, match="AI_QUESTION_API_KEY"):
         config._validate(env, [])
+
+
+@pytest.mark.parametrize("value", [None, "", "   "])
+def test_openrouter_question_requires_an_explicit_provider_endpoint(value):
+    env = dict(OPENROUTER_ENV)
+    if value is None:
+        del env["AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT"]
+    else:
+        env["AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT"] = value
+    assert (
+        "AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT"
+        in config.missing_required_vars(env)
+    )
+    with pytest.raises(
+        config.ConfigError,
+        match="AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT",
+    ):
+        config._validate(env, [])
+
+
+@pytest.mark.parametrize("provider", ["gemini", "openai_compat"])
+@pytest.mark.parametrize("value", ["", "venice/bf16"])
+def test_non_openrouter_question_rejects_provider_endpoint(provider, value):
+    env = dict(GEMINI_AI_ENV if provider == "gemini" else AI_ENV)
+    env["AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT"] = value
+    problems = config.invalid_required_values(env)
+    assert any(
+        "AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT" in problem
+        and "only the question-only openrouter profile" in problem
+        for problem in problems
+    )
 
 
 @pytest.mark.parametrize(
@@ -987,6 +1022,14 @@ def test_import_reads_each_stage_without_inheritance(monkeypatch):
     assert module.SCRIPTURE_RERANK_PROVIDER.api_key == "rerank-key"
     assert module.SCRIPTURE_RERANK_PROVIDER.reasoning_effort == "high"
     assert module.TRANSCRIBE_PROVIDER.is_local
+
+
+def test_import_reads_the_exact_openrouter_provider_endpoint(monkeypatch):
+    module = _reload_config(monkeypatch, OPENROUTER_ENV)
+    assert (
+        module.AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT
+        == "venice/bf16"
+    )
 
 
 def test_import_fails_on_removed_variable_even_when_blank(monkeypatch):

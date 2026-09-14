@@ -80,6 +80,10 @@ ReasoningEffort = Literal["omit", "none", "low", "medium", "high"]
 OPENROUTER_QUESTION_ENDPOINT = "https://openrouter.ai/api/v1"
 OPENROUTER_QUESTION_MODEL = "google/gemma-4-31b-it"
 OPENROUTER_QUESTION_REASONING_EFFORT: ReasoningEffort = "none"
+OPENROUTER_QUESTION_PROVIDER_ENDPOINT_VAR = (
+    "AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT"
+)
+OPENROUTER_QUESTION_PROVIDER_ENDPOINT = "venice/bf16"
 
 REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
     "omit",
@@ -537,6 +541,12 @@ def missing_required_vars(env: Mapping[str, str]) -> list[str]:
     missing.extend(
         name for name in AI_REQUIRED_VARS if not env.get(name, "").strip()
     )
+    if (
+        env.get(QUESTION_STAGE_VARS.provider_var, "").strip()
+        == PROVIDER_OPENROUTER
+        and not env.get(OPENROUTER_QUESTION_PROVIDER_ENDPOINT_VAR, "").strip()
+    ):
+        missing.append(OPENROUTER_QUESTION_PROVIDER_ENDPOINT_VAR)
     transcribe_provider = env.get(TRANSCRIBE_PROVIDER_VAR, "").strip()
     if (
         transcribe_provider == TRANSCRIBE_PROVIDER_LOCAL
@@ -640,7 +650,11 @@ def invalid_required_values(env: Mapping[str, str]) -> list[str]:
             if problem:
                 problems.append(problem)
 
-    stage_config_names = {"AI_CLIENT_HMAC_KEY", TRANSCRIBE_MODEL_PATH_VAR}
+    stage_config_names = {
+        "AI_CLIENT_HMAC_KEY",
+        OPENROUTER_QUESTION_PROVIDER_ENDPOINT_VAR,
+        TRANSCRIBE_MODEL_PATH_VAR,
+    }
     for stage in (*AI_STAGE_VARS, TRANSCRIBE_STAGE_VARS):
         stage_config_names.update(
             (
@@ -733,6 +747,27 @@ def invalid_required_values(env: Mapping[str, str]) -> list[str]:
                 f"{provider or '<unset>'} — only openai_compat chat and the "
                 "question-only openrouter profile use reasoning configuration"
             )
+    question_provider = env.get(QUESTION_STAGE_VARS.provider_var, "").strip()
+    if question_provider == PROVIDER_OPENROUTER:
+        raw_provider_endpoint = env.get(
+            OPENROUTER_QUESTION_PROVIDER_ENDPOINT_VAR, ""
+        )
+        if (
+            raw_provider_endpoint.strip()
+            and raw_provider_endpoint != OPENROUTER_QUESTION_PROVIDER_ENDPOINT
+        ):
+            problems.append(
+                f"{OPENROUTER_QUESTION_PROVIDER_ENDPOINT_VAR}: "
+                f"{PROVIDER_OPENROUTER} question profile requires exactly "
+                f"{OPENROUTER_QUESTION_PROVIDER_ENDPOINT!r}"
+            )
+    elif env_var_present(env, OPENROUTER_QUESTION_PROVIDER_ENDPOINT_VAR):
+        problems.append(
+            f"{OPENROUTER_QUESTION_PROVIDER_ENDPOINT_VAR}: set while "
+            f"{QUESTION_STAGE_VARS.provider_var}="
+            f"{question_provider or '<unset>'} — only the question-only "
+            "openrouter profile uses a provider endpoint"
+        )
     transcribe_provider = env.get(TRANSCRIBE_PROVIDER_VAR, "").strip()
     if transcribe_provider and transcribe_provider not in TRANSCRIBE_PROVIDERS:
         problems.append(
@@ -829,6 +864,12 @@ def _required_reason(env: Mapping[str, str], name: str) -> str:
         return (
             "AI_CLIENT_HMAC_KEY is required when AI_ENABLED=true: the "
             "per-client limiter must not start in a degraded state"
+        )
+    if name == OPENROUTER_QUESTION_PROVIDER_ENDPOINT_VAR:
+        return (
+            f"{name} is required when {QUESTION_STAGE_VARS.provider_var}="
+            f"{PROVIDER_OPENROUTER}: exactly "
+            f"{OPENROUTER_QUESTION_PROVIDER_ENDPOINT!r}"
         )
     if name == EMBEDDING_MODEL_PATH_VAR:
         return (
@@ -981,6 +1022,9 @@ AI_QUESTION_LOG_PROVIDER_BODIES = _get_optional_bool(
 # Models of the two chat-shaped endpoints, named after the method each one
 # serves: POST /api/ai/question and POST /api/ai/transcribe.
 AI_QUESTION_MODEL = os.getenv("AI_QUESTION_MODEL", "")
+AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT = os.getenv(
+    OPENROUTER_QUESTION_PROVIDER_ENDPOINT_VAR, ""
+).strip()
 AI_TRANSCRIBE_MODEL = os.getenv("AI_TRANSCRIBE_MODEL", "")
 
 # The read-only directory the converted (CTranslate2) Whisper weights are

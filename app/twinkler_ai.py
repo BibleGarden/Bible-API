@@ -22,6 +22,7 @@ from config import (
     AI_QUESTION_LOG_PROVIDER_BODIES,
     AI_QUESTION_MAX_TOKENS,
     AI_QUESTION_MODEL,
+    AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT,
     AI_QUESTION_TIMEOUT_SECONDS,
     AI_TRANSCRIBE_MODEL,
     AI_TRANSCRIBE_TIMEOUT_SECONDS,
@@ -754,6 +755,11 @@ async def _complete_openai_compat(
             logger if AI_QUESTION_LOG_PROVIDER_BODIES else None
         ),
         request_profile=QUESTION_PROVIDER.provider,
+        openrouter_provider_endpoint=(
+            AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT
+            if QUESTION_PROVIDER.is_openrouter
+            else None
+        ),
     )
     try:
         text = await client.complete(

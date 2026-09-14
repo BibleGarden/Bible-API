@@ -134,7 +134,7 @@ migration fallbacks. `AI_ENABLED` is required in every deployment:
 | AI disabled | `AI_ENABLED=false` | every stage-specific `AI_*_PROVIDER/MODEL/ENDPOINT/API_KEY/REASONING_EFFORT` and `AI_CLIENT_HMAC_KEY` |
 | Gemini stage | `AI_ENABLED=true`, stage `PROVIDER=gemini`, `MODEL`, non-empty stage `API_KEY` | stage `ENDPOINT`; chat-stage `REASONING_EFFORT` |
 | OpenAI-compatible chat stage | `AI_ENABLED=true`, stage `PROVIDER=openai_compat`, `MODEL`, `ENDPOINT`, present stage `API_KEY` (may be empty), `REASONING_EFFORT=omit\|none\|low\|medium\|high` | shared endpoint/key/reasoning variables |
-| Strict OpenRouter question | `AI_QUESTION_PROVIDER=openrouter`, `MODEL=google/gemma-4-31b-it`, `ENDPOINT=https://openrouter.ai/api/v1`, non-empty `API_KEY`, `REASONING_EFFORT=none` | OpenRouter on rewrite/rerank; any other model, endpoint or reasoning value; environment-provided request JSON |
+| Strict OpenRouter question | `AI_QUESTION_PROVIDER=openrouter`, `MODEL=google/gemma-4-31b-it`, `ENDPOINT=https://openrouter.ai/api/v1`, `AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT=venice/bf16`, non-empty `API_KEY`, `REASONING_EFFORT=none` | OpenRouter on rewrite/rerank; any other model, API endpoint, provider endpoint or reasoning value; environment-provided request JSON |
 | OpenAI-compatible transcription | `AI_TRANSCRIBE_PROVIDER=openai_compat`, `MODEL`, `ENDPOINT`, present `API_KEY` (may be empty) | transcription reasoning variables |
 | Local transcription | `AI_TRANSCRIBE_PROVIDER=local`, `MODEL`, `MODEL_PATH` | transcription `ENDPOINT` and `API_KEY` |
 | Embeddings | `EMBEDDING_PROVIDER`, `MODEL`, `DIMENSIONS` in every deployment | provider-specific unused fields |
@@ -214,6 +214,7 @@ AI_QUESTION_PROVIDER=openrouter
 AI_QUESTION_MODEL=google/gemma-4-31b-it
 AI_QUESTION_ENDPOINT=https://openrouter.ai/api/v1
 AI_QUESTION_REASONING_EFFORT=none
+AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT=venice/bf16
 
 AI_SCRIPTURE_REWRITE_PROVIDER=openai_compat
 AI_SCRIPTURE_REWRITE_MODEL=qwen3-30b
@@ -249,6 +250,7 @@ AI_QUESTION_PROVIDER=openrouter
 AI_QUESTION_MODEL=google/gemma-4-31b-it
 AI_QUESTION_ENDPOINT=https://openrouter.ai/api/v1
 AI_QUESTION_REASONING_EFFORT=none
+AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT=venice/bf16
 AI_QUESTION_TIMEOUT_SECONDS=20
 AI_QUESTION_MAX_TOKENS=4096
 
@@ -270,10 +272,11 @@ reasoning configuration aborts startup for an OpenAI-compatible chat stage.
 Transcription and embeddings do not have a reasoning setting.
 
 The `openrouter` value is a distinct question-only request profile, never an
-endpoint-host inference. It requires the exact model, endpoint and `none`
-reasoning declaration shown above, plus a non-empty key. Its
-OpenAI-compatible request always contains
-`provider: {allow_fallbacks: false, data_collection: "deny"}` and
+endpoint-host inference. It requires the exact model, API endpoint, provider
+endpoint and `none` reasoning declaration shown above, plus a non-empty key.
+`AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT` is an explicit string, not JSON,
+and accepts only `venice/bf16`. The OpenAI-compatible request always contains
+`provider: {only: ["venice/bf16"], allow_fallbacks: false, data_collection: "deny"}` and
 `reasoning: {enabled: false}`, and never contains the flat
 `reasoning_effort` field. These objects are fixed in reviewed code; no
 environment variable can inject or replace provider JSON. Rewrite, rerank,

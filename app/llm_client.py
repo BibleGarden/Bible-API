@@ -94,6 +94,7 @@ REASONING_EFFORTS = ("omit", "none", "low", "medium", "high")
 REQUEST_PROFILE_OPENAI_COMPAT = "openai_compat"
 REQUEST_PROFILE_OPENROUTER = "openrouter"
 REQUEST_PROFILES = (REQUEST_PROFILE_OPENAI_COMPAT, REQUEST_PROFILE_OPENROUTER)
+OPENROUTER_PROVIDER_ENDPOINT = "venice/bf16"
 
 # Fixed in code on purpose. Letting an environment-provided JSON object reach
 # this field would make the effective privacy and routing policy invisible to
@@ -206,6 +207,7 @@ def build_payload(
     json_object: bool,
     reasoning_effort: str,
     request_profile: str = REQUEST_PROFILE_OPENAI_COMPAT,
+    openrouter_provider_endpoint: str | None = None,
 ) -> dict:
     """The chat-completions body: system instruction + one user message.
 
@@ -239,10 +241,24 @@ def build_payload(
             raise ValueError(
                 "the openrouter request profile requires reasoning_effort=none"
             )
-        payload["provider"] = dict(OPENROUTER_PROVIDER_POLICY)
+        if openrouter_provider_endpoint != OPENROUTER_PROVIDER_ENDPOINT:
+            raise ValueError(
+                "the openrouter request profile requires provider endpoint "
+                f"{OPENROUTER_PROVIDER_ENDPOINT!r}"
+            )
+        payload["provider"] = {
+            **OPENROUTER_PROVIDER_POLICY,
+            "only": [openrouter_provider_endpoint],
+        }
         payload["reasoning"] = dict(OPENROUTER_REASONING_POLICY)
-    elif reasoning_effort != "omit":
-        payload["reasoning_effort"] = reasoning_effort
+    else:
+        if openrouter_provider_endpoint is not None:
+            raise ValueError(
+                "openrouter_provider_endpoint belongs only to the openrouter "
+                "request profile"
+            )
+        if reasoning_effort != "omit":
+            payload["reasoning_effort"] = reasoning_effort
     return payload
 
 
@@ -291,6 +307,7 @@ class _ChatBase:
         attempts: int = 3,
         max_tokens: int = DEFAULT_MAX_TOKENS,
         request_profile: str = REQUEST_PROFILE_OPENAI_COMPAT,
+        openrouter_provider_endpoint: str | None = None,
     ):
         self.endpoint = endpoint
         self.api_key = api_key
@@ -300,6 +317,7 @@ class _ChatBase:
         self.attempts = max(1, attempts)
         self.max_tokens = max_tokens
         self.request_profile = request_profile
+        self.openrouter_provider_endpoint = openrouter_provider_endpoint
 
     def _check_configured(self) -> None:
         """Refuse to build a request out of an unconfigured stage.
@@ -322,6 +340,12 @@ class _ChatBase:
                 raise LLMError("openrouter API key is not configured")
             if self.reasoning_effort != "none":
                 raise LLMError("openrouter reasoning must be disabled")
+            if self.openrouter_provider_endpoint != OPENROUTER_PROVIDER_ENDPOINT:
+                raise LLMError("openrouter provider endpoint is not configured")
+        elif self.openrouter_provider_endpoint is not None:
+            raise LLMError(
+                "openrouter provider endpoint is set for another request profile"
+            )
 
     def _request(
         self,
@@ -341,6 +365,7 @@ class _ChatBase:
             json_object=json_object,
             reasoning_effort=self.reasoning_effort,
             request_profile=self.request_profile,
+            openrouter_provider_endpoint=self.openrouter_provider_endpoint,
         )
         return completions_url(self.endpoint), payload, auth_headers(self.api_key)
 
@@ -382,6 +407,7 @@ class ChatClient(_ChatBase):
         max_tokens: int = DEFAULT_MAX_TOKENS,
         sleep=time.sleep,
         request_profile: str = REQUEST_PROFILE_OPENAI_COMPAT,
+        openrouter_provider_endpoint: str | None = None,
     ):
         super().__init__(
             endpoint,
@@ -392,6 +418,7 @@ class ChatClient(_ChatBase):
             attempts,
             max_tokens,
             request_profile,
+            openrouter_provider_endpoint,
         )
         self._owns_client = http_client is None
         self._client = http_client or httpx.Client(timeout=httpx.Timeout(timeout))
@@ -486,6 +513,7 @@ class AsyncChatClient(_ChatBase):
         sleep=asyncio.sleep,
         diagnostic_logger: logging.Logger | None = None,
         request_profile: str = REQUEST_PROFILE_OPENAI_COMPAT,
+        openrouter_provider_endpoint: str | None = None,
     ):
         super().__init__(
             endpoint,
@@ -496,6 +524,7 @@ class AsyncChatClient(_ChatBase):
             attempts,
             max_tokens,
             request_profile,
+            openrouter_provider_endpoint,
         )
         # Injectable for the same reason `ChatClient` takes one: a test of the
         # retry ladder must not spend the backoff in real seconds.

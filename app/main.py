@@ -29,6 +29,7 @@ from trusted_proxies import TRUSTED_PROXIES, ensure_visible_handler
 from config import (
     AI_QUESTION_LOG_PROVIDER_BODIES,
     AI_QUESTION_MAX_TOKENS,
+    AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT,
     AI_QUESTION_TIMEOUT_SECONDS,
     EMBEDDING_DIMENSIONS,
     EMBEDDING_MODEL,
@@ -176,7 +177,9 @@ def log_ai_providers() -> None:
             where = ""
         if stage.is_openrouter:
             reasoning = (
-                " reasoning=disabled allow_fallbacks=false "
+                " provider_endpoint="
+                f"{AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT} "
+                "reasoning=disabled allow_fallbacks=false "
                 "data_collection=deny"
             )
         else:

@@ -158,6 +158,11 @@ def test_transport_and_config_share_the_literal_reasoning_contract():
     expected = ("omit", "none", "low", "medium", "high")
     assert config.REASONING_EFFORTS == expected
     assert llm_client.REASONING_EFFORTS == expected
+    assert (
+        config.OPENROUTER_QUESTION_PROVIDER_ENDPOINT
+        == llm_client.OPENROUTER_PROVIDER_ENDPOINT
+        == "venice/bf16"
+    )
 
 
 @pytest.mark.parametrize("effort", ["none", "low", "medium", "high"])
@@ -197,6 +202,7 @@ def test_openrouter_payload_has_the_fixed_strict_policy_and_reasoning_off():
         json_object=True,
         reasoning_effort="none",
         request_profile="openrouter",
+        openrouter_provider_endpoint="venice/bf16",
     )
     assert payload == {
         "model": "google/gemma-4-31b-it",
@@ -210,6 +216,7 @@ def test_openrouter_payload_has_the_fixed_strict_policy_and_reasoning_off():
         "provider": {
             "allow_fallbacks": False,
             "data_collection": "deny",
+            "only": ["venice/bf16"],
         },
         "reasoning": {"enabled": False},
     }
@@ -228,6 +235,23 @@ def test_openrouter_payload_rejects_any_non_disabled_reasoning(reasoning_effort)
             json_object=True,
             reasoning_effort=reasoning_effort,
             request_profile="openrouter",
+            openrouter_provider_endpoint="venice/bf16",
+        )
+
+
+@pytest.mark.parametrize("provider_endpoint", [None, "", "venice", "novita/bf16"])
+def test_openrouter_payload_rejects_any_other_provider_endpoint(provider_endpoint):
+    with pytest.raises(ValueError, match="requires provider endpoint"):
+        build_payload(
+            "google/gemma-4-31b-it",
+            "s",
+            "u",
+            temperature=0.7,
+            max_tokens=4096,
+            json_object=True,
+            reasoning_effort="none",
+            request_profile="openrouter",
+            openrouter_provider_endpoint=provider_endpoint,
         )
 
 
@@ -490,12 +514,14 @@ def test_the_async_openrouter_client_sends_the_strict_profile():
                 "none",
                 max_tokens=4096,
                 request_profile="openrouter",
+                openrouter_provider_endpoint="venice/bf16",
             ).complete("i", "u", json_object=True, temperature=0.7)
         )
     assert answer == "Ответ"
     assert captured["provider"] == {
         "allow_fallbacks": False,
         "data_collection": "deny",
+        "only": ["venice/bf16"],
     }
     assert captured["reasoning"] == {"enabled": False}
     assert "reasoning_effort" not in captured
@@ -520,6 +546,11 @@ def test_question_stage_selects_openrouter_by_provider_not_endpoint(monkeypatch)
             reasoning_effort="none",
         ),
     )
+    monkeypatch.setattr(
+        twinkler_ai,
+        "AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT",
+        "venice/bf16",
+    )
     with mock_async(handler):
         answer = asyncio.run(
             twinkler_ai.complete("Запрос", question_language("Запрос", "ru"))
@@ -528,6 +559,7 @@ def test_question_stage_selects_openrouter_by_provider_not_endpoint(monkeypatch)
     assert captured["provider"] == {
         "allow_fallbacks": False,
         "data_collection": "deny",
+        "only": ["venice/bf16"],
     }
     assert captured["reasoning"] == {"enabled": False}
     assert "reasoning_effort" not in captured
@@ -1252,6 +1284,11 @@ def test_the_startup_banner_names_the_strict_openrouter_profile(monkeypatch, cap
             reasoning_effort="none",
         ),
     )
+    monkeypatch.setattr(
+        main,
+        "AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT",
+        "venice/bf16",
+    )
     with caplog.at_level(logging.INFO):
         main.log_ai_providers()
 
@@ -1261,6 +1298,7 @@ def test_the_startup_banner_names_the_strict_openrouter_profile(monkeypatch, cap
     assert "provider=openrouter" in line
     assert "model=google/gemma-4-31b-it" in line
     assert " at openrouter.ai" in line
+    assert "provider_endpoint=venice/bf16" in line
     assert "reasoning=disabled" in line
     assert "allow_fallbacks=false" in line
     assert "data_collection=deny" in line

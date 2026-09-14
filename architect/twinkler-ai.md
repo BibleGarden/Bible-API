@@ -830,10 +830,11 @@ Gemini is a startup error.
 
 `openrouter` is selected only by the explicit provider value, never inferred
 from the endpoint hostname. It is pinned to
-`google/gemma-4-31b-it`, `https://openrouter.ai/api/v1`, a non-empty key and
-`AI_QUESTION_REASONING_EFFORT=none`; any deviation aborts startup. Its request
-contains the fixed objects
-`provider: {allow_fallbacks: false, data_collection: "deny"}` and
+`google/gemma-4-31b-it`, `https://openrouter.ai/api/v1`, the explicit provider
+endpoint `AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT=venice/bf16`, a non-empty
+key and `AI_QUESTION_REASONING_EFFORT=none`; any deviation aborts startup. Its
+request contains the fixed policy
+`provider: {only: ["venice/bf16"], allow_fallbacks: false, data_collection: "deny"}` and
 `reasoning: {enabled: false}` and omits flat `reasoning_effort`. There is no
 environment JSON override. Rewrite, rerank, transcription and embeddings do
 not accept `openrouter` and retain their existing transports.

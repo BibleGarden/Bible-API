@@ -18,6 +18,12 @@ still not a configuration contract under ADR 0008/0020. Likewise, OpenRouter's
 default provider routing may fall back, and data-collection policy must not be
 left implicit for prayer-derived content.
 
+The same live endpoint catalog names the exact Venice BF16 endpoint as
+`venice/bf16`. OpenRouter's current provider-routing documentation explicitly
+allows a full endpoint slug in `provider.only`; using only the base `venice`
+slug would also match any other Venice variants and would not preserve the
+model instance Maria selected.
+
 ## Decision
 
 `AI_QUESTION_PROVIDER=openrouter` selects a distinct, question-only request
@@ -32,12 +38,14 @@ AI_QUESTION_PROVIDER=openrouter
 AI_QUESTION_MODEL=google/gemma-4-31b-it
 AI_QUESTION_ENDPOINT=https://openrouter.ai/api/v1
 AI_QUESTION_REASONING_EFFORT=none
+AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT=venice/bf16
 ```
 
-`AI_QUESTION_API_KEY` must be present and non-empty. The model, endpoint and
-reasoning values above have no aliases; a missing or different value aborts
-startup through the aggregated `ConfigError`. The existing operational
-defaults remain `AI_QUESTION_MAX_TOKENS=4096` and
+`AI_QUESTION_API_KEY` must be present and non-empty. The model, API endpoint,
+provider endpoint and reasoning values above have no aliases; a missing or
+different value aborts startup through the aggregated `ConfigError`. The
+provider endpoint is an ordinary explicit string, not arbitrary JSON. The
+existing operational defaults remain `AI_QUESTION_MAX_TOKENS=4096` and
 `AI_QUESTION_TIMEOUT_SECONDS=20`.
 
 The OpenAI-compatible request keeps the existing model, messages,
@@ -47,7 +55,8 @@ temperature, max-tokens and JSON response-format fields and always adds:
 {
   "provider": {
     "allow_fallbacks": false,
-    "data_collection": "deny"
+    "data_collection": "deny",
+    "only": ["venice/bf16"]
   },
   "reasoning": {
     "enabled": false
@@ -62,7 +71,7 @@ JSON and no operator override that can weaken the profile. The existing
 reasoning-effort contract.
 
 The startup banner identifies `provider=openrouter`, the endpoint host, model,
-`reasoning=disabled`, `allow_fallbacks=false` and
+`provider_endpoint=venice/bf16`, `reasoning=disabled`, `allow_fallbacks=false` and
 `data_collection=deny`, without logging the key. The existing opt-in provider
 body diagnostic continues to log the exact JSON request without headers or
 credentials.
@@ -78,7 +87,8 @@ topology.
   silently receive the OpenRouter privacy/routing fields. The explicit
   provider value is required.
 - The local question request cannot route to a fallback provider and asks
-  OpenRouter to deny providers that may store training data.
+  OpenRouter to use only the exact `venice/bf16` endpoint and deny providers
+  that may store training data.
 - Reasoning is explicitly disabled on the wire even though the selected model
   currently defaults to disabled reasoning.
 - Changing the OpenRouter model, endpoint or policy requires reviewed code and
