@@ -48,6 +48,10 @@ INTEGER_OPERATIONAL_VARS = (
     "AI_TRANSCRIBE_THREADS",
     "AI_TRANSCRIBE_BEAM_SIZE",
     "AI_REQUESTS_PER_MINUTE",
+    "AI_QUESTION_PREFETCH_REQUESTS_PER_MINUTE",
+    "AI_QUESTION_PREFETCH_REQUESTS_PER_CLIENT_PER_MINUTE",
+    "AI_SCRIPTURE_PREFETCH_REQUESTS_PER_MINUTE",
+    "AI_SCRIPTURE_PREFETCH_REQUESTS_PER_CLIENT_PER_MINUTE",
     "AI_REQUESTS_PER_CLIENT_PER_MINUTE",
     "AI_SCRIPTURE_REQUESTS_PER_MINUTE",
     "AI_SCRIPTURE_REQUESTS_PER_CLIENT_PER_MINUTE",
@@ -848,6 +852,8 @@ def _reload_config(monkeypatch, env):
             "DB_PASSWORD",
             "DB_NAME",
             "DB_PORT",
+            "AI_QUESTION_PREFETCH_ENABLED",
+            "AI_SCRIPTURE_PREFETCH_ENABLED",
         }
     ):
         monkeypatch.delenv(name, raising=False)
@@ -984,3 +990,37 @@ def test_operational_defaults_are_unchanged(monkeypatch):
     module = _reload_config(monkeypatch, AI_ENV)
     assert module.AI_QUESTION_TIMEOUT_SECONDS == 20.0
     assert module.AI_SCRIPTURE_PROVIDER_TIMEOUT_SECONDS == 8.0
+
+
+@pytest.mark.parametrize("stage", ["QUESTION", "SCRIPTURE"])
+def test_prefetch_defaults_and_explicit_configuration(monkeypatch, stage):
+    prefix = f"AI_{stage}_PREFETCH"
+    module = _reload_config(monkeypatch, AI_ENV)
+    assert getattr(module, f"{prefix}_ENABLED") is False
+    assert getattr(module, f"{prefix}_REQUESTS_PER_MINUTE") == 2
+    assert getattr(module, f"{prefix}_REQUESTS_PER_CLIENT_PER_MINUTE") == 1
+    module = _reload_config(monkeypatch, {
+        **AI_ENV, f"{prefix}_ENABLED": "true",
+        f"{prefix}_REQUESTS_PER_MINUTE": "7",
+        f"{prefix}_REQUESTS_PER_CLIENT_PER_MINUTE": "3",
+    })
+    assert getattr(module, f"{prefix}_ENABLED") is True
+    assert getattr(module, f"{prefix}_REQUESTS_PER_MINUTE") == 7
+    assert getattr(module, f"{prefix}_REQUESTS_PER_CLIENT_PER_MINUTE") == 3
+
+
+@pytest.mark.parametrize("stage", ["QUESTION", "SCRIPTURE"])
+@pytest.mark.parametrize("suffix", ["REQUESTS_PER_MINUTE", "REQUESTS_PER_CLIENT_PER_MINUTE"])
+@pytest.mark.parametrize("value", ["", " ", "0", "-1", "many", "1.5"])
+def test_prefetch_invalid_limit_stops_startup(monkeypatch, stage, suffix, value):
+    name = f"AI_{stage}_PREFETCH_{suffix}"
+    with pytest.raises(RuntimeError, match=name):
+        _reload_config(monkeypatch, {**AI_ENV, name: value})
+
+
+@pytest.mark.parametrize("stage", ["QUESTION", "SCRIPTURE"])
+@pytest.mark.parametrize("value", ["", "yes", "1"])
+def test_prefetch_invalid_switch_stops_startup(monkeypatch, stage, value):
+    name = f"AI_{stage}_PREFETCH_ENABLED"
+    with pytest.raises(RuntimeError, match=name):
+        _reload_config(monkeypatch, {**AI_ENV, name: value})

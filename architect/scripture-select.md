@@ -283,7 +283,7 @@ rather than a translation gap) — never through `exclude_canonical_ids`.
 |---|---|
 | 403 | invalid or missing API key |
 | 422 | unknown field; oversized topic, reply, reply total or exclusion list; malformed canonical ID; unsupported language; a translation that is not accepted for the language (another language's, inactive, unknown, or not renderable from the canonical corpus) |
-| 429 | global or per-client request limit exceeded (with `Retry-After`) |
+| 429 | request limit exceeded (with `Retry-After`), or `prefetch_disabled` (without `Retry-After`) / `prefetch_limit_exceeded` (with `Retry-After`) |
 | 503 | no verified passage can be produced: database unavailable, vector index empty (run `app/index_cli.py rebuild`), the rate limiter is misconfigured, the chosen passage cannot be rendered in the requested translation, or the time budget was already exhausted when the rendering would have started |
 
 There is no `502`: provider failures are absorbed by the fallbacks above.
@@ -479,6 +479,13 @@ degrades immediately as `ai_unavailable` — a report crossing this deploy
 should expect that swap, not a regression.
 
 ## Rate limiting and observability
+
+An optional strict boolean `prefetch` (default `false`) marks speculative
+selection. `scripture_policy` in `app/prefetch.py` checks it before corpus
+loading, selection or the ordinary quota reservation. Disabled or exhausted
+prefetch returns HTTP 429 with a stable `detail` code; accepted prefetch still
+passes the ordinary limiter. See [README](../README.md#ai-endpoints) for the
+switches, defaults and client behavior.
 
 Two 60-second windows, independent of the Twinkler budget because one
 selection costs ~8 provider calls:

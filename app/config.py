@@ -748,6 +748,14 @@ def _get_optional_bool(name: str, default: bool) -> bool:
         return default
 
 
+def _get_positive_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    value = _get_int(name, default)
+    if (raw is not None and not raw.strip()) or value < 1:
+        _problems.append(f"{name}: expected a positive integer")
+    return value
+
+
 def _required_reason(env: Mapping[str, str], name: str) -> str:
     """"<NAME> is required" plus the rule that made it required."""
     if name == EMBEDDING_PROVIDER_VAR:
@@ -958,6 +966,25 @@ AI_REQUESTS_PER_MINUTE = max(1, _get_int("AI_REQUESTS_PER_MINUTE", 10))
 AI_REQUESTS_PER_CLIENT_PER_MINUTE = min(
     AI_REQUESTS_PER_MINUTE,
     max(1, _get_int("AI_REQUESTS_PER_CLIENT_PER_MINUTE", 3)),
+)
+# Speculative generation is opt-in and has its own rolling-minute quotas.
+AI_QUESTION_PREFETCH_ENABLED = _get_optional_bool(
+    "AI_QUESTION_PREFETCH_ENABLED", False
+)
+AI_QUESTION_PREFETCH_REQUESTS_PER_MINUTE = _get_positive_int(
+    "AI_QUESTION_PREFETCH_REQUESTS_PER_MINUTE", 2
+)
+AI_QUESTION_PREFETCH_REQUESTS_PER_CLIENT_PER_MINUTE = _get_positive_int(
+    "AI_QUESTION_PREFETCH_REQUESTS_PER_CLIENT_PER_MINUTE", 1
+)
+AI_SCRIPTURE_PREFETCH_ENABLED = _get_optional_bool(
+    "AI_SCRIPTURE_PREFETCH_ENABLED", False
+)
+AI_SCRIPTURE_PREFETCH_REQUESTS_PER_MINUTE = _get_positive_int(
+    "AI_SCRIPTURE_PREFETCH_REQUESTS_PER_MINUTE", 2
+)
+AI_SCRIPTURE_PREFETCH_REQUESTS_PER_CLIENT_PER_MINUTE = _get_positive_int(
+    "AI_SCRIPTURE_PREFETCH_REQUESTS_PER_CLIENT_PER_MINUTE", 1
 )
 # Embedding model for the scripture-selection RAG index (see
 # architect/adr/0002-embedding-model-and-vector-store.md). Model and

@@ -72,6 +72,7 @@ from config import (
 )
 from database import create_connection
 from deadline import Deadline
+from prefetch import scripture_policy
 from lexical_index import load_lexical_indexes
 from passage_highlight import load_psalm_maps, resolve_highlight
 from passage_rerank import build_passage_reranker
@@ -207,6 +208,11 @@ class SelectRequest(BaseModel):
         },
     )
 
+    prefetch: bool = Field(
+        default=False,
+        strict=True,
+        description="Speculative selection; the server may decline before retrieval",
+    )
     language: Language = Field(
         description=(
             "Corpus language. Determines both the indexed translations and "
@@ -1440,7 +1446,11 @@ def build_response(
         },
         429: {
             "model": ErrorResponse,
-            "description": "Global or per-client request limit exceeded",
+            "description": (
+                "Request limit exceeded, or speculative selection declined: "
+                "prefetch_disabled / prefetch_limit_exceeded. "
+                "Retry-After is absent when prefetch is disabled."
+            ),
             "headers": {
                 "Retry-After": {
                     "description": "Seconds until another request can be attempted",
@@ -1464,6 +1474,8 @@ async def scripture_select(
     http_request: Request,
     api_key: bool = RequireAPIKey,
 ) -> SelectResponse:
+    if request.prefetch:
+        scripture_policy.enforce(resolve_client_ip(http_request))
     replies = request.normalized_replies()
     if sum(len(reply) for reply in replies) > MAX_REPLIES_CHARS:
         raise HTTPException(status_code=422, detail="Replies are too long")

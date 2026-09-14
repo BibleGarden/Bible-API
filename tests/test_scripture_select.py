@@ -2311,3 +2311,21 @@ def test_a_septuagint_shift_is_visible_in_the_response(
     assert english["canonical"]["chapter_number"] == 23
     assert english["passage"]["chapter_number"] == 23
     assert "shepherd" in english["passage"]["text"]
+
+
+@pytest.mark.parametrize("prefetch_value", [None, False, True])
+def test_prefetch_policy_preserves_scripture_selection(
+    monkeypatch, selection_environment, prefetch_value
+):
+    from prefetch import PrefetchPolicy
+
+    policy = PrefetchPolicy(prefetch_value is True, 1, 1)
+    monkeypatch.setattr(scripture_select, "scripture_policy", policy)
+    body = {"language": "ru", "topic": "Family"}
+    if prefetch_value is not None:
+        body["prefetch"] = prefetch_value
+    response = post(body)
+    assert response.status_code == 200
+    selection_environment.assert_called_once()
+    assert len(scripture_select._limiter.request_times) == 1
+    assert len(policy.limiter.request_times) == (1 if prefetch_value else 0)
