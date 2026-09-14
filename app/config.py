@@ -636,6 +636,9 @@ def invalid_required_values(env: Mapping[str, str]) -> list[str]:
             f"{', '.join(TRANSCRIBE_COMPUTE_TYPES)}"
         )
     if raw_ai_enabled == "false":
+        for name in ("AI_QUESTION_PREFETCH_ENABLED", "AI_SCRIPTURE_PREFETCH_ENABLED"):
+            if env.get(name) == "true":
+                problems.append(f"{name}: enabled while AI_ENABLED=false — disable it")
         for name in sorted(stage_config_names):
             if env_var_present(env, name):
                 problems.append(f"{name}: set while AI_ENABLED=false — remove it")

@@ -1024,3 +1024,10 @@ def test_prefetch_invalid_switch_stops_startup(monkeypatch, stage, value):
     name = f"AI_{stage}_PREFETCH_ENABLED"
     with pytest.raises(RuntimeError, match=name):
         _reload_config(monkeypatch, {**AI_ENV, name: value})
+
+
+@pytest.mark.parametrize("stage", ["QUESTION", "SCRIPTURE"])
+def test_prefetch_cannot_be_enabled_with_ai_disabled(monkeypatch, stage):
+    name = f"AI_{stage}_PREFETCH_ENABLED"
+    with pytest.raises(RuntimeError, match=name):
+        _reload_config(monkeypatch, {**BASE_ENV, name: "true"})

@@ -74,7 +74,8 @@ Prefetch is disabled by default, independently for questions and scripture.
 `AI_QUESTION_PREFETCH_ENABLED` and `AI_SCRIPTURE_PREFETCH_ENABLED` enable it.
 Each has `AI_<QUESTION|SCRIPTURE>_PREFETCH_REQUESTS_PER_MINUTE` (default 2) and
 `AI_<QUESTION|SCRIPTURE>_PREFETCH_REQUESTS_PER_CLIENT_PER_MINUTE` (default 1).
-Limits must be positive integers; invalid configuration stops startup. Accepted
+Limits must be positive integers; invalid configuration stops startup. Enabling
+prefetch requires `AI_ENABLED=true` and its valid provider/HMAC configuration. Accepted
 prefetch also consumes the existing total quota; a policy refusal does not.
 Counters use rolling 60-second windows, HMAC client-IP pseudonyms and the
 existing single-worker, process-local storage. This controls request frequency,
