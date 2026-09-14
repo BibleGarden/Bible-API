@@ -965,6 +965,11 @@ AI_TRANSCRIBE_MAX_AUDIO_SECONDS = max(
 AI_QUESTION_TIMEOUT_SECONDS = max(
     1.0, _get_float("AI_QUESTION_TIMEOUT_SECONDS", 20.0)
 )
+# Output-token ceiling of the question provider call. It is deliberately much
+# larger than a normal question: reasoning models account hidden reasoning
+# against the same allowance, so this is a safety valve rather than a target.
+# Question owns the knob because rewrite/rerank have separate measured limits.
+AI_QUESTION_MAX_TOKENS = _get_positive_int("AI_QUESTION_MAX_TOKENS", 4096)
 AI_REQUESTS_PER_MINUTE = max(1, _get_int("AI_REQUESTS_PER_MINUTE", 10))
 AI_REQUESTS_PER_CLIENT_PER_MINUTE = min(
     AI_REQUESTS_PER_MINUTE,

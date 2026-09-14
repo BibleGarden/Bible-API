@@ -2885,7 +2885,7 @@ def test_sends_expected_gemini_request(monkeypatch):
                 "parts": [{"text": question_prompt.build_question_prompt("ru")}]
             },
             "contents": [{"role": "user", "parts": [{"text": "Запрос"}]}],
-            "generationConfig": {"maxOutputTokens": 1024, "temperature": 0.7},
+            "generationConfig": {"maxOutputTokens": 8192, "temperature": 0.7},
         }
         return httpx.Response(
             200,
@@ -2899,6 +2899,7 @@ def test_sends_expected_gemini_request(monkeypatch):
         return real_async_client(*args, transport=transport, **kwargs)
 
     monkeypatch.setattr(twinkler_ai, "AI_QUESTION_MODEL", "gemini-test")
+    monkeypatch.setattr(twinkler_ai, "AI_QUESTION_MAX_TOKENS", 8192)
     monkeypatch.setattr(twinkler_ai.httpx, "AsyncClient", async_client)
 
     assert asyncio.run(

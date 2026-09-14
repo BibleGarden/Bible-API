@@ -43,14 +43,30 @@ retrieval stages, fallbacks, timeouts and public API contracts are unchanged.
 The Cerebras key remains shell-only and is supplied independently to the three
 existing stage-specific key variables.
 
+### Amendment (2026-09-14)
+
+Maria's manual product check found question quality unacceptable with `none`
+and good with `low`. The current local question stage therefore keeps
+Cerebras `qwen-3.8-27b` with `reasoning_effort=low`. Rewrite remains separately
+configured as Cerebras `qwen-3.8-27b` with `none`; rerank remains the independent
+`qwen3-30b-a3b-instruct-2507` stage with `omit` and its own endpoint/key.
+
+Diagnostic responses also showed that hidden reasoning can consume the former
+1024-token allowance before any answer content is produced. Question now has
+the separate operational safety ceiling `AI_QUESTION_MAX_TOKENS`, default
+`4096`, applied by both transports. This changes neither prompt nor retry
+policy, and does not authorize a production change. The cross-repository
+decision is recorded in
+[Architecture ADR-0004](https://github.com/BibleGarden/Architecture/blob/main/decisions/0004-explicit-openai-reasoning-effort.md#amendment-note--2026-09-14).
+
 ## Consequences
 
 - Existing OpenAI-compatible chat deployments must choose an explicit value
   for every such stage before restart. `omit` preserves compatibility where
   the endpoint does not implement reasoning effort without creating a default.
-- The local desired trial configuration is Qwen 3.8 27B with `none` on all
-  three chat stages. Production model policy and production topology remain
-  unchanged; this ADR does not authorize a production configuration change.
+- The original local trial used `none` on all three chat stages; the amendment
+  above is the current stage-specific local configuration. Production model
+  policy and production topology remain unchanged.
 - The four ungraded top-1 results from evaluation 86cbh1apk remain ungraded.
   They must be passed to Maria and are not self-labelled as evidence for the
   trial decision.

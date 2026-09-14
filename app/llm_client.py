@@ -73,11 +73,11 @@ from gemini_retry import (
 # adapters do exactly this).
 _THINK_BLOCK = re.compile(r"<think>.*?</think>", flags=re.DOTALL | re.IGNORECASE)
 
-# Output ceiling of one call. 1024 and not the 8192 the Gemini stages ask
-# for: those are "thinking" models whose hidden reasoning is charged against
-# the same cap, while the instruct-tuned local models need ~250 tokens for
-# six rewrite queries — and on a server with context shifting an unreachable
-# ceiling turns a degenerate repetition into an endless one
+# Default output ceiling for chat stages that do not pass their own operational
+# value. Rewrite and rerank retain 1024; question passes
+# `AI_QUESTION_MAX_TOKENS` explicitly because a reasoning model charges hidden
+# reasoning against the same allowance. On a server with context shifting an
+# unreachable ceiling can turn a degenerate repetition into an endless one
 # (AI-Evaluation/evaluation/gen_rewrites.DEFAULT_MAX_TOKENS says the same).
 DEFAULT_MAX_TOKENS = 1024
 
