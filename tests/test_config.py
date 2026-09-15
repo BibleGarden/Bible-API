@@ -593,6 +593,100 @@ def test_gemini_chat_rejects_reasoning_effort_even_when_blank(reasoning_var, val
     )
 
 
+@pytest.mark.parametrize(
+    "model,value",
+    [
+        ("gemini-3.8-flash", "low"),
+        ("gemini-3.8-flash", "medium"),
+        ("gemini-3.8-flash", "high"),
+        ("gemini-3.5-flash-lite", "minimal"),
+        ("gemini-3.5-flash-lite", "low"),
+        ("gemini-3.5-flash-lite", "medium"),
+        ("gemini-3.5-flash-lite", "high"),
+    ],
+)
+def test_gemini_question_resolves_explicit_model_thinking_level(model, value):
+    env = {
+        **GEMINI_AI_ENV,
+        "AI_QUESTION_MODEL": model,
+        "AI_QUESTION_REASONING_EFFORT": value,
+    }
+    config._validate(env, [])
+    resolved = config.resolve_stage(env, config.QUESTION_STAGE_VARS)
+    assert resolved.is_gemini
+    assert resolved.reasoning_effort == value
+    for stage in (
+        config.SCRIPTURE_REWRITE_STAGE_VARS, config.SCRIPTURE_RERANK_STAGE_VARS
+    ):
+        assert config.resolve_stage(env, stage).reasoning_effort is None
+
+
+@pytest.mark.parametrize("model", ["gemini-3.8-flash", "gemini-3.5-flash-lite"])
+@pytest.mark.parametrize("value", [None, "", "omit", "none", "LOW", " low ", " minimal "])
+def test_gemini_question_requires_explicit_supported_level(model, value):
+    env = {**GEMINI_AI_ENV, "AI_QUESTION_MODEL": model}
+    if value is not None:
+        env["AI_QUESTION_REASONING_EFFORT"] = value
+    with pytest.raises(config.ConfigError, match="AI_QUESTION_REASONING_EFFORT"):
+        config._validate(env, [])
+    if value in (None, ""):
+        assert "AI_QUESTION_REASONING_EFFORT" in config.missing_required_vars(env)
+
+
+@pytest.mark.parametrize(
+    "model", ["gemini-2.5-flash", "gemini-3.8-pro", "other-model", ""]
+)
+def test_gemini_thinking_level_rejects_unsupported_question_models(model):
+    env = {
+        **GEMINI_AI_ENV,
+        "AI_QUESTION_MODEL": model,
+        "AI_QUESTION_REASONING_EFFORT": "low",
+    }
+    with pytest.raises(config.ConfigError, match="AI_QUESTION_REASONING_EFFORT"):
+        config._validate(env, [])
+
+
+@pytest.mark.parametrize("model", ["gemini-3.8-flash", "gemini-3.5-flash-lite"])
+@pytest.mark.parametrize("reasoning", [None, "low"])
+def test_gemini_model_whitespace_cannot_bypass_thinking_config(model, reasoning):
+    env = {**GEMINI_AI_ENV, "AI_QUESTION_MODEL": model + " "}
+    if reasoning is not None:
+        env["AI_QUESTION_REASONING_EFFORT"] = reasoning
+    with pytest.raises(config.ConfigError, match="AI_QUESTION_MODEL"):
+        config._validate(env, [])
+    if reasoning is None:
+        assert "AI_QUESTION_REASONING_EFFORT" in config.missing_required_vars(env)
+
+
+@pytest.mark.parametrize("model", ["gemini-3.8-flash", "gemini-3.5-flash-lite"])
+@pytest.mark.parametrize("stage", ["SCRIPTURE_REWRITE", "SCRIPTURE_RERANK"])
+def test_gemini_thinking_config_remains_question_only(model, stage):
+    env = {
+        **GEMINI_AI_ENV,
+        f"AI_{stage}_MODEL": model,
+        f"AI_{stage}_REASONING_EFFORT": "low",
+    }
+    with pytest.raises(config.ConfigError, match=f"AI_{stage}_REASONING_EFFORT"):
+        config._validate(env, [])
+
+
+def test_minimal_is_rejected_for_gemini_38_flash():
+    env = {
+        **GEMINI_AI_ENV,
+        "AI_QUESTION_MODEL": "gemini-3.8-flash",
+        "AI_QUESTION_REASONING_EFFORT": "minimal",
+    }
+    with pytest.raises(config.ConfigError, match="AI_QUESTION_REASONING_EFFORT"):
+        config._validate(env, [])
+
+
+@pytest.mark.parametrize("stage", ["QUESTION", "SCRIPTURE_REWRITE", "SCRIPTURE_RERANK"])
+def test_minimal_remains_unsupported_for_openai_compat(stage):
+    env = {**AI_ENV, f"AI_{stage}_REASONING_EFFORT": "minimal"}
+    with pytest.raises(config.ConfigError, match=f"AI_{stage}_REASONING_EFFORT"):
+        config._validate(env, [])
+
+
 @pytest.mark.parametrize("name", FORBIDDEN_REASONING_VARS)
 @pytest.mark.parametrize("value", ["", "none"])
 def test_shared_audio_and_embedding_reasoning_names_are_unreadable(name, value):

@@ -132,7 +132,9 @@ migration fallbacks. `AI_ENABLED` is required in every deployment:
 | Block | Required values | Forbidden / omitted values |
 |---|---|---|
 | AI disabled | `AI_ENABLED=false` | every stage-specific `AI_*_PROVIDER/MODEL/ENDPOINT/API_KEY/REASONING_EFFORT` and `AI_CLIENT_HMAC_KEY` |
-| Gemini stage | `AI_ENABLED=true`, stage `PROVIDER=gemini`, `MODEL`, non-empty stage `API_KEY` | stage `ENDPOINT`; chat-stage `REASONING_EFFORT` |
+| Gemini stage | `AI_ENABLED=true`, stage `PROVIDER=gemini`, `MODEL`, non-empty stage `API_KEY` | stage `ENDPOINT`; chat-stage `REASONING_EFFORT` except reviewed Gemini question models below |
+| Gemini 3.8 Flash question | `AI_QUESTION_PROVIDER=gemini`, `MODEL=gemini-3.8-flash`, non-empty `API_KEY`, `REASONING_EFFORT=low\|medium\|high` | question `ENDPOINT` and OpenRouter provider endpoint; any other reasoning value |
+| Gemini 3.5 Flash Lite question | `AI_QUESTION_PROVIDER=gemini`, `MODEL=gemini-3.5-flash-lite`, non-empty `API_KEY`, `REASONING_EFFORT=minimal\|low\|medium\|high` | question `ENDPOINT` and OpenRouter provider endpoint; any other reasoning value |
 | OpenAI-compatible chat stage | `AI_ENABLED=true`, stage `PROVIDER=openai_compat`, `MODEL`, `ENDPOINT`, present stage `API_KEY` (may be empty), `REASONING_EFFORT=omit\|none\|low\|medium\|high` | shared endpoint/key/reasoning variables |
 | Strict OpenRouter question | `AI_QUESTION_PROVIDER=openrouter`, `MODEL=google/gemma-4-31b-it`, `ENDPOINT=https://openrouter.ai/api/v1`, `AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT=venice/bf16`, non-empty `API_KEY`, `REASONING_EFFORT=none` | OpenRouter on rewrite/rerank; any other model, API endpoint, provider endpoint or reasoning value; environment-provided request JSON |
 | Strict Together question | `AI_QUESTION_PROVIDER=together`, `MODEL=google/gemma-4-31B-it`, `ENDPOINT=https://api.together.ai/v1`, non-empty `API_KEY`, `REASONING_EFFORT=none` | Together on other stages; any other model, endpoint or reasoning value; OpenRouter provider endpoint |
@@ -292,6 +294,30 @@ The profile is never inferred from an endpoint hostname and is rejected for
 rewrite, rerank, transcription and embeddings. The existing `json_object`
 response format remains unchanged; no schema is sent. See
 [ADR 0023](architect/adr/0023-together-question-profile.md).
+
+For direct Google Gemini 3.5 Flash Lite questions, configure:
+
+```dotenv
+AI_QUESTION_PROVIDER=gemini
+AI_QUESTION_MODEL=gemini-3.5-flash-lite
+AI_QUESTION_REASONING_EFFORT=minimal
+```
+
+Export the Google key as `AI_QUESTION_API_KEY` before recreating the container.
+Remove `AI_QUESTION_ENDPOINT` and `AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT`.
+The reviewed question models require explicit levels: `gemini-3.8-flash`
+accepts `low`, `medium` or `high`; `gemini-3.5-flash-lite` additionally accepts
+`minimal`. The client sends the uppercase value as
+`generationConfig.thinkingConfig.thinkingLevel` to Google's `generateContent`
+API. Missing values, `none` and `omit` abort startup. `minimal` is the lowest
+supported level for Flash Lite, not a guaranteed thinking-off mode. The startup
+banner reports the effective `thinking_level` (`MINIMAL` in this example).
+Existing Flash Lite question configurations must add the explicit level before
+upgrading. Other Gemini models and stages retain their existing contract and
+reject this setting; generic `openai_compat` still rejects `minimal`.
+No `thinkingBudget`, `includeThoughts`, Chat Completions reasoning field or
+routing policy is sent to Google. See
+[ADR 0024](architect/adr/0024-gemini-question-thinking-level.md).
 
 `AI_QUESTION_MAX_TOKENS` is the question stage's output safety ceiling for all
 transports: chat-completions requests send it as `max_tokens`, while Gemini
