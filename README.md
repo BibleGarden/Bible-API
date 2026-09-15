@@ -232,10 +232,11 @@ AI_TRANSCRIBE_MODEL=deepdml/faster-whisper-large-v3-turbo-ct2
 AI_TRANSCRIBE_ENDPOINT=https://your-audio-server/v1
 ```
 
-For the local Together trial, configure the strict Together question profile
-while rewrite remains on Cerebras and rerank on the independently served
-company model. The three keys stay separate stage inputs;
-none is stored in `.env`:
+The Together integration is retained for optional trials. Maria rejected it
+for interactive question generation on 2026-09-15 because requests timed out
+even with reasoning disabled; see ADR 0023. To deliberately run another trial,
+configure the strict profile below. Rewrite and rerank keep their independent
+providers and keys; no provider key is stored in the application `.env`:
 
 ```bash
 : "${TOGETHER_API_KEY:?export the shell-only Together key first}"

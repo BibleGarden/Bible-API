@@ -43,6 +43,19 @@ The startup banner names Together, model, endpoint host and
 Rewrite, rerank, transcription and embeddings reject this provider. This
 local trial does not change production provider policy or deployment.
 
+## Trial outcome (2026-09-15)
+
+Maria chose to retain the implementation but rejected Together for interactive
+question generation because latency was unreliable. Matched local API/provider
+logs showed two reasoning-disabled calls timing out after 17.164 and 17.015
+seconds with HTTP 502; a subsequent identical request succeeded in 1.511
+seconds. The mobile client displayed a local reserve question on request
+failure. Incident: ClickUp 86cbhbakd.
+
+The profile remains available for deliberate experiments. Its implementation
+is not approval to use Together as the working provider. This decision does
+not select a replacement provider or change a running environment.
+
 ## Consequences
 
 - Reasoning is explicitly disabled rather than delegated to a model default.
