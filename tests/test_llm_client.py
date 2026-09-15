@@ -75,7 +75,11 @@ def stage(name: str, model: str = "qwen3-30b", **kwargs) -> config.StageProvider
     provider = kwargs.pop("provider", config.PROVIDER_OPENAI_COMPAT)
     reasoning_effort = kwargs.pop(
         "reasoning_effort",
-        "omit" if provider == config.PROVIDER_OPENAI_COMPAT else None,
+        (
+            "omit"
+            if provider == config.PROVIDER_OPENAI_COMPAT
+            else "none" if provider == config.PROVIDER_OPENROUTER else None
+        ),
     )
     return config.StageProvider(
         stage=name,
@@ -136,6 +140,8 @@ def test_payload_carries_the_json_contract_only_when_asked():
     ]
     assert payload["response_format"] == {"type": "json_object"}
     assert payload["temperature"] == 0.0 and payload["max_tokens"] == 1024
+    assert "provider" not in payload
+    assert "reasoning" not in payload
     prose = build_payload(
         "m",
         "s",
@@ -152,6 +158,11 @@ def test_transport_and_config_share_the_literal_reasoning_contract():
     expected = ("omit", "none", "low", "medium", "high")
     assert config.REASONING_EFFORTS == expected
     assert llm_client.REASONING_EFFORTS == expected
+    assert (
+        config.OPENROUTER_QUESTION_PROVIDER_ENDPOINT
+        == llm_client.OPENROUTER_PROVIDER_ENDPOINT
+        == "venice/bf16"
+    )
 
 
 @pytest.mark.parametrize("effort", ["none", "low", "medium", "high"])
@@ -179,6 +190,69 @@ def test_payload_omit_is_an_explicit_instruction_not_to_send_the_field():
         reasoning_effort="omit",
     )
     assert "reasoning_effort" not in payload
+
+
+def test_openrouter_payload_has_the_fixed_strict_policy_and_reasoning_off():
+    payload = build_payload(
+        "google/gemma-4-31b-it",
+        "system",
+        "user",
+        temperature=0.7,
+        max_tokens=4096,
+        json_object=True,
+        reasoning_effort="none",
+        request_profile="openrouter",
+        openrouter_provider_endpoint="venice/bf16",
+    )
+    assert payload == {
+        "model": "google/gemma-4-31b-it",
+        "messages": [
+            {"role": "system", "content": "system"},
+            {"role": "user", "content": "user"},
+        ],
+        "temperature": 0.7,
+        "max_tokens": 4096,
+        "response_format": {"type": "json_object"},
+        "provider": {
+            "allow_fallbacks": False,
+            "data_collection": "deny",
+            "only": ["venice/bf16"],
+        },
+        "reasoning": {"enabled": False},
+    }
+    assert "reasoning_effort" not in payload
+
+
+@pytest.mark.parametrize("reasoning_effort", ["omit", "low", "medium", "high"])
+def test_openrouter_payload_rejects_any_non_disabled_reasoning(reasoning_effort):
+    with pytest.raises(ValueError, match="requires reasoning_effort=none"):
+        build_payload(
+            "google/gemma-4-31b-it",
+            "s",
+            "u",
+            temperature=0.7,
+            max_tokens=4096,
+            json_object=True,
+            reasoning_effort=reasoning_effort,
+            request_profile="openrouter",
+            openrouter_provider_endpoint="venice/bf16",
+        )
+
+
+@pytest.mark.parametrize("provider_endpoint", [None, "", "venice", "novita/bf16"])
+def test_openrouter_payload_rejects_any_other_provider_endpoint(provider_endpoint):
+    with pytest.raises(ValueError, match="requires provider endpoint"):
+        build_payload(
+            "google/gemma-4-31b-it",
+            "s",
+            "u",
+            temperature=0.7,
+            max_tokens=4096,
+            json_object=True,
+            reasoning_effort="none",
+            request_profile="openrouter",
+            openrouter_provider_endpoint=provider_endpoint,
+        )
 
 
 def test_payload_rejects_an_unknown_reasoning_effort():
@@ -422,6 +496,151 @@ def test_the_async_client_sends_reasoning_effort_exactly():
         )
     assert answer == "Ответ"
     assert captured["reasoning_effort"] == "high"
+
+
+def test_the_async_openrouter_client_sends_the_strict_profile():
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(request.content))
+        return httpx.Response(200, json=chat_response("Ответ"))
+
+    with mock_async(handler):
+        answer = asyncio.run(
+            AsyncChatClient(
+                config.OPENROUTER_QUESTION_ENDPOINT,
+                "openrouter-key",
+                config.OPENROUTER_QUESTION_MODEL,
+                "none",
+                max_tokens=4096,
+                request_profile="openrouter",
+                openrouter_provider_endpoint="venice/bf16",
+            ).complete("i", "u", json_object=True, temperature=0.7)
+        )
+    assert answer == "Ответ"
+    assert captured["provider"] == {
+        "allow_fallbacks": False,
+        "data_collection": "deny",
+        "only": ["venice/bf16"],
+    }
+    assert captured["reasoning"] == {"enabled": False}
+    assert "reasoning_effort" not in captured
+
+
+@pytest.mark.parametrize("provider", ["together", "openai_compat"])
+def test_question_stage_selects_together_by_provider_not_endpoint(monkeypatch, provider):
+    captured = {}
+    headers = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(request.content))
+        headers.update(request.headers)
+        assert str(request.url) == "https://api.together.ai/v1/chat/completions"
+        return httpx.Response(200, json=chat_response("Ответ"))
+
+    monkeypatch.setattr(
+        twinkler_ai,
+        "QUESTION_PROVIDER",
+        stage(
+            "question",
+            config.TOGETHER_QUESTION_MODEL,
+            provider=provider,
+            endpoint=config.TOGETHER_QUESTION_ENDPOINT,
+            api_key="together-key",
+            reasoning_effort="none",
+        ),
+    )
+    with mock_async(handler):
+        answer = asyncio.run(
+            twinkler_ai.complete("Запрос", question_language("Запрос", "ru"))
+        )
+    assert answer == "Ответ"
+    assert headers["authorization"] == "Bearer together-key"
+    assert captured["model"] == "google/gemma-4-31B-it"
+    assert captured["response_format"] == {"type": "json_object"}
+    assert captured["max_tokens"] == twinkler_ai.AI_QUESTION_MAX_TOKENS
+    assert "provider" not in captured
+    if provider == "together":
+        assert captured["reasoning"] == {"enabled": False}
+        assert "reasoning_effort" not in captured
+    else:
+        assert captured["reasoning_effort"] == "none"
+        assert "reasoning" not in captured
+
+
+@pytest.mark.parametrize("reasoning_effort", ["omit", "low", "medium", "high"])
+def test_together_payload_requires_disabled_reasoning(reasoning_effort):
+    with pytest.raises(ValueError, match="requires reasoning_effort=none"):
+        build_payload(
+            config.TOGETHER_QUESTION_MODEL, "System", "User",
+            temperature=0.7, max_tokens=4096, json_object=True,
+            reasoning_effort=reasoning_effort, request_profile="together",
+        )
+
+
+def test_together_payload_rejects_openrouter_policy():
+    with pytest.raises(ValueError, match="belongs only to the openrouter"):
+        build_payload(
+            config.TOGETHER_QUESTION_MODEL, "System", "User",
+            temperature=0.7, max_tokens=4096, json_object=True,
+            reasoning_effort="none", request_profile="together",
+            openrouter_provider_endpoint="venice/bf16",
+        )
+
+
+@pytest.mark.parametrize(
+    ("api_key", "reasoning", "message"),
+    [("", "none", "API key"), ("   ", "none", "API key"),
+     ("together-key", "omit", "reasoning must be disabled")],
+)
+def test_together_client_fails_before_network_for_invalid_configuration(
+    api_key, reasoning, message
+):
+    client = AsyncChatClient(
+        config.TOGETHER_QUESTION_ENDPOINT, api_key,
+        config.TOGETHER_QUESTION_MODEL, reasoning,
+        request_profile="together",
+    )
+    with pytest.raises(LLMError, match=message):
+        asyncio.run(client.complete("System", "User"))
+
+
+def test_question_stage_selects_openrouter_by_provider_not_endpoint(monkeypatch):
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(request.content))
+        return httpx.Response(200, json=chat_response("Ответ"))
+
+    monkeypatch.setattr(
+        twinkler_ai,
+        "QUESTION_PROVIDER",
+        stage(
+            "question",
+            config.OPENROUTER_QUESTION_MODEL,
+            provider=config.PROVIDER_OPENROUTER,
+            endpoint=config.OPENROUTER_QUESTION_ENDPOINT,
+            api_key="openrouter-key",
+            reasoning_effort="none",
+        ),
+    )
+    monkeypatch.setattr(
+        twinkler_ai,
+        "AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT",
+        "venice/bf16",
+    )
+    with mock_async(handler):
+        answer = asyncio.run(
+            twinkler_ai.complete("Запрос", question_language("Запрос", "ru"))
+        )
+    assert answer == "Ответ"
+    assert captured["provider"] == {
+        "allow_fallbacks": False,
+        "data_collection": "deny",
+        "only": ["venice/bf16"],
+    }
+    assert captured["reasoning"] == {"enabled": False}
+    assert "reasoning_effort" not in captured
 
 
 def no_sleep(recorded: list | None = None):
@@ -1126,6 +1345,69 @@ def test_the_startup_banner_names_the_providers_and_never_the_key(monkeypatch, c
     assert "max_tokens=8192 timeout_seconds=23.5" in question_line
     assert caplog.text.count("max_tokens=") == 1
     assert caplog.text.count("timeout_seconds=") == 1
+
+
+def test_the_startup_banner_names_the_strict_openrouter_profile(monkeypatch, caplog):
+    import main
+
+    monkeypatch.setattr(
+        main,
+        "QUESTION_PROVIDER",
+        stage(
+            "question",
+            config.OPENROUTER_QUESTION_MODEL,
+            provider=config.PROVIDER_OPENROUTER,
+            endpoint=config.OPENROUTER_QUESTION_ENDPOINT,
+            api_key=SECRET_KEY,
+            reasoning_effort="none",
+        ),
+    )
+    monkeypatch.setattr(
+        main,
+        "AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT",
+        "venice/bf16",
+    )
+    with caplog.at_level(logging.INFO):
+        main.log_ai_providers()
+
+    line = next(
+        line for line in caplog.text.splitlines() if "AI stage question" in line
+    )
+    assert "provider=openrouter" in line
+    assert "model=google/gemma-4-31b-it" in line
+    assert " at openrouter.ai" in line
+    assert "provider_endpoint=venice/bf16" in line
+    assert "reasoning=disabled" in line
+    assert "allow_fallbacks=false" in line
+    assert "data_collection=deny" in line
+    assert "reasoning_effort=" not in line
+    assert SECRET_KEY not in line
+
+
+def test_the_startup_banner_names_together_with_reasoning_disabled(monkeypatch, caplog):
+    import main
+
+    monkeypatch.setattr(
+        main, "QUESTION_PROVIDER",
+        stage(
+            "question", config.TOGETHER_QUESTION_MODEL,
+            provider=config.PROVIDER_TOGETHER,
+            endpoint=config.TOGETHER_QUESTION_ENDPOINT,
+            api_key=SECRET_KEY, reasoning_effort="none",
+        ),
+    )
+    with caplog.at_level(logging.INFO):
+        main.log_ai_providers()
+    line = next(line for line in caplog.text.splitlines() if "AI stage question" in line)
+    assert "provider=together" in line
+    assert "model=google/gemma-4-31B-it" in line
+    assert " at api.together.ai" in line
+    assert "reasoning=disabled" in line
+    assert "reasoning_effort=" not in line
+    assert "provider_endpoint=" not in line
+    assert "allow_fallbacks=" not in line
+    assert "data_collection=" not in line
+    assert SECRET_KEY not in line
 
 
 def test_the_ai_banner_is_visible_when_uvicorn_left_the_root_bare():

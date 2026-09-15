@@ -9,8 +9,8 @@ services:
     # Provider keys are passed by name from the invoking shell, never from
     # .env. The sentinel preserves unset versus explicitly empty: config
     # rejects the former and accepts the latter only for openai_compat as the
-    # deliberate "no Authorization header" statement. Gemini keys must be
-    # non-empty. With AI_ENABLED=false
+    # deliberate "no Authorization header" statement. Gemini and OpenRouter
+    # keys must be non-empty. With AI_ENABLED=false
     # the four AI sentinels count as absent, so disabled deployments need not
     # export unused keys. EMBEDDING_API_KEY remains independently required for
     # remote embeddings.

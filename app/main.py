@@ -29,6 +29,7 @@ from trusted_proxies import TRUSTED_PROXIES, ensure_visible_handler
 from config import (
     AI_QUESTION_LOG_PROVIDER_BODIES,
     AI_QUESTION_MAX_TOKENS,
+    AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT,
     AI_QUESTION_TIMEOUT_SECONDS,
     EMBEDDING_DIMENSIONS,
     EMBEDDING_MODEL,
@@ -168,17 +169,27 @@ def log_ai_providers() -> None:
         SCRIPTURE_RERANK_PROVIDER,
         TRANSCRIBE_PROVIDER,
     ):
-        if stage.is_openai_compat:
+        if stage.is_chat_completions:
             where = f" at {endpoint_host(stage.endpoint) or '<no endpoint>'}"
         elif stage.is_local:
             where = f" from {AI_TRANSCRIBE_MODEL_PATH or '<no path>'}"
         else:
             where = ""
-        reasoning = (
-            f" reasoning_effort={stage.reasoning_effort}"
-            if stage.reasoning_effort is not None
-            else ""
-        )
+        if stage.is_openrouter:
+            reasoning = (
+                " provider_endpoint="
+                f"{AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT} "
+                "reasoning=disabled allow_fallbacks=false "
+                "data_collection=deny"
+            )
+        elif stage.is_together:
+            reasoning = " reasoning=disabled"
+        else:
+            reasoning = (
+                f" reasoning_effort={stage.reasoning_effort}"
+                if stage.reasoning_effort is not None
+                else ""
+            )
         question_limits = (
             f" max_tokens={AI_QUESTION_MAX_TOKENS} "
             f"timeout_seconds={AI_QUESTION_TIMEOUT_SECONDS:g}"

@@ -59,14 +59,24 @@ policy, and does not authorize a production change. The cross-repository
 decision is recorded in
 [Architecture ADR-0004](https://github.com/BibleGarden/Architecture/blob/main/decisions/0004-explicit-openai-reasoning-effort.md#amendment-note--2026-09-14).
 
+### Amendment 2 (2026-09-14)
+
+Maria ended the Cerebras question trial and moved only the local question
+stage to the strict OpenRouter Gemma profile of ADR 0022. Its environment
+still declares `AI_QUESTION_REASONING_EFFORT=none`, but the OpenRouter wire
+shape is the provider's official `reasoning: {enabled: false}` object and does
+not contain flat `reasoning_effort`. Rewrite and rerank keep the independent
+values recorded above.
+
 ## Consequences
 
 - Existing OpenAI-compatible chat deployments must choose an explicit value
   for every such stage before restart. `omit` preserves compatibility where
   the endpoint does not implement reasoning effort without creating a default.
-- The original local trial used `none` on all three chat stages; the amendment
-  above is the current stage-specific local configuration. Production model
-  policy and production topology remain unchanged.
+- The original local trial used `none` on all three chat stages; the first
+  amendment records its later question setting. ADR 0022 is the current local
+  question configuration. Production model policy and production topology
+  remain unchanged.
 - The four ungraded top-1 results from evaluation 86cbh1apk remain ungraded.
   They must be passed to Maria and are not self-labelled as evidence for the
   trial decision.

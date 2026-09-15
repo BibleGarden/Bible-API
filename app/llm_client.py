@@ -6,9 +6,12 @@ The three chat-shaped AI stages — the guiding question
 passage rerank — used to speak Gemini's `:generateContent` protocol inline,
 one hand-rolled copy per module. This module is the OTHER transport: one
 OpenAI-compatible `/chat/completions` client the same three stages can use,
-chosen per stage by `AI_*_PROVIDER` (see `app/config.py`). Each client also
-receives that stage's validated reasoning effort: four values become the
-request field, while the explicit `omit` mode leaves it out.
+chosen per stage by `AI_*_PROVIDER` (see `app/config.py`). The generic
+`openai_compat` profile sends the stage's validated reasoning effort as before.
+The explicit `openrouter` profile is question-only and adds the fixed privacy,
+routing and reasoning-off objects required by ADR 0022. It is selected by the
+provider value, never inferred from the endpoint hostname. The question-only
+`together` profile sends reasoning.enabled=false without OpenRouter policies.
 
 What is deliberately NOT here: prompts, parsers and validation. A stage's
 instruction, its user content and the checks applied to the answer stay in
@@ -89,6 +92,24 @@ _RETRY_BASE_SECONDS = 2.0
 # Kept literal here as a transport guard as well as in config validation: the
 # client is also used by tests and tooling that can construct it directly.
 REASONING_EFFORTS = ("omit", "none", "low", "medium", "high")
+REQUEST_PROFILE_OPENAI_COMPAT = "openai_compat"
+REQUEST_PROFILE_OPENROUTER = "openrouter"
+REQUEST_PROFILE_TOGETHER = "together"
+REQUEST_PROFILES = (
+    REQUEST_PROFILE_OPENAI_COMPAT,
+    REQUEST_PROFILE_OPENROUTER,
+    REQUEST_PROFILE_TOGETHER,
+)
+OPENROUTER_PROVIDER_ENDPOINT = "venice/bf16"
+
+# Fixed in code on purpose. Letting an environment-provided JSON object reach
+# this field would make the effective privacy and routing policy invisible to
+# startup validation and review.
+OPENROUTER_PROVIDER_POLICY = {
+    "allow_fallbacks": False,
+    "data_collection": "deny",
+}
+OPENROUTER_REASONING_POLICY = {"enabled": False}
 
 
 def log_diagnostic_request(
@@ -191,6 +212,8 @@ def build_payload(
     max_tokens: int,
     json_object: bool,
     reasoning_effort: str,
+    request_profile: str = REQUEST_PROFILE_OPENAI_COMPAT,
+    openrouter_provider_endpoint: str | None = None,
 ) -> dict:
     """The chat-completions body: system instruction + one user message.
 
@@ -215,8 +238,39 @@ def build_payload(
         raise ValueError(
             "reasoning_effort must be one of " + ", ".join(REASONING_EFFORTS)
         )
-    if reasoning_effort != "omit":
-        payload["reasoning_effort"] = reasoning_effort
+    if request_profile not in REQUEST_PROFILES:
+        raise ValueError(
+            "request_profile must be one of " + ", ".join(REQUEST_PROFILES)
+        )
+    if request_profile == REQUEST_PROFILE_OPENROUTER:
+        if reasoning_effort != "none":
+            raise ValueError(
+                "the openrouter request profile requires reasoning_effort=none"
+            )
+        if openrouter_provider_endpoint != OPENROUTER_PROVIDER_ENDPOINT:
+            raise ValueError(
+                "the openrouter request profile requires provider endpoint "
+                f"{OPENROUTER_PROVIDER_ENDPOINT!r}"
+            )
+        payload["provider"] = {
+            **OPENROUTER_PROVIDER_POLICY,
+            "only": [openrouter_provider_endpoint],
+        }
+        payload["reasoning"] = dict(OPENROUTER_REASONING_POLICY)
+    else:
+        if openrouter_provider_endpoint is not None:
+            raise ValueError(
+                "openrouter_provider_endpoint belongs only to the openrouter "
+                "request profile"
+            )
+        if request_profile == REQUEST_PROFILE_TOGETHER:
+            if reasoning_effort != "none":
+                raise ValueError(
+                    "the together request profile requires reasoning_effort=none"
+                )
+            payload["reasoning"] = {"enabled": False}
+        elif reasoning_effort != "omit":
+            payload["reasoning_effort"] = reasoning_effort
     return payload
 
 
@@ -264,6 +318,8 @@ class _ChatBase:
         timeout: float = 20.0,
         attempts: int = 3,
         max_tokens: int = DEFAULT_MAX_TOKENS,
+        request_profile: str = REQUEST_PROFILE_OPENAI_COMPAT,
+        openrouter_provider_endpoint: str | None = None,
     ):
         self.endpoint = endpoint
         self.api_key = api_key
@@ -272,6 +328,8 @@ class _ChatBase:
         self.timeout = timeout
         self.attempts = max(1, attempts)
         self.max_tokens = max_tokens
+        self.request_profile = request_profile
+        self.openrouter_provider_endpoint = openrouter_provider_endpoint
 
     def _check_configured(self) -> None:
         """Refuse to build a request out of an unconfigured stage.
@@ -287,6 +345,22 @@ class _ChatBase:
             raise LLMError("chat model is not configured")
         if self.reasoning_effort not in REASONING_EFFORTS:
             raise LLMError("chat reasoning effort is not configured")
+        if self.request_profile not in REQUEST_PROFILES:
+            raise LLMError("chat request profile is not configured")
+        if self.request_profile in (
+            REQUEST_PROFILE_OPENROUTER, REQUEST_PROFILE_TOGETHER
+        ):
+            if not self.api_key.strip():
+                raise LLMError(f"{self.request_profile} API key is not configured")
+            if self.reasoning_effort != "none":
+                raise LLMError(f"{self.request_profile} reasoning must be disabled")
+        if self.request_profile == REQUEST_PROFILE_OPENROUTER:
+            if self.openrouter_provider_endpoint != OPENROUTER_PROVIDER_ENDPOINT:
+                raise LLMError("openrouter provider endpoint is not configured")
+        elif self.openrouter_provider_endpoint is not None:
+            raise LLMError(
+                "openrouter provider endpoint is set for another request profile"
+            )
 
     def _request(
         self,
@@ -305,6 +379,8 @@ class _ChatBase:
             max_tokens=self.max_tokens,
             json_object=json_object,
             reasoning_effort=self.reasoning_effort,
+            request_profile=self.request_profile,
+            openrouter_provider_endpoint=self.openrouter_provider_endpoint,
         )
         return completions_url(self.endpoint), payload, auth_headers(self.api_key)
 
@@ -345,6 +421,8 @@ class ChatClient(_ChatBase):
         attempts: int = 3,
         max_tokens: int = DEFAULT_MAX_TOKENS,
         sleep=time.sleep,
+        request_profile: str = REQUEST_PROFILE_OPENAI_COMPAT,
+        openrouter_provider_endpoint: str | None = None,
     ):
         super().__init__(
             endpoint,
@@ -354,6 +432,8 @@ class ChatClient(_ChatBase):
             timeout,
             attempts,
             max_tokens,
+            request_profile,
+            openrouter_provider_endpoint,
         )
         self._owns_client = http_client is None
         self._client = http_client or httpx.Client(timeout=httpx.Timeout(timeout))
@@ -447,6 +527,8 @@ class AsyncChatClient(_ChatBase):
         max_tokens: int = DEFAULT_MAX_TOKENS,
         sleep=asyncio.sleep,
         diagnostic_logger: logging.Logger | None = None,
+        request_profile: str = REQUEST_PROFILE_OPENAI_COMPAT,
+        openrouter_provider_endpoint: str | None = None,
     ):
         super().__init__(
             endpoint,
@@ -456,6 +538,8 @@ class AsyncChatClient(_ChatBase):
             timeout,
             attempts,
             max_tokens,
+            request_profile,
+            openrouter_provider_endpoint,
         )
         # Injectable for the same reason `ChatClient` takes one: a test of the
         # retry ladder must not spend the backoff in real seconds.
@@ -488,7 +572,7 @@ class AsyncChatClient(_ChatBase):
                     if self._diagnostic_logger is not None:
                         diagnostic_call_id = log_diagnostic_request(
                             self._diagnostic_logger,
-                            "openai_compat",
+                            self.request_profile,
                             payload,
                             attempt + 1,
                             self.api_key,
@@ -497,7 +581,7 @@ class AsyncChatClient(_ChatBase):
                     if self._diagnostic_logger is not None:
                         log_diagnostic_response(
                             self._diagnostic_logger,
-                            "openai_compat",
+                            self.request_profile,
                             response,
                             attempt + 1,
                             self.api_key,

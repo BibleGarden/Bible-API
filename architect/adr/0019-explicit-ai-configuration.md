@@ -3,6 +3,10 @@
 Status: accepted (2026-09-13).
 Ticket: ClickUp 86cbh1ap9.
 
+> Note (2026-09-14, ClickUp 86cbh9vh6): ADR 0022 adds the question-only
+> `openrouter` provider. Unlike `openai_compat`, its key must be non-empty and
+> its model, endpoint and reasoning declaration are pinned and fail-fast.
+
 Supersedes the configuration-resolution parts of ADR 0008, ADR 0009,
 ADR 0012 and ADR 0014. Their provider transports, models, prompts, retry
 policies, retrieval pipeline and public API contracts are unchanged.
