@@ -916,7 +916,13 @@ def test_rerank_parity_between_providers():
 
 @pytest.mark.parametrize(
     "model,reasoning_effort",
-    [("gemini-2.5-flash", "none"), ("gemini-test", None)],
+    [
+        ("gemini-3.8-flash", "low"),
+        ("gemini-3.8-flash", "medium"),
+        ("gemini-3.8-flash", "high"),
+        ("gemini-2.5-flash", None),
+        ("gemini-test", None),
+    ],
 )
 def test_gemini_question_thinking_configuration_reaches_wire(
     monkeypatch, model, reasoning_effort
@@ -948,8 +954,8 @@ def test_gemini_question_thinking_configuration_reaches_wire(
         "maxOutputTokens": twinkler_ai.AI_QUESTION_MAX_TOKENS,
         "temperature": 0.7,
     }
-    if reasoning_effort == "none":
-        expected_config["thinkingConfig"] = {"thinkingBudget": 0}
+    if reasoning_effort is not None:
+        expected_config["thinkingConfig"] = {"thinkingLevel": reasoning_effort.upper()}
     assert captured == [{
         "system_instruction": {"parts": [{"text": build_question_prompt("ru")}]},
         "contents": [{"role": "user", "parts": [{"text": "Мне тяжело"}]}],
@@ -957,14 +963,17 @@ def test_gemini_question_thinking_configuration_reaches_wire(
     }]
 
 
-def test_gemini_25_flash_startup_banner_reports_thinking_off(monkeypatch, caplog):
+@pytest.mark.parametrize("level", ["low", "medium", "high"])
+def test_gemini_38_flash_startup_banner_reports_thinking_level(
+    monkeypatch, caplog, level
+):
     import main
 
     monkeypatch.setattr(
         main, "QUESTION_PROVIDER",
         stage(
-            "question", "gemini-2.5-flash", provider=config.PROVIDER_GEMINI,
-            endpoint="", reasoning_effort="none",
+            "question", "gemini-3.8-flash", provider=config.PROVIDER_GEMINI,
+            endpoint="", reasoning_effort=level,
         ),
     )
     with caplog.at_level(logging.INFO):
@@ -973,8 +982,9 @@ def test_gemini_25_flash_startup_banner_reports_thinking_off(monkeypatch, caplog
         line for line in caplog.text.splitlines() if "AI stage question" in line
     )
     assert "provider=gemini" in line
-    assert "model=gemini-2.5-flash" in line
-    assert "reasoning=disabled thinking_budget=0" in line
+    assert "model=gemini-3.8-flash" in line
+    assert f"thinking_level={level.upper()}" in line
+    assert "reasoning=disabled" not in line
     assert "reasoning_effort=" not in line
     assert SECRET_KEY not in line
 

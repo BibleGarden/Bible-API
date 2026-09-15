@@ -93,8 +93,9 @@ OPENROUTER_QUESTION_PROVIDER_ENDPOINT = "venice/bf16"
 TOGETHER_QUESTION_ENDPOINT = "https://api.together.ai/v1"
 TOGETHER_QUESTION_MODEL = "google/gemma-4-31B-it"
 
-# Only this Gemini question model has a reviewed thinking-off contract.
-GEMINI_QUESTION_THINKING_OFF_MODEL = "gemini-2.5-flash"
+# Only this Gemini question model has a reviewed thinking-level contract.
+GEMINI_QUESTION_THINKING_MODEL = "gemini-3.8-flash"
+GEMINI_QUESTION_THINKING_LEVELS = ("low", "medium", "high")
 
 REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
     "omit",
@@ -286,7 +287,7 @@ class StageProvider:
     configuration `_validate` has already refused). `endpoint` is empty for
     Gemini, whose URL is a constant of the stage module.
     `reasoning_effort` is set for chat-completions stages and the explicit
-    Gemini 2.5 Flash question thinking-off profile.
+    Gemini 3.8 Flash question thinking-level profile.
     """
 
     stage: str
@@ -446,11 +447,11 @@ def ai_configured(env: Mapping[str, str]) -> bool:
 
 
 def _is_gemini_flash_question(env: Mapping[str, str], stage: StageVars) -> bool:
-    """Whether the stage requires the reviewed Gemini thinking-off setting."""
+    """Whether the stage requires the reviewed Gemini thinking-level setting."""
     return (
         stage.stage == "question"
         and env.get(stage.provider_var, "").strip() == PROVIDER_GEMINI
-        and env.get(stage.model_var, "").strip() == GEMINI_QUESTION_THINKING_OFF_MODEL
+        and env.get(stage.model_var, "").strip() == GEMINI_QUESTION_THINKING_MODEL
     )
 
 
@@ -763,15 +764,18 @@ def invalid_required_values(env: Mapping[str, str]) -> list[str]:
                 "use an endpoint"
             )
         if _is_gemini_flash_question(env, stage):
-            if env.get(stage.model_var) != GEMINI_QUESTION_THINKING_OFF_MODEL:
+            if env.get(stage.model_var) != GEMINI_QUESTION_THINKING_MODEL:
                 problems.append(
-                    f"{stage.model_var}: Gemini thinking-off profile requires "
-                    f"exactly {GEMINI_QUESTION_THINKING_OFF_MODEL!r}"
+                    f"{stage.model_var}: Gemini thinking-level profile requires "
+                    f"exactly {GEMINI_QUESTION_THINKING_MODEL!r}"
                 )
-            if env.get(stage.reasoning_effort_var) != "none":
+            if (
+                env.get(stage.reasoning_effort_var)
+                not in GEMINI_QUESTION_THINKING_LEVELS
+            ):
                 problems.append(
-                    f"{stage.reasoning_effort_var}: Gemini 2.5 Flash questions "
-                    "require exactly 'none' (thinkingBudget=0)"
+                    f"{stage.reasoning_effort_var}: Gemini 3.8 Flash questions "
+                    "require low, medium or high (thinkingConfig.thinkingLevel)"
                 )
         elif provider not in CHAT_COMPLETIONS_PROVIDERS and (
             stage.reasoning_effort_var is not None
@@ -780,7 +784,7 @@ def invalid_required_values(env: Mapping[str, str]) -> list[str]:
             problems.append(
                 f"{stage.reasoning_effort_var}: set while {stage.provider_var}="
                 f"{provider or '<unset>'} — only openai_compat chat and the "
-                "question-only openrouter/together and Gemini 2.5 Flash profiles "
+                "question-only openrouter/together and Gemini 3.8 Flash profiles "
                 "use reasoning "
                 "configuration"
             )
@@ -962,8 +966,8 @@ def _required_reason(env: Mapping[str, str], name: str) -> str:
         if name == stage.reasoning_effort_var:
             if _is_gemini_flash_question(env, stage):
                 return (
-                    f"{name} is required for Gemini 2.5 Flash questions: "
-                    "exactly 'none' (sent as thinkingConfig.thinkingBudget=0)"
+                    f"{name} is required for Gemini 3.8 Flash questions: "
+                    "low, medium or high (sent as thinkingConfig.thinkingLevel)"
                 )
             provider = env.get(stage.provider_var, "").strip()
             if provider in (PROVIDER_OPENROUTER, PROVIDER_TOGETHER):

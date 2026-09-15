@@ -184,8 +184,8 @@ def log_ai_providers() -> None:
             )
         elif stage.is_together:
             reasoning = " reasoning=disabled"
-        elif stage.is_gemini and stage.reasoning_effort == "none":
-            reasoning = " reasoning=disabled thinking_budget=0"
+        elif stage.is_gemini and stage.reasoning_effort is not None:
+            reasoning = f" thinking_level={stage.reasoning_effort.upper()}"
         else:
             reasoning = (
                 f" reasoning_effort={stage.reasoning_effort}"
