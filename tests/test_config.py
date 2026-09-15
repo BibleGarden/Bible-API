@@ -42,7 +42,7 @@ FORBIDDEN_REASONING_VARS = (
     "EMBEDDING_REASONING_EFFORT",
 )
 REASONING_EFFORTS = ("omit", "none", "low", "medium", "high")
-QUESTION_PROVIDERS = ("gemini", "openai_compat", "openrouter")
+QUESTION_PROVIDERS = ("gemini", "openai_compat", "openrouter", "together")
 INTEGER_OPERATIONAL_VARS = (
     "DB_PORT",
     "IMPORT_MAX_PAYLOAD_MB",
@@ -182,6 +182,15 @@ OPENROUTER_ENV = {
     "AI_QUESTION_API_KEY": "openrouter-key",
     "AI_QUESTION_REASONING_EFFORT": "none",
     "AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT": "venice/bf16",
+}
+
+TOGETHER_ENV = {
+    **AI_ENV,
+    "AI_QUESTION_PROVIDER": "together",
+    "AI_QUESTION_MODEL": "google/gemma-4-31B-it",
+    "AI_QUESTION_ENDPOINT": "https://api.together.ai/v1",
+    "AI_QUESTION_API_KEY": "together-key",
+    "AI_QUESTION_REASONING_EFFORT": "none",
 }
 
 GEMINI_AI_ENV = {
@@ -396,6 +405,64 @@ def test_enabled_ai_requires_hmac_and_all_four_stages():
 def test_complete_mixed_environment_has_no_problems():
     assert config.missing_required_vars(AI_ENV) == []
     assert config.invalid_required_values(AI_ENV) == []
+
+
+def test_strict_together_question_environment_has_no_problems():
+    config._validate(TOGETHER_ENV, [])
+    stage = config.resolve_stage(TOGETHER_ENV, config.QUESTION_STAGE_VARS)
+    assert stage.is_together
+    assert stage.is_chat_completions
+    assert not stage.is_openai_compat
+    assert not stage.is_openrouter
+    assert stage.api_key == "together-key"
+    assert stage.reasoning_effort == "none"
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["AI_QUESTION_MODEL", "AI_QUESTION_ENDPOINT", "AI_QUESTION_API_KEY",
+     "AI_QUESTION_REASONING_EFFORT"],
+)
+@pytest.mark.parametrize("value", [None, "", "   ", config.COMPOSE_UNSET_SENTINEL])
+def test_together_requires_explicit_complete_configuration(name, value):
+    env = dict(TOGETHER_ENV)
+    if value is None:
+        del env[name]
+    else:
+        env[name] = value
+    with pytest.raises(config.ConfigError, match=name):
+        config._validate(env, [])
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("AI_QUESTION_MODEL", "google/gemma-4-31b-it"),
+        ("AI_QUESTION_MODEL", "other-model"),
+        ("AI_QUESTION_ENDPOINT", "https://api.together.ai/v1/"),
+        ("AI_QUESTION_ENDPOINT", "https://openrouter.ai/api/v1"),
+        ("AI_QUESTION_REASONING_EFFORT", "omit"),
+        ("AI_QUESTION_REASONING_EFFORT", "low"),
+        ("AI_QUESTION_REASONING_EFFORT", "medium"),
+        ("AI_QUESTION_REASONING_EFFORT", "high"),
+        ("AI_QUESTION_REASONING_EFFORT", "false"),
+        ("AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT", "venice/bf16"),
+        ("AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT", ""),
+    ],
+)
+def test_together_rejects_unsupported_configuration(name, value):
+    with pytest.raises(config.ConfigError, match=name):
+        config._validate({**TOGETHER_ENV, name: value}, [])
+
+
+@pytest.mark.parametrize(
+    "provider_var",
+    ["AI_SCRIPTURE_REWRITE_PROVIDER", "AI_SCRIPTURE_RERANK_PROVIDER",
+     "AI_TRANSCRIBE_PROVIDER", "EMBEDDING_PROVIDER"],
+)
+def test_together_is_question_only(provider_var):
+    with pytest.raises(config.ConfigError, match=provider_var):
+        config._validate({**AI_ENV, provider_var: "together"}, [])
 
 
 def test_strict_openrouter_question_environment_has_no_problems():

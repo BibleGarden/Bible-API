@@ -10,7 +10,8 @@ chosen per stage by `AI_*_PROVIDER` (see `app/config.py`). The generic
 `openai_compat` profile sends the stage's validated reasoning effort as before.
 The explicit `openrouter` profile is question-only and adds the fixed privacy,
 routing and reasoning-off objects required by ADR 0022. It is selected by the
-provider value, never inferred from the endpoint hostname.
+provider value, never inferred from the endpoint hostname. The question-only
+`together` profile sends reasoning.enabled=false without OpenRouter policies.
 
 What is deliberately NOT here: prompts, parsers and validation. A stage's
 instruction, its user content and the checks applied to the answer stay in
@@ -93,7 +94,12 @@ _RETRY_BASE_SECONDS = 2.0
 REASONING_EFFORTS = ("omit", "none", "low", "medium", "high")
 REQUEST_PROFILE_OPENAI_COMPAT = "openai_compat"
 REQUEST_PROFILE_OPENROUTER = "openrouter"
-REQUEST_PROFILES = (REQUEST_PROFILE_OPENAI_COMPAT, REQUEST_PROFILE_OPENROUTER)
+REQUEST_PROFILE_TOGETHER = "together"
+REQUEST_PROFILES = (
+    REQUEST_PROFILE_OPENAI_COMPAT,
+    REQUEST_PROFILE_OPENROUTER,
+    REQUEST_PROFILE_TOGETHER,
+)
 OPENROUTER_PROVIDER_ENDPOINT = "venice/bf16"
 
 # Fixed in code on purpose. Letting an environment-provided JSON object reach
@@ -257,7 +263,13 @@ def build_payload(
                 "openrouter_provider_endpoint belongs only to the openrouter "
                 "request profile"
             )
-        if reasoning_effort != "omit":
+        if request_profile == REQUEST_PROFILE_TOGETHER:
+            if reasoning_effort != "none":
+                raise ValueError(
+                    "the together request profile requires reasoning_effort=none"
+                )
+            payload["reasoning"] = {"enabled": False}
+        elif reasoning_effort != "omit":
             payload["reasoning_effort"] = reasoning_effort
     return payload
 
@@ -335,11 +347,14 @@ class _ChatBase:
             raise LLMError("chat reasoning effort is not configured")
         if self.request_profile not in REQUEST_PROFILES:
             raise LLMError("chat request profile is not configured")
-        if self.request_profile == REQUEST_PROFILE_OPENROUTER:
-            if not self.api_key:
-                raise LLMError("openrouter API key is not configured")
+        if self.request_profile in (
+            REQUEST_PROFILE_OPENROUTER, REQUEST_PROFILE_TOGETHER
+        ):
+            if not self.api_key.strip():
+                raise LLMError(f"{self.request_profile} API key is not configured")
             if self.reasoning_effort != "none":
-                raise LLMError("openrouter reasoning must be disabled")
+                raise LLMError(f"{self.request_profile} reasoning must be disabled")
+        if self.request_profile == REQUEST_PROFILE_OPENROUTER:
             if self.openrouter_provider_endpoint != OPENROUTER_PROVIDER_ENDPOINT:
                 raise LLMError("openrouter provider endpoint is not configured")
         elif self.openrouter_provider_endpoint is not None:

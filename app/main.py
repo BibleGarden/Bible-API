@@ -182,6 +182,8 @@ def log_ai_providers() -> None:
                 "reasoning=disabled allow_fallbacks=false "
                 "data_collection=deny"
             )
+        elif stage.is_together:
+            reasoning = " reasoning=disabled"
         else:
             reasoning = (
                 f" reasoning_effort={stage.reasoning_effort}"

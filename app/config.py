@@ -56,20 +56,25 @@ AI_REQUIRED_VARS = (
 # ---------------------------------------------------------------------------
 # Provider per stage (ADR 0009, ADR 0012, amended by ADR 0019).
 #
-# Question accepts gemini, openai_compat or the strict OpenRouter profile.
+# Question accepts gemini, openai_compat or strict OpenRouter/Together profiles.
 # Rewrite and rerank accept only gemini or openai_compat; transcription
 # additionally accepts local. With AI_ENABLED=true every stage names its own
 # provider, model and remote API key. No value is inherited from another
-# stage, and OpenRouter is never inferred from an endpoint hostname.
+# stage, and request profiles are never inferred from an endpoint hostname.
 #
 # Embeddings are configured below as an independent fifth stage.
 # ---------------------------------------------------------------------------
 PROVIDER_GEMINI = "gemini"
 PROVIDER_OPENAI_COMPAT = "openai_compat"
 PROVIDER_OPENROUTER = "openrouter"
+PROVIDER_TOGETHER = "together"
 AI_PROVIDERS = (PROVIDER_GEMINI, PROVIDER_OPENAI_COMPAT)
-QUESTION_PROVIDERS = (*AI_PROVIDERS, PROVIDER_OPENROUTER)
-CHAT_COMPLETIONS_PROVIDERS = (PROVIDER_OPENAI_COMPAT, PROVIDER_OPENROUTER)
+QUESTION_PROVIDERS = (*AI_PROVIDERS, PROVIDER_OPENROUTER, PROVIDER_TOGETHER)
+CHAT_COMPLETIONS_PROVIDERS = (
+    PROVIDER_OPENAI_COMPAT,
+    PROVIDER_OPENROUTER,
+    PROVIDER_TOGETHER,
+)
 
 ReasoningEffort = Literal["omit", "none", "low", "medium", "high"]
 
@@ -79,11 +84,14 @@ ReasoningEffort = Literal["omit", "none", "low", "medium", "high"]
 # retain OpenRouter-specific privacy/routing semantics for an unreviewed call.
 OPENROUTER_QUESTION_ENDPOINT = "https://openrouter.ai/api/v1"
 OPENROUTER_QUESTION_MODEL = "google/gemma-4-31b-it"
-OPENROUTER_QUESTION_REASONING_EFFORT: ReasoningEffort = "none"
 OPENROUTER_QUESTION_PROVIDER_ENDPOINT_VAR = (
     "AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT"
 )
 OPENROUTER_QUESTION_PROVIDER_ENDPOINT = "venice/bf16"
+
+# The direct Together Gemma trial is a separate reviewed question profile.
+TOGETHER_QUESTION_ENDPOINT = "https://api.together.ai/v1"
+TOGETHER_QUESTION_MODEL = "google/gemma-4-31B-it"
 
 REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
     "omit",
@@ -297,6 +305,10 @@ class StageProvider:
         return self.provider == PROVIDER_OPENROUTER
 
     @property
+    def is_together(self) -> bool:
+        return self.provider == PROVIDER_TOGETHER
+
+    @property
     def is_chat_completions(self) -> bool:
         return self.provider in CHAT_COMPLETIONS_PROVIDERS
 
@@ -495,7 +507,7 @@ def _remote_missing(env: Mapping[str, str], stage: StageVars) -> list[str]:
             stage.reasoning_effort_var, ""
         ).strip():
             missing.append(stage.reasoning_effort_var)
-    if provider in (PROVIDER_GEMINI, PROVIDER_OPENROUTER):
+    if provider in (PROVIDER_GEMINI, PROVIDER_OPENROUTER, PROVIDER_TOGETHER):
         if not env_var_present(env, stage.api_key_var) or not env.get(
             stage.api_key_var, ""
         ).strip():
@@ -559,6 +571,7 @@ def missing_required_vars(env: Mapping[str, str]) -> list[str]:
             PROVIDER_GEMINI,
             PROVIDER_OPENAI_COMPAT,
             PROVIDER_OPENROUTER,
+            PROVIDER_TOGETHER,
         ):
             missing.extend(
                 name for name in _remote_missing(env, stage) if name not in missing
@@ -706,32 +719,23 @@ def invalid_required_values(env: Mapping[str, str]) -> list[str]:
                         f"{reasoning_effort!r}, expected one of "
                         f"{', '.join(REASONING_EFFORTS)}"
                     )
-            if provider == PROVIDER_OPENROUTER:
-                raw_model = env.get(stage.model_var, "")
-                if raw_model.strip() and raw_model != OPENROUTER_QUESTION_MODEL:
-                    problems.append(
-                        f"{stage.model_var}: {PROVIDER_OPENROUTER} question "
-                        f"profile requires exactly {OPENROUTER_QUESTION_MODEL!r}"
-                    )
-                raw_endpoint = env.get(stage.endpoint_var, "")
-                if (
-                    raw_endpoint.strip()
-                    and raw_endpoint != OPENROUTER_QUESTION_ENDPOINT
+            if provider in (PROVIDER_OPENROUTER, PROVIDER_TOGETHER):
+                expected_model, expected_endpoint = (
+                    (OPENROUTER_QUESTION_MODEL, OPENROUTER_QUESTION_ENDPOINT)
+                    if provider == PROVIDER_OPENROUTER
+                    else (TOGETHER_QUESTION_MODEL, TOGETHER_QUESTION_ENDPOINT)
+                )
+                for name, expected in (
+                    (stage.model_var, expected_model),
+                    (stage.endpoint_var, expected_endpoint),
+                    (stage.reasoning_effort_var, "none"),
                 ):
-                    problems.append(
-                        f"{stage.endpoint_var}: {PROVIDER_OPENROUTER} question "
-                        f"profile requires exactly {OPENROUTER_QUESTION_ENDPOINT!r}"
-                    )
-                raw_reasoning = env.get(stage.reasoning_effort_var or "", "")
-                if (
-                    raw_reasoning.strip()
-                    and raw_reasoning != OPENROUTER_QUESTION_REASONING_EFFORT
-                ):
-                    problems.append(
-                        f"{stage.reasoning_effort_var}: {PROVIDER_OPENROUTER} "
-                        "question profile requires exactly 'none' (sent as "
-                        "reasoning.enabled=false)"
-                    )
+                    raw = env.get(name, "")
+                    if raw.strip() and raw != expected:
+                        problems.append(
+                            f"{name}: {provider} question profile requires "
+                            f"exactly {expected!r}"
+                        )
         elif env_var_present(env, stage.endpoint_var):
             problems.append(
                 f"{stage.endpoint_var}: set while {stage.provider_var}="
@@ -745,7 +749,8 @@ def invalid_required_values(env: Mapping[str, str]) -> list[str]:
             problems.append(
                 f"{stage.reasoning_effort_var}: set while {stage.provider_var}="
                 f"{provider or '<unset>'} — only openai_compat chat and the "
-                "question-only openrouter profile use reasoning configuration"
+                "question-only openrouter/together profiles use reasoning "
+                "configuration"
             )
     question_provider = env.get(QUESTION_STAGE_VARS.provider_var, "").strip()
     if question_provider == PROVIDER_OPENROUTER:
@@ -912,7 +917,7 @@ def _required_reason(env: Mapping[str, str], name: str) -> str:
             )
         if name == stage.api_key_var:
             provider = env.get(stage.provider_var, "").strip()
-            if provider in (PROVIDER_GEMINI, PROVIDER_OPENROUTER):
+            if provider in (PROVIDER_GEMINI, PROVIDER_OPENROUTER, PROVIDER_TOGETHER):
                 return (
                     f"{name} must be non-empty when {stage.provider_var}="
                     f"{provider}"
@@ -924,11 +929,11 @@ def _required_reason(env: Mapping[str, str], name: str) -> str:
             )
         if name == stage.reasoning_effort_var:
             provider = env.get(stage.provider_var, "").strip()
-            if provider == PROVIDER_OPENROUTER:
+            if provider in (PROVIDER_OPENROUTER, PROVIDER_TOGETHER):
                 return (
                     f"{name} is required when {stage.provider_var}="
-                    f"{PROVIDER_OPENROUTER}: exactly "
-                    f"{OPENROUTER_QUESTION_REASONING_EFFORT!r} (sent as "
+                    f"{provider}: exactly "
+                    "'none' (sent as "
                     "reasoning.enabled=false)"
                 )
             return (

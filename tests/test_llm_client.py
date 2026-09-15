@@ -527,6 +527,84 @@ def test_the_async_openrouter_client_sends_the_strict_profile():
     assert "reasoning_effort" not in captured
 
 
+@pytest.mark.parametrize("provider", ["together", "openai_compat"])
+def test_question_stage_selects_together_by_provider_not_endpoint(monkeypatch, provider):
+    captured = {}
+    headers = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(request.content))
+        headers.update(request.headers)
+        assert str(request.url) == "https://api.together.ai/v1/chat/completions"
+        return httpx.Response(200, json=chat_response("Ответ"))
+
+    monkeypatch.setattr(
+        twinkler_ai,
+        "QUESTION_PROVIDER",
+        stage(
+            "question",
+            config.TOGETHER_QUESTION_MODEL,
+            provider=provider,
+            endpoint=config.TOGETHER_QUESTION_ENDPOINT,
+            api_key="together-key",
+            reasoning_effort="none",
+        ),
+    )
+    with mock_async(handler):
+        answer = asyncio.run(
+            twinkler_ai.complete("Запрос", question_language("Запрос", "ru"))
+        )
+    assert answer == "Ответ"
+    assert headers["authorization"] == "Bearer together-key"
+    assert captured["model"] == "google/gemma-4-31B-it"
+    assert captured["response_format"] == {"type": "json_object"}
+    assert captured["max_tokens"] == twinkler_ai.AI_QUESTION_MAX_TOKENS
+    assert "provider" not in captured
+    if provider == "together":
+        assert captured["reasoning"] == {"enabled": False}
+        assert "reasoning_effort" not in captured
+    else:
+        assert captured["reasoning_effort"] == "none"
+        assert "reasoning" not in captured
+
+
+@pytest.mark.parametrize("reasoning_effort", ["omit", "low", "medium", "high"])
+def test_together_payload_requires_disabled_reasoning(reasoning_effort):
+    with pytest.raises(ValueError, match="requires reasoning_effort=none"):
+        build_payload(
+            config.TOGETHER_QUESTION_MODEL, "System", "User",
+            temperature=0.7, max_tokens=4096, json_object=True,
+            reasoning_effort=reasoning_effort, request_profile="together",
+        )
+
+
+def test_together_payload_rejects_openrouter_policy():
+    with pytest.raises(ValueError, match="belongs only to the openrouter"):
+        build_payload(
+            config.TOGETHER_QUESTION_MODEL, "System", "User",
+            temperature=0.7, max_tokens=4096, json_object=True,
+            reasoning_effort="none", request_profile="together",
+            openrouter_provider_endpoint="venice/bf16",
+        )
+
+
+@pytest.mark.parametrize(
+    ("api_key", "reasoning", "message"),
+    [("", "none", "API key"), ("   ", "none", "API key"),
+     ("together-key", "omit", "reasoning must be disabled")],
+)
+def test_together_client_fails_before_network_for_invalid_configuration(
+    api_key, reasoning, message
+):
+    client = AsyncChatClient(
+        config.TOGETHER_QUESTION_ENDPOINT, api_key,
+        config.TOGETHER_QUESTION_MODEL, reasoning,
+        request_profile="together",
+    )
+    with pytest.raises(LLMError, match=message):
+        asyncio.run(client.complete("System", "User"))
+
+
 def test_question_stage_selects_openrouter_by_provider_not_endpoint(monkeypatch):
     captured = {}
 
@@ -1303,6 +1381,32 @@ def test_the_startup_banner_names_the_strict_openrouter_profile(monkeypatch, cap
     assert "allow_fallbacks=false" in line
     assert "data_collection=deny" in line
     assert "reasoning_effort=" not in line
+    assert SECRET_KEY not in line
+
+
+def test_the_startup_banner_names_together_with_reasoning_disabled(monkeypatch, caplog):
+    import main
+
+    monkeypatch.setattr(
+        main, "QUESTION_PROVIDER",
+        stage(
+            "question", config.TOGETHER_QUESTION_MODEL,
+            provider=config.PROVIDER_TOGETHER,
+            endpoint=config.TOGETHER_QUESTION_ENDPOINT,
+            api_key=SECRET_KEY, reasoning_effort="none",
+        ),
+    )
+    with caplog.at_level(logging.INFO):
+        main.log_ai_providers()
+    line = next(line for line in caplog.text.splitlines() if "AI stage question" in line)
+    assert "provider=together" in line
+    assert "model=google/gemma-4-31B-it" in line
+    assert " at api.together.ai" in line
+    assert "reasoning=disabled" in line
+    assert "reasoning_effort=" not in line
+    assert "provider_endpoint=" not in line
+    assert "allow_fallbacks=" not in line
+    assert "data_collection=" not in line
     assert SECRET_KEY not in line
 
 

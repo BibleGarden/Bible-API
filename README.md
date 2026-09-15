@@ -135,6 +135,7 @@ migration fallbacks. `AI_ENABLED` is required in every deployment:
 | Gemini stage | `AI_ENABLED=true`, stage `PROVIDER=gemini`, `MODEL`, non-empty stage `API_KEY` | stage `ENDPOINT`; chat-stage `REASONING_EFFORT` |
 | OpenAI-compatible chat stage | `AI_ENABLED=true`, stage `PROVIDER=openai_compat`, `MODEL`, `ENDPOINT`, present stage `API_KEY` (may be empty), `REASONING_EFFORT=omit\|none\|low\|medium\|high` | shared endpoint/key/reasoning variables |
 | Strict OpenRouter question | `AI_QUESTION_PROVIDER=openrouter`, `MODEL=google/gemma-4-31b-it`, `ENDPOINT=https://openrouter.ai/api/v1`, `AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT=venice/bf16`, non-empty `API_KEY`, `REASONING_EFFORT=none` | OpenRouter on rewrite/rerank; any other model, API endpoint, provider endpoint or reasoning value; environment-provided request JSON |
+| Strict Together question | `AI_QUESTION_PROVIDER=together`, `MODEL=google/gemma-4-31B-it`, `ENDPOINT=https://api.together.ai/v1`, non-empty `API_KEY`, `REASONING_EFFORT=none` | Together on other stages; any other model, endpoint or reasoning value; OpenRouter provider endpoint |
 | OpenAI-compatible transcription | `AI_TRANSCRIBE_PROVIDER=openai_compat`, `MODEL`, `ENDPOINT`, present `API_KEY` (may be empty) | transcription reasoning variables |
 | Local transcription | `AI_TRANSCRIBE_PROVIDER=local`, `MODEL`, `MODEL_PATH` | transcription `ENDPOINT` and `API_KEY` |
 | Embeddings | `EMBEDDING_PROVIDER`, `MODEL`, `DIMENSIONS` in every deployment | provider-specific unused fields |
@@ -144,7 +145,7 @@ migration fallbacks. `AI_ENABLED` is required in every deployment:
 
 An `openai_compat` API-key variable may be present and empty. That is the
 explicit statement that the endpoint needs no Authorization header. Gemini
-and OpenRouter keys must be non-empty. Provider secrets are exported from the
+and OpenRouter/Together keys must be non-empty. Provider secrets are exported from the
 shell before `docker compose up` and are never placed in `.env`:
 
 ```bash
@@ -231,26 +232,25 @@ AI_TRANSCRIBE_MODEL=deepdml/faster-whisper-large-v3-turbo-ct2
 AI_TRANSCRIBE_ENDPOINT=https://your-audio-server/v1
 ```
 
-For Maria's current local configuration, the question stage uses the strict
-OpenRouter profile while rewrite remains on Cerebras and rerank on the
-independently served company model. The three keys stay separate stage inputs;
+For the local Together trial, configure the strict Together question profile
+while rewrite remains on Cerebras and rerank on the independently served
+company model. The three keys stay separate stage inputs;
 none is stored in `.env`:
 
 ```bash
-: "${OPENROUTER_API_KEY:?export the shell-only OpenRouter key first}"
+: "${TOGETHER_API_KEY:?export the shell-only Together key first}"
 : "${CEREBRAS_API_KEY:?export the existing shell-only Cerebras key first}"
 : "${VLLM_SECONDARY_API_KEY:?export the shell-only llm.ai2.ru dev key first}"
-export AI_QUESTION_API_KEY="$OPENROUTER_API_KEY"
+export AI_QUESTION_API_KEY="$TOGETHER_API_KEY"
 export AI_SCRIPTURE_REWRITE_API_KEY="$CEREBRAS_API_KEY"
 export AI_SCRIPTURE_RERANK_API_KEY="$VLLM_SECONDARY_API_KEY"
 ```
 
 ```dotenv
-AI_QUESTION_PROVIDER=openrouter
-AI_QUESTION_MODEL=google/gemma-4-31b-it
-AI_QUESTION_ENDPOINT=https://openrouter.ai/api/v1
+AI_QUESTION_PROVIDER=together
+AI_QUESTION_MODEL=google/gemma-4-31B-it
+AI_QUESTION_ENDPOINT=https://api.together.ai/v1
 AI_QUESTION_REASONING_EFFORT=none
-AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT=venice/bf16
 AI_QUESTION_TIMEOUT_SECONDS=20
 AI_QUESTION_MAX_TOKENS=4096
 
@@ -265,7 +265,7 @@ AI_SCRIPTURE_RERANK_ENDPOINT=https://llm.ai2.ru/v1
 AI_SCRIPTURE_RERANK_REASONING_EFFORT=omit
 ```
 
-`none`, `low`, `medium` and `high` are sent byte-for-byte as the
+For `openai_compat`, `none`, `low`, `medium` and `high` are sent byte-for-byte as the
 `reasoning_effort` request field. `omit` is an explicit compatibility choice
 that leaves the field out; it is not a default or fallback. Missing or invalid
 reasoning configuration aborts startup for an OpenAI-compatible chat stage.
@@ -273,7 +273,7 @@ Transcription and embeddings do not have a reasoning setting.
 
 The `openrouter` value is a distinct question-only request profile, never an
 endpoint-host inference. It requires the exact model, API endpoint, provider
-endpoint and `none` reasoning declaration shown above, plus a non-empty key.
+endpoint and `none` reasoning declaration in the OpenRouter example, plus a non-empty key.
 `AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT` is an explicit string, not JSON,
 and accepts only `venice/bf16`. The OpenAI-compatible request always contains
 `provider: {only: ["venice/bf16"], allow_fallbacks: false, data_collection: "deny"}` and
@@ -281,6 +281,16 @@ and accepts only `venice/bf16`. The OpenAI-compatible request always contains
 `reasoning_effort` field. These objects are fixed in reviewed code; no
 environment variable can inject or replace provider JSON. Rewrite, rerank,
 transcription and embeddings retain their previous providers and wire shapes.
+
+The distinct `together` profile requires exactly the Together model and API
+endpoint shown above, a non-empty key and `AI_QUESTION_REASONING_EFFORT=none`.
+It sends `reasoning: {enabled: false}`, with neither flat `reasoning_effort`
+nor OpenRouter's `provider` object. Remove
+`AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT` when switching from OpenRouter.
+The profile is never inferred from an endpoint hostname and is rejected for
+rewrite, rerank, transcription and embeddings. The existing `json_object`
+response format remains unchanged; no schema is sent. See
+[ADR 0023](architect/adr/0023-together-question-profile.md).
 
 `AI_QUESTION_MAX_TOKENS` is the question stage's output safety ceiling for all
 transports: chat-completions requests send it as `max_tokens`, while Gemini
