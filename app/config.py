@@ -79,6 +79,9 @@ CHAT_COMPLETIONS_PROVIDERS = (
 ReasoningEffort = Literal["omit", "none", "low", "medium", "high"]
 GeminiThinkingLevel = Literal["minimal", "low", "medium", "high"]
 
+QUESTION_SERVICE_TIER_VAR = "AI_QUESTION_SERVICE_TIER"
+GEMINI_SERVICE_TIERS = ("standard", "priority")
+
 # The OpenRouter provider is deliberately a pinned question-only profile, not
 # a generic JSON escape hatch. A provider/model change is an architectural
 # decision, and accepting another URL or model under this name would silently
@@ -583,6 +586,11 @@ def missing_required_vars(env: Mapping[str, str]) -> list[str]:
         and not env.get(OPENROUTER_QUESTION_PROVIDER_ENDPOINT_VAR, "").strip()
     ):
         missing.append(OPENROUTER_QUESTION_PROVIDER_ENDPOINT_VAR)
+    if (
+        env.get(QUESTION_STAGE_VARS.provider_var, "").strip() == PROVIDER_GEMINI
+        and not env.get(QUESTION_SERVICE_TIER_VAR, "").strip()
+    ):
+        missing.append(QUESTION_SERVICE_TIER_VAR)
     transcribe_provider = env.get(TRANSCRIBE_PROVIDER_VAR, "").strip()
     if (
         transcribe_provider == TRANSCRIBE_PROVIDER_LOCAL
@@ -689,6 +697,7 @@ def invalid_required_values(env: Mapping[str, str]) -> list[str]:
 
     stage_config_names = {
         "AI_CLIENT_HMAC_KEY",
+        QUESTION_SERVICE_TIER_VAR,
         OPENROUTER_QUESTION_PROVIDER_ENDPOINT_VAR,
         TRANSCRIBE_MODEL_PATH_VAR,
     }
@@ -791,6 +800,17 @@ def invalid_required_values(env: Mapping[str, str]) -> list[str]:
                 "configuration"
             )
     question_provider = env.get(QUESTION_STAGE_VARS.provider_var, "").strip()
+    if question_provider == PROVIDER_GEMINI:
+        if env.get(QUESTION_SERVICE_TIER_VAR) not in GEMINI_SERVICE_TIERS:
+            problems.append(
+                f"{QUESTION_SERVICE_TIER_VAR}: Gemini questions require "
+                "exactly 'standard' or 'priority'"
+            )
+    elif env_var_present(env, QUESTION_SERVICE_TIER_VAR):
+        problems.append(
+            f"{QUESTION_SERVICE_TIER_VAR}: only Gemini questions use a service "
+            "tier — remove it for other providers"
+        )
     if question_provider == PROVIDER_OPENROUTER:
         raw_provider_endpoint = env.get(
             OPENROUTER_QUESTION_PROVIDER_ENDPOINT_VAR, ""
@@ -1073,6 +1093,7 @@ AI_QUESTION_LOG_PROVIDER_BODIES = _get_optional_bool(
 # Models of the two chat-shaped endpoints, named after the method each one
 # serves: POST /api/ai/question and POST /api/ai/transcribe.
 AI_QUESTION_MODEL = os.getenv("AI_QUESTION_MODEL", "")
+AI_QUESTION_SERVICE_TIER = os.getenv(QUESTION_SERVICE_TIER_VAR, "")
 AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT = os.getenv(
     OPENROUTER_QUESTION_PROVIDER_ENDPOINT_VAR, ""
 ).strip()

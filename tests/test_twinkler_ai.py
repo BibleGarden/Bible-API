@@ -2881,6 +2881,7 @@ def test_sends_expected_gemini_request(monkeypatch):
         assert request.headers["x-goog-api-key"] == config.QUESTION_PROVIDER.api_key
         assert request.headers["content-type"] == "application/json"
         assert json.loads(request.read()) == {
+            "serviceTier": "standard",
             "system_instruction": {
                 "parts": [{"text": question_prompt.build_question_prompt("ru")}]
             },

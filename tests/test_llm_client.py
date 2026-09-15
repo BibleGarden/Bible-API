@@ -961,6 +961,7 @@ def test_gemini_question_thinking_configuration_reaches_wire(
     if reasoning_effort is not None:
         expected_config["thinkingConfig"] = {"thinkingLevel": reasoning_effort.upper()}
     assert captured == [{
+        "serviceTier": "standard",
         "system_instruction": {"parts": [{"text": build_question_prompt("ru")}]},
         "contents": [{"role": "user", "parts": [{"text": "Мне тяжело"}]}],
         "generationConfig": expected_config,
@@ -994,11 +995,128 @@ def test_gemini_startup_banner_reports_thinking_level(
         line for line in caplog.text.splitlines() if "AI stage question" in line
     )
     assert "provider=gemini" in line
+    assert "requested_service_tier=standard" in line
     assert f"model={model}" in line
     assert f"thinking_level={level.upper()}" in line
     assert "reasoning=disabled" not in line
     assert "reasoning_effort=" not in line
     assert SECRET_KEY not in line
+
+
+@pytest.mark.parametrize(
+    "requested,header,usage_tier,accepted",
+    [
+        ("priority", "priority", "priority", True),
+        ("priority", "priority", "absent", True),
+        ("priority", "standard", "standard", False),
+        ("priority", None, "priority", False),
+        ("priority", "private-unrecognized-tier", "absent", False),
+        ("priority", "PRIORITY", "priority", False),
+        ("priority", "priority", "standard", False),
+        ("priority", "priority", None, False),
+        ("standard", None, "absent", True),
+        ("standard", "standard", "standard", True),
+    ],
+)
+def test_gemini_priority_requires_header_confirmation(
+    monkeypatch, caplog, requested, header, usage_tier, accepted
+):
+    requests = []
+
+    def handler(request):
+        payload = json.loads(request.content)
+        requests.append(payload)
+        assert payload["serviceTier"] == requested
+        assert payload["generationConfig"]["thinkingConfig"] == {"thinkingLevel": "LOW"}
+        body = gemini_response(QUESTION_ANSWER)
+        if usage_tier != "absent":
+            body["usageMetadata"] = {"serviceTier": usage_tier}
+        headers = {} if header is None else {"x-gemini-service-tier": header}
+        return httpx.Response(200, json=body, headers=headers)
+
+    monkeypatch.setattr(twinkler_ai, "AI_QUESTION_SERVICE_TIER", requested)
+    monkeypatch.setattr(twinkler_ai, "AI_QUESTION_MODEL", "gemini-3.8-flash")
+    monkeypatch.setattr(
+        twinkler_ai, "QUESTION_PROVIDER",
+        stage(
+            "question", "gemini-3.8-flash", provider=config.PROVIDER_GEMINI,
+            endpoint="", reasoning_effort="low",
+        ),
+    )
+    with mock_async(handler), caplog.at_level(logging.INFO):
+        call = twinkler_ai.complete("Мне тяжело", question_language("Мне тяжело", "ru"))
+        if accepted:
+            assert asyncio.run(call) == QUESTION_ANSWER
+        else:
+            with pytest.raises(twinkler_ai.GeminiError, match="service tier"):
+                asyncio.run(call)
+    assert len(requests) == 1
+    assert f"requested={requested}" in caplog.text
+    assert "private-unrecognized-tier" not in caplog.text
+    assert SECRET_KEY not in caplog.text
+
+
+@pytest.mark.parametrize("body", [None, [], "unexpected", 42])
+def test_gemini_priority_nonobject_response_is_a_provider_error(monkeypatch, body):
+    def handler(request):
+        return httpx.Response(
+            200,
+            content=json.dumps(body),
+            headers={"x-gemini-service-tier": "priority"},
+        )
+
+    monkeypatch.setattr(twinkler_ai, "AI_QUESTION_SERVICE_TIER", "priority")
+    monkeypatch.setattr(twinkler_ai, "AI_QUESTION_MODEL", "gemini-3.8-flash")
+    monkeypatch.setattr(
+        twinkler_ai, "QUESTION_PROVIDER",
+        stage(
+            "question", "gemini-3.8-flash", provider=config.PROVIDER_GEMINI,
+            endpoint="", reasoning_effort="low",
+        ),
+    )
+    with mock_async(handler):
+        with pytest.raises(twinkler_ai.GeminiError, match="non-object JSON response"):
+            asyncio.run(
+                twinkler_ai.complete("Мне тяжело", question_language("Мне тяжело", "ru"))
+            )
+
+
+def test_gemini_priority_tier_is_question_only(monkeypatch):
+    def handler(request):
+        payload = json.loads(request.content)
+        assert "serviceTier" not in payload
+        assert "thinkingConfig" not in payload.get("generationConfig", {})
+        return httpx.Response(200, json=gemini_response("transcription"))
+
+    monkeypatch.setattr(twinkler_ai, "AI_QUESTION_SERVICE_TIER", "priority")
+    with mock_async(handler):
+        assert asyncio.run(twinkler_ai._transcribe_gemini(b"audio", "audio/wav", "ru")) == "transcription"
+
+
+@pytest.mark.parametrize("provider", [config.PROVIDER_OPENAI_COMPAT, config.PROVIDER_OPENROUTER, config.PROVIDER_TOGETHER])
+def test_gemini_priority_setting_does_not_enter_chat_completions(monkeypatch, provider):
+    model, endpoint = {
+        config.PROVIDER_OPENAI_COMPAT: ("generic-model", ENDPOINT),
+        config.PROVIDER_OPENROUTER: (config.OPENROUTER_QUESTION_MODEL, config.OPENROUTER_QUESTION_ENDPOINT),
+        config.PROVIDER_TOGETHER: (config.TOGETHER_QUESTION_MODEL, config.TOGETHER_QUESTION_ENDPOINT),
+    }[provider]
+
+    def handler(request):
+        payload = json.loads(request.content)
+        assert "serviceTier" not in payload
+        assert "thinkingConfig" not in payload
+        return httpx.Response(200, json=chat_response(QUESTION_ANSWER))
+
+    monkeypatch.setattr(twinkler_ai, "AI_QUESTION_SERVICE_TIER", "priority")
+    monkeypatch.setattr(
+        twinkler_ai, "QUESTION_PROVIDER",
+        stage("question", model, provider=provider, endpoint=endpoint, reasoning_effort="none"),
+    )
+    monkeypatch.setattr(twinkler_ai, "AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT", "venice/bf16")
+    with mock_async(handler):
+        assert asyncio.run(
+            twinkler_ai.complete("Мне тяжело", question_language("Мне тяжело", "ru"))
+        ) == QUESTION_ANSWER
 
 
 def test_question_parity_between_providers(monkeypatch):

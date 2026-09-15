@@ -23,6 +23,7 @@ from config import (
     AI_QUESTION_MAX_TOKENS,
     AI_QUESTION_MODEL,
     AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT,
+    AI_QUESTION_SERVICE_TIER,
     AI_QUESTION_TIMEOUT_SECONDS,
     AI_TRANSCRIBE_MODEL,
     AI_TRANSCRIBE_TIMEOUT_SECONDS,
@@ -776,6 +777,32 @@ async def _complete_openai_compat(
     return text
 
 
+def _validate_gemini_question_service_tier(response: httpx.Response, data: object) -> None:
+    """Require the documented response header to confirm requested Priority."""
+    actual = response.headers.get("x-gemini-service-tier")
+    safe_actual = (
+        actual if actual in ("standard", "priority")
+        else "missing" if actual is None else "invalid"
+    )
+    logger.info(
+        "AI question Gemini service tier: requested=%s actual=%s",
+        AI_QUESTION_SERVICE_TIER,
+        safe_actual,
+    )
+    if AI_QUESTION_SERVICE_TIER != "priority":
+        return
+    if actual != "priority":
+        raise GeminiError(
+            f"Gemini priority service tier was not confirmed (actual={safe_actual})"
+        )
+    if not isinstance(data, dict):
+        raise GeminiError("Gemini returned a non-object JSON response")
+    usage = data.get("usageMetadata")
+    if isinstance(usage, dict) and "serviceTier" in usage:
+        if usage["serviceTier"] != actual:
+            raise GeminiError("Gemini service tier header and usage metadata disagree")
+
+
 async def complete(
     user: str,
     language_source_text: str | ResolvedQuestionLanguage | None = None,
@@ -832,6 +859,7 @@ async def complete(
         f"{AI_QUESTION_MODEL}:generateContent"
     )
     payload = {
+        "serviceTier": AI_QUESTION_SERVICE_TIER,
         "system_instruction": {"parts": [{"text": prompt}]},
         "contents": [{"role": "user", "parts": [{"text": user}]}],
         "generationConfig": {
@@ -898,6 +926,7 @@ async def complete(
     except (httpx.HTTPError, ValueError) as error:
         raise GeminiError("Gemini request failed") from error
 
+    _validate_gemini_question_service_tier(response, data)
     text = _extract_text(data)
     if not text:
         raise GeminiError("Gemini returned no text")

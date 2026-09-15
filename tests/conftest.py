@@ -67,6 +67,7 @@ os.environ.setdefault("DB_NAME", "cep_public_test")
 # the legacy Gemini envelope; model-specific thinking tests configure their
 # own explicit model and level.
 os.environ["AI_QUESTION_MODEL"] = "gemini-test"
+os.environ["AI_QUESTION_SERVICE_TIER"] = "standard"
 os.environ["AI_TRANSCRIBE_MODEL"] = "gemini-3.5-flash-lite"
 os.environ["EMBEDDING_MODEL"] = "gemini-embedding-001"
 os.environ["EMBEDDING_DIMENSIONS"] = "768"
