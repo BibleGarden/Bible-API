@@ -840,6 +840,9 @@ async def complete(
         },
     }
 
+    if QUESTION_PROVIDER.reasoning_effort == "none":
+        payload["generationConfig"]["thinkingConfig"] = {"thinkingBudget": 0}
+
     # The same knob the openai_compat branch honours
     # (`AI_QUESTION_TIMEOUT_SECONDS`, default 20.0): a variable documented as
     # "the ceiling of the question endpoint's call" must not be silently

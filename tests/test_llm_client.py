@@ -914,6 +914,71 @@ def test_rerank_parity_between_providers():
     )
 
 
+@pytest.mark.parametrize(
+    "model,reasoning_effort",
+    [("gemini-2.5-flash", "none"), ("gemini-test", None)],
+)
+def test_gemini_question_thinking_configuration_reaches_wire(
+    monkeypatch, model, reasoning_effort
+):
+    captured = []
+
+    def handler(request):
+        captured.append(json.loads(request.content))
+        assert str(request.url) == (
+            f"https://{GEMINI_HOST}/v1beta/models/{model}:generateContent"
+        )
+        assert request.headers["x-goog-api-key"] == SECRET_KEY
+        return httpx.Response(200, json=gemini_response(QUESTION_ANSWER))
+
+    monkeypatch.setattr(twinkler_ai, "AI_QUESTION_MODEL", model)
+    monkeypatch.setattr(
+        twinkler_ai, "QUESTION_PROVIDER",
+        stage(
+            "question", model, provider=config.PROVIDER_GEMINI,
+            endpoint="", reasoning_effort=reasoning_effort,
+        ),
+    )
+    with mock_async(handler):
+        result = asyncio.run(
+            twinkler_ai.complete("Мне тяжело", question_language("Мне тяжело", "ru"))
+        )
+    assert result == QUESTION_ANSWER
+    expected_config = {
+        "maxOutputTokens": twinkler_ai.AI_QUESTION_MAX_TOKENS,
+        "temperature": 0.7,
+    }
+    if reasoning_effort == "none":
+        expected_config["thinkingConfig"] = {"thinkingBudget": 0}
+    assert captured == [{
+        "system_instruction": {"parts": [{"text": build_question_prompt("ru")}]},
+        "contents": [{"role": "user", "parts": [{"text": "Мне тяжело"}]}],
+        "generationConfig": expected_config,
+    }]
+
+
+def test_gemini_25_flash_startup_banner_reports_thinking_off(monkeypatch, caplog):
+    import main
+
+    monkeypatch.setattr(
+        main, "QUESTION_PROVIDER",
+        stage(
+            "question", "gemini-2.5-flash", provider=config.PROVIDER_GEMINI,
+            endpoint="", reasoning_effort="none",
+        ),
+    )
+    with caplog.at_level(logging.INFO):
+        main.log_ai_providers()
+    line = next(
+        line for line in caplog.text.splitlines() if "AI stage question" in line
+    )
+    assert "provider=gemini" in line
+    assert "model=gemini-2.5-flash" in line
+    assert "reasoning=disabled thinking_budget=0" in line
+    assert "reasoning_effort=" not in line
+    assert SECRET_KEY not in line
+
+
 def test_question_parity_between_providers(monkeypatch):
     gemini, openai_compat, captured = both_transports(QUESTION_ANSWER)
 
@@ -1398,7 +1463,9 @@ def test_the_startup_banner_names_together_with_reasoning_disabled(monkeypatch, 
     )
     with caplog.at_level(logging.INFO):
         main.log_ai_providers()
-    line = next(line for line in caplog.text.splitlines() if "AI stage question" in line)
+    line = next(
+        line for line in caplog.text.splitlines() if "AI stage question" in line
+    )
     assert "provider=together" in line
     assert "model=google/gemma-4-31B-it" in line
     assert " at api.together.ai" in line
