@@ -232,9 +232,9 @@ AI_TRANSCRIBE_MODEL=deepdml/faster-whisper-large-v3-turbo-ct2
 AI_TRANSCRIBE_ENDPOINT=https://your-audio-server/v1
 ```
 
-The Together integration is retained for optional trials. Maria rejected it
-for interactive question generation on 2026-09-15 because requests timed out
-even with reasoning disabled; see ADR 0023. To deliberately run another trial,
+The Together integration is retained for optional trials. See
+[AI-Evaluation](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/bench_data/together_gemma_2026-09-15/report.md)
+for trial results and provider suitability. To deliberately run another trial,
 configure the strict profile below. Rewrite and rerank keep their independent
 providers and keys; no provider key is stored in the application `.env`:
 
