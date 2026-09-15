@@ -132,7 +132,7 @@ migration fallbacks. `AI_ENABLED` is required in every deployment:
 | Block | Required values | Forbidden / omitted values |
 |---|---|---|
 | AI disabled | `AI_ENABLED=false` | every stage-specific `AI_*_PROVIDER/MODEL/ENDPOINT/API_KEY/REASONING_EFFORT` and `AI_CLIENT_HMAC_KEY` |
-| Gemini stage | `AI_ENABLED=true`, stage `PROVIDER=gemini`, `MODEL`, non-empty stage `API_KEY` | stage `ENDPOINT`; chat-stage `REASONING_EFFORT` except reviewed Gemini question models below |
+| Gemini stage | `AI_ENABLED=true`, stage `PROVIDER=gemini`, `MODEL`, non-empty stage `API_KEY`; question also requires `AI_QUESTION_SERVICE_TIER=standard\|priority` | stage `ENDPOINT`; chat-stage `REASONING_EFFORT` except reviewed Gemini question models below |
 | Gemini 3.8 Flash question | `AI_QUESTION_PROVIDER=gemini`, `MODEL=gemini-3.8-flash`, non-empty `API_KEY`, `REASONING_EFFORT=low\|medium\|high` | question `ENDPOINT` and OpenRouter provider endpoint; any other reasoning value |
 | Gemini 3.5 Flash Lite question | `AI_QUESTION_PROVIDER=gemini`, `MODEL=gemini-3.5-flash-lite`, non-empty `API_KEY`, `REASONING_EFFORT=minimal\|low\|medium\|high` | question `ENDPOINT` and OpenRouter provider endpoint; any other reasoning value |
 | OpenAI-compatible chat stage | `AI_ENABLED=true`, stage `PROVIDER=openai_compat`, `MODEL`, `ENDPOINT`, present stage `API_KEY` (may be empty), `REASONING_EFFORT=omit\|none\|low\|medium\|high` | shared endpoint/key/reasoning variables |
@@ -301,6 +301,7 @@ For direct Google Gemini 3.5 Flash Lite questions, configure:
 AI_QUESTION_PROVIDER=gemini
 AI_QUESTION_MODEL=gemini-3.5-flash-lite
 AI_QUESTION_REASONING_EFFORT=minimal
+AI_QUESTION_SERVICE_TIER=standard
 ```
 
 Export the Google key as `AI_QUESTION_API_KEY` before recreating the container.
@@ -318,6 +319,31 @@ reject this setting; generic `openai_compat` still rejects `minimal`.
 No `thinkingBudget`, `includeThoughts`, Chat Completions reasoning field or
 routing policy is sent to Google. See
 [ADR 0024](architect/adr/0024-gemini-question-thinking-level.md).
+
+Every Gemini question deployment must explicitly set
+`AI_QUESTION_SERVICE_TIER=standard|priority`, including existing deployments
+when upgrading. The value is sent as top-level `serviceTier`; it is forbidden
+with other question providers or `AI_ENABLED=false`. Rewrite, rerank,
+transcription and embeddings do not receive it.
+
+For Gemini 3.8 Flash Priority questions, set:
+
+```dotenv
+AI_QUESTION_PROVIDER=gemini
+AI_QUESTION_MODEL=gemini-3.8-flash
+AI_QUESTION_REASONING_EFFORT=low
+AI_QUESTION_SERVICE_TIER=priority
+```
+
+Google may downgrade Priority requests. The application requires the response
+header `x-gemini-service-tier: priority` before returning a Priority answer.
+A missing/invalid header, downgrade or conflicting `usageMetadata.serviceTier`
+fails the question with the existing `502`; it does not trigger a tier fallback
+or an extra provider request. Body metadata never substitutes for the header.
+For `standard`, missing tier acknowledgment preserves normal answer handling.
+The startup banner shows the requested tier; request logs show the actual header
+tier as `standard`, `priority`, `missing` or `invalid`, without dumping headers.
+See [ADR 0025](architect/adr/0025-gemini-question-service-tier.md).
 
 `AI_QUESTION_MAX_TOKENS` is the question stage's output safety ceiling for all
 transports: chat-completions requests send it as `max_tokens`, while Gemini

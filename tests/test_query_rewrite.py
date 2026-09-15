@@ -321,7 +321,7 @@ def test_default_variant_count_is_requested():
 
 
 # ---------------------------------------------------------------------------
-# Key routing: rewrite bills its own key, every other stage the shared one
+# Key routing: each Gemini stage bills its own key
 # ---------------------------------------------------------------------------
 
 # The wiring is checked in a FRESH interpreter with synthetic keys rather
@@ -362,6 +362,7 @@ _PROBE_ENV = {
     # Every stage on Gemini: this probe is about which KEY each stage bills,
     # which is a question the provider switch (ADR 0009) did not change.
     "AI_QUESTION_PROVIDER": "gemini",
+    "AI_QUESTION_SERVICE_TIER": "standard",
     "AI_SCRIPTURE_REWRITE_PROVIDER": "gemini",
     "AI_SCRIPTURE_RERANK_PROVIDER": "gemini",
     "AI_TRANSCRIBE_PROVIDER": "gemini",

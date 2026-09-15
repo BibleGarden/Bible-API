@@ -30,6 +30,7 @@ from config import (
     AI_QUESTION_LOG_PROVIDER_BODIES,
     AI_QUESTION_MAX_TOKENS,
     AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT,
+    AI_QUESTION_SERVICE_TIER,
     AI_QUESTION_TIMEOUT_SECONDS,
     EMBEDDING_DIMENSIONS,
     EMBEDDING_MODEL,
@@ -198,6 +199,8 @@ def log_ai_providers() -> None:
             if stage.stage == "question"
             else ""
         )
+        if stage.stage == "question" and stage.is_gemini:
+            question_limits += f" requested_service_tier={AI_QUESTION_SERVICE_TIER}"
         logger.info(
             "AI stage %s: provider=%s model=%s%s%s%s key=%s",
             stage.stage,

@@ -118,6 +118,7 @@ AI_DISABLED_FORBIDDEN = (
     "AI_QUESTION_API_KEY",
     "AI_QUESTION_REASONING_EFFORT",
     "AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT",
+    "AI_QUESTION_SERVICE_TIER",
     "AI_SCRIPTURE_REWRITE_PROVIDER",
     "AI_SCRIPTURE_REWRITE_MODEL",
     "AI_SCRIPTURE_REWRITE_ENDPOINT",
@@ -199,6 +200,7 @@ GEMINI_AI_ENV = {
     "AI_CLIENT_HMAC_KEY": "hmac-key",
     "AI_QUESTION_PROVIDER": "gemini",
     "AI_QUESTION_MODEL": "gemini-question",
+    "AI_QUESTION_SERVICE_TIER": "standard",
     "AI_QUESTION_API_KEY": "question-key",
     "AI_SCRIPTURE_REWRITE_PROVIDER": "gemini",
     "AI_SCRIPTURE_REWRITE_MODEL": "gemini-rewrite",
@@ -229,6 +231,7 @@ AI_FIELDS = {
     "AI_QUESTION_API_KEY",
     "AI_QUESTION_REASONING_EFFORT",
     "AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT",
+    "AI_QUESTION_SERVICE_TIER",
     "AI_SCRIPTURE_REWRITE_PROVIDER",
     "AI_SCRIPTURE_REWRITE_MODEL",
     "AI_SCRIPTURE_REWRITE_ENDPOINT",
@@ -591,6 +594,33 @@ def test_gemini_chat_rejects_reasoning_effort_even_when_blank(reasoning_var, val
         reasoning_var in problem and "openai_compat" in problem
         for problem in problems
     )
+
+
+@pytest.mark.parametrize("value", ["standard", "priority"])
+def test_gemini_question_requires_explicit_service_tier(value):
+    env = {**GEMINI_AI_ENV, "AI_QUESTION_SERVICE_TIER": value}
+    config._validate(env, [])
+
+
+@pytest.mark.parametrize("value", [None, "", "auto", "PRIORITY", " priority "])
+def test_gemini_question_rejects_missing_or_invalid_service_tier(value):
+    env = dict(GEMINI_AI_ENV)
+    if value is None:
+        del env["AI_QUESTION_SERVICE_TIER"]
+    else:
+        env["AI_QUESTION_SERVICE_TIER"] = value
+    with pytest.raises(config.ConfigError, match="AI_QUESTION_SERVICE_TIER"):
+        config._validate(env, [])
+    if value in (None, ""):
+        assert "AI_QUESTION_SERVICE_TIER" in config.missing_required_vars(env)
+
+
+@pytest.mark.parametrize("provider_env", [AI_ENV, OPENROUTER_ENV, TOGETHER_ENV])
+@pytest.mark.parametrize("value", ["", "standard", "priority"])
+def test_question_service_tier_is_rejected_for_other_providers(provider_env, value):
+    env = {**provider_env, "AI_QUESTION_SERVICE_TIER": value}
+    with pytest.raises(config.ConfigError, match="AI_QUESTION_SERVICE_TIER"):
+        config._validate(env, [])
 
 
 @pytest.mark.parametrize(
