@@ -33,9 +33,9 @@ endpoint or model that lacks support. Missing configuration is not equivalent
 to `omit` and aborts startup, so a provider default can never be selected by
 silence.
 
-Gemini chat stages reject this variable, except the Gemini 3.8 Flash question
-profile of [ADR 0024](0024-gemini-question-thinking-level.md), which maps explicit
-`low`, `medium` or `high` to the Google-specific thinking level. There is no shared reasoning variable or
+Gemini chat stages reject this variable, except the reviewed question models
+of [ADR 0024](0024-gemini-question-thinking-level.md), which map explicit
+model-specific levels to the Google-specific thinking level. There is no shared reasoning variable or
 cross-stage fallback. Transcription and embeddings have no reasoning setting.
 The startup banner prints only the validated mode, never a credential.
 

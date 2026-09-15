@@ -920,6 +920,10 @@ def test_rerank_parity_between_providers():
         ("gemini-3.8-flash", "low"),
         ("gemini-3.8-flash", "medium"),
         ("gemini-3.8-flash", "high"),
+        ("gemini-3.5-flash-lite", "minimal"),
+        ("gemini-3.5-flash-lite", "low"),
+        ("gemini-3.5-flash-lite", "medium"),
+        ("gemini-3.5-flash-lite", "high"),
         ("gemini-2.5-flash", None),
         ("gemini-test", None),
     ],
@@ -963,16 +967,24 @@ def test_gemini_question_thinking_configuration_reaches_wire(
     }]
 
 
-@pytest.mark.parametrize("level", ["low", "medium", "high"])
-def test_gemini_38_flash_startup_banner_reports_thinking_level(
-    monkeypatch, caplog, level
+@pytest.mark.parametrize(
+    "model,level",
+    [
+        ("gemini-3.8-flash", "low"),
+        ("gemini-3.8-flash", "medium"),
+        ("gemini-3.8-flash", "high"),
+        ("gemini-3.5-flash-lite", "minimal"),
+    ],
+)
+def test_gemini_startup_banner_reports_thinking_level(
+    monkeypatch, caplog, model, level
 ):
     import main
 
     monkeypatch.setattr(
         main, "QUESTION_PROVIDER",
         stage(
-            "question", "gemini-3.8-flash", provider=config.PROVIDER_GEMINI,
+            "question", model, provider=config.PROVIDER_GEMINI,
             endpoint="", reasoning_effort=level,
         ),
     )
@@ -982,7 +994,7 @@ def test_gemini_38_flash_startup_banner_reports_thinking_level(
         line for line in caplog.text.splitlines() if "AI stage question" in line
     )
     assert "provider=gemini" in line
-    assert "model=gemini-3.8-flash" in line
+    assert f"model={model}" in line
     assert f"thinking_level={level.upper()}" in line
     assert "reasoning=disabled" not in line
     assert "reasoning_effort=" not in line

@@ -62,15 +62,16 @@ os.environ.setdefault("DB_NAME", "cep_public_test")
 
 # Model variables are required whenever AI_ENABLED=true. Tests never call the
 # real provider, but they import modules that read these at import time
-# (and use them as default arguments), so pin the production values here
-# instead of letting the suite depend on whether a key is present.
-os.environ["AI_QUESTION_MODEL"] = "gemini-3.5-flash-lite"
+# (and use them as default arguments), so pin test values here instead of
+# depending on a developer's environment. The neutral question model retains
+# the legacy Gemini envelope; model-specific thinking tests configure their
+# own explicit model and level.
+os.environ["AI_QUESTION_MODEL"] = "gemini-test"
 os.environ["AI_TRANSCRIBE_MODEL"] = "gemini-3.5-flash-lite"
 os.environ["EMBEDDING_MODEL"] = "gemini-embedding-001"
 os.environ["EMBEDDING_DIMENSIONS"] = "768"
 # Who computes the vectors (ADR 0010). Required in every environment, so the
-# suite must name it. `gemini` for the same reason the models above are the
-# production ones — it keeps every existing test on the client it was written
+# suite must name it. `gemini` keeps every existing test on the client it was written
 # against, and, more importantly, it keeps the suite from importing torch or
 # loading 2.3 GB of bge-m3 weights: the local-client tests inject a stand-in
 # model instead of ever touching the real one.
@@ -80,8 +81,7 @@ os.environ["AI_SCRIPTURE_RERANK_MODEL"] = "gemini-3.5-flash-lite"
 
 # Which transport serves each chat stage (ADR 0009/0019). Required when the
 # AI surface is enabled, so the suite names all four explicitly.
-# `gemini` is the right value here for the same reason the models above are
-# the production ones: it keeps every existing test on the transport it was
+# `gemini` keeps every existing test on the transport it was
 # written against. The provider-switching tests build their own environments
 # and never rely on these.
 os.environ["AI_QUESTION_PROVIDER"] = "gemini"

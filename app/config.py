@@ -77,6 +77,7 @@ CHAT_COMPLETIONS_PROVIDERS = (
 )
 
 ReasoningEffort = Literal["omit", "none", "low", "medium", "high"]
+GeminiThinkingLevel = Literal["minimal", "low", "medium", "high"]
 
 # The OpenRouter provider is deliberately a pinned question-only profile, not
 # a generic JSON escape hatch. A provider/model change is an architectural
@@ -93,9 +94,11 @@ OPENROUTER_QUESTION_PROVIDER_ENDPOINT = "venice/bf16"
 TOGETHER_QUESTION_ENDPOINT = "https://api.together.ai/v1"
 TOGETHER_QUESTION_MODEL = "google/gemma-4-31B-it"
 
-# Only this Gemini question model has a reviewed thinking-level contract.
-GEMINI_QUESTION_THINKING_MODEL = "gemini-3.8-flash"
-GEMINI_QUESTION_THINKING_LEVELS = ("low", "medium", "high")
+# Thinking levels are model-specific and available only to the question stage.
+GEMINI_QUESTION_THINKING_LEVELS: dict[str, tuple[GeminiThinkingLevel, ...]] = {
+    "gemini-3.8-flash": ("low", "medium", "high"),
+    "gemini-3.5-flash-lite": ("minimal", "low", "medium", "high"),
+}
 
 REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
     "omit",
@@ -287,7 +290,7 @@ class StageProvider:
     configuration `_validate` has already refused). `endpoint` is empty for
     Gemini, whose URL is a constant of the stage module.
     `reasoning_effort` is set for chat-completions stages and the explicit
-    Gemini 3.8 Flash question thinking-level profile.
+    reviewed Gemini question thinking-level profiles.
     """
 
     stage: str
@@ -295,7 +298,7 @@ class StageProvider:
     model: str
     endpoint: str
     api_key: str
-    reasoning_effort: ReasoningEffort | None
+    reasoning_effort: ReasoningEffort | GeminiThinkingLevel | None
 
     @property
     def is_gemini(self) -> bool:
@@ -446,12 +449,12 @@ def ai_configured(env: Mapping[str, str]) -> bool:
     return env.get("AI_ENABLED") == "true"
 
 
-def _is_gemini_flash_question(env: Mapping[str, str], stage: StageVars) -> bool:
+def _is_gemini_thinking_question(env: Mapping[str, str], stage: StageVars) -> bool:
     """Whether the stage requires the reviewed Gemini thinking-level setting."""
     return (
         stage.stage == "question"
         and env.get(stage.provider_var, "").strip() == PROVIDER_GEMINI
-        and env.get(stage.model_var, "").strip() == GEMINI_QUESTION_THINKING_MODEL
+        and env.get(stage.model_var, "").strip() in GEMINI_QUESTION_THINKING_LEVELS
     )
 
 
@@ -482,7 +485,7 @@ def resolve_stage(env: Mapping[str, str], stage: StageVars) -> StageProvider:
         )
     return StageProvider(
         stage.stage, provider, model, "", api_key,
-        reasoning_effort if _is_gemini_flash_question(env, stage) else None,
+        reasoning_effort if _is_gemini_thinking_question(env, stage) else None,
     )
 
 
@@ -524,7 +527,7 @@ def _remote_missing(env: Mapping[str, str], stage: StageVars) -> list[str]:
             stage.reasoning_effort_var, ""
         ).strip():
             missing.append(stage.reasoning_effort_var)
-    if _is_gemini_flash_question(env, stage) and not env.get(
+    if _is_gemini_thinking_question(env, stage) and not env.get(
         stage.reasoning_effort_var, ""
     ).strip():
         missing.append(stage.reasoning_effort_var)
@@ -763,19 +766,18 @@ def invalid_required_values(env: Mapping[str, str]) -> list[str]:
                 f"{provider or '<unset>'} — only chat-completions providers "
                 "use an endpoint"
             )
-        if _is_gemini_flash_question(env, stage):
-            if env.get(stage.model_var) != GEMINI_QUESTION_THINKING_MODEL:
+        if _is_gemini_thinking_question(env, stage):
+            model = env[stage.model_var].strip()
+            levels = GEMINI_QUESTION_THINKING_LEVELS[model]
+            if env[stage.model_var] != model:
                 problems.append(
                     f"{stage.model_var}: Gemini thinking-level profile requires "
-                    f"exactly {GEMINI_QUESTION_THINKING_MODEL!r}"
+                    f"exactly {model!r}"
                 )
-            if (
-                env.get(stage.reasoning_effort_var)
-                not in GEMINI_QUESTION_THINKING_LEVELS
-            ):
+            if env.get(stage.reasoning_effort_var) not in levels:
                 problems.append(
-                    f"{stage.reasoning_effort_var}: Gemini 3.8 Flash questions "
-                    "require low, medium or high (thinkingConfig.thinkingLevel)"
+                    f"{stage.reasoning_effort_var}: {model} questions require "
+                    f"one of {', '.join(levels)} (thinkingConfig.thinkingLevel)"
                 )
         elif provider not in CHAT_COMPLETIONS_PROVIDERS and (
             stage.reasoning_effort_var is not None
@@ -784,7 +786,7 @@ def invalid_required_values(env: Mapping[str, str]) -> list[str]:
             problems.append(
                 f"{stage.reasoning_effort_var}: set while {stage.provider_var}="
                 f"{provider or '<unset>'} — only openai_compat chat and the "
-                "question-only openrouter/together and Gemini 3.8 Flash profiles "
+                "question-only openrouter/together and reviewed Gemini profiles "
                 "use reasoning "
                 "configuration"
             )
@@ -964,10 +966,13 @@ def _required_reason(env: Mapping[str, str], name: str) -> str:
                 "be empty to state that no Authorization header is required"
             )
         if name == stage.reasoning_effort_var:
-            if _is_gemini_flash_question(env, stage):
+            if _is_gemini_thinking_question(env, stage):
+                model = env[stage.model_var].strip()
+                levels = GEMINI_QUESTION_THINKING_LEVELS[model]
                 return (
-                    f"{name} is required for Gemini 3.8 Flash questions: "
-                    "low, medium or high (sent as thinkingConfig.thinkingLevel)"
+                    f"{name} is required for {model} questions: "
+                    f"one of {', '.join(levels)} "
+                    "(sent as thinkingConfig.thinkingLevel)"
                 )
             provider = env.get(stage.provider_var, "").strip()
             if provider in (PROVIDER_OPENROUTER, PROVIDER_TOGETHER):
