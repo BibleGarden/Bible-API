@@ -100,7 +100,7 @@ REQUEST_PROFILES = (
     REQUEST_PROFILE_OPENROUTER,
     REQUEST_PROFILE_TOGETHER,
 )
-OPENROUTER_PROVIDER_ENDPOINT = "venice/bf16"
+OPENROUTER_PROVIDER_ENDPOINT = "crusoe/bf16"
 
 # Fixed in code on purpose. Letting an environment-provided JSON object reach
 # this field would make the effective privacy and routing policy invisible to

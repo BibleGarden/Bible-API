@@ -161,7 +161,7 @@ def test_transport_and_config_share_the_literal_reasoning_contract():
     assert (
         config.OPENROUTER_QUESTION_PROVIDER_ENDPOINT
         == llm_client.OPENROUTER_PROVIDER_ENDPOINT
-        == "venice/bf16"
+        == "crusoe/bf16"
     )
 
 
@@ -202,7 +202,7 @@ def test_openrouter_payload_has_the_fixed_strict_policy_and_reasoning_off():
         json_object=True,
         reasoning_effort="none",
         request_profile="openrouter",
-        openrouter_provider_endpoint="venice/bf16",
+        openrouter_provider_endpoint="crusoe/bf16",
     )
     assert payload == {
         "model": "google/gemma-4-31b-it",
@@ -216,7 +216,7 @@ def test_openrouter_payload_has_the_fixed_strict_policy_and_reasoning_off():
         "provider": {
             "allow_fallbacks": False,
             "data_collection": "deny",
-            "only": ["venice/bf16"],
+            "only": ["crusoe/bf16"],
         },
         "reasoning": {"enabled": False},
     }
@@ -235,11 +235,13 @@ def test_openrouter_payload_rejects_any_non_disabled_reasoning(reasoning_effort)
             json_object=True,
             reasoning_effort=reasoning_effort,
             request_profile="openrouter",
-            openrouter_provider_endpoint="venice/bf16",
+            openrouter_provider_endpoint="crusoe/bf16",
         )
 
 
-@pytest.mark.parametrize("provider_endpoint", [None, "", "venice", "novita/bf16"])
+@pytest.mark.parametrize(
+    "provider_endpoint", [None, "", "venice", "venice/bf16", "novita/bf16"]
+)
 def test_openrouter_payload_rejects_any_other_provider_endpoint(provider_endpoint):
     with pytest.raises(ValueError, match="requires provider endpoint"):
         build_payload(
@@ -514,14 +516,14 @@ def test_the_async_openrouter_client_sends_the_strict_profile():
                 "none",
                 max_tokens=4096,
                 request_profile="openrouter",
-                openrouter_provider_endpoint="venice/bf16",
+                openrouter_provider_endpoint="crusoe/bf16",
             ).complete("i", "u", json_object=True, temperature=0.7)
         )
     assert answer == "Ответ"
     assert captured["provider"] == {
         "allow_fallbacks": False,
         "data_collection": "deny",
-        "only": ["venice/bf16"],
+        "only": ["crusoe/bf16"],
     }
     assert captured["reasoning"] == {"enabled": False}
     assert "reasoning_effort" not in captured
@@ -584,7 +586,7 @@ def test_together_payload_rejects_openrouter_policy():
             config.TOGETHER_QUESTION_MODEL, "System", "User",
             temperature=0.7, max_tokens=4096, json_object=True,
             reasoning_effort="none", request_profile="together",
-            openrouter_provider_endpoint="venice/bf16",
+            openrouter_provider_endpoint="crusoe/bf16",
         )
 
 
@@ -627,7 +629,7 @@ def test_question_stage_selects_openrouter_by_provider_not_endpoint(monkeypatch)
     monkeypatch.setattr(
         twinkler_ai,
         "AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT",
-        "venice/bf16",
+        "crusoe/bf16",
     )
     with mock_async(handler):
         answer = asyncio.run(
@@ -637,7 +639,7 @@ def test_question_stage_selects_openrouter_by_provider_not_endpoint(monkeypatch)
     assert captured["provider"] == {
         "allow_fallbacks": False,
         "data_collection": "deny",
-        "only": ["venice/bf16"],
+        "only": ["crusoe/bf16"],
     }
     assert captured["reasoning"] == {"enabled": False}
     assert "reasoning_effort" not in captured
@@ -1112,7 +1114,7 @@ def test_gemini_priority_setting_does_not_enter_chat_completions(monkeypatch, pr
         twinkler_ai, "QUESTION_PROVIDER",
         stage("question", model, provider=provider, endpoint=endpoint, reasoning_effort="none"),
     )
-    monkeypatch.setattr(twinkler_ai, "AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT", "venice/bf16")
+    monkeypatch.setattr(twinkler_ai, "AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT", "crusoe/bf16")
     with mock_async(handler):
         assert asyncio.run(
             twinkler_ai.complete("Мне тяжело", question_language("Мне тяжело", "ru"))
@@ -1570,7 +1572,7 @@ def test_the_startup_banner_names_the_strict_openrouter_profile(monkeypatch, cap
     monkeypatch.setattr(
         main,
         "AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT",
-        "venice/bf16",
+        "crusoe/bf16",
     )
     with caplog.at_level(logging.INFO):
         main.log_ai_providers()
@@ -1581,7 +1583,7 @@ def test_the_startup_banner_names_the_strict_openrouter_profile(monkeypatch, cap
     assert "provider=openrouter" in line
     assert "model=google/gemma-4-31b-it" in line
     assert " at openrouter.ai" in line
-    assert "provider_endpoint=venice/bf16" in line
+    assert "provider_endpoint=crusoe/bf16" in line
     assert "reasoning=disabled" in line
     assert "allow_fallbacks=false" in line
     assert "data_collection=deny" in line

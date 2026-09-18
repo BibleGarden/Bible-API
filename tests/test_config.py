@@ -182,7 +182,7 @@ OPENROUTER_ENV = {
     "AI_QUESTION_ENDPOINT": "https://openrouter.ai/api/v1",
     "AI_QUESTION_API_KEY": "openrouter-key",
     "AI_QUESTION_REASONING_EFFORT": "none",
-    "AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT": "venice/bf16",
+    "AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT": "crusoe/bf16",
 }
 
 TOGETHER_ENV = {
@@ -449,7 +449,7 @@ def test_together_requires_explicit_complete_configuration(name, value):
         ("AI_QUESTION_REASONING_EFFORT", "medium"),
         ("AI_QUESTION_REASONING_EFFORT", "high"),
         ("AI_QUESTION_REASONING_EFFORT", "false"),
-        ("AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT", "venice/bf16"),
+        ("AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT", "crusoe/bf16"),
         ("AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT", ""),
     ],
 )
@@ -484,6 +484,7 @@ def test_strict_openrouter_question_environment_has_no_problems():
         ("AI_QUESTION_ENDPOINT", "https://openrouter.ai/api/v1/"),
         ("AI_QUESTION_REASONING_EFFORT", "omit"),
         ("AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT", "novita/bf16"),
+        ("AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT", "venice/bf16"),
     ],
 )
 def test_openrouter_question_profile_rejects_any_non_exact_contract(name, value):
@@ -522,7 +523,7 @@ def test_openrouter_question_requires_an_explicit_provider_endpoint(value):
 
 
 @pytest.mark.parametrize("provider", ["gemini", "openai_compat"])
-@pytest.mark.parametrize("value", ["", "venice/bf16"])
+@pytest.mark.parametrize("value", ["", "crusoe/bf16"])
 def test_non_openrouter_question_rejects_provider_endpoint(provider, value):
     env = dict(GEMINI_AI_ENV if provider == "gemini" else AI_ENV)
     env["AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT"] = value
@@ -1219,7 +1220,7 @@ def test_import_reads_the_exact_openrouter_provider_endpoint(monkeypatch):
     module = _reload_config(monkeypatch, OPENROUTER_ENV)
     assert (
         module.AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT
-        == "venice/bf16"
+        == "crusoe/bf16"
     )
 
 

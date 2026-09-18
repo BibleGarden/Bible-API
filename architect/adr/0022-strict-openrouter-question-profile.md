@@ -1,6 +1,7 @@
 # ADR 0022: Strict OpenRouter profile for the local question stage
 
-Status: accepted (2026-09-14).
+Status: accepted (2026-09-14); endpoint selection superseded on 2026-09-18 by
+[ADR 0026](0026-openrouter-crusoe-question-route.md).
 Ticket: ClickUp 86cbh9vh6.
 
 ## Context

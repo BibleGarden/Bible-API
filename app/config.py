@@ -91,7 +91,7 @@ OPENROUTER_QUESTION_MODEL = "google/gemma-4-31b-it"
 OPENROUTER_QUESTION_PROVIDER_ENDPOINT_VAR = (
     "AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT"
 )
-OPENROUTER_QUESTION_PROVIDER_ENDPOINT = "venice/bf16"
+OPENROUTER_QUESTION_PROVIDER_ENDPOINT = "crusoe/bf16"
 
 # The direct Together Gemma trial is a separate reviewed question profile.
 TOGETHER_QUESTION_ENDPOINT = "https://api.together.ai/v1"
