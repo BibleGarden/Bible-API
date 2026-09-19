@@ -495,11 +495,15 @@ class ErrorResponse(BaseModel):
 # echoing the prayer topic and replies back to the caller (and into any
 # crash reporter or proxy log on the way). This endpoint therefore answers
 # validation failures with the same flat `{"detail": "..."}` shape as its
-# other errors, describing the CATEGORY and the field NAME only. The
-# Twinkler routes keep FastAPI's default body — their contract is already
-# published and their field is a single free-form message.
+# other errors, describing the CATEGORY and the field NAME only. Content
+# reports use the same handler so reported text is not echoed on a malformed
+# request. The Twinkler question routes keep FastAPI's default body — their
+# contract is already published and their field is a single free-form message.
 
-SANITIZED_VALIDATION_PATHS = frozenset({"/api/ai/scripture"})
+SANITIZED_VALIDATION_PATHS = frozenset({
+    "/api/ai/scripture",
+    "/api/ai/content-reports",
+})
 
 _SAFE_FIELD_RE = re.compile(r"^[A-Za-z0-9_.-]{1,40}$")
 _MAX_REPORTED_ERRORS = 3
