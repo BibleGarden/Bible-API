@@ -240,8 +240,13 @@ def test_the_prompt_bans_interpreting_and_rhetorical_questions():
     assert "Do not supply a menu of answers" in template
     assert "cannot be answered with just yes or no" in template
     assert "Do not disguise advice" in template
-    for softener in ("supportive", "encourag", "positive", "comforting"):
-        assert softener not in template.lower()
+    for blanket_tone in (
+        "be supportive",
+        "be encouraging",
+        "be positive",
+        "be comforting",
+    ):
+        assert blanket_tone not in template.lower()
 
 
 def test_v6_takes_the_gender_out_of_the_prompt_and_into_the_message():
@@ -307,9 +312,9 @@ def test_v6_examples_are_from_a_domain_the_app_never_sees():
         if len(entry["topic"].split()) > 1
     ]
     blocks = {
-        "ru": ("# Примеры хорошего вопроса", "# Чего избегать"),
-        "uk": ("# Приклади доброго запитання", "# Чого уникати"),
-        "en": ("# Examples of a good question", "# Avoid"),
+        "ru": ("# Примеры хорошего вопроса", "# Болезненные и опасные ситуации"),
+        "uk": ("# Приклади доброго запитання", "# Болісні й небезпечні ситуації"),
+        "en": ("# Examples of a good question", "# Painful and dangerous situations"),
     }
 
     for language, (opening, closing) in blocks.items():
