@@ -368,7 +368,7 @@ reason it is not a `413` is that `413` is this endpoint's promise about the
 
 The system prompt of `POST /api/ai/question` lives in
 `app/question_prompt.py`, versioned by `QUESTION_PROMPT_VERSION` (currently
-`7`) in the same way as `query_rewrite.REWRITE_PROMPT_VERSION` and
+`8`) in the same way as `query_rewrite.REWRITE_PROMPT_VERSION` and
 `passage_rerank.RERANK_PROMPT_VERSION`. Changing the wording means editing
 that file and bumping the version.
 
@@ -376,6 +376,60 @@ that file and bumping the version.
 production languages are Russian, Ukrainian and English. Other and
 undetermined languages are rejected by the routing policy described in the
 public contract; local `DEBUG=true` explicitly selects the English prompt.
+
+### v8: the person is praying to God, not conversing with Twinkler (ClickUp 86cbj7pez, 2026-09-20)
+
+The role now calls Twinkler a quiet prayer helper rather than a conversational
+partner. The person addresses God, not Twinkler, and the question must be
+worded so its answer can be addressed to God; prompts such as "tell me" or
+"explain to me" are explicitly excluded. The question may neither interpret
+nor evaluate the person's answer.
+
+Four related boundaries keep that prayer gentle without making it generically
+positive. The question must not test whether the person believes, trusts God,
+prays, forgives or tries hard enough, or induce guilt or shame through an
+implied reproach. Grief, acute pain and experienced injustice must not be
+hurried toward gratitude, acceptance of what happened or a search for a
+positive side. This takes precedence over the rotating angle: an "acceptance"
+angle must not become a question about accepting the painful event. Anger or a
+wish for harm is neither condemned nor encouraged, and the question must not
+make the desired harm or the outcome for the other person its subject. This
+takes precedence over the general "what the person wants" direction; the
+question may instead help them bring the anger honestly to God and notice what
+matters beneath it.
+The model must not add its own scripture references or denomination-specific
+teaching; scripture selection belongs to the separate endpoint, while a
+teaching or practice the person names remains part of their own data.
+
+Russian, Ukrainian and English carry equivalent instructions. This revision
+changes prompt wording only: the request and response schemas, the three
+stages, angle count and rotation mechanism, structured parsing, novelty check
+and code-enforced despair reply are unchanged.
+
+The fourth rotating angle did change from "what the person accepts" to "what
+the person needs". A live iteration on 2026-09-20 showed why an instruction
+alone was not enough: while the user message still explicitly supplied the
+acceptance angle, three of six Russian, Ukrainian and English grief answers
+still asked what the person found hard to accept. Removing that conflicting
+input made all six subsequent grief answers ask about need, comfort or support
+without pushing gratitude or acceptance. An anger iteration likewise found
+two of six answers that still made the desired harm their subject; explicitly
+giving the anger rule precedence over the general "what the person wants"
+direction produced nine of nine questions about bringing the anger itself to
+God, with no elaboration of harm.
+
+The final check used the exact v8 prompt with `gemini-3.5-flash-lite`, minimal
+thinking, temperature 0.7, standard service tier and no explicit Gemini
+`safetySettings`. One Russian, Ukrainian and English input covered each of
+four situations: continuing a conflict prayer without addressing Twinkler,
+grief under the new needs angle, anger with a wish for harm, and distance from
+God without a faith test. All 12 calls completed and returned JSON questions;
+none addressed the answer to Twinkler, forced gratitude or acceptance,
+developed the wished-for harm, or induced guilt about faith. Manual review
+also found two general quality defects outside those targeted rules: one
+Russian grief question inferred that the person was alone, and one English
+question used the awkward phrase "What brings you to bring". These samples
+are evidence for the named behaviours, not a statistical quality claim.
 
 ### v7: stay with painful subjects without adding graphic detail (ClickUp 86cbj7pez, 2026-09-20)
 

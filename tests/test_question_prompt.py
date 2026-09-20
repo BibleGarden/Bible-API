@@ -173,12 +173,12 @@ def test_stage_instruction_golden(language, stage):
 
 
 # ---------------------------------------------------------------------------
-# v7: content safety without leaving the person's subject (ClickUp 86cbj7pez)
+# v7-v8: safe, prayer-directed questions (ClickUp 86cbj7pez)
 # ---------------------------------------------------------------------------
 
 
-def test_the_version_moved_to_seven():
-    assert question_prompt.QUESTION_PROMPT_VERSION == 7
+def test_the_version_moved_to_eight():
+    assert question_prompt.QUESTION_PROMPT_VERSION == 8
 
 
 @pytest.mark.parametrize(
@@ -290,6 +290,86 @@ def test_every_locale_allows_named_feelings_and_preserves_named_hope(
 
 
 @pytest.mark.parametrize(
+    ("language", "prayer", "not_twinkler"),
+    [
+        ("ru", "Человек обращается к Богу, а не к тебе", "обратить к Богу"),
+        ("uk", "Людина звертається до Бога, а не до тебе", "звернути до Бога"),
+        ("en", "The person is speaking to God, not to you", "addressed to God"),
+    ],
+)
+def test_every_locale_keeps_the_answer_inside_the_persons_prayer(
+    language, prayer, not_twinkler
+):
+    prompt = question_prompt.build_question_prompt(language)
+    assert prayer in prompt
+    assert not_twinkler in prompt
+
+
+@pytest.mark.parametrize(
+    ("language", "pain", "priority", "anger"),
+    [
+        (
+            "ru",
+            "не подталкивай человека к благодарности",
+            "не спрашивай, что человек принимает",
+            "не спрашивай, что должно произойти с другим человеком",
+        ),
+        (
+            "uk",
+            "не підштовхуй людину до вдячності",
+            "не запитуй, що людина приймає",
+            "не питай, що має статися з іншою людиною",
+        ),
+        (
+            "en",
+            "do not push the person toward gratitude",
+            "do not ask what they accept",
+            "do not make the desired harm the subject",
+        ),
+    ],
+)
+def test_every_locale_does_not_force_a_positive_turn_or_moralise_about_anger(
+    language, pain, priority, anger
+):
+    prompt = question_prompt.build_question_prompt(language)
+    assert pain in prompt
+    assert priority in prompt
+    assert anger in prompt
+
+
+@pytest.mark.parametrize(
+    ("language", "faith", "scripture", "denomination"),
+    [
+        (
+            "ru",
+            "Не проверяй, достаточно ли человек верит",
+            "Не добавляй от себя цитаты или ссылки на Писание",
+            "конфессионально специфические учения",
+        ),
+        (
+            "uk",
+            "Не перевіряй, чи достатньо людина вірить",
+            "Не додавай від себе цитат або посилань на Писання",
+            "конфесійно специфічних учень",
+        ),
+        (
+            "en",
+            "Do not test whether the person believes",
+            "Do not add scripture quotations or references yourself",
+            "denomination-specific teachings",
+        ),
+    ],
+)
+def test_every_locale_avoids_faith_tests_and_unsolicited_theology(
+    language, faith, scripture, denomination
+):
+    prompt = question_prompt.build_question_prompt(language)
+    assert faith in prompt
+    assert scripture in prompt
+    assert denomination in prompt
+
+
+@pytest.mark.parametrize(
     ("language", "expected"),
     [
         ("ru", "Угол этого вопроса: что для человека важно."),
@@ -318,11 +398,11 @@ def test_the_five_angles_are_the_five_the_goal_names_and_they_rotate():
         assert question_prompt.clarification_angle(step + 5, "ru") == angles[step]
         assert question_prompt.clarification_angle(step + 10, "ru") == angles[step]
     # The order of the goal: what matters, what they want, what they choose
-    # between, what they accept, what they bring to God.
+    # between, what they need, what they bring to God.
     assert "важно" in angles[0]
     assert "хочет" in angles[1]
     assert "выбирает" in angles[2]
-    assert "принимает" in angles[3]
+    assert "нуждается" in angles[3]
     assert "Богу" in angles[4]
 
 

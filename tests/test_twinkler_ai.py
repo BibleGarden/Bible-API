@@ -179,7 +179,7 @@ def test_question_prompt_is_a_usable_constant():
 def test_question_prompt_is_versioned():
     version = question_prompt.QUESTION_PROMPT_VERSION
     assert isinstance(version, int) and version >= 1
-    assert version == 7
+    assert version == 8
 
 
 def test_v5_system_prompt_has_named_sections_and_data_rules():
