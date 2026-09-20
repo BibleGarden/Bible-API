@@ -82,6 +82,31 @@ GeminiThinkingLevel = Literal["minimal", "low", "medium", "high"]
 QUESTION_SERVICE_TIER_VAR = "AI_QUESTION_SERVICE_TIER"
 GEMINI_SERVICE_TIERS = ("standard", "priority")
 
+# Gemini `safetySettings` of the question call (ClickUp 86cbj7pez). The
+# allowed categories are the reviewed subset of Gemini harm categories; the
+# thresholds are the provider's own enum values. Operational knobs: unset
+# means the reviewed default, a malformed value is a startup error naming the
+# variable. Like the service tier, they belong only to the Gemini question
+# profile — any other question provider must not carry them.
+GEMINI_SAFETY_CATEGORIES = (
+    "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+    "HARM_CATEGORY_DANGEROUS_CONTENT",
+    "HARM_CATEGORY_HARASSMENT",
+    "HARM_CATEGORY_HATE_SPEECH",
+)
+GEMINI_SAFETY_THRESHOLDS = (
+    "BLOCK_LOW_AND_ABOVE",
+    "BLOCK_MEDIUM_AND_ABOVE",
+    "BLOCK_ONLY_HIGH",
+    "OFF",
+)
+QUESTION_GEMINI_SAFETY_CATEGORY_VAR = "AI_QUESTION_GEMINI_SAFETY_CATEGORY"
+QUESTION_GEMINI_SAFETY_THRESHOLD_VAR = "AI_QUESTION_GEMINI_SAFETY_THRESHOLD"
+QUESTION_GEMINI_SAFETY_CATEGORIES_DEFAULT = (
+    "HARM_CATEGORY_SEXUALLY_EXPLICIT,HARM_CATEGORY_DANGEROUS_CONTENT"
+)
+QUESTION_GEMINI_SAFETY_THRESHOLD_DEFAULT = "BLOCK_MEDIUM_AND_ABOVE"
+
 # The OpenRouter provider is deliberately a pinned question-only profile, not
 # a generic JSON escape hatch. A provider/model change is an architectural
 # decision, and accepting another URL or model under this name would silently
@@ -447,6 +472,36 @@ def parse_trusted_proxy_hosts(name: str, raw: str | None) -> tuple[str, ...]:
     return tuple(hosts)
 
 
+def parse_gemini_safety_categories(
+    name: str, raw: str | None, default: str
+) -> tuple[str, ...]:
+    """Comma-separated subset of the reviewed Gemini harm categories.
+
+    Unset/empty -> the reviewed default; every supplied token must be one of
+    `GEMINI_SAFETY_CATEGORIES`, otherwise a ConfigError names the variable and
+    the offending token (the provider silently ignores an unknown category
+    name, which is exactly the failure mode a strict parse replaces).
+    Duplicates are dropped, the order of first mention is kept.
+    """
+    if raw is None or raw.strip() == "":
+        raw = default
+    categories: list[str] = []
+    for token in raw.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        if token not in GEMINI_SAFETY_CATEGORIES:
+            raise ConfigError(
+                f"{name}: unknown harm category {token!r}, expected one of "
+                f"{', '.join(GEMINI_SAFETY_CATEGORIES)}"
+            )
+        if token not in categories:
+            categories.append(token)
+    if not categories:
+        raise ConfigError(f"{name}: expected at least one harm category")
+    return tuple(categories)
+
+
 def ai_configured(env: Mapping[str, str]) -> bool:
     """Whether the AI chat/audio surface is explicitly enabled."""
     return env.get("AI_ENABLED") == "true"
@@ -700,6 +755,8 @@ def invalid_required_values(env: Mapping[str, str]) -> list[str]:
         QUESTION_SERVICE_TIER_VAR,
         OPENROUTER_QUESTION_PROVIDER_ENDPOINT_VAR,
         TRANSCRIBE_MODEL_PATH_VAR,
+        QUESTION_GEMINI_SAFETY_CATEGORY_VAR,
+        QUESTION_GEMINI_SAFETY_THRESHOLD_VAR,
     }
     for stage in (*AI_STAGE_VARS, TRANSCRIBE_STAGE_VARS):
         stage_config_names.update(
@@ -811,6 +868,37 @@ def invalid_required_values(env: Mapping[str, str]) -> list[str]:
             f"{QUESTION_SERVICE_TIER_VAR}: only Gemini questions use a service "
             "tier — remove it for other providers"
         )
+    if question_provider == PROVIDER_GEMINI:
+        raw_safety_categories = env.get(QUESTION_GEMINI_SAFETY_CATEGORY_VAR, "")
+        if raw_safety_categories.strip():
+            try:
+                parse_gemini_safety_categories(
+                    QUESTION_GEMINI_SAFETY_CATEGORY_VAR,
+                    raw_safety_categories,
+                    QUESTION_GEMINI_SAFETY_CATEGORIES_DEFAULT,
+                )
+            except ConfigError as exc:
+                problems.append(str(exc))
+        raw_safety_threshold = env.get(QUESTION_GEMINI_SAFETY_THRESHOLD_VAR, "")
+        if (
+            raw_safety_threshold.strip()
+            and raw_safety_threshold.strip() not in GEMINI_SAFETY_THRESHOLDS
+        ):
+            problems.append(
+                f"{QUESTION_GEMINI_SAFETY_THRESHOLD_VAR}: unknown threshold "
+                f"{raw_safety_threshold.strip()!r}, expected one of "
+                f"{', '.join(GEMINI_SAFETY_THRESHOLDS)}"
+            )
+    else:
+        for name in (
+            QUESTION_GEMINI_SAFETY_CATEGORY_VAR,
+            QUESTION_GEMINI_SAFETY_THRESHOLD_VAR,
+        ):
+            if env_var_present(env, name):
+                problems.append(
+                    f"{name}: only Gemini questions use safetySettings — "
+                    "remove it for other providers"
+                )
     if question_provider == PROVIDER_OPENROUTER:
         raw_provider_endpoint = env.get(
             OPENROUTER_QUESTION_PROVIDER_ENDPOINT_VAR, ""
@@ -1094,6 +1182,25 @@ AI_QUESTION_LOG_PROVIDER_BODIES = _get_optional_bool(
 # serves: POST /api/ai/question and POST /api/ai/transcribe.
 AI_QUESTION_MODEL = os.getenv("AI_QUESTION_MODEL", "")
 AI_QUESTION_SERVICE_TIER = os.getenv(QUESTION_SERVICE_TIER_VAR, "")
+# The `safetySettings` array of the Gemini question call: which harm
+# categories carry which blocking threshold. Unset is the reviewed default
+# (sexually-explicit and dangerous content at BLOCK_MEDIUM_AND_ABOVE);
+# a malformed supplied value aborts startup via _problems below.
+try:
+    AI_QUESTION_GEMINI_SAFETY_CATEGORIES = parse_gemini_safety_categories(
+        QUESTION_GEMINI_SAFETY_CATEGORY_VAR,
+        os.getenv(QUESTION_GEMINI_SAFETY_CATEGORY_VAR),
+        QUESTION_GEMINI_SAFETY_CATEGORIES_DEFAULT,
+    )
+except ConfigError as exc:
+    _problems.append(str(exc))
+    AI_QUESTION_GEMINI_SAFETY_CATEGORIES = tuple(
+        QUESTION_GEMINI_SAFETY_CATEGORIES_DEFAULT.split(",")
+    )
+AI_QUESTION_GEMINI_SAFETY_THRESHOLD = (
+    os.getenv(QUESTION_GEMINI_SAFETY_THRESHOLD_VAR, "").strip()
+    or QUESTION_GEMINI_SAFETY_THRESHOLD_DEFAULT
+)
 AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT = os.getenv(
     OPENROUTER_QUESTION_PROVIDER_ENDPOINT_VAR, ""
 ).strip()

@@ -962,6 +962,10 @@ def test_gemini_question_thinking_configuration_reaches_wire(
         expected_config["thinkingConfig"] = {"thinkingLevel": reasoning_effort.upper()}
     assert captured == [{
         "serviceTier": "standard",
+        "safetySettings": [
+            {"category": category, "threshold": twinkler_ai.AI_QUESTION_GEMINI_SAFETY_THRESHOLD}
+            for category in twinkler_ai.AI_QUESTION_GEMINI_SAFETY_CATEGORIES
+        ],
         "system_instruction": {"parts": [{"text": build_question_prompt("ru")}]},
         "contents": [{"role": "user", "parts": [{"text": "Мне тяжело"}]}],
         "generationConfig": expected_config,

@@ -19,6 +19,8 @@ from auth import RequireAPIKey
 from client_ip import resolve_client_ip
 from config import (
     AI_ENABLED,
+    AI_QUESTION_GEMINI_SAFETY_CATEGORIES,
+    AI_QUESTION_GEMINI_SAFETY_THRESHOLD,
     AI_QUESTION_LOG_PROVIDER_BODIES,
     AI_QUESTION_MAX_TOKENS,
     AI_QUESTION_MODEL,
@@ -860,6 +862,10 @@ async def complete(
     )
     payload = {
         "serviceTier": AI_QUESTION_SERVICE_TIER,
+        "safetySettings": [
+            {"category": category, "threshold": AI_QUESTION_GEMINI_SAFETY_THRESHOLD}
+            for category in AI_QUESTION_GEMINI_SAFETY_CATEGORIES
+        ],
         "system_instruction": {"parts": [{"text": prompt}]},
         "contents": [{"role": "user", "parts": [{"text": user}]}],
         "generationConfig": {

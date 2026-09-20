@@ -178,8 +178,35 @@ def test_stage_instruction_golden(language, stage):
 # ---------------------------------------------------------------------------
 
 
-def test_the_version_moved_to_six():
-    assert question_prompt.QUESTION_PROMPT_VERSION == 6
+def test_the_version_moved_to_seven():
+    assert question_prompt.QUESTION_PROMPT_VERSION == 7
+
+
+@pytest.mark.parametrize(
+    ("language", "phrase"),
+    [
+        ("ru", "откровенный сексуальный контент"),
+        ("uk", "відвертий сексуальний контент"),
+        ("en", "explicit sexual content"),
+    ],
+)
+def test_every_locale_forbids_explicit_content(language, phrase):
+    """v7 content safety (ClickUp 86cbj7pez): no explicit generation…"""
+    assert phrase in question_prompt.build_question_prompt(language)
+
+
+@pytest.mark.parametrize(
+    ("language", "phrase"),
+    [
+        ("ru", "Не покидай и не отводи разговор от реальной темы молитвы"),
+        ("uk", "Не полишай і не відводь розмову від реальної теми молитви"),
+        ("en", "Never abandon or deflect from the real topic"),
+    ],
+)
+def test_every_locale_stays_with_the_prayer(language, phrase):
+    """…and never deflects from a prayer that touches sex, violence,
+    addiction or trauma."""
+    assert phrase in question_prompt.build_question_prompt(language)
 
 
 @pytest.mark.parametrize(

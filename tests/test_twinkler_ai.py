@@ -179,7 +179,7 @@ def test_question_prompt_is_a_usable_constant():
 def test_question_prompt_is_versioned():
     version = question_prompt.QUESTION_PROMPT_VERSION
     assert isinstance(version, int) and version >= 1
-    assert version == 6
+    assert version == 7
 
 
 def test_v5_system_prompt_has_named_sections_and_data_rules():
@@ -2882,6 +2882,16 @@ def test_sends_expected_gemini_request(monkeypatch):
         assert request.headers["content-type"] == "application/json"
         assert json.loads(request.read()) == {
             "serviceTier": "standard",
+            "safetySettings": [
+                {
+                    "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                    "threshold": "BLOCK_MEDIUM_AND_ABOVE",
+                },
+                {
+                    "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+                    "threshold": "BLOCK_MEDIUM_AND_ABOVE",
+                },
+            ],
             "system_instruction": {
                 "parts": [{"text": question_prompt.build_question_prompt("ru")}]
             },
@@ -2908,6 +2918,85 @@ def test_sends_expected_gemini_request(monkeypatch):
             "Запрос", twinkler_ai.ResolvedQuestionLanguage("Запрос", "ru")
         )
     ) == "Ответ"
+
+
+def test_gemini_safety_settings_follow_config(monkeypatch):
+    """Env override of categories/threshold lands verbatim in the payload."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.read())
+        assert payload["safetySettings"] == [
+            {
+                "category": "HARM_CATEGORY_HARASSMENT",
+                "threshold": "BLOCK_ONLY_HIGH",
+            }
+        ]
+        return httpx.Response(
+            200,
+            json={"candidates": [{"content": {"parts": [{"text": "Ответ"}]}}]},
+        )
+
+    transport = httpx.MockTransport(handler)
+    real_async_client = httpx.AsyncClient
+
+    def async_client(*args, **kwargs):
+        return real_async_client(*args, transport=transport, **kwargs)
+
+    monkeypatch.setattr(
+        twinkler_ai, "AI_QUESTION_GEMINI_SAFETY_CATEGORIES",
+        ("HARM_CATEGORY_HARASSMENT",),
+    )
+    monkeypatch.setattr(
+        twinkler_ai, "AI_QUESTION_GEMINI_SAFETY_THRESHOLD", "BLOCK_ONLY_HIGH"
+    )
+    monkeypatch.setattr(twinkler_ai.httpx, "AsyncClient", async_client)
+
+    assert asyncio.run(
+        twinkler_ai.complete(
+            "Запрос", twinkler_ai.ResolvedQuestionLanguage("Запрос", "ru")
+        )
+    ) == "Ответ"
+
+
+def test_gemini_safety_settings_off_threshold_allows_all_categories(
+    monkeypatch,
+):
+    """An OFF threshold still sends every configured category."""
+
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["payload"] = json.loads(request.read())
+        return httpx.Response(
+            200,
+            json={"candidates": [{"content": {"parts": [{"text": "Ответ"}]}}]},
+        )
+
+    transport = httpx.MockTransport(handler)
+    real_async_client = httpx.AsyncClient
+
+    def async_client(*args, **kwargs):
+        return real_async_client(*args, transport=transport, **kwargs)
+
+    monkeypatch.setattr(
+        twinkler_ai, "AI_QUESTION_GEMINI_SAFETY_CATEGORIES",
+        config.GEMINI_SAFETY_CATEGORIES,
+    )
+    monkeypatch.setattr(
+        twinkler_ai, "AI_QUESTION_GEMINI_SAFETY_THRESHOLD", "OFF"
+    )
+    monkeypatch.setattr(twinkler_ai.httpx, "AsyncClient", async_client)
+
+    asyncio.run(
+        twinkler_ai.complete(
+            "Запрос", twinkler_ai.ResolvedQuestionLanguage("Запрос", "ru")
+        )
+    )
+
+    assert captured["payload"]["safetySettings"] == [
+        {"category": category, "threshold": "OFF"}
+        for category in config.GEMINI_SAFETY_CATEGORIES
+    ]
 
 
 @pytest.mark.parametrize(

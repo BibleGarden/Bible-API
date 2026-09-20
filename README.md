@@ -320,6 +320,24 @@ No `thinkingBudget`, `includeThoughts`, Chat Completions reasoning field or
 routing policy is sent to Google. See
 [ADR 0024](architect/adr/0024-gemini-question-thinking-level.md).
 
+The Gemini question call also sends `safetySettings` (ClickUp 86cbj7pez).
+Both knobs are optional, Gemini-question-only, and forbidden with other
+providers or `AI_ENABLED=false`:
+
+```dotenv
+AI_QUESTION_GEMINI_SAFETY_CATEGORY=HARM_CATEGORY_SEXUALLY_EXPLICIT,HARM_CATEGORY_DANGEROUS_CONTENT
+AI_QUESTION_GEMINI_SAFETY_THRESHOLD=BLOCK_MEDIUM_AND_ABOVE
+```
+
+The category variable is a comma-separated subset of
+`HARM_CATEGORY_SEXUALLY_EXPLICIT`, `HARM_CATEGORY_DANGEROUS_CONTENT`,
+`HARM_CATEGORY_HARASSMENT`, `HARM_CATEGORY_HATE_SPEECH`; the threshold one of
+`BLOCK_LOW_AND_ABOVE`, `BLOCK_MEDIUM_AND_ABOVE`, `BLOCK_ONLY_HIGH`, `OFF`.
+The defaults shown above apply when the variables are unset; any other value
+aborts startup naming the variable. Each listed category is sent with the
+configured threshold; rewrite, rerank, transcription and embeddings do not
+receive the array.
+
 Every Gemini question deployment must explicitly set
 `AI_QUESTION_SERVICE_TIER=standard|priority`, including existing deployments
 when upgrading. The value is sent as top-level `serviceTier`; it is forbidden
