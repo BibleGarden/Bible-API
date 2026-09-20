@@ -514,16 +514,12 @@ stored or logged: the reference alone is not private, but next to a client
 identity it would reveal what the person prayed about. Logs carry failure
 categories only.
 
-**The statistics history is split at the rename.** `app/middleware.py`
-stores the request path verbatim, so `api_requests` and
-`api_request_daily_stats` hold this endpoint under
-`/api/scripture/v1/select` up to 2026-08-30 and under `/api/ai/scripture`
-after it (likewise `/api/twinkler/v1/complete` → `/api/ai/question` and
-`/api/twinkler/v1/transcribe` → `/api/ai/transcribe`). The rows were
-deliberately NOT rewritten: they are an honest record of what was called.
-Any report spanning the boundary has to union the two names — the raw table
-keeps only 14 days, so the seam disappears from it by 2026-09-13 and
-survives only in the permanent daily aggregate.
+**Pre-release route names are not a compatibility surface.** Statistics and
+reports classify AI traffic only by the current `/api/ai/*` contract. Rows
+created by retired development routes may remain in a development database,
+but current code must not add aliases, unions, or classification branches for
+them. Historical ADRs keep the old names only to explain the decisions that
+produced the current contract.
 
 ## Caching
 
