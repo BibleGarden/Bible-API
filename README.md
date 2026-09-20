@@ -60,6 +60,12 @@ The API will be available at `http://localhost:9084/api`.
 
 All endpoints require `X-API-Key` header.
 
+`POST /api/ai/content-reports` stores a report about a generated question or
+selected scripture passage. The body contains `content_type` (`question` or
+`scripture`), `content_text`, optional `user_comment`, and the UI `language`
+(`ru`, `en`, or `uk`). The endpoint stores no prayer answer or raw client
+identity and fails with `500` when the report cannot be persisted.
+
 ### AI endpoints
 
 Question and scripture requests accept an optional strict boolean `prefetch`

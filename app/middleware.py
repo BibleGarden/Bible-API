@@ -28,6 +28,7 @@ PRIVATE_PATHS = frozenset({
     "/api/ai/question",
     "/api/ai/transcribe",
     "/api/ai/scripture",
+    "/api/ai/content-reports",
 })
 
 # Normalize dynamic path segments for cleaner stats grouping

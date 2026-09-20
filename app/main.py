@@ -21,6 +21,10 @@ from health import router as health_router
 from import_data import router as import_data_router
 from twinkler_ai import router as twinkler_ai_router
 from scripture_select import router as scripture_select_router
+from content_reports import (
+    ContentReportBodyLimitMiddleware,
+    router as content_reports_router,
+)
 from scripture_select import clear_cached_resources, validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from auth import RequireAPIKey
@@ -139,6 +143,7 @@ app = FastAPI(
 )
 
 app.add_middleware(RequestStatsMiddleware)
+app.add_middleware(ContentReportBodyLimitMiddleware)
 
 # Say out loud, once, whose X-Forwarded-For this process believes. Silence
 # here is what made the 2026-08-30 proxy-address reshuffle invisible: a
@@ -321,6 +326,7 @@ api_router.include_router(health_router)
 api_router.include_router(import_data_router)
 api_router.include_router(twinkler_ai_router)
 api_router.include_router(scripture_select_router)
+api_router.include_router(content_reports_router)
 
 
 @api_router.get('/languages', response_model=list[LanguageModel], operation_id="get_languages", tags=["Languages"])
