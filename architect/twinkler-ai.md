@@ -368,7 +368,7 @@ reason it is not a `413` is that `413` is this endpoint's promise about the
 
 The system prompt of `POST /api/ai/question` lives in
 `app/question_prompt.py`, versioned by `QUESTION_PROMPT_VERSION` (currently
-`6`) in the same way as `query_rewrite.REWRITE_PROMPT_VERSION` and
+`7`) in the same way as `query_rewrite.REWRITE_PROMPT_VERSION` and
 `passage_rerank.RERANK_PROMPT_VERSION`. Changing the wording means editing
 that file and bumping the version.
 
@@ -376,6 +376,22 @@ that file and bumping the version.
 production languages are Russian, Ukrainian and English. Other and
 undetermined languages are rejected by the routing policy described in the
 public contract; local `DEBUG=true` explicitly selects the English prompt.
+
+### v7: stay with painful subjects without adding graphic detail (ClickUp 86cbj7pez, 2026-09-20)
+
+The question prompt distinguishes a prayer's subject from the form of the
+model's answer. Sex, violence, addiction and trauma are not reasons to change
+the subject or retreat into generalities: the question stays with the person's
+concrete situation and what matters to them, what they want, or what they want
+to bring to God. The model must not add explicit sexual detail, erotic
+roleplay, graphic violence or instructions that facilitate harm.
+
+When it arises naturally from that concrete situation, the question may help
+the person notice support and room for hope — God's love and presence, other
+people's care or one manageable next step. This is a direction, not a mandatory
+positive turn: the prompt forbids using it to gloss over pain, promise a good
+outcome or claim on God's behalf what He will do. Complete Russian, Ukrainian
+and English versions carry the same policy.
 
 ### v6: a structured answer, the angle and the gender from code (ClickUp 86cbejvt2, 2026-09-06)
 

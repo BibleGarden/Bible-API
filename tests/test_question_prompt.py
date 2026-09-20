@@ -173,8 +173,7 @@ def test_stage_instruction_golden(language, stage):
 
 
 # ---------------------------------------------------------------------------
-# v6: the structured answer, the angle of the step, the gender from code
-# (ClickUp 86cbejvt2)
+# v7: content safety without leaving the person's subject (ClickUp 86cbj7pez)
 # ---------------------------------------------------------------------------
 
 
@@ -185,28 +184,42 @@ def test_the_version_moved_to_seven():
 @pytest.mark.parametrize(
     ("language", "phrase"),
     [
-        ("ru", "откровенный сексуальный контент"),
-        ("uk", "відвертий сексуальний контент"),
-        ("en", "explicit sexual content"),
+        ("ru", "Не добавляй от себя откровенные сексуальные подробности"),
+        ("uk", "Не додавай від себе відвертих сексуальних подробиць"),
+        ("en", "Do not add explicit sexual details"),
     ],
 )
-def test_every_locale_forbids_explicit_content(language, phrase):
-    """v7 content safety (ClickUp 86cbj7pez): no explicit generation…"""
+def test_every_locale_does_not_add_explicit_content(language, phrase):
+    """The model does not add explicit detail the person did not supply."""
     assert phrase in question_prompt.build_question_prompt(language)
 
 
 @pytest.mark.parametrize(
     ("language", "phrase"),
     [
-        ("ru", "Не покидай и не отводи разговор от реальной темы молитвы"),
-        ("uk", "Не полишай і не відводь розмову від реальної теми молитви"),
-        ("en", "Never abandon or deflect from the real topic"),
+        ("ru", "Не меняй тему и не уходи в общие слова"),
+        ("uk", "Не змінюй тему й не переходь до загальних слів"),
+        ("en", "Do not change the subject or retreat into generalities"),
     ],
 )
 def test_every_locale_stays_with_the_prayer(language, phrase):
     """…and never deflects from a prayer that touches sex, violence,
     addiction or trauma."""
     assert phrase in question_prompt.build_question_prompt(language)
+
+
+@pytest.mark.parametrize(
+    ("language", "hope", "limit"),
+    [
+        ("ru", "пространство для надежды", "не обещай благополучный исход"),
+        ("uk", "простір для надії", "не обіцяй благополучного результату"),
+        ("en", "room for hope", "promise a good outcome"),
+    ],
+)
+def test_every_locale_opens_hope_without_promising_an_outcome(language, hope, limit):
+    prompt = question_prompt.build_question_prompt(language)
+    assert hope in prompt
+    assert limit in prompt
 
 
 @pytest.mark.parametrize(
