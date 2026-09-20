@@ -223,6 +223,22 @@ def test_every_locale_opens_hope_without_promising_an_outcome(language, hope, li
 
 
 @pytest.mark.parametrize(
+    ("language", "safety", "no_return"),
+    [
+        ("ru", "к доступной безопасности и поддержке", "должен вернуться"),
+        ("uk", "до доступної безпеки й підтримки", "має повернутися"),
+        ("en", "toward safety and support available", "must return"),
+    ],
+)
+def test_every_locale_keeps_immediate_danger_anchored_in_safety(
+    language, safety, no_return
+):
+    prompt = question_prompt.build_question_prompt(language)
+    assert safety in prompt
+    assert no_return in prompt
+
+
+@pytest.mark.parametrize(
     ("language", "expected"),
     [
         ("ru", "Угол этого вопроса: что для человека важно."),

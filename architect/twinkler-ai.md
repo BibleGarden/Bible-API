@@ -391,7 +391,9 @@ the person notice support and room for hope — God's love and presence, other
 people's care or one manageable next step. This is a direction, not a mandatory
 positive turn: the prompt forbids using it to gloss over pain, promise a good
 outcome or claim on God's behalf what He will do. Complete Russian, Ukrainian
-and English versions carry the same policy.
+and English versions carry the same policy. When the person's words indicate
+immediate danger, the question stays with safety and support available to them
+and must not assume that they will return to or remain in danger.
 
 Live check on 2026-09-20 used the branch's exact v7 prompt without explicit
 Gemini `safetySettings`: `gemini-3.5-flash-lite`, minimal thinking,
@@ -403,15 +405,22 @@ graphic addition, harm-facilitating instruction, promise on God's behalf or
 departure to an unrelated subject. The added guidance therefore did not turn
 the sample into refusals or generic safety replies.
 
-The same review found two defects and does not hide them behind the aggregate:
-two of three Ukrainian marital-intimacy answers contained an unexpected Arabic
-character inside `вголос`, and two of three English domestic-violence answers
+The same review found two defects and does not hide them behind the aggregate.
+Two of three Ukrainian marital-intimacy answers contained an unexpected Arabic
+character inside `вголос`. Two of three English domestic-violence answers
 asked about going back through the front door instead of available safety or
-support. Three inputs that explicitly named hope or support (Ukrainian war,
+support; this finding produced the immediate-danger sentence above. Its
+targeted live check used the same model and settings with one domestic-violence
+input per language, three samples each: all nine resulting questions pointed
+to a safe place, a trusted person or a support service, and none assumed a
+return to danger. One English call timed out before generation and was replaced
+by exactly one recorded call; the eight successful calls were not repeated.
+
+Three initial inputs that explicitly named hope or support (Ukrainian war,
 English domestic violence and English grief) also produced relevant questions
 that stayed with the pain but did not carry that requested direction. These
-are product-quality findings from a small sample, not statistical rates or an
-acceptance claim.
+and the mixed-script outputs are product-quality findings from a small sample,
+not statistical rates or an acceptance claim.
 
 ### v6: a structured answer, the angle and the gender from code (ClickUp 86cbejvt2, 2026-09-06)
 

@@ -190,7 +190,8 @@ from collections.abc import Sequence
 # detail, erotic roleplay, graphic violence or harm instructions; stay with
 # the concrete prayer when it touches sex, violence, addiction or trauma;
 # and, when natural, open a path toward support and hope without minimising
-# pain or promising an outcome.
+# pain or promising an outcome. Immediate danger keeps the question anchored
+# in available safety and support, never in an assumed return to danger.
 QUESTION_PROMPT_VERSION = 7
 
 # `safety.detect_language` returns an ISO code, or `None` when the bundled
@@ -230,6 +231,7 @@ _SYSTEM_PROMPTS = {
 - Не добавляй от себя откровенные сексуальные подробности, эротические ролевые сцены, натуралистичные описания насилия или указания и советы, которые могли бы помочь причинить вред себе или другим.
 - Не меняй тему и не уходи в общие слова из-за того, что молитва касается секса, насилия, зависимости или травмы. Оставайся с конкретной ситуацией человека и задай бережный, ненатуралистичный вопрос о том, что для него в ней важно, чего он хочет или что хочет принести Богу.
 - Когда это естественно для конкретной ситуации, мягко помогай человеку увидеть возможную опору и пространство для надежды: Божью любовь и близость, заботу других людей или следующий посильный шаг. Не подменяй этим его боль, не обещай благополучный исход и не утверждай от имени Бога, что Он обязательно сделает.
+- Если из слов человека видно, что ему прямо сейчас может угрожать опасность, направь вопрос к доступной безопасности и поддержке. Не спрашивай так, будто он должен вернуться в опасную ситуацию или остаться в ней.
 
 # Язык и форма
 Пиши естественно по-русски и обращайся на «ты». Род обращения указан в сообщении; не выводи его сам и не бери из вопросов Твинклера. Обращайся к одному собеседнику на «ты», даже когда он рассказывает о нескольких людях. Верни ровно один открытый вопрос, на который нельзя ответить только «да» или «нет»: одна ясная мысль, одна строка, знак вопроса в конце, обычно не длиннее 160 символов.
@@ -270,6 +272,7 @@ _SYSTEM_PROMPTS = {
 - Не додавай від себе відвертих сексуальних подробиць, еротичних рольових сцен, натуралістичних описів насильства або вказівок і порад, які могли б допомогти завдати шкоди собі чи іншим.
 - Не змінюй тему й не переходь до загальних слів через те, що молитва стосується сексу, насильства, залежності чи травми. Залишайся з конкретною ситуацією людини й постав дбайливе, ненатуралістичне запитання про те, що для неї в цій ситуації важливо, чого вона хоче або що хоче принести Богові.
 - Коли це природно для конкретної ситуації, м’яко допомагай людині побачити можливу опору й простір для надії: Божу любов і близькість, турботу інших людей або наступний посильний крок. Не підмінюй цим її біль, не обіцяй благополучного результату й не стверджуй від імені Бога, що Він обов’язково зробить.
+- Якщо зі слів людини видно, що їй просто зараз може загрожувати небезпека, спрямуй запитання до доступної безпеки й підтримки. Не запитуй так, ніби вона має повернутися в небезпечну ситуацію або залишитися в ній.
 
 # Мова і форма
 Пиши природно українською й звертайся на «ти». Рід звертання вказано в повідомленні; не виводь його сам і не бери із запитань Твінклера. Звертайся до одного співрозмовника на «ти», навіть коли йдеться про кількох людей. Поверни рівно одне відкрите запитання, на яке не можна відповісти лише «так» або «ні»: одна ясна думка, один рядок, знак питання в кінці, зазвичай не довше 160 символів.
@@ -310,6 +313,7 @@ The examples show the shape, not the topic: never carry their content into your 
 - Do not add explicit sexual details, erotic roleplay, graphic descriptions of violence, or instructions or advice that could help someone harm themselves or others.
 - Do not change the subject or retreat into generalities because the prayer concerns sex, violence, addiction, or trauma. Stay with the person's concrete situation and ask a gentle, non-graphic question about what matters to them in it, what they want, or what they want to bring to God.
 - When it arises naturally from the specific situation, gently help the person notice possible support and room for hope: God's love and presence, other people's care, or one manageable next step. Do not use this to gloss over their pain, promise a good outcome, or claim on God's behalf what He will do.
+- If the person's words show they may be in immediate danger, direct the question toward safety and support available to them. Do not phrase it as though they must return to or remain in the dangerous situation.
 
 # Language and form
 Write in natural English. Return exactly one open question that cannot be answered with just yes or no: one clear thought, one line, ending in a question mark, usually no longer than 160 characters.
