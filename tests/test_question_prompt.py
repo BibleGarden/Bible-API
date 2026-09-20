@@ -197,9 +197,9 @@ def test_every_locale_does_not_add_explicit_content(language, phrase):
 @pytest.mark.parametrize(
     ("language", "phrase"),
     [
-        ("ru", "Не меняй тему и не уходи в общие слова"),
-        ("uk", "Не змінюй тему й не переходь до загальних слів"),
-        ("en", "Do not change the subject or retreat into generalities"),
+        ("ru", "Тяжёлая тема не является причиной менять тему"),
+        ("uk", "Важка тема не є причиною змінювати тему"),
+        ("en", "A painful subject is not a reason to change the subject"),
     ],
 )
 def test_every_locale_stays_with_the_prayer(language, phrase):
@@ -223,19 +223,70 @@ def test_every_locale_opens_hope_without_promising_an_outcome(language, hope, li
 
 
 @pytest.mark.parametrize(
-    ("language", "safety", "no_return"),
+    ("language", "safety", "priority", "no_return"),
     [
-        ("ru", "к доступной безопасности и поддержке", "должен вернуться"),
-        ("uk", "до доступної безпеки й підтримки", "має повернутися"),
-        ("en", "toward safety and support available", "must return"),
+        (
+            "ru",
+            "к доступной безопасности и поддержке",
+            "важнее указанного угла вопроса",
+            "должен вернуться",
+        ),
+        (
+            "uk",
+            "до доступної безпеки й підтримки",
+            "важливіше за вказаний кут запитання",
+            "має повернутися",
+        ),
+        (
+            "en",
+            "toward safety and support available",
+            "takes precedence over the stated angle",
+            "must return",
+        ),
     ],
 )
 def test_every_locale_keeps_immediate_danger_anchored_in_safety(
-    language, safety, no_return
+    language, safety, priority, no_return
 ):
     prompt = question_prompt.build_question_prompt(language)
     assert safety in prompt
+    assert priority in prompt
     assert no_return in prompt
+
+
+@pytest.mark.parametrize(
+    ("language", "feeling", "named_hope", "section", "avoid"),
+    [
+        (
+            "ru",
+            "не о силе чувства",
+            "не теряй это направление",
+            "# Болезненные и опасные ситуации",
+            "# Чего избегать",
+        ),
+        (
+            "uk",
+            "не про силу почуття",
+            "не втрачай цього напрямку",
+            "# Болісні й небезпечні ситуації",
+            "# Чого уникати",
+        ),
+        (
+            "en",
+            "not how strong it is",
+            "do not lose that direction",
+            "# Painful and dangerous situations",
+            "# Avoid",
+        ),
+    ],
+)
+def test_every_locale_allows_named_feelings_and_preserves_named_hope(
+    language, feeling, named_hope, section, avoid
+):
+    prompt = question_prompt.build_question_prompt(language)
+    assert feeling in prompt
+    assert named_hope in prompt
+    assert prompt.index(section) < prompt.index(avoid)
 
 
 @pytest.mark.parametrize(

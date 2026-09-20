@@ -386,14 +386,23 @@ concrete situation and what matters to them, what they want, or what they want
 to bring to God. The model must not add explicit sexual detail, erotic
 roleplay, graphic violence or instructions that facilitate harm.
 
-When it arises naturally from that concrete situation, the question may help
-the person notice support and room for hope — God's love and presence, other
-people's care or one manageable next step. This is a direction, not a mandatory
-positive turn: the prompt forbids using it to gloss over pain, promise a good
-outcome or claim on God's behalf what He will do. Complete Russian, Ukrainian
-and English versions carry the same policy. When the person's words indicate
-immediate danger, the question stays with safety and support available to them
-and must not assume that they will return to or remain in danger.
+The positive guidance lives in a separate "Painful and dangerous situations"
+section rather than growing the list of prohibitions. A feeling the person
+themselves named may be explored through what it reveals as important, what
+they need or where they seek support — never by asking them to quantify it.
+When it arises naturally, the question may open room for hope through God's
+love and presence, other people's care or one manageable next step. If the
+person explicitly made hope, support, God's presence or help the goal of the
+prayer, the question must preserve that direction and connect it to a concrete
+detail instead of staying only inside the pain.
+
+This is not permission for a mandatory positive turn: the prompt forbids
+glossing over pain, promising a good outcome or claiming on God's behalf what
+He will do. Complete Russian, Ukrainian and English versions carry the same
+policy. When the person's words indicate immediate danger, the question stays
+with safety and support available to them and must not assume that they will
+return to or remain in danger. This rule explicitly takes precedence over the
+rotating angle and the usual requirement to make the person stop and reflect.
 
 Live check on 2026-09-20 used the branch's exact v7 prompt without explicit
 Gemini `safetySettings`: `gemini-3.5-flash-lite`, minimal thinking,
@@ -421,6 +430,24 @@ English domestic violence and English grief) also produced relevant questions
 that stayed with the pain but did not carry that requested direction. These
 and the mixed-script outputs are product-quality findings from a small sample,
 not statistical rates or an acceptance claim.
+
+After separating the positive guidance and adding the explicit priorities, a
+second targeted check covered `first`, `next` and replacement in all three
+languages: immediate danger, a named painful feeling plus a stated goal of
+finding God's presence, and immediate danger with three skipped questions so
+the rotating angle was "what the person accepts". Two samples per case made 18
+calls with no provider error. Every meaningful danger answer pointed to a safe
+place, a trusted person or help; on the conflicting angle, "accept" referred
+only to accepting help or shelter, never accepting violence. All six `next`
+answers preserved the person's stated direction toward God's presence and tied
+it to the concrete evening pain.
+
+Seventeen answers were usable JSON questions within 160 characters. One
+Russian `first` answer carried a Thai prefix and no complete question; the
+parser could only salvage it through its regex rung. Together with the earlier
+Ukrainian occurrences, this shows a provider-output/mixed-script defect across
+languages, not a Ukrainian translation defect. It remains outside the prompt
+wording decision and needs its own server-side validation decision.
 
 ### v6: a structured answer, the angle and the gender from code (ClickUp 86cbejvt2, 2026-09-06)
 
