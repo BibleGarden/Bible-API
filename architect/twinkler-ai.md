@@ -368,7 +368,7 @@ reason it is not a `413` is that `413` is this endpoint's promise about the
 
 The system prompt of `POST /api/ai/question` lives in
 `app/question_prompt.py`, versioned by `QUESTION_PROMPT_VERSION` (currently
-`6`) in the same way as `query_rewrite.REWRITE_PROMPT_VERSION` and
+`8`) in the same way as `query_rewrite.REWRITE_PROMPT_VERSION` and
 `passage_rerank.RERANK_PROMPT_VERSION`. Changing the wording means editing
 that file and bumping the version.
 
@@ -376,6 +376,132 @@ that file and bumping the version.
 production languages are Russian, Ukrainian and English. Other and
 undetermined languages are rejected by the routing policy described in the
 public contract; local `DEBUG=true` explicitly selects the English prompt.
+
+### v8: the person is praying to God, not conversing with Twinkler (ClickUp 86cbj7pez, 2026-09-20)
+
+The role now calls Twinkler a quiet prayer helper rather than a conversational
+partner. The person addresses God, not Twinkler, and the question must be
+worded so its answer can be addressed to God; prompts such as "tell me" or
+"explain to me" are explicitly excluded. The question may neither interpret
+nor evaluate the person's answer.
+
+Four related boundaries keep that prayer gentle without making it generically
+positive. The question must not test whether the person believes, trusts God,
+prays, forgives or tries hard enough, or induce guilt or shame through an
+implied reproach. Grief, acute pain and experienced injustice must not be
+hurried toward gratitude, acceptance of what happened or a search for a
+positive side. This takes precedence over the rotating angle: an "acceptance"
+angle must not become a question about accepting the painful event. Anger or a
+wish for harm is neither condemned nor encouraged, and the question must not
+make the desired harm or the outcome for the other person its subject. This
+takes precedence over the general "what the person wants" direction; the
+question may instead help them bring the anger honestly to God and notice what
+matters beneath it.
+The model must not add its own scripture references or denomination-specific
+teaching; scripture selection belongs to the separate endpoint, while a
+teaching or practice the person names remains part of their own data.
+
+Russian, Ukrainian and English carry equivalent instructions. This revision
+changes prompt wording only: the request and response schemas, the three
+stages, angle count and rotation mechanism, structured parsing, novelty check
+and code-enforced despair reply are unchanged.
+
+The fourth rotating angle did change from "what the person accepts" to "what
+the person needs". A live iteration on 2026-09-20 showed why an instruction
+alone was not enough: while the user message still explicitly supplied the
+acceptance angle, three of six Russian, Ukrainian and English grief answers
+still asked what the person found hard to accept. Removing that conflicting
+input made all six subsequent grief answers ask about need, comfort or support
+without pushing gratitude or acceptance. An anger iteration likewise found
+two of six answers that still made the desired harm their subject; explicitly
+giving the anger rule precedence over the general "what the person wants"
+direction produced nine of nine questions about bringing the anger itself to
+God, with no elaboration of harm.
+
+The final check used the exact v8 prompt with `gemini-3.5-flash-lite`, minimal
+thinking, temperature 0.7, standard service tier and no explicit Gemini
+`safetySettings`. One Russian, Ukrainian and English input covered each of
+four situations: continuing a conflict prayer without addressing Twinkler,
+grief under the new needs angle, anger with a wish for harm, and distance from
+God without a faith test. All 12 calls completed and returned JSON questions;
+none addressed the answer to Twinkler, forced gratitude or acceptance,
+developed the wished-for harm, or induced guilt about faith. Manual review
+also found two general quality defects outside those targeted rules: one
+Russian grief question inferred that the person was alone, and one English
+question used the awkward phrase "What brings you to bring". These samples
+are evidence for the named behaviours, not a statistical quality claim.
+
+### v7: stay with painful subjects without adding graphic detail (ClickUp 86cbj7pez, 2026-09-20)
+
+The question prompt distinguishes a prayer's subject from the form of the
+model's answer. Sex, violence, addiction and trauma are not reasons to change
+the subject or retreat into generalities: the question stays with the person's
+concrete situation and what matters to them, what they want, or what they want
+to bring to God. The model must not add explicit sexual detail, erotic
+roleplay, graphic violence or instructions that facilitate harm.
+
+The positive guidance lives in a separate "Painful and dangerous situations"
+section rather than growing the list of prohibitions. A feeling the person
+themselves named may be explored through what it reveals as important, what
+they need or where they seek support — never by asking them to quantify it.
+When it arises naturally, the question may open room for hope through God's
+love and presence, other people's care or one manageable next step. If the
+person explicitly made hope, support, God's presence or help the goal of the
+prayer, the question must preserve that direction and connect it to a concrete
+detail instead of staying only inside the pain.
+
+This is not permission for a mandatory positive turn: the prompt forbids
+glossing over pain, promising a good outcome or claiming on God's behalf what
+He will do. Complete Russian, Ukrainian and English versions carry the same
+policy. When the person's words indicate immediate danger, the question stays
+with safety and support available to them and must not assume that they will
+return to or remain in danger. This rule explicitly takes precedence over the
+rotating angle and the usual requirement to make the person stop and reflect.
+
+Live check on 2026-09-20 used the branch's exact v7 prompt without explicit
+Gemini `safetySettings`: `gemini-3.5-flash-lite`, minimal thinking,
+temperature 0.7, three independent answers for each of 15 fictional inputs
+(five per language: sexual trauma, violence, addiction, marital intimacy and
+one painful control topic). All 45 successful calls returned a parsed JSON
+question no longer than 160 characters. Manual review found no explicit or
+graphic addition, harm-facilitating instruction, promise on God's behalf or
+departure to an unrelated subject. The added guidance therefore did not turn
+the sample into refusals or generic safety replies.
+
+The same review found two defects and does not hide them behind the aggregate.
+Two of three Ukrainian marital-intimacy answers contained an unexpected Arabic
+character inside `вголос`. Two of three English domestic-violence answers
+asked about going back through the front door instead of available safety or
+support; this finding produced the immediate-danger sentence above. Its
+targeted live check used the same model and settings with one domestic-violence
+input per language, three samples each: all nine resulting questions pointed
+to a safe place, a trusted person or a support service, and none assumed a
+return to danger. One English call timed out before generation and was replaced
+by exactly one recorded call; the eight successful calls were not repeated.
+
+Three initial inputs that explicitly named hope or support (Ukrainian war,
+English domestic violence and English grief) also produced relevant questions
+that stayed with the pain but did not carry that requested direction. These
+and the mixed-script outputs are product-quality findings from a small sample,
+not statistical rates or an acceptance claim.
+
+After separating the positive guidance and adding the explicit priorities, a
+second targeted check covered `first`, `next` and replacement in all three
+languages: immediate danger, a named painful feeling plus a stated goal of
+finding God's presence, and immediate danger with three skipped questions so
+the rotating angle was "what the person accepts". Two samples per case made 18
+calls with no provider error. Every meaningful danger answer pointed to a safe
+place, a trusted person or help; on the conflicting angle, "accept" referred
+only to accepting help or shelter, never accepting violence. All six `next`
+answers preserved the person's stated direction toward God's presence and tied
+it to the concrete evening pain.
+
+Seventeen answers were usable JSON questions within 160 characters. One
+Russian `first` answer carried a Thai prefix and no complete question; the
+parser could only salvage it through its regex rung. Together with the earlier
+Ukrainian occurrences, this shows a provider-output/mixed-script defect across
+languages, not a Ukrainian translation defect. It remains outside the prompt
+wording decision and needs its own server-side validation decision.
 
 ### v6: a structured answer, the angle and the gender from code (ClickUp 86cbejvt2, 2026-09-06)
 

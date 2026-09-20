@@ -173,13 +173,200 @@ def test_stage_instruction_golden(language, stage):
 
 
 # ---------------------------------------------------------------------------
-# v6: the structured answer, the angle of the step, the gender from code
-# (ClickUp 86cbejvt2)
+# v7-v8: safe, prayer-directed questions (ClickUp 86cbj7pez)
 # ---------------------------------------------------------------------------
 
 
-def test_the_version_moved_to_six():
-    assert question_prompt.QUESTION_PROMPT_VERSION == 6
+def test_the_version_moved_to_eight():
+    assert question_prompt.QUESTION_PROMPT_VERSION == 8
+
+
+@pytest.mark.parametrize(
+    ("language", "phrase"),
+    [
+        ("ru", "Не добавляй от себя откровенные сексуальные подробности"),
+        ("uk", "Не додавай від себе відвертих сексуальних подробиць"),
+        ("en", "Do not add explicit sexual details"),
+    ],
+)
+def test_every_locale_does_not_add_explicit_content(language, phrase):
+    """The model does not add explicit detail the person did not supply."""
+    assert phrase in question_prompt.build_question_prompt(language)
+
+
+@pytest.mark.parametrize(
+    ("language", "phrase"),
+    [
+        ("ru", "Тяжёлая тема не является причиной менять тему"),
+        ("uk", "Важка тема не є причиною змінювати тему"),
+        ("en", "A painful subject is not a reason to change the subject"),
+    ],
+)
+def test_every_locale_stays_with_the_prayer(language, phrase):
+    """…and never deflects from a prayer that touches sex, violence,
+    addiction or trauma."""
+    assert phrase in question_prompt.build_question_prompt(language)
+
+
+@pytest.mark.parametrize(
+    ("language", "hope", "limit"),
+    [
+        ("ru", "пространство для надежды", "не обещай благополучный исход"),
+        ("uk", "простір для надії", "не обіцяй благополучного результату"),
+        ("en", "room for hope", "promise a good outcome"),
+    ],
+)
+def test_every_locale_opens_hope_without_promising_an_outcome(language, hope, limit):
+    prompt = question_prompt.build_question_prompt(language)
+    assert hope in prompt
+    assert limit in prompt
+
+
+@pytest.mark.parametrize(
+    ("language", "safety", "priority", "no_return"),
+    [
+        (
+            "ru",
+            "к доступной безопасности и поддержке",
+            "важнее указанного угла вопроса",
+            "должен вернуться",
+        ),
+        (
+            "uk",
+            "до доступної безпеки й підтримки",
+            "важливіше за вказаний кут запитання",
+            "має повернутися",
+        ),
+        (
+            "en",
+            "toward safety and support available",
+            "takes precedence over the stated angle",
+            "must return",
+        ),
+    ],
+)
+def test_every_locale_keeps_immediate_danger_anchored_in_safety(
+    language, safety, priority, no_return
+):
+    prompt = question_prompt.build_question_prompt(language)
+    assert safety in prompt
+    assert priority in prompt
+    assert no_return in prompt
+
+
+@pytest.mark.parametrize(
+    ("language", "feeling", "named_hope", "section", "avoid"),
+    [
+        (
+            "ru",
+            "не о силе чувства",
+            "не теряй это направление",
+            "# Болезненные и опасные ситуации",
+            "# Чего избегать",
+        ),
+        (
+            "uk",
+            "не про силу почуття",
+            "не втрачай цього напрямку",
+            "# Болісні й небезпечні ситуації",
+            "# Чого уникати",
+        ),
+        (
+            "en",
+            "not how strong it is",
+            "do not lose that direction",
+            "# Painful and dangerous situations",
+            "# Avoid",
+        ),
+    ],
+)
+def test_every_locale_allows_named_feelings_and_preserves_named_hope(
+    language, feeling, named_hope, section, avoid
+):
+    prompt = question_prompt.build_question_prompt(language)
+    assert feeling in prompt
+    assert named_hope in prompt
+    assert prompt.index(section) < prompt.index(avoid)
+
+
+@pytest.mark.parametrize(
+    ("language", "prayer", "not_twinkler"),
+    [
+        ("ru", "Человек обращается к Богу, а не к тебе", "обратить к Богу"),
+        ("uk", "Людина звертається до Бога, а не до тебе", "звернути до Бога"),
+        ("en", "The person is speaking to God, not to you", "addressed to God"),
+    ],
+)
+def test_every_locale_keeps_the_answer_inside_the_persons_prayer(
+    language, prayer, not_twinkler
+):
+    prompt = question_prompt.build_question_prompt(language)
+    assert prayer in prompt
+    assert not_twinkler in prompt
+
+
+@pytest.mark.parametrize(
+    ("language", "pain", "priority", "anger"),
+    [
+        (
+            "ru",
+            "не подталкивай человека к благодарности",
+            "не спрашивай, что человек принимает",
+            "не спрашивай, что должно произойти с другим человеком",
+        ),
+        (
+            "uk",
+            "не підштовхуй людину до вдячності",
+            "не запитуй, що людина приймає",
+            "не питай, що має статися з іншою людиною",
+        ),
+        (
+            "en",
+            "do not push the person toward gratitude",
+            "do not ask what they accept",
+            "do not make the desired harm the subject",
+        ),
+    ],
+)
+def test_every_locale_does_not_force_a_positive_turn_or_moralise_about_anger(
+    language, pain, priority, anger
+):
+    prompt = question_prompt.build_question_prompt(language)
+    assert pain in prompt
+    assert priority in prompt
+    assert anger in prompt
+
+
+@pytest.mark.parametrize(
+    ("language", "faith", "scripture", "denomination"),
+    [
+        (
+            "ru",
+            "Не проверяй, достаточно ли человек верит",
+            "Не добавляй от себя цитаты или ссылки на Писание",
+            "конфессионально специфические учения",
+        ),
+        (
+            "uk",
+            "Не перевіряй, чи достатньо людина вірить",
+            "Не додавай від себе цитат або посилань на Писання",
+            "конфесійно специфічних учень",
+        ),
+        (
+            "en",
+            "Do not test whether the person believes",
+            "Do not add scripture quotations or references yourself",
+            "denomination-specific teachings",
+        ),
+    ],
+)
+def test_every_locale_avoids_faith_tests_and_unsolicited_theology(
+    language, faith, scripture, denomination
+):
+    prompt = question_prompt.build_question_prompt(language)
+    assert faith in prompt
+    assert scripture in prompt
+    assert denomination in prompt
 
 
 @pytest.mark.parametrize(
@@ -211,11 +398,11 @@ def test_the_five_angles_are_the_five_the_goal_names_and_they_rotate():
         assert question_prompt.clarification_angle(step + 5, "ru") == angles[step]
         assert question_prompt.clarification_angle(step + 10, "ru") == angles[step]
     # The order of the goal: what matters, what they want, what they choose
-    # between, what they accept, what they bring to God.
+    # between, what they need, what they bring to God.
     assert "важно" in angles[0]
     assert "хочет" in angles[1]
     assert "выбирает" in angles[2]
-    assert "принимает" in angles[3]
+    assert "нуждается" in angles[3]
     assert "Богу" in angles[4]
 
 
