@@ -99,12 +99,7 @@ logger = logging.getLogger(__name__)
 # the schema (`key_verses=False`) — because a model asked for markers that
 # are not in its prompt has to invent them, and that can move the choice.
 # The benchmarked path is untouched by this, so the version does not move.
-# v10: the first-line safety check extended — when the prayer context touches
-# sexual trauma or violence, never choose a candidate whose key verses are
-# sexually explicit or graphically violent (the corpus contains such
-# passages); the rule speaks of generic categories of imagery, not of named
-# passages (ClickUp 86cbj7pez).
-RERANK_PROMPT_VERSION = 10
+RERANK_PROMPT_VERSION = 9
 
 _MODEL_PATTERN = re.compile(r"^[a-zA-Z0-9._-]+$")
 # Linear backoff of the retry ladder: 2 s before the second attempt, 4 s
@@ -165,7 +160,6 @@ def build_rerank_instruction(
         "Check each candidate's FIRST sentence before choosing."
     )
     first_line_ref = "[1] verse" if key_verses else "first sentence"
-    explicit_ref = "key verses are" if key_verses else "text is"
     later_verse = (
         ", and even when a later verse of it would be a fine key verse"
         if key_verses else ""
@@ -202,7 +196,6 @@ Rules:
 - The person may be in grief, anxiety or crisis. Prefer comfort, mercy, hope and God's closeness; never choose a candidate that could read as accusation, condemnation, punishment or fear in their state.
 - When the danger or illness is real and ongoing (war, front line, serious sickness, loss), prefer passages about God's presence, refuge and strength IN the trouble over promises that could be heard as a guarantee of physical safety, of escape from all harm, or of a healing outcome.
 - {first_line} For a person in any acutely vulnerable state (grief, fear, serious illness, crisis, loneliness, despair, a sense of being worthless), never choose a candidate whose {first_line_ref} speaks of death, killing, damnation, judgment, wrath or violence — even when the rest of the passage is comforting and fits the topic perfectly{later_verse}. The first words set the tone the person hears; take the next best candidate that is safe from its very first line. Then read that candidate on to its LAST line with the same care: for such a person never choose a candidate that anywhere inside it presents their trouble as punishment or discipline, ties their suffering to their own sin or guilt, or turns to enemies, betrayal or revenge — even when another part of the same passage speaks to their need exactly; take one that stays comforting from its first line to its last. For any other prayer this extra whole-passage check does not apply.
-- When the prayer context touches sexual trauma or violence, never choose a candidate whose {explicit_ref} sexually explicit or graphically violent (the corpus contains such passages) — even when it fits the topic perfectly; take the next best candidate that speaks to the person's need without explicit or violent imagery.
 - When the prayer is for another person (intercession), prefer promises of God's care toward that person.{key_verse_rule}
 - "reason": one short English sentence for server diagnostics; it is never shown to the person.
 
