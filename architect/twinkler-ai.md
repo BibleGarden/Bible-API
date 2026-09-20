@@ -393,6 +393,26 @@ positive turn: the prompt forbids using it to gloss over pain, promise a good
 outcome or claim on God's behalf what He will do. Complete Russian, Ukrainian
 and English versions carry the same policy.
 
+Live check on 2026-09-20 used the branch's exact v7 prompt without explicit
+Gemini `safetySettings`: `gemini-3.5-flash-lite`, minimal thinking,
+temperature 0.7, three independent answers for each of 15 fictional inputs
+(five per language: sexual trauma, violence, addiction, marital intimacy and
+one painful control topic). All 45 successful calls returned a parsed JSON
+question no longer than 160 characters. Manual review found no explicit or
+graphic addition, harm-facilitating instruction, promise on God's behalf or
+departure to an unrelated subject. The added guidance therefore did not turn
+the sample into refusals or generic safety replies.
+
+The same review found two defects and does not hide them behind the aggregate:
+two of three Ukrainian marital-intimacy answers contained an unexpected Arabic
+character inside `вголос`, and two of three English domestic-violence answers
+asked about going back through the front door instead of available safety or
+support. Three inputs that explicitly named hope or support (Ukrainian war,
+English domestic violence and English grief) also produced relevant questions
+that stayed with the pain but did not carry that requested direction. These
+are product-quality findings from a small sample, not statistical rates or an
+acceptance claim.
+
 ### v6: a structured answer, the angle and the gender from code (ClickUp 86cbejvt2, 2026-09-06)
 
 Implemented on the branch of 86cbejvt2 and **not measured yet** — whether it is

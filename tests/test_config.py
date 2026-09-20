@@ -119,8 +119,6 @@ AI_DISABLED_FORBIDDEN = (
     "AI_QUESTION_REASONING_EFFORT",
     "AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT",
     "AI_QUESTION_SERVICE_TIER",
-    "AI_QUESTION_GEMINI_SAFETY_CATEGORY",
-    "AI_QUESTION_GEMINI_SAFETY_THRESHOLD",
     "AI_SCRIPTURE_REWRITE_PROVIDER",
     "AI_SCRIPTURE_REWRITE_MODEL",
     "AI_SCRIPTURE_REWRITE_ENDPOINT",
@@ -234,8 +232,6 @@ AI_FIELDS = {
     "AI_QUESTION_REASONING_EFFORT",
     "AI_QUESTION_OPENROUTER_PROVIDER_ENDPOINT",
     "AI_QUESTION_SERVICE_TIER",
-    "AI_QUESTION_GEMINI_SAFETY_CATEGORY",
-    "AI_QUESTION_GEMINI_SAFETY_THRESHOLD",
     "AI_SCRIPTURE_REWRITE_PROVIDER",
     "AI_SCRIPTURE_REWRITE_MODEL",
     "AI_SCRIPTURE_REWRITE_ENDPOINT",
@@ -625,138 +621,6 @@ def test_question_service_tier_is_rejected_for_other_providers(provider_env, val
     env = {**provider_env, "AI_QUESTION_SERVICE_TIER": value}
     with pytest.raises(config.ConfigError, match="AI_QUESTION_SERVICE_TIER"):
         config._validate(env, [])
-
-
-GEMINI_SAFETY_CATEGORIES = (
-    "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-    "HARM_CATEGORY_DANGEROUS_CONTENT",
-    "HARM_CATEGORY_HARASSMENT",
-    "HARM_CATEGORY_HATE_SPEECH",
-)
-GEMINI_SAFETY_THRESHOLDS = (
-    "BLOCK_LOW_AND_ABOVE",
-    "BLOCK_MEDIUM_AND_ABOVE",
-    "BLOCK_ONLY_HIGH",
-    "OFF",
-)
-
-
-@pytest.mark.parametrize(
-    "categories",
-    [
-        "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-        "HARM_CATEGORY_DANGEROUS_CONTENT,HARM_CATEGORY_HARASSMENT",
-        ",".join(GEMINI_SAFETY_CATEGORIES),
-        "HARM_CATEGORY_HARASSMENT, HARM_CATEGORY_HARASSMENT",
-    ],
-)
-@pytest.mark.parametrize("threshold", GEMINI_SAFETY_THRESHOLDS)
-def test_gemini_question_accepts_reviewed_safety_settings(categories, threshold):
-    env = {
-        **GEMINI_AI_ENV,
-        "AI_QUESTION_GEMINI_SAFETY_CATEGORY": categories,
-        "AI_QUESTION_GEMINI_SAFETY_THRESHOLD": threshold,
-    }
-    config._validate(env, [])
-
-
-@pytest.mark.parametrize(
-    "categories",
-    [
-        "HARM_CATEGORY_UNSPECIFIED",
-        "HARM_CATEGORY_SEXUALLY_EXPLICIT,Bogus",
-        "sexually_explicit",
-        "HARM_CATEGORY_SEXUALLY_EXPLICIT HARM_CATEGORY_HARASSMENT",
-    ],
-)
-def test_gemini_question_rejects_unknown_safety_category(categories):
-    env = {**GEMINI_AI_ENV, "AI_QUESTION_GEMINI_SAFETY_CATEGORY": categories}
-    with pytest.raises(config.ConfigError, match="AI_QUESTION_GEMINI_SAFETY_CATEGORY"):
-        config._validate(env, [])
-
-
-@pytest.mark.parametrize(
-    "threshold",
-    ["", "BLOCK_NONE", "block_medium_and_above", "BLOCK_MEDIUM_AND_ABOVE,OFF"],
-)
-def test_gemini_question_rejects_unknown_safety_threshold(threshold):
-    env = {**GEMINI_AI_ENV, "AI_QUESTION_GEMINI_SAFETY_THRESHOLD": threshold}
-    if threshold == "":
-        # Blank is unset: the reviewed default applies, startup succeeds.
-        config._validate(env, [])
-    else:
-        with pytest.raises(
-            config.ConfigError, match="AI_QUESTION_GEMINI_SAFETY_THRESHOLD"
-        ):
-            config._validate(env, [])
-
-
-@pytest.mark.parametrize("provider_env", [AI_ENV, OPENROUTER_ENV, TOGETHER_ENV])
-@pytest.mark.parametrize(
-    "name",
-    ["AI_QUESTION_GEMINI_SAFETY_CATEGORY", "AI_QUESTION_GEMINI_SAFETY_THRESHOLD"],
-)
-def test_gemini_safety_settings_rejected_for_other_providers(provider_env, name):
-    env = {**provider_env, name: "HARM_CATEGORY_HARASSMENT"}
-    with pytest.raises(config.ConfigError, match=name):
-        config._validate(env, [])
-
-
-def test_gemini_safety_categories_parse():
-    assert config.parse_gemini_safety_categories(
-        "CATEGORIES", None, config.QUESTION_GEMINI_SAFETY_CATEGORIES_DEFAULT
-    ) == (
-        "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-        "HARM_CATEGORY_DANGEROUS_CONTENT",
-    )
-    assert config.parse_gemini_safety_categories(
-        "CATEGORIES", " HARM_CATEGORY_HATE_SPEECH , HARM_CATEGORY_HARASSMENT ",
-        config.QUESTION_GEMINI_SAFETY_CATEGORIES_DEFAULT,
-    ) == ("HARM_CATEGORY_HATE_SPEECH", "HARM_CATEGORY_HARASSMENT")
-    with pytest.raises(config.ConfigError, match="CATEGORIES"):
-        config.parse_gemini_safety_categories(
-            "CATEGORIES", "HARM_CATEGORY_HARASSMENT,nope",
-            config.QUESTION_GEMINI_SAFETY_CATEGORIES_DEFAULT,
-        )
-
-
-def test_import_reads_gemini_safety_defaults(monkeypatch):
-    module = _reload_config(monkeypatch, GEMINI_AI_ENV)
-    assert module.AI_QUESTION_GEMINI_SAFETY_CATEGORIES == (
-        "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-        "HARM_CATEGORY_DANGEROUS_CONTENT",
-    )
-    assert module.AI_QUESTION_GEMINI_SAFETY_THRESHOLD == "BLOCK_MEDIUM_AND_ABOVE"
-
-
-def test_import_reads_gemini_safety_overrides(monkeypatch):
-    module = _reload_config(
-        monkeypatch,
-        {
-            **GEMINI_AI_ENV,
-            "AI_QUESTION_GEMINI_SAFETY_CATEGORY": (
-                "HARM_CATEGORY_HARASSMENT,HARM_CATEGORY_HATE_SPEECH"
-            ),
-            "AI_QUESTION_GEMINI_SAFETY_THRESHOLD": "BLOCK_ONLY_HIGH",
-        },
-    )
-    assert module.AI_QUESTION_GEMINI_SAFETY_CATEGORIES == (
-        "HARM_CATEGORY_HARASSMENT",
-        "HARM_CATEGORY_HATE_SPEECH",
-    )
-    assert module.AI_QUESTION_GEMINI_SAFETY_THRESHOLD == "BLOCK_ONLY_HIGH"
-
-
-@pytest.mark.parametrize(
-    "name,value",
-    [
-        ("AI_QUESTION_GEMINI_SAFETY_CATEGORY", "HARM_CATEGORY_UNSPECIFIED"),
-        ("AI_QUESTION_GEMINI_SAFETY_THRESHOLD", "BLOCK_EVERYTHING"),
-    ],
-)
-def test_import_rejects_invalid_gemini_safety_settings(monkeypatch, name, value):
-    with pytest.raises(RuntimeError, match=name):
-        _reload_config(monkeypatch, {**GEMINI_AI_ENV, name: value})
 
 
 @pytest.mark.parametrize(
