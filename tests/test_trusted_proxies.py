@@ -188,6 +188,7 @@ def test_both_variables_report_through_the_aggregated_config_error():
         config._validate(
             {
                 "API_KEY": "k",
+                "CLIENT_HMAC_KEY": "test-hmac-key",
                 "DB_HOST": "h",
                 "DB_USER": "u",
                 "DB_PASSWORD": "p",

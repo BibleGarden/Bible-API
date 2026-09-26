@@ -15,7 +15,7 @@ import httpx
 import pytest
 
 os.environ.setdefault("API_KEY", "test-api-key")
-os.environ.setdefault("AI_CLIENT_HMAC_KEY", "test-hmac-key")
+os.environ.setdefault("CLIENT_HMAC_KEY", "test-hmac-key")
 
 from fastapi.testclient import TestClient
 
@@ -2763,22 +2763,6 @@ def test_disabled_ai_is_502(monkeypatch):
     )
     assert response.status_code == 502
     assert response.json() == {"detail": "AI service unavailable"}
-
-
-def test_missing_hmac_key_is_503(monkeypatch):
-    """AI_CLIENT_HMAC_KEY unset -> the per-client limiter fails closed -> 503.
-
-    The limit is not silently dropped: without the pseudonymization key the
-    server cannot count per client, so it refuses instead of serving unlimited.
-    """
-    monkeypatch.setattr(client_ip, "AI_CLIENT_HMAC_KEY", "")
-    monkeypatch.setattr(twinkler_ai, "_reserve_rate_limit", real_reserve_rate_limit)
-
-    with pytest.raises(twinkler_ai.HTTPException) as error:
-        asyncio.run(twinkler_ai._enforce_rate_limit("203.0.113.7"))
-
-    assert error.value.status_code == 503
-    assert error.value.detail == "AI service temporarily unavailable"
 
 
 def test_rate_limits_requests(monkeypatch, debug_question_language):

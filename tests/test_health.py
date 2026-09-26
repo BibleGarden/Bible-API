@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 from unittest.mock import Mock
+import hashlib
+import hmac
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -105,9 +107,15 @@ def test_health_never_records_stats_but_normal_requests_still_do(monkeypatch):
     assert client.get("/api/health").status_code == 403
     insert.assert_not_called()
 
-    assert client.get("/api/normal").status_code == 200
+    assert client.get(
+        "/api/normal", headers={"User-Agent": "ordinary-browser"}
+    ).status_code == 200
     insert.assert_called_once()
     assert insert.call_args.args[:3] == ("/api/normal", "GET", 200)
+    expected = hmac.new(
+        b"test-hmac-key", b"testclient", hashlib.sha256
+    ).hexdigest()[:40]
+    assert insert.call_args.args[4:] == (expected, "ordinary-browser")
 
 
 def test_openapi_documents_readiness_scope_and_authentication():

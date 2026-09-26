@@ -3,6 +3,11 @@
 Status: accepted (2026-09-13).
 Ticket: ClickUp 86cbh1ap9.
 
+> Later change (2026-09-26, ClickUp 123pfqmzumj): the shared HMAC key was
+> renamed to `CLIENT_HMAC_KEY` and became mandatory even with AI disabled,
+> because every API request-log row now uses it. The old key name is rejected.
+> The configuration rule below describes the original AI-only scope.
+
 > Note (2026-09-14, ClickUp 86cbh9vh6): ADR 0022 adds the question-only
 > `openrouter` provider. Unlike `openai_compat`, its key must be non-empty and
 > its model, endpoint and reasoning declaration are pinned and fail-fast.

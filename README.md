@@ -137,7 +137,7 @@ migration fallbacks. `AI_ENABLED` is required in every deployment:
 
 | Block | Required values | Forbidden / omitted values |
 |---|---|---|
-| AI disabled | `AI_ENABLED=false` | every stage-specific `AI_*_PROVIDER/MODEL/ENDPOINT/API_KEY/REASONING_EFFORT` and `AI_CLIENT_HMAC_KEY` |
+| AI disabled | `AI_ENABLED=false`, `CLIENT_HMAC_KEY` | every stage-specific `AI_*_PROVIDER/MODEL/ENDPOINT/API_KEY/REASONING_EFFORT` |
 | Gemini stage | `AI_ENABLED=true`, stage `PROVIDER=gemini`, `MODEL`, non-empty stage `API_KEY`; question also requires `AI_QUESTION_SERVICE_TIER=standard\|priority` | stage `ENDPOINT`; chat-stage `REASONING_EFFORT` except reviewed Gemini question models below |
 | Gemini 3.8 Flash question | `AI_QUESTION_PROVIDER=gemini`, `MODEL=gemini-3.8-flash`, non-empty `API_KEY`, `REASONING_EFFORT=low\|medium\|high` | question `ENDPOINT` and OpenRouter provider endpoint; any other reasoning value |
 | Gemini 3.5 Flash Lite question | `AI_QUESTION_PROVIDER=gemini`, `MODEL=gemini-3.5-flash-lite`, non-empty `API_KEY`, `REASONING_EFFORT=minimal\|low\|medium\|high` | question `ENDPOINT` and OpenRouter provider endpoint; any other reasoning value |
@@ -217,7 +217,7 @@ Qwen server through its OpenAI-compatible endpoint for rewrite and rerank:
 
 ```dotenv
 AI_ENABLED=true
-AI_CLIENT_HMAC_KEY=generate-a-separate-random-secret
+CLIENT_HMAC_KEY=generate-a-separate-random-secret
 
 AI_QUESTION_PROVIDER=openrouter
 AI_QUESTION_MODEL=google/gemma-4-31b-it
@@ -406,8 +406,15 @@ the API is exposed directly; the service says which mode it is in on startup
 (`docker logs <container> | grep 'Trusted prox'`) and logs a forwarded header
 arriving from an untrusted peer. In a header from a trusted peer the client is
 the **rightmost** address — the one the proxy itself appended; everything to
-the left of it was supplied by the caller and is never believed. `AI_CLIENT_HMAC_KEY` pseudonymizes client
-addresses and must be different from both API keys.
+the left of it was supplied by the caller and is never believed. `CLIENT_HMAC_KEY` pseudonymizes
+client addresses in all API request statistics and in the AI rate limiter. It
+is required even with AI disabled and must be different from both API keys.
+Rename `AI_CLIENT_HMAC_KEY` without changing its value; the old name is rejected.
+The statistics table retains `client_ip` as its internal column name, but its
+new rows contain only the first 40 hex characters of the HMAC, never an address.
+AI statistics omit the user agent; other API statistics retain it. To convert
+older raw address rows, run `PYTHONPATH=app python -m pseudonymize_request_log
+--dry-run` inside the container, then repeat without `--dry-run`.
 
 `POST /api/ai/transcribe` accepts `multipart/form-data` with a required
 M4A `file` and an optional BCP 47 `locale` (for example, `ru-RU`). The locale is

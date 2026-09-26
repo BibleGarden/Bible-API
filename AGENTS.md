@@ -9,10 +9,12 @@ Workspace-wide rules, including production-data safety, are in `../AGENTS.md`.
 ## Local work
 
 For first setup, create the local configuration only if `.env` does not already
-exist.
+exist. Set `CLIENT_HMAC_KEY` to the existing `AI_CLIENT_HMAC_KEY` value when
+upgrading, or to a new random secret for a fresh installation.
 
 ```bash
 test -f .env || cp .env.example .env
+# Fill CLIENT_HMAC_KEY in .env before starting the container.
 docker compose up -d --build
 docker logs bible-api -f
 docker compose down
@@ -34,10 +36,12 @@ docker exec bible-api bash -c \
 Run tests in the container. Only `app/` is bind-mounted, so copy the contents
 of `tests/` first; the trailing `/.` prevents an unwanted nested directory.
 Re-copy after recreating the container.
+In a worktree, use an isolated test container with that worktree's `app/` and
+`tests/` mounted read-only; the usual `bible-api` may bind-mount another checkout.
 
 ```bash
 docker cp tests/. bible-api:/code/tests
-docker exec -e API_KEY=test-api-key -e AI_CLIENT_HMAC_KEY=test-hmac-key \
+docker exec -e API_KEY=test-api-key -e CLIENT_HMAC_KEY=test-hmac-key \
   bible-api pytest -q
 ```
 
@@ -50,6 +54,11 @@ docker exec -e EMBEDDING_MODEL_PATH_UNDER_TEST=/models/bge-m3 \
 docker exec -e AI_TRANSCRIBE_MODEL_PATH_UNDER_TEST=/models/whisper/small \
   bible-api pytest -q tests/test_transcription.py -k real_model
 ```
+
+To convert existing raw request-log addresses after release, first run
+`docker exec bible-api bash -c 'cd /code && PYTHONPATH=app python -m pseudonymize_request_log --dry-run'`,
+then repeat without `--dry-run`. Both commands use `CLIENT_HMAC_KEY` from the
+container environment and print counts without printing addresses.
 
 ## Non-negotiable rules
 

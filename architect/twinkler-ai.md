@@ -21,6 +21,10 @@
 > deleted — see "System prompt" below. No old name is accepted as an alias:
 > a forgotten one fails the start naming the variable it wants.
 
+> **Shared key renamed again on 2026-09-26 (ClickUp 123pfqmzumj).**
+> `AI_CLIENT_HMAC_KEY` became the always-required `CLIENT_HMAC_KEY` because
+> request statistics now pseudonymize every endpoint. Keep its value unchanged.
+
 > **The request became structured on 2026-09-05 (ClickUp 86cbegmzz).** The
 > single `user` string is gone, with no transitional support: both ends
 > changed at once and the app is unpublished. The response is unchanged.
@@ -939,8 +943,10 @@ handler of its own, so they pass whether or not anything else does.
 `AI_ENABLED` is required and is the only switch for question and
 transcription. `false` returns the existing `502 AI service unavailable`
 without contacting a provider or entering the HMAC-backed limiter.
-`true` requires `AI_CLIENT_HMAC_KEY` and complete, stage-specific
+`true` requires complete, stage-specific
 configuration for all four AI stages.
+`CLIENT_HMAC_KEY` is required in every deployment for request statistics and
+the AI limiter; the old `AI_CLIENT_HMAC_KEY` name is rejected.
 
 For question, `AI_QUESTION_PROVIDER` is `gemini`, `openai_compat` or the
 question-only strict `openrouter` and `together` profiles. All transports receive the same
@@ -1010,7 +1016,8 @@ and cannot be cancelled through an HTTP deadline.
 | Condition | Result |
 | --- | --- |
 | `AI_ENABLED=false` | `502 AI service unavailable`, no provider call |
-| missing/invalid provider, model, endpoint, key presence or HMAC while enabled | startup aborts with one aggregated configuration error |
+| missing `CLIENT_HMAC_KEY` in any deployment | startup aborts with a configuration error |
+| missing/invalid provider, model, endpoint or stage key while enabled | startup aborts with one aggregated configuration error |
 | provider timeout, HTTP error, malformed or empty response | `502 AI service unavailable` without provider details |
 
 The question and transcription endpoints retain the shared in-process request
@@ -1033,12 +1040,12 @@ window protected by a process lock. Two 60-second limits are enforced:
 - per client address: `AI_REQUESTS_PER_CLIENT_PER_MINUTE`.
 
 The in-memory client identifier is an HMAC-SHA-256 pseudonym created with the
-separate `AI_CLIENT_HMAC_KEY`; the original address is not retained.
+separate `CLIENT_HMAC_KEY`; the original address is not retained.
 Expired timestamps and inactive client buckets are removed periodically.
 Exceeded limits return `429` with `Retry-After`. Counters reset on process
 restart and are not shared across workers or replicas, so production runs a
 single worker until a dedicated distributed limiter is introduced. Missing
-HMAC configuration fails closed with `503` and does not call Gemini.
+HMAC configuration aborts startup, including when AI is disabled.
 
 For both Twinkler endpoints, standard request statistics store endpoint metadata,
 status, latency, an HMAC pseudonym truncated to 40 hexadecimal characters,

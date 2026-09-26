@@ -10,6 +10,7 @@ import config
 # or deleting a required variable from both validation and its test would pass.
 ALWAYS_REQUIRED = (
     "API_KEY",
+    "CLIENT_HMAC_KEY",
     "DB_HOST",
     "DB_USER",
     "DB_NAME",
@@ -111,7 +112,6 @@ STAGE_FIELDS = (
     ),
 )
 AI_DISABLED_FORBIDDEN = (
-    "AI_CLIENT_HMAC_KEY",
     "AI_QUESTION_PROVIDER",
     "AI_QUESTION_MODEL",
     "AI_QUESTION_ENDPOINT",
@@ -144,6 +144,7 @@ BASE_ENV = {
     "DB_PASSWORD": "secret",
     "DB_NAME": "cep_public",
     "AI_ENABLED": "false",
+    "CLIENT_HMAC_KEY": "hmac-key",
     "EMBEDDING_PROVIDER": "openai_compat",
     "EMBEDDING_MODEL": "BAAI/bge-m3",
     "EMBEDDING_DIMENSIONS": "1024",
@@ -154,7 +155,6 @@ BASE_ENV = {
 AI_ENV = {
     **BASE_ENV,
     "AI_ENABLED": "true",
-    "AI_CLIENT_HMAC_KEY": "hmac-key",
     "AI_QUESTION_PROVIDER": "openai_compat",
     "AI_QUESTION_MODEL": "cerebras-model",
     "AI_QUESTION_ENDPOINT": "https://cerebras.example/v1",
@@ -197,7 +197,6 @@ TOGETHER_ENV = {
 GEMINI_AI_ENV = {
     **BASE_ENV,
     "AI_ENABLED": "true",
-    "AI_CLIENT_HMAC_KEY": "hmac-key",
     "AI_QUESTION_PROVIDER": "gemini",
     "AI_QUESTION_MODEL": "gemini-question",
     "AI_QUESTION_SERVICE_TIER": "standard",
@@ -224,7 +223,7 @@ AI_FIELDS = {
     "DEBUG",
     "AI_ENABLED",
     "AI_QUESTION_LOG_PROVIDER_BODIES",
-    "AI_CLIENT_HMAC_KEY",
+    "CLIENT_HMAC_KEY",
     "AI_QUESTION_PROVIDER",
     "AI_QUESTION_MODEL",
     "AI_QUESTION_ENDPOINT",
@@ -396,13 +395,26 @@ def test_disabled_ai_accepts_compose_key_sentinels():
     assert config.invalid_required_values(env) == []
 
 
-def test_enabled_ai_requires_hmac_and_all_four_stages():
+def test_enabled_ai_requires_all_four_stages():
     env = dict(BASE_ENV, AI_ENABLED="true")
     assert config.missing_required_vars(env) == [
-        "AI_CLIENT_HMAC_KEY",
         *AI_PROVIDERS_REQUIRED,
         *AI_MODELS_REQUIRED,
     ]
+
+
+@pytest.mark.parametrize("ai_enabled", ["true", "false"])
+def test_client_hmac_key_is_required_even_when_ai_is_disabled(ai_enabled):
+    env = {**BASE_ENV, "AI_ENABLED": ai_enabled, "CLIENT_HMAC_KEY": " "}
+    with pytest.raises(config.ConfigError, match="CLIENT_HMAC_KEY is required"):
+        config._validate(env, [])
+
+
+@pytest.mark.parametrize("value", ["", "old-key"])
+def test_old_client_hmac_key_is_rejected_with_rename_instruction(value):
+    env = {**BASE_ENV, "AI_CLIENT_HMAC_KEY": value}
+    with pytest.raises(config.ConfigError, match="rename it to CLIENT_HMAC_KEY"):
+        config._validate(env, [])
 
 
 def test_complete_mixed_environment_has_no_problems():

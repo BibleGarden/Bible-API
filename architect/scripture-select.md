@@ -32,6 +32,9 @@ them is ADR 0004 (retrieval) and ADR 0005 (grounded rerank).
 > alias. Everything below uses the new names; benchmark reports written
 > before that date named the same knobs by their old ones.
 
+> **2026-09-26 (ClickUp 123pfqmzumj):** `AI_CLIENT_HMAC_KEY` became
+> `CLIENT_HMAC_KEY`, required even when AI is disabled. Its value is unchanged.
+
 ## Public contract
 
 The endpoint requires the common `X-API-Key` header. Unknown JSON fields
@@ -495,10 +498,11 @@ selection costs ~8 provider calls:
   (default 3).
 
 The in-memory client identifier is an HMAC-SHA-256 pseudonym built with
-`AI_CLIENT_HMAC_KEY` (shared with the Twinkler endpoints); the
-address itself is not retained. Missing HMAC configuration fails closed
-with 503 while `AI_ENABLED=true`. Disabled AI bypasses this AI-only limiter
-and serves the safe pool. Counters are process-local, so production runs a
+`CLIENT_HMAC_KEY` (shared with request statistics and the other AI endpoints); the
+address itself is not retained. Missing HMAC configuration aborts startup,
+including when AI is disabled. Disabled AI bypasses this AI-only limiter
+and serves the safe pool while request statistics still use the key.
+Counters are process-local, so production runs a
 single API worker. Client addresses come from the direct peer; `X-Forwarded-For` is
 honoured only for trusted reverse proxies — a name in `TRUSTED_PROXY_HOSTS`
 resolved at runtime, or an address/network in `TRUSTED_PROXY_IPS`

@@ -31,6 +31,7 @@ class ConfigError(RuntimeError):
 # Required in every deployment, whatever is configured. Blank counts as unset.
 ALWAYS_REQUIRED_VARS = (
     "API_KEY",
+    "CLIENT_HMAC_KEY",
     "DB_HOST",
     "DB_USER",
     "DB_NAME",
@@ -552,8 +553,7 @@ def missing_required_vars(env: Mapping[str, str]) -> list[str]:
     Pure function over an environment mapping, so it is testable without
     reimporting the module. `ALWAYS_REQUIRED_VARS` must be non-blank,
     `PRESENCE_REQUIRED_VARS` must merely exist. Embeddings are always complete.
-    With `AI_ENABLED=true`, all four chat/audio stages and the limiter HMAC are
-    complete as well.
+    With `AI_ENABLED=true`, all four chat/audio stages are complete as well.
     """
     missing = [
         name for name in ALWAYS_REQUIRED_VARS if not env.get(name, "").strip()
@@ -572,8 +572,6 @@ def missing_required_vars(env: Mapping[str, str]) -> list[str]:
         missing.extend(_remote_missing(env, EMBEDDING_STAGE_VARS))
     if not ai_configured(env):
         return missing
-    if not env.get("AI_CLIENT_HMAC_KEY", "").strip():
-        missing.append("AI_CLIENT_HMAC_KEY")
     missing.extend(
         name for name in AI_PROVIDER_VARS if not env.get(name, "").strip()
     )
@@ -637,6 +635,11 @@ def invalid_required_values(env: Mapping[str, str]) -> list[str]:
                 f"{name}: removed; configure every stage with its own "
                 "PROVIDER, MODEL, ENDPOINT and API_KEY variables"
             )
+    if "AI_CLIENT_HMAC_KEY" in env:
+        problems.append(
+            "AI_CLIENT_HMAC_KEY: removed; rename it to CLIENT_HMAC_KEY "
+            "without changing its value"
+        )
     for name in FORBIDDEN_REASONING_VARS:
         if name in env:
             problems.append(
@@ -696,7 +699,6 @@ def invalid_required_values(env: Mapping[str, str]) -> list[str]:
                 problems.append(problem)
 
     stage_config_names = {
-        "AI_CLIENT_HMAC_KEY",
         QUESTION_SERVICE_TIER_VAR,
         OPENROUTER_QUESTION_PROVIDER_ENDPOINT_VAR,
         TRANSCRIBE_MODEL_PATH_VAR,
@@ -923,10 +925,10 @@ def _required_reason(env: Mapping[str, str], name: str) -> str:
         return (
             "AI_ENABLED is required in every deployment: exactly true or false"
         )
-    if name == "AI_CLIENT_HMAC_KEY":
+    if name == "CLIENT_HMAC_KEY":
         return (
-            "AI_CLIENT_HMAC_KEY is required when AI_ENABLED=true: the "
-            "per-client limiter must not start in a degraded state"
+            "CLIENT_HMAC_KEY is required in every deployment: request statistics "
+            "must not store raw client addresses"
         )
     if name == OPENROUTER_QUESTION_PROVIDER_ENDPOINT_VAR:
         return (
@@ -1280,16 +1282,14 @@ AI_SCRIPTURE_PRIMARY_TRANSLATIONS = os.getenv(
     "AI_SCRIPTURE_PRIMARY_TRANSLATIONS", ""
 )
 
-# Salt of the in-memory client pseudonyms (rate limiter + request stats).
-# Renamed from TWINKLER_CLIENT_HMAC_KEY on 2026-08-30 without touching the
-# VALUE, so every existing pseudonym stays stable across the rename: the HMAC
-# is keyed by the value alone — the variable name is never mixed into the
-# digest (see client_ip.pseudonymize_twinkler_client).
+# Key for client pseudonyms in request statistics and the in-memory AI limiter.
+# Keep its value byte-for-byte when renaming AI_CLIENT_HMAC_KEY: the variable
+# name is not part of the digest (see client_ip.pseudonymize_client_ip).
 #
 # The system prompt of POST /api/ai/question used to be read here as
 # TWINKLER_SYSTEM_PROMPT. It is product behaviour, not deployment
 # configuration, and now lives in question_prompt.py.
-AI_CLIENT_HMAC_KEY = os.getenv("AI_CLIENT_HMAC_KEY", "").strip()
+CLIENT_HMAC_KEY = os.getenv("CLIENT_HMAC_KEY", "").strip()
 
 # Whose X-Forwarded-For is believed (ClickUp 86cbbq6vz). Three ways to say it,
 # all optional and additive; unset everything means "no proxy in front of this

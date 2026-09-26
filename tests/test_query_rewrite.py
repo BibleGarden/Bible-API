@@ -352,7 +352,7 @@ print(json.dumps({
 _PROBE_ENV = {
     "API_KEY": "k",
     "DB_HOST": "h", "DB_USER": "u", "DB_PASSWORD": "p", "DB_NAME": "n",
-    "AI_ENABLED": "true", "AI_CLIENT_HMAC_KEY": "hmac",
+    "AI_ENABLED": "true", "CLIENT_HMAC_KEY": "hmac",
     "EMBEDDING_MODEL": "gemini-embedding-001", "EMBEDDING_DIMENSIONS": "768",
     # Embeddings on the API too: this probe asks which key each GEMINI client
     # bills, and the local provider has no key at all (ADR 0010).
