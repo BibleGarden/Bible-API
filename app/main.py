@@ -1,5 +1,5 @@
 from typing import Optional
-from datetime import datetime
+import time
 from functools import wraps
 import hashlib
 import json
@@ -68,13 +68,13 @@ def timed_cache(seconds: int = 3600):
             # Check if cached value exists and is not expired
             if cache_key in _cache:
                 timestamp = _cache_timestamps.get(cache_key)
-                if timestamp and (datetime.now() - timestamp).total_seconds() < seconds:
+                if timestamp is not None and time.monotonic() - timestamp < seconds:
                     return _cache[cache_key]
 
             # Call function and cache result
             result = func(*args, **kwargs)
             _cache[cache_key] = result
-            _cache_timestamps[cache_key] = datetime.now()
+            _cache_timestamps[cache_key] = time.monotonic()
 
             return result
         return wrapper

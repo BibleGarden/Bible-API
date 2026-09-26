@@ -6,7 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 from config import AUDIO_FILES_PATH
 from auth import verify_api_key_query
@@ -148,7 +148,7 @@ def create_range_response(file_path: Path, range_header: Optional[str], translat
         "Access-Control-Allow-Origin": "*",
         "Cache-Control": "max-age=432000",  # 5 days
         "Connection": "keep-alive",
-        "Last-Modified": datetime.fromtimestamp(file_stat.st_mtime).strftime('%a, %d %b %Y %H:%M:%S GMT'),
+        "Last-Modified": datetime.fromtimestamp(file_stat.st_mtime, timezone.utc).strftime('%a, %d %b %Y %H:%M:%S GMT'),
         "ETag": f'"{hex(hash(f"{file_stat.st_mtime}-{file_size}"))}"'
     }
 
