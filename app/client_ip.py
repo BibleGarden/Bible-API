@@ -7,7 +7,7 @@ from ipaddress import ip_address
 
 from starlette.requests import Request
 
-from config import AI_CLIENT_HMAC_KEY
+from config import CLIENT_HMAC_KEY
 from trusted_proxies import TRUSTED_PROXIES
 
 logger = logging.getLogger(__name__)
@@ -87,21 +87,18 @@ def _report_untrusted_forwarding(peer: str) -> None:
         return
     if TRUSTED_PROXIES.configured:
         logger.error(
-            "X-Forwarded-For received from UNTRUSTED peer %s — the header is "
+            "X-Forwarded-For received from an UNTRUSTED peer — the header is "
             "ignored and this peer is recorded as the client, so statistics "
             "and the per-client AI rate limit are wrong for every caller "
-            "behind it. Trusted right now: %s. Fix TRUSTED_PROXY_HOSTS / "
+            "behind it. Fix TRUSTED_PROXY_HOSTS / "
             "TRUSTED_PROXY_IPS (ClickUp 86cbbq6vz)",
-            peer,
-            TRUSTED_PROXIES.describe(),
         )
     else:
         logger.warning(
-            "X-Forwarded-For received from %s but no trusted proxy is "
+            "X-Forwarded-For received but no trusted proxy is "
             "configured — the header is ignored. Correct when this API is "
             "exposed directly; if a reverse proxy is in front of it, set "
             "TRUSTED_PROXY_HOSTS",
-            peer,
         )
 
 
@@ -156,11 +153,11 @@ def resolve_client_ip(request: Request) -> str:
     return client_from_forwarded(forwarded, peer)
 
 
-def pseudonymize_twinkler_client(client_ip: str) -> str:
-    if not AI_CLIENT_HMAC_KEY:
-        raise RuntimeError("AI_CLIENT_HMAC_KEY is not configured")
+def pseudonymize_client_ip(client_ip: str) -> str:
+    if not CLIENT_HMAC_KEY:
+        raise RuntimeError("CLIENT_HMAC_KEY is not configured")
     return hmac.new(
-        AI_CLIENT_HMAC_KEY.encode("utf-8"),
+        CLIENT_HMAC_KEY.encode("utf-8"),
         client_ip.encode("utf-8"),
         hashlib.sha256,
     ).hexdigest()

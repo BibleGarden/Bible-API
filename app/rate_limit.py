@@ -2,14 +2,12 @@
 In-memory rolling-window rate limiter shared by the AI endpoints
 (Twinkler companion and scripture selection).
 
-Properties (unchanged from the original Twinkler implementation, see
-architect/twinkler-ai.md):
+Properties (see architect/twinkler-ai.md):
 
 - two 60-second windows per limiter: a global one and a per-client one;
 - the in-memory client identity is an HMAC pseudonym, never the address;
-- missing HMAC configuration fails closed (`RateLimitError` without a
-  retry hint -> the caller answers 503), so a misconfigured server cannot
-  silently lose its per-client limit;
+- the key is required at startup; a runtime pseudonymization failure also
+  fails closed (`RateLimitError` without a retry hint -> 503);
 - expired timestamps and inactive client buckets are swept periodically;
 - state is process-local: counters reset on restart and are not shared
   across workers, so production runs a single API worker.
@@ -25,7 +23,7 @@ import threading
 import time
 from collections import deque
 
-from client_ip import pseudonymize_twinkler_client
+from client_ip import pseudonymize_client_ip
 
 WINDOW_SECONDS = 60.0
 
@@ -62,7 +60,7 @@ class RateLimiter:
     def __init__(
         self,
         window_seconds: float = WINDOW_SECONDS,
-        pseudonymize=pseudonymize_twinkler_client,
+        pseudonymize=pseudonymize_client_ip,
         name: str = "AI",
     ):
         self.window = window_seconds

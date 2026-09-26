@@ -24,6 +24,5 @@ jobs:
         run: |
           docker run --rm \
             --env API_KEY=test-api-key \
-            --env AI_CLIENT_HMAC_KEY=test-hmac-key \
             bible-api-ci:${{ github.sha }} \
             pytest -q

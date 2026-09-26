@@ -50,9 +50,9 @@ scikit-learn==1.9.0
 scipy==1.18.1
 # Bumped BY the line above, not by choice: huggingface-hub 1.x requires
 # click >= 8.4.2, and typer 0.12 breaks on click >= 8.2 — so click, typer
-# and fastapi-cli move together (8.1.7 / 0.12.3 / 0.0.4 before this).
-# They serve the `fastapi run` command in CMD and nothing else; the
-# application imports none of them.
+# and fastapi-cli moved together (8.1.7 / 0.12.3 / 0.0.4 before this).
+# The server now runs uvicorn directly to disable access logging; the
+# application imports none of the CLI packages.
 # >= 77.0.3 and < 82 is torch 2.14's window (was 70.3.0 before the local
 # embeddings; nothing in the application imports it).
 setuptools==81.0.0

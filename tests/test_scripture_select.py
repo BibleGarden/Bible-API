@@ -17,9 +17,8 @@ from unittest.mock import Mock
 import pytest
 
 os.environ.setdefault("API_KEY", "test-api-key")
-os.environ.setdefault("AI_CLIENT_HMAC_KEY", "test-hmac-key")
+os.environ.setdefault("CLIENT_HMAC_KEY", "test-hmac-key")
 
-from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 import client_ip
@@ -187,12 +186,11 @@ def test_disabled_ai_uses_the_safe_pool_trigger(monkeypatch):
     assert exc.value.provider_down is True
 
 
-def test_disabled_ai_endpoint_bypasses_hmac_and_returns_safe_pool(
+def test_disabled_ai_endpoint_skips_ai_limiter_and_returns_safe_pool(
     monkeypatch, selection_environment
 ):
     """Disabled scripture selection must not enter the AI-only limiter."""
     monkeypatch.setattr(scripture_select, "AI_ENABLED", False)
-    monkeypatch.setattr(client_ip, "AI_CLIENT_HMAC_KEY", "")
     selection_environment.return_value = make_final(
         method="fallback_top1",
         fallback_reason="safe_pool",
@@ -1547,14 +1545,6 @@ def test_rate_limit_budget_is_independent_from_twinkler(monkeypatch):
     post({"language": "ru", "topic": TOPIC})
 
     assert len(twinkler_ai._request_times) == 0
-
-
-def test_rate_limiter_fails_closed_without_the_hmac_key(monkeypatch):
-    monkeypatch.setattr(client_ip, "AI_CLIENT_HMAC_KEY", "")
-
-    response = post({"language": "ru", "topic": TOPIC})
-
-    assert response.status_code == 503
 
 
 def test_client_identity_comes_from_the_peer_unless_the_proxy_is_trusted(

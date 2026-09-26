@@ -4,7 +4,7 @@ import threading
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
-from client_ip import pseudonymize_twinkler_client, resolve_client_ip
+from client_ip import pseudonymize_client_ip, resolve_client_ip
 from database import create_connection
 
 EXCLUDED_PATHS = {
@@ -15,11 +15,10 @@ EXCLUDED_PATHS = {
     "/api/health",
 }
 EXCLUDED_STATUS_CODES = {403, 404}
-# Endpoints handling prayer content. For these the stored client address is
-# replaced by an HMAC pseudonym and the user agent is dropped, so the
-# statistics cannot be tied back to a person. Request and response bodies
-# are never read by this middleware, so neither the prayer context nor the
-# selected passage can reach the stats table (ADR 0006: the passage alone
+# Endpoints handling prayer content. For these the user agent is dropped;
+# every logged endpoint stores an HMAC client pseudonym. Request and response
+# bodies are never read by this middleware, so neither the prayer context nor
+# the selected passage can reach the stats table (ADR 0006: the passage alone
 # is not private, but combined with a client identity it would reveal what
 # the person prayed about).
 PRIVATE_PATHS = frozenset({
@@ -54,13 +53,9 @@ class RequestStatsMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         elapsed_ms = int((time.monotonic() - start) * 1000)
 
-        client_ip = resolve_client_ip(request)
+        client_ip = pseudonymize_client_ip(resolve_client_ip(request))[:40]
         user_agent = (request.headers.get("user-agent") or "")[:512]
         if comparison_path in PRIVATE_PATHS:
-            try:
-                client_ip = pseudonymize_twinkler_client(client_ip)[:40]
-            except RuntimeError:
-                client_ip = "twinkler-unconfigured"
             user_agent = ""
 
         if response.status_code in EXCLUDED_STATUS_CODES:

@@ -19,7 +19,8 @@ Ticket: ClickUp 86cb8vw1m
 > `SCRIPTURE_INDEX_CACHE_SECONDS` → `AI_SCRIPTURE_INDEX_CACHE_SECONDS`,
 > `SCRIPTURE_PRIMARY_TRANSLATIONS` → `AI_SCRIPTURE_PRIMARY_TRANSLATIONS`, and
 > the pseudonymization key shared with the other AI endpoints
-> `TWINKLER_CLIENT_HMAC_KEY` → `AI_CLIENT_HMAC_KEY`. Names only: every limit,
+> `TWINKLER_CLIENT_HMAC_KEY` → `AI_CLIENT_HMAC_KEY` (renamed again to
+> `CLIENT_HMAC_KEY` for all request statistics in 2026-09). Names only: every limit,
 > budget and default decided here is unchanged, and the HMAC *value* was not
 > touched, so existing client pseudonyms remain stable.
 
@@ -316,7 +317,7 @@ Twinkler's 1: a shared window would let chat traffic starve selection or
 vice versa, and the two features need to be tuned independently in
 production.
 
-The pseudonymisation key is shared (`AI_CLIENT_HMAC_KEY`): a second
+The pseudonymisation key is shared (now `CLIENT_HMAC_KEY`): a second
 key would double the configuration surface without adding privacy — the
 pseudonym is already unlinkable to an address, and both endpoints serve the
 same app.

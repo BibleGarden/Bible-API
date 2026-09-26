@@ -14,7 +14,7 @@ Ticket: none — owner-directed policy change following the incident below.
 > `AI_QUESTION_MODEL`, `GEMINI_TRANSCRIPTION_MODEL` → `AI_TRANSCRIBE_MODEL`,
 > `RETRIEVAL_*`/`SCRIPTURE_SELECT_*`/`SCRIPTURE_*` → `AI_SCRIPTURE_*`,
 > `GEMINI_REQUESTS_PER_*` → `AI_REQUESTS_PER_*`, `TWINKLER_CLIENT_HMAC_KEY` →
-> `AI_CLIENT_HMAC_KEY`, `MP3_FILES_PATH` → `AUDIO_FILES_PATH`). **The rules
+> `AI_CLIENT_HMAC_KEY` (later `CLIENT_HMAC_KEY`), `MP3_FILES_PATH` → `AUDIO_FILES_PATH`). **The rules
 > and the three classes below are unchanged; only the names in them are new**,
 > and the incident that produced this ADR was reported against the former
 > `RETRIEVAL_REWRITE_MODEL`. Deliberately, no old name is accepted as an

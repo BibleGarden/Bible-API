@@ -39,4 +39,4 @@ ENV HF_HUB_OFFLINE=1 \
 
 COPY . /code
 
-CMD ["fastapi", "run", "app/main.py", "--host", "0.0.0.0", "--port", "8000", "--no-proxy-headers"]
+CMD ["uvicorn", "main:app", "--app-dir", "app", "--host", "0.0.0.0", "--port", "8000", "--no-proxy-headers", "--no-access-log"]

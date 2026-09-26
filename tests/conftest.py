@@ -9,7 +9,7 @@ container's operational `.env`.
 import os
 
 os.environ.setdefault("API_KEY", "test-api-key")
-os.environ["AI_CLIENT_HMAC_KEY"] = "test-hmac-key"
+os.environ["CLIENT_HMAC_KEY"] = "test-hmac-key"
 os.environ["AI_ENABLED"] = "true"
 os.environ["DEBUG"] = "false"
 # Operational container settings must not enable content-bearing diagnostics
@@ -19,6 +19,7 @@ os.environ["AI_QUESTION_LOG_PROVIDER_BODIES"] = "false"
 # Removed shared credentials must not leak from the container's operational
 # environment into the isolated unit-test configuration.
 for removed_name in (
+    "AI_CLIENT_HMAC_KEY",
     "GEMINI_API_KEY",
     "AI_OPENAI_COMPAT_ENDPOINT",
     "AI_OPENAI_COMPAT_API_KEY",

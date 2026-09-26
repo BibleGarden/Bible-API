@@ -6,7 +6,6 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-import client_ip
 import middleware
 import rate_limit
 import scripture_select
@@ -75,13 +74,6 @@ def test_independent_endpoint_budgets(environment):
     scripture.enforce("client")
     with pytest.raises(HTTPException):
         questions.enforce("client")
-
-
-def test_missing_hmac_fails_closed(environment, monkeypatch):
-    monkeypatch.setattr(client_ip, "AI_CLIENT_HMAC_KEY", "")
-    with pytest.raises(HTTPException) as denied:
-        PrefetchPolicy(True, 2, 1).enforce("client")
-    assert denied.value.status_code == 503
 
 
 @pytest.mark.parametrize("request_model,payload", [
