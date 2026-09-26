@@ -1041,6 +1041,8 @@ window protected by a process lock. Two 60-second limits are enforced:
 
 The in-memory client identifier is an HMAC-SHA-256 pseudonym created with the
 separate `CLIENT_HMAC_KEY`; the original address is not retained.
+Uvicorn access logging is disabled so it cannot separately record the peer
+address or a query string; untrusted-forwarding warnings contain no address.
 Expired timestamps and inactive client buckets are removed periodically.
 Exceeded limits return `429` with `Retry-After`. Counters reset on process
 restart and are not shared across workers or replicas, so production runs a

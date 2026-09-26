@@ -163,6 +163,8 @@ vector in place.
   `fastapi run`. All of these serve that command or the build; the
   application imports none of them, and `fastapi run app/main.py` was
   smoke-tested against the new set (`GET /api/languages` → 200).
+  As of 2026-09-26 (ClickUp 123pfqmzumj), Dockerfile and Compose invoke
+  Uvicorn directly with `--no-access-log`; the CLI pin remains historical.
 - **Memory**: the API process holds the weights permanently. Measured on this
   machine: **2.13 GiB RSS** for the API process after warm-up (`ps`), flat
   across selections, and **3.09 GiB peak** for the rebuild container, whose

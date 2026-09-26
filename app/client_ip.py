@@ -87,21 +87,18 @@ def _report_untrusted_forwarding(peer: str) -> None:
         return
     if TRUSTED_PROXIES.configured:
         logger.error(
-            "X-Forwarded-For received from UNTRUSTED peer %s — the header is "
+            "X-Forwarded-For received from an UNTRUSTED peer — the header is "
             "ignored and this peer is recorded as the client, so statistics "
             "and the per-client AI rate limit are wrong for every caller "
-            "behind it. Trusted right now: %s. Fix TRUSTED_PROXY_HOSTS / "
+            "behind it. Fix TRUSTED_PROXY_HOSTS / "
             "TRUSTED_PROXY_IPS (ClickUp 86cbbq6vz)",
-            peer,
-            TRUSTED_PROXIES.describe(),
         )
     else:
         logger.warning(
-            "X-Forwarded-For received from %s but no trusted proxy is "
+            "X-Forwarded-For received but no trusted proxy is "
             "configured — the header is ignored. Correct when this API is "
             "exposed directly; if a reverse proxy is in front of it, set "
             "TRUSTED_PROXY_HOSTS",
-            peer,
         )
 
 

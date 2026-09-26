@@ -569,7 +569,9 @@ def test_untrusted_forwarding_is_reported_once_not_per_request(monkeypatch, capl
     errors = [r for r in caplog.records if r.levelno == logging.ERROR]
     assert len(errors) == 1
     message = errors[0].getMessage()
-    assert NGINX in message
+    assert NGINX not in message
+    assert "203.0.113.7" not in message
+    assert "172.18.0.5" not in message
     assert "TRUSTED_PROXY_HOSTS" in message
 
 
@@ -606,7 +608,10 @@ def test_without_a_configured_proxy_the_report_is_a_warning(monkeypatch, caplog)
             FakeRequest("203.0.113.9", {"x-forwarded-for": "10.0.0.1"})
         )
     assert [r.levelno for r in caplog.records] == [logging.WARNING]
-    assert "TRUSTED_PROXY_HOSTS" in caplog.records[0].getMessage()
+    message = caplog.records[0].getMessage()
+    assert "TRUSTED_PROXY_HOSTS" in message
+    assert "203.0.113.9" not in message
+    assert "10.0.0.1" not in message
 
 
 def test_the_reported_peer_table_is_bounded(monkeypatch):

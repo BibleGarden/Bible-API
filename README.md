@@ -415,6 +415,11 @@ new rows contain only the first 40 hex characters of the HMAC, never an address.
 AI statistics omit the user agent; other API statistics retain it. To convert
 older raw address rows, run `PYTHONPATH=app python -m pseudonymize_request_log
 --dry-run` inside the container, then repeat without `--dry-run`.
+Uvicorn access logging is disabled in both production and local Compose:
+its default line includes the connection address and full request URL, including
+the query string. Forwarded-header warnings name the condition without printing
+the peer or header value. The separate nginx log retains its minimal request
+metadata.
 
 `POST /api/ai/transcribe` accepts `multipart/form-data` with a required
 M4A `file` and an optional BCP 47 `locale` (for example, `ru-RU`). The locale is

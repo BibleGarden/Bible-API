@@ -23,6 +23,8 @@ docker compose down
 Export the credentials required by the selected AI providers before creating or
 recreating the container; `docker-compose.yml` lists the shell-passed keys.
 Never put them in `.env`.
+Both Dockerfile and Compose disable Uvicorn access logging; do not remove
+`--no-access-log`, since its default records client addresses and query strings.
 
 Generate the OpenAPI document inside the container:
 
