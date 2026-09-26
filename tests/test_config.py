@@ -9,7 +9,9 @@ import config
 # Literal contract lists: these must not be derived from production tuples,
 # or deleting a required variable from both validation and its test would pass.
 ALWAYS_REQUIRED = (
-    "API_KEY",
+    "BIBLE_GARDEN_API_KEY",
+    "LAMPADA_API_KEY",
+    "OPS_API_KEY",
     "CLIENT_HMAC_KEY",
     "DB_HOST",
     "DB_USER",
@@ -138,7 +140,9 @@ AI_DISABLED_FORBIDDEN = (
 
 
 BASE_ENV = {
-    "API_KEY": "k",
+    "BIBLE_GARDEN_API_KEY": "k",
+    "LAMPADA_API_KEY": "l" * 32,
+    "OPS_API_KEY": "o" * 32,
     "DB_HOST": "db",
     "DB_USER": "cep",
     "DB_PASSWORD": "secret",
@@ -415,6 +419,33 @@ def test_old_client_hmac_key_is_rejected_with_rename_instruction(value):
     env = {**BASE_ENV, "AI_CLIENT_HMAC_KEY": value}
     with pytest.raises(config.ConfigError, match="rename it to CLIENT_HMAC_KEY"):
         config._validate(env, [])
+
+
+@pytest.mark.parametrize("value", ["", "old-key"])
+def test_old_api_key_is_rejected_with_rename_instruction(value):
+    env = {**BASE_ENV, "API_KEY": value}
+    with pytest.raises(config.ConfigError, match="rename it to BIBLE_GARDEN_API_KEY"):
+        config._validate(env, [])
+
+
+@pytest.mark.parametrize("name", ["BIBLE_GARDEN_API_KEY", "LAMPADA_API_KEY", "OPS_API_KEY"])
+def test_client_key_must_be_present_and_not_blank(name):
+    for value in ("", " "):
+        with pytest.raises(config.ConfigError, match=f"{name} is required"):
+            config._validate({**BASE_ENV, name: value}, [])
+
+
+@pytest.mark.parametrize("name", ["LAMPADA_API_KEY", "OPS_API_KEY"])
+def test_new_client_key_has_minimum_length(name):
+    with pytest.raises(config.ConfigError, match=f"{name}: must contain at least 32"):
+        config._validate({**BASE_ENV, name: "x" * 31}, [])
+
+
+def test_client_keys_cannot_have_whitespace_or_duplicate_values():
+    with pytest.raises(config.ConfigError, match="duplicate API keys"):
+        config._validate({**BASE_ENV, "OPS_API_KEY": BASE_ENV["LAMPADA_API_KEY"]}, [])
+    with pytest.raises(config.ConfigError, match="leading or trailing whitespace"):
+        config._validate({**BASE_ENV, "OPS_API_KEY": " " + "o" * 32}, [])
 
 
 def test_complete_mixed_environment_has_no_problems():
@@ -1143,6 +1174,9 @@ def _reload_config(monkeypatch, env):
         | set(FLOAT_OPERATIONAL_VARS)
         | {
             "API_KEY",
+            "BIBLE_GARDEN_API_KEY",
+            "LAMPADA_API_KEY",
+            "OPS_API_KEY",
             "DB_HOST",
             "DB_USER",
             "DB_PASSWORD",

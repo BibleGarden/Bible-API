@@ -13,7 +13,7 @@ production regression tests under `tests/fixtures/ai/`.
 
 ```bash
 cp .env.example .env
-# fill in DB credentials and API_KEY in .env
+# fill in DB credentials and all three client keys in .env
 
 docker compose up -d --build
 ```
@@ -37,13 +37,15 @@ The API will be available at `http://localhost:9084/api`.
   naming the format; an alias that belongs to no book of this translation
   returns 404.
 - `GET /api/audio/{translation}/{voice}/{book}/{chapter}.mp3` — audio files
+- `GET /api/import` — operations-only publication from Dashboard-API.
+- `POST /api/cache/clear` — operations-only cache reset.
 - `GET /api/health` — API-key-protected readiness check. Returns 200 only when
   the database has at least one language; database failures and an empty
   database return a generic 503. It does not call AI or record usage stats.
 - `GET /api/about` — Bible Garden About page (unchanged default); use
   `GET /api/about?app=lampada` for Lampada contacts and description.
   `app=bible-garden` explicitly selects the default; unknown values return 422.
-  Both variants require the existing API key.
+  Both variants require a configured client key.
 - `GET /api/version-check` — app version check. `?app_version=` is required and
   takes one to three numeric components (missing ones are read as zero);
   anything else returns 422. `GET /api/version-check?app=lampada&app_version=1.0.0`
@@ -58,7 +60,25 @@ The API will be available at `http://localhost:9084/api`.
 - `POST /api/ai/scripture` — contextual Bible passage selection
   (`architect/scripture-select.md`)
 
-All endpoints require `X-API-Key` header.
+All API endpoints require a configured client key in `X-API-Key`; audio GET/HEAD
+also accept `api_key` in the query for native players. A non-empty audio query
+key takes precedence over the header, including when the query key is invalid.
+The key identifies
+`bible-garden`, `lampada`, or `ops` for request statistics. The `app` query
+parameter on About and Version Check does not select this identity.
+Statistics count requests after authentication. A trailing-slash 307 redirect
+and other responses produced before authentication have no application identity
+and are not recorded; the authenticated follow-up request is recorded.
+
+Set `BIBLE_GARDEN_API_KEY` to the released iOS app's former `API_KEY` value
+without changing any byte. Set distinct, new `LAMPADA_API_KEY` and
+`OPS_API_KEY` values of at least 32 characters. All three are required even
+when AI is disabled; blank, padded or duplicate values stop startup. The
+removed `API_KEY` name also stops startup. `OPS_API_KEY` belongs to monitoring,
+operator checks and live evaluations; it is the only key accepted by
+`/api/import` and `/api/cache/clear`. Other valid client keys receive the same
+403 response as an invalid key. Never commit the values. See
+`architect/application-keys.md`.
 
 `POST /api/ai/content-reports` stores a report about a generated question or
 selected scripture passage. The body contains `content_type` (`question` or
@@ -408,7 +428,7 @@ arriving from an untrusted peer. In a header from a trusted peer the client is
 the **rightmost** address — the one the proxy itself appended; everything to
 the left of it was supplied by the caller and is never believed. `CLIENT_HMAC_KEY` pseudonymizes
 client addresses in all API request statistics and in the AI rate limiter. It
-is required even with AI disabled and must be different from both API keys.
+is required even with AI disabled and should differ from all client keys.
 Rename `AI_CLIENT_HMAC_KEY` without changing its value; the old name is rejected.
 The statistics table retains `client_ip` as its internal column name, but its
 new rows contain only the first 40 hex characters of the HMAC, never an address.

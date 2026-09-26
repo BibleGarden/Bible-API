@@ -14,7 +14,7 @@ upgrading, or to a new random secret for a fresh installation.
 
 ```bash
 test -f .env || cp .env.example .env
-# Fill CLIENT_HMAC_KEY in .env before starting the container.
+# Fill CLIENT_HMAC_KEY and all three client keys in .env before starting.
 docker compose up -d --build
 docker logs bible-api -f
 docker compose down
@@ -43,7 +43,10 @@ In a worktree, use an isolated test container with that worktree's `app/` and
 
 ```bash
 docker cp tests/. bible-api:/code/tests
-docker exec -e API_KEY=test-api-key -e CLIENT_HMAC_KEY=test-hmac-key \
+docker exec -e BIBLE_GARDEN_API_KEY=test-api-key \
+  -e LAMPADA_API_KEY=lampada-test-key-12345678901234567890 \
+  -e OPS_API_KEY=ops-test-key-1234567890123456789012 \
+  -e CLIENT_HMAC_KEY=test-hmac-key \
   bible-api pytest -q
 ```
 
@@ -67,6 +70,10 @@ container environment and print counts without printing addresses.
 - Critical configuration, including providers, models and index identity, must
   fail at startup when missing or invalid. Do not introduce silent defaults or
   fallback behaviour; see `architect/adr/0008-fail-fast-configuration.md`.
+- `BIBLE_GARDEN_API_KEY` is the released iOS key under its new name. Never
+  change its value during the rename. `LAMPADA_API_KEY` and `OPS_API_KEY` are
+  distinct new values; the former `API_KEY` name is rejected at startup.
+- `GET /api/import` and `POST /api/cache/clear` require `OPS_API_KEY`.
 - Treat model and retrieval-pipeline changes as architectural decisions. Read
   `architect/adr/0004-retrieval-pipeline.md`,
   `architect/adr/0005-grounded-passage-rerank.md`,
@@ -88,6 +95,7 @@ container environment and print counts without printing addresses.
 - `architect/twinkler-ai.md` — question and transcription contracts and prompt
   behaviour.
 - `architect/scripture-select.md` — scripture-selection API and data flow.
+- `architect/application-keys.md` — client identities and request statistics.
 - `architect/adding-a-language.md` — required cross-repository work for a new
   human language, including safety validation.
 - `architect/adr/` — accepted repository decisions. In particular, ADR 0015–0018

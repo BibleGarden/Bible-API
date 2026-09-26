@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-os.environ.setdefault("API_KEY", "test-api-key")
+os.environ.setdefault("BIBLE_GARDEN_API_KEY", "test-api-key")
 
 from canon import CANONICAL_CHAPTER_COUNTS
 from chunking import CHUNKING_VERSION, build_text

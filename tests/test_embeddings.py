@@ -22,7 +22,7 @@ import httpx
 import numpy as np
 import pytest
 
-os.environ.setdefault("API_KEY", "test-api-key")
+os.environ.setdefault("BIBLE_GARDEN_API_KEY", "test-api-key")
 
 import config
 import embeddings as embeddings_module

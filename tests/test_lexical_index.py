@@ -2,7 +2,7 @@
 
 import os
 
-os.environ.setdefault("API_KEY", "test-api-key")
+os.environ.setdefault("BIBLE_GARDEN_API_KEY", "test-api-key")
 
 from lexical_index import LexicalIndex, tokenize
 

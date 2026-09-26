@@ -11,7 +11,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-os.environ.setdefault("API_KEY", "test-api-key")
+os.environ.setdefault("BIBLE_GARDEN_API_KEY", "test-api-key")
 
 import config
 from query_rewrite import (
@@ -350,7 +350,9 @@ print(json.dumps({
 
 # Synthetic, complete environment: config fails fast on an incomplete one.
 _PROBE_ENV = {
-    "API_KEY": "k",
+    "BIBLE_GARDEN_API_KEY": "k",
+    "LAMPADA_API_KEY": "l" * 32,
+    "OPS_API_KEY": "o" * 32,
     "DB_HOST": "h", "DB_USER": "u", "DB_PASSWORD": "p", "DB_NAME": "n",
     "AI_ENABLED": "true", "CLIENT_HMAC_KEY": "hmac",
     "EMBEDDING_MODEL": "gemini-embedding-001", "EMBEDDING_DIMENSIONS": "768",

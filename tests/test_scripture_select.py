@@ -16,7 +16,7 @@ from unittest.mock import Mock
 
 import pytest
 
-os.environ.setdefault("API_KEY", "test-api-key")
+os.environ.setdefault("BIBLE_GARDEN_API_KEY", "test-api-key")
 os.environ.setdefault("CLIENT_HMAC_KEY", "test-hmac-key")
 
 from fastapi.testclient import TestClient
@@ -1601,7 +1601,7 @@ def test_statistics_store_no_prayer_context_no_passage_and_no_raw_client(
         b"test-hmac-key", b"testclient", hashlib.sha256
     ).hexdigest()[:40]
     assert logged[:3] == ("/api/ai/scripture", "POST", 200)
-    assert logged[4:] == (expected_client, "")
+    assert logged[4:] == (expected_client, "", "bible-garden")
     recorded = repr(logged)
     for secret in PRIVATE_STRINGS + ("v3:19.023.001-006", "testclient",
                                      "private-device-details"):

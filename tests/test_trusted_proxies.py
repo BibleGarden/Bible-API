@@ -20,7 +20,7 @@ import time
 
 import pytest
 
-os.environ.setdefault("API_KEY", "test-api-key")
+os.environ.setdefault("BIBLE_GARDEN_API_KEY", "test-api-key")
 
 import client_ip  # noqa: E402
 import config  # noqa: E402
@@ -187,7 +187,9 @@ def test_both_variables_report_through_the_aggregated_config_error():
     with pytest.raises(config.ConfigError) as exc:
         config._validate(
             {
-                "API_KEY": "k",
+                "BIBLE_GARDEN_API_KEY": "k",
+                "LAMPADA_API_KEY": "l" * 32,
+                "OPS_API_KEY": "o" * 32,
                 "CLIENT_HMAC_KEY": "test-hmac-key",
                 "DB_HOST": "h",
                 "DB_USER": "u",

@@ -4,13 +4,12 @@ Router for working with audio files
 
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, Response, StreamingResponse
+from fastapi.responses import Response
 from pathlib import Path
 from datetime import datetime
-import os
 
-from config import AUDIO_FILES_PATH, AUDIO_BASE_URL
-from auth import RequireAPIKey, verify_api_key_query
+from config import AUDIO_FILES_PATH
+from auth import verify_api_key_query
 from database import create_connection
 from models import AudioFileNotFoundError
 
@@ -249,11 +248,11 @@ def get_audio_file(
     # Check API key: first from query parameter, then from header
     if api_key:
         # API key passed as query parameter
-        verify_api_key_query(api_key)
+        verify_api_key_query(request, api_key)
     else:
         # Check X-API-Key header
         header_key = request.headers.get('x-api-key')
-        verify_api_key_query(header_key)
+        verify_api_key_query(request, header_key)
 
     # Validate and build file path
     file_path = validate_audio_path(translation, voice, book, chapter)

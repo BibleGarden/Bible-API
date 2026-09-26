@@ -19,17 +19,18 @@ from database import create_connection
 
 AGGREGATE_SQL = """
     INSERT INTO api_request_daily_stats
-        (date, endpoint, request_count, unique_ips, avg_response_time_ms, error_count)
+        (date, endpoint, application, request_count, unique_ips, avg_response_time_ms, error_count)
     SELECT
         DATE(created_at)         AS date,
         endpoint,
+        application,
         COUNT(*)                 AS request_count,
         COUNT(DISTINCT client_ip) AS unique_ips,
         ROUND(AVG(response_time_ms)) AS avg_response_time_ms,
         SUM(status_code >= 400)  AS error_count
     FROM api_requests
     WHERE DATE(created_at) = %s
-    GROUP BY DATE(created_at), endpoint
+    GROUP BY DATE(created_at), endpoint, application
     ON DUPLICATE KEY UPDATE
         request_count       = VALUES(request_count),
         unique_ips          = VALUES(unique_ips),
@@ -37,25 +38,59 @@ AGGREGATE_SQL = """
         error_count         = VALUES(error_count)
 """
 
-# Daily totals row: correct unique IPs across all endpoints for the day
-AGGREGATE_TOTAL_SQL = """
+AGGREGATE_OVERALL_ENDPOINT_SQL = """
     INSERT INTO api_request_daily_stats
-        (date, endpoint, request_count, unique_ips, avg_response_time_ms, error_count)
+        (date, endpoint, application, request_count, unique_ips, avg_response_time_ms, error_count)
+    SELECT DATE(created_at), endpoint, 'all', COUNT(*),
+           COUNT(DISTINCT client_ip), ROUND(AVG(response_time_ms)),
+           SUM(status_code >= 400)
+    FROM api_requests
+    WHERE DATE(created_at) = %s
+    GROUP BY DATE(created_at), endpoint
+    ON DUPLICATE KEY UPDATE
+        request_count = VALUES(request_count),
+        unique_ips = VALUES(unique_ips),
+        avg_response_time_ms = VALUES(avg_response_time_ms),
+        error_count = VALUES(error_count)
+"""
+
+# Per-application and overall totals keep unique clients correct across endpoints.
+AGGREGATE_APP_TOTAL_SQL = """
+    INSERT INTO api_request_daily_stats
+        (date, endpoint, application, request_count, unique_ips, avg_response_time_ms, error_count)
     SELECT
         DATE(created_at)         AS date,
         '_total_'                AS endpoint,
+        application,
         COUNT(*)                 AS request_count,
         COUNT(DISTINCT client_ip) AS unique_ips,
         ROUND(AVG(response_time_ms)) AS avg_response_time_ms,
         SUM(status_code >= 400)  AS error_count
     FROM api_requests
     WHERE DATE(created_at) = %s
-    GROUP BY DATE(created_at)
+    GROUP BY DATE(created_at), application
     ON DUPLICATE KEY UPDATE
         request_count       = VALUES(request_count),
         unique_ips          = VALUES(unique_ips),
         avg_response_time_ms = VALUES(avg_response_time_ms),
         error_count         = VALUES(error_count)
+"""
+
+AGGREGATE_TOTAL_SQL = """
+    INSERT INTO api_request_daily_stats
+        (date, endpoint, application, request_count, unique_ips, avg_response_time_ms, error_count)
+    SELECT
+        DATE(created_at), '_total_', 'all', COUNT(*),
+        COUNT(DISTINCT client_ip), ROUND(AVG(response_time_ms)),
+        SUM(status_code >= 400)
+    FROM api_requests
+    WHERE DATE(created_at) = %s
+    GROUP BY DATE(created_at)
+    ON DUPLICATE KEY UPDATE
+        request_count = VALUES(request_count),
+        unique_ips = VALUES(unique_ips),
+        avg_response_time_ms = VALUES(avg_response_time_ms),
+        error_count = VALUES(error_count)
 """
 
 
@@ -74,7 +109,8 @@ def aggregate_and_purge():
             WHERE DATE(created_at) < CURDATE()
               AND (
                   DATE(created_at) NOT IN (
-                      SELECT DISTINCT date FROM api_request_daily_stats WHERE endpoint = '_total_'
+                      SELECT DISTINCT date FROM api_request_daily_stats
+                      WHERE endpoint = '_total_' AND application IN ('all', 'unknown')
                   )
               )
             ORDER BY d
@@ -84,13 +120,12 @@ def aggregate_and_purge():
         if not dates:
             print("All past days already aggregated")
         else:
-            total = 0
             for d in dates:
                 cursor.execute(AGGREGATE_SQL, (d,))
-                total += cursor.rowcount
+                cursor.execute(AGGREGATE_OVERALL_ENDPOINT_SQL, (d,))
+                cursor.execute(AGGREGATE_APP_TOTAL_SQL, (d,))
                 cursor.execute(AGGREGATE_TOTAL_SQL, (d,))
-                print(f"Aggregated {d}: {cursor.rowcount + 1} rows")
-            print(f"Total: {total} rows for {len(dates)} day(s)")
+            print(f"Aggregated {len(dates)} day(s)")
 
         # Purge raw rows older than 14 days
         cursor.execute("""

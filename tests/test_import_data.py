@@ -51,7 +51,7 @@ asserted.
 
 import base64
 import json
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -63,7 +63,7 @@ from main import app
 from vector_index import current_embedding_version
 
 client = TestClient(app)
-HEADERS = {"X-API-Key": "test-api-key"}
+HEADERS = {"X-API-Key": "ops-test-key-1234567890123456789012"}
 
 # The index version the test environment reads (conftest pins the model and
 # the dimensions): built here rather than hardcoded, so the fixtures follow
@@ -1677,7 +1677,23 @@ def test_point_import_is_not_refused_by_another_translations_missing_counts():
 
 def test_import_requires_the_api_key():
     response = client.get('/api/import')
-    assert response.status_code in (401, 403)
+    assert response.status_code == 403
+    assert response.json() == {'detail': 'Invalid or missing API Key'}
+
+
+@pytest.mark.parametrize('key', [
+    'test-api-key',
+    'lampada-test-key-12345678901234567890',
+])
+def test_import_rejects_non_ops_keys_before_database_access(monkeypatch, key):
+    connect = Mock()
+    monkeypatch.setattr(import_data, 'create_connection', connect)
+
+    response = client.get('/api/import', headers={'X-API-Key': key})
+
+    assert response.status_code == 403
+    assert response.json() == {'detail': 'Invalid or missing API Key'}
+    connect.assert_not_called()
 
 
 def test_payload_cap_defaults_to_48_mb(monkeypatch):
