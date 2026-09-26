@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, Mock
 import httpx
 import pytest
 
-os.environ.setdefault("API_KEY", "test-api-key")
+os.environ.setdefault("BIBLE_GARDEN_API_KEY", "test-api-key")
 os.environ.setdefault("CLIENT_HMAC_KEY", "test-hmac-key")
 
 from fastapi.testclient import TestClient
@@ -2796,7 +2796,7 @@ def test_rate_limits_requests(monkeypatch, debug_question_language):
     generated.assert_awaited_once()
 
 
-def test_trailing_slash_is_recorded_without_request_body(monkeypatch):
+def test_trailing_slash_redirect_before_auth_is_not_recorded(monkeypatch):
     started_threads = []
 
     class FakeThread:
@@ -2821,21 +2821,8 @@ def test_trailing_slash_is_recorded_without_request_body(monkeypatch):
     )
 
     assert response.status_code == 307
-    assert len(started_threads) == 1
-    args, kwargs = started_threads[0]
-    assert args == ()
-    assert kwargs["args"][0:3] == (
-        "/api/ai/question/",
-        "POST",
-        307,
-    )
-    assert len(kwargs["args"]) == 6
-    expected_client = hmac.new(
-        b"test-hmac-key",
-        b"testclient",
-        hashlib.sha256,
-    ).hexdigest()[:40]
-    assert kwargs["args"][4:] == (expected_client, "")
+    assert response.headers["location"].endswith("/api/ai/question")
+    assert started_threads == []
 
 
 def test_openapi_documents_public_errors():
@@ -3243,7 +3230,7 @@ def test_transcription_stats_are_pseudonymized_without_user_agent(monkeypatch):
         "POST",
         200,
     )
-    assert kwargs["args"][4:] == (expected_client, "")
+    assert kwargs["args"][4:] == (expected_client, "", "bible-garden")
     assert "private-name" not in repr(kwargs)
     assert "private audio" not in repr(kwargs)
 

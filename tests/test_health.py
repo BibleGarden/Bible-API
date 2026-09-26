@@ -5,6 +5,7 @@ import hmac
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from auth import RequireAPIKey
 
 import health
 import middleware
@@ -27,7 +28,7 @@ def _app() -> FastAPI:
     app.include_router(router, prefix="/api")
 
     @app.get("/api/normal")
-    def normal():
+    def normal(api_key: bool = RequireAPIKey):
         return {"status": "ok"}
 
     return app
@@ -108,14 +109,14 @@ def test_health_never_records_stats_but_normal_requests_still_do(monkeypatch):
     insert.assert_not_called()
 
     assert client.get(
-        "/api/normal", headers={"User-Agent": "ordinary-browser"}
+        "/api/normal", headers={**headers, "User-Agent": "ordinary-browser"}
     ).status_code == 200
     insert.assert_called_once()
     assert insert.call_args.args[:3] == ("/api/normal", "GET", 200)
     expected = hmac.new(
         b"test-hmac-key", b"testclient", hashlib.sha256
     ).hexdigest()[:40]
-    assert insert.call_args.args[4:] == (expected, "ordinary-browser")
+    assert insert.call_args.args[4:] == (expected, "ordinary-browser", "bible-garden")
 
 
 def test_openapi_documents_readiness_scope_and_authentication():

@@ -13,7 +13,7 @@ import re
 import httpx
 import pytest
 
-os.environ.setdefault("API_KEY", "test-api-key")
+os.environ.setdefault("BIBLE_GARDEN_API_KEY", "test-api-key")
 
 from passage_rerank import (
     GeminiPassageReranker,

@@ -18,7 +18,7 @@ import os
 import httpx
 import pytest
 
-os.environ.setdefault("API_KEY", "test-api-key")
+os.environ.setdefault("BIBLE_GARDEN_API_KEY", "test-api-key")
 
 from deadline import Deadline, request_timeout
 from embeddings import EmbeddingUnavailable, GeminiEmbeddingClient

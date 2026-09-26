@@ -8,7 +8,10 @@ container's operational `.env`.
 
 import os
 
-os.environ.setdefault("API_KEY", "test-api-key")
+os.environ.pop("API_KEY", None)
+os.environ["BIBLE_GARDEN_API_KEY"] = "test-api-key"
+os.environ["LAMPADA_API_KEY"] = "lampada-test-key-12345678901234567890"
+os.environ["OPS_API_KEY"] = "ops-test-key-1234567890123456789012"
 os.environ["CLIENT_HMAC_KEY"] = "test-hmac-key"
 os.environ["AI_ENABLED"] = "true"
 os.environ["DEBUG"] = "false"

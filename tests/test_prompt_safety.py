@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-os.environ.setdefault("API_KEY", "test-api-key")
+os.environ.setdefault("BIBLE_GARDEN_API_KEY", "test-api-key")
 
 from passage_rerank import build_rerank_user_content
 from prompt_safety import neutralize_prompt_markers as clean

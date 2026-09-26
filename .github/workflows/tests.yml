@@ -23,6 +23,8 @@ jobs:
       - name: Run offline test suite
         run: |
           docker run --rm \
-            --env API_KEY=test-api-key \
+            --env BIBLE_GARDEN_API_KEY=test-api-key \
+            --env LAMPADA_API_KEY=lampada-test-key-12345678901234567890 \
+            --env OPS_API_KEY=ops-test-key-1234567890123456789012 \
             bible-api-ci:${{ github.sha }} \
             pytest -q

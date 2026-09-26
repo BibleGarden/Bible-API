@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-os.environ.setdefault("API_KEY", "test-api-key")
+os.environ.setdefault("BIBLE_GARDEN_API_KEY", "test-api-key")
 
 from passage_highlight import (
     Highlight,

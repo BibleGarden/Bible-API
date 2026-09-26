@@ -30,7 +30,9 @@ class ConfigError(RuntimeError):
 
 # Required in every deployment, whatever is configured. Blank counts as unset.
 ALWAYS_REQUIRED_VARS = (
-    "API_KEY",
+    "BIBLE_GARDEN_API_KEY",
+    "LAMPADA_API_KEY",
+    "OPS_API_KEY",
     "CLIENT_HMAC_KEY",
     "DB_HOST",
     "DB_USER",
@@ -618,6 +620,24 @@ def invalid_required_values(env: Mapping[str, str]) -> list[str]:
     index version `...@0` and an `outputDimensionality: 0` request.
     """
     problems = []
+    if "API_KEY" in env:
+        problems.append(
+            "API_KEY: removed; rename it to BIBLE_GARDEN_API_KEY without "
+            "changing its value"
+        )
+    client_keys = (
+        "BIBLE_GARDEN_API_KEY", "LAMPADA_API_KEY", "OPS_API_KEY"
+    )
+    for name in client_keys:
+        value = env.get(name, "")
+        if value and value != value.strip():
+            problems.append(f"{name}: leading or trailing whitespace is invalid")
+        if name != "BIBLE_GARDEN_API_KEY" and value.strip() and len(value) < 32:
+            problems.append(f"{name}: must contain at least 32 characters")
+    for index, name in enumerate(client_keys):
+        for other in client_keys[index + 1:]:
+            if env.get(name) and env.get(name) == env.get(other):
+                problems.append(f"{name} and {other}: duplicate API keys")
     raw_ai_enabled = env.get("AI_ENABLED")
     if raw_ai_enabled and raw_ai_enabled not in ("true", "false"):
         problems.append("AI_ENABLED: expected exactly 'true' or 'false'")
@@ -1047,7 +1067,9 @@ AUDIO_FILES_PATH = os.getenv("AUDIO_FILES_PATH", "audio")
 AUDIO_BASE_URL = os.getenv("AUDIO_BASE_URL", "http://localhost:8000")
 
 # API Authorization settings (required)
-API_KEY = os.getenv("API_KEY", "")
+BIBLE_GARDEN_API_KEY = os.getenv("BIBLE_GARDEN_API_KEY", "")
+LAMPADA_API_KEY = os.getenv("LAMPADA_API_KEY", "")
+OPS_API_KEY = os.getenv("OPS_API_KEY", "")
 
 # Admin API connection settings (for import)
 ADMIN_API_URL = os.getenv("ADMIN_API_URL", "http://dashboard-api:8000")
