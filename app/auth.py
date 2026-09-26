@@ -67,5 +67,17 @@ def verify_api_key_query(request: Request, api_key: Optional[str] = None) -> boo
     return True
 
 
+def verify_ops_api_key(
+    request: Request, authenticated: bool = Depends(verify_api_key)
+) -> bool:
+    if request.state.application != "ops":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid or missing API Key",
+        )
+    return True
+
+
 # Dependencies for use in endpoints
 RequireAPIKey = Depends(verify_api_key)
+RequireOpsAPIKey = Depends(verify_ops_api_key)

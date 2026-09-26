@@ -117,9 +117,28 @@ def test_request_insert_persists_application(monkeypatch):
     connection.commit.assert_called_once_with()
 
 
-def test_request_insert_rejects_missing_application(monkeypatch):
-    connect = Mock()
-    monkeypatch.setattr(middleware, "create_connection", connect)
-    with pytest.raises(RuntimeError, match="application is missing"):
-        middleware._insert_request_log("/api/probe", "GET", 200, 12, "a" * 40, "", None)
-    connect.assert_not_called()
+def test_cache_clear_is_ops_only(monkeypatch):
+    import main
+
+    monkeypatch.setattr(main, "_cache", {})
+    monkeypatch.setattr(main, "_cache_timestamps", {})
+    clear_corpus = Mock()
+    monkeypatch.setattr(main, "clear_cached_resources", clear_corpus)
+    insert = Mock()
+    monkeypatch.setattr(middleware, "_insert_request_log", insert)
+    monkeypatch.setattr(middleware, "threading", SimpleNamespace(Thread=ImmediateThread))
+    client = TestClient(main.app)
+
+    for key in ("test-api-key", "lampada-test-key-12345678901234567890"):
+        response = client.post("/api/cache/clear", headers={"X-API-Key": key})
+        assert response.status_code == 403
+        assert response.json() == {"detail": "Invalid or missing API Key"}
+    clear_corpus.assert_not_called()
+
+    response = client.post(
+        "/api/cache/clear",
+        headers={"X-API-Key": "ops-test-key-1234567890123456789012"},
+    )
+    assert response.status_code == 200
+    clear_corpus.assert_called_once_with()
+    assert insert.call_args.args[-1] == "ops"

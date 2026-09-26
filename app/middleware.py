@@ -96,8 +96,6 @@ class RequestStatsMiddleware(BaseHTTPMiddleware):
 
 
 def _insert_request_log(endpoint: str, method: str, status_code: int, response_time_ms: int, client_ip: str, user_agent: str, application: str):
-    if application not in {"bible-garden", "lampada", "ops"}:
-        raise RuntimeError("Request statistics application is missing or invalid")
     try:
         connection = create_connection()
         if connection is None:

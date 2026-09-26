@@ -1,16 +1,14 @@
-from typing import Union, Optional
-from datetime import timedelta, datetime
+from typing import Optional
+from datetime import datetime
 from functools import wraps
 import hashlib
 import json
 import logging
 
-from fastapi import FastAPI, HTTPException, status, APIRouter
+from fastapi import FastAPI, HTTPException, APIRouter
 from canon import chapter_coverage
 from database import create_connection
-from models import *
-
-from fastapi.routing import APIRoute
+from models import LanguageModel, TranslationModel, TranslationBookModel
 
 from excerpt import router as excerpt_router
 from excerpt import check_audio_file_exists
@@ -27,7 +25,7 @@ from content_reports import (
 )
 from scripture_select import clear_cached_resources, validation_exception_handler
 from fastapi.exceptions import RequestValidationError
-from auth import RequireAPIKey
+from auth import RequireAPIKey, RequireOpsAPIKey
 from middleware import RequestStatsMiddleware
 from trusted_proxies import TRUSTED_PROXIES, ensure_visible_handler
 from config import (
@@ -530,8 +528,8 @@ def get_translation_books(translation_code: int, voice_code: Optional[int] = Non
 
 
 @api_router.post('/cache/clear', operation_id="clear_cache", tags=["Cache"])
-def clear_cache(api_key: bool = RequireAPIKey):
-    """Clear all cached data (requires API Key)"""
+def clear_cache(api_key: bool = RequireOpsAPIKey):
+    """Clear all cached data (requires the operations API key)."""
     from excerpt import get_all_existing_audio_chapters, get_existing_audio_chapters, check_audio_file_exists
 
     global _cache, _cache_timestamps
@@ -548,7 +546,7 @@ def clear_cache(api_key: bool = RequireAPIKey):
     clear_cached_resources()
 
     return {
-        "message": f"All caches cleared successfully",
+        "message": "All caches cleared successfully",
         "items_cleared": cache_size,
         "lru_caches_cleared": ["get_all_existing_audio_chapters", "get_existing_audio_chapters", "check_audio_file_exists", "scripture_corpus"]
     }

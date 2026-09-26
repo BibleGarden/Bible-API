@@ -13,14 +13,18 @@ with `hmac.compare_digest` before selecting an identity.
 `api_key` query parameter first, then the header. Invalid non-empty query keys
 do not fall through to a valid header. Auth sets `request.state.application`;
 request statistics write that identity, never a missing or inferred one.
+`GET /api/import` and `POST /api/cache/clear` require the `ops` identity.
+Bible Garden and Lampada keys receive the same 403 shape as an invalid key.
+`GET /api/health` is a read-only readiness probe and accepts any valid client
+key; it is excluded from statistics.
 Only requests that passed authentication are eligible for statistics; 403/404/405,
 audio OPTIONS and `/api/health` remain excluded. FastAPI's trailing-slash 307
 redirect happens before the auth dependency, so that redirect is not counted;
 the redirected request is counted after successful authentication. Validation
 errors can also happen before authentication and are not counted without a
 resolved identity. If a successful response lacks identity, the middleware logs
-an error and leaves the client response unchanged. The insert function rejects
-missing or invalid identities, and tests assert the authenticated request is
+an error and leaves the client response unchanged. The middleware dispatches an
+insert only with a resolved identity; tests assert authenticated requests are
 recorded. No new `unknown` rows are written. There are no public API routes
 eligible for request statistics.
 

@@ -120,15 +120,12 @@ def aggregate_and_purge():
         if not dates:
             print("All past days already aggregated")
         else:
-            total = 0
             for d in dates:
                 cursor.execute(AGGREGATE_SQL, (d,))
-                total += cursor.rowcount
                 cursor.execute(AGGREGATE_OVERALL_ENDPOINT_SQL, (d,))
                 cursor.execute(AGGREGATE_APP_TOTAL_SQL, (d,))
                 cursor.execute(AGGREGATE_TOTAL_SQL, (d,))
-                print(f"Aggregated {d}: {cursor.rowcount + 1} rows")
-            print(f"Total: {total} rows for {len(dates)} day(s)")
+            print(f"Aggregated {len(dates)} day(s)")
 
         # Purge raw rows older than 14 days
         cursor.execute("""

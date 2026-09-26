@@ -73,6 +73,7 @@ container environment and print counts without printing addresses.
 - `BIBLE_GARDEN_API_KEY` is the released iOS key under its new name. Never
   change its value during the rename. `LAMPADA_API_KEY` and `OPS_API_KEY` are
   distinct new values; the former `API_KEY` name is rejected at startup.
+- `GET /api/import` and `POST /api/cache/clear` require `OPS_API_KEY`.
 - Treat model and retrieval-pipeline changes as architectural decisions. Read
   `architect/adr/0004-retrieval-pipeline.md`,
   `architect/adr/0005-grounded-passage-rerank.md`,

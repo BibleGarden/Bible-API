@@ -118,7 +118,7 @@ from typing import Optional
 import httpx
 from fastapi import APIRouter, HTTPException, Query
 
-from auth import RequireAPIKey
+from auth import RequireOpsAPIKey
 from chunk_cli import CREATE_TABLE_SQL as TRANSLATION_CHUNKS_DDL
 from chunking import CHUNKING_VERSION
 from config import (
@@ -1436,7 +1436,7 @@ def import_data(
             "are reported per translation in index.other_versions_removed."
         ),
     ),
-    api_key: bool = RequireAPIKey
+    api_key: bool = RequireOpsAPIKey
 ):
     """
     Import data from admin-api

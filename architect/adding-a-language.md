@@ -92,7 +92,8 @@ the whole reference table, columns included. A new language row and new
 explicitly that a **point** import can introduce a new language. The orphan
 sweep at `:1217-1226` only deletes a `languages` row that the manifest dropped
 *and* nothing points at.
-*Verify:* `GET https://api.bible.garden/api/import?translation=<alias>` returns
+*Verify:* `GET https://api.bible.garden/api/import?translation=<alias>` with
+`X-API-Key: $OPS_API_KEY` returns
 `status=="ok"` (check the field, not only HTTP 200 — monorepo `CLAUDE.md`).
 
 **1.5 — At least one translation of the language must exist** in `translations`
@@ -583,7 +584,8 @@ rebuild`, against `cep_admin`/the local corpus. The current publication order,
 including the RAG index, is in `Deploy/data-flow.md` and `Deploy/runbook.md`.
 
 **11.2 — Import the new translation the standard way.**
-`GET https://api.bible.garden/api/import?translation=<alias>`; check
+`GET https://api.bible.garden/api/import?translation=<alias>` with
+`X-API-Key: $OPS_API_KEY`; check
 `status=="ok"`. A resync that would **remove** a translation needs an explicit
 `?allow_removals=1` — never add it reflexively (monorepo `CLAUDE.md`). Back up
 affected tables to `/root/db-archives/` with the ticket number in the file name

@@ -37,6 +37,8 @@ The API will be available at `http://localhost:9084/api`.
   naming the format; an alias that belongs to no book of this translation
   returns 404.
 - `GET /api/audio/{translation}/{voice}/{book}/{chapter}.mp3` — audio files
+- `GET /api/import` — operations-only publication from Dashboard-API.
+- `POST /api/cache/clear` — operations-only cache reset.
 - `GET /api/health` — API-key-protected readiness check. Returns 200 only when
   the database has at least one language; database failures and an empty
   database return a generic 503. It does not call AI or record usage stats.
@@ -73,7 +75,9 @@ without changing any byte. Set distinct, new `LAMPADA_API_KEY` and
 `OPS_API_KEY` values of at least 32 characters. All three are required even
 when AI is disabled; blank, padded or duplicate values stop startup. The
 removed `API_KEY` name also stops startup. `OPS_API_KEY` belongs to monitoring,
-operator checks and live evaluations. Never commit the values. See
+operator checks and live evaluations; it is the only key accepted by
+`/api/import` and `/api/cache/clear`. Other valid client keys receive the same
+403 response as an invalid key. Never commit the values. See
 `architect/application-keys.md`.
 
 `POST /api/ai/content-reports` stores a report about a generated question or
