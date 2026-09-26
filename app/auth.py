@@ -6,6 +6,7 @@ Only API Key authentication (no JWT, no admin login).
 
 from typing import Optional
 import hmac
+from hashlib import sha256
 
 from fastapi import Depends, HTTPException, Request, Security, status
 from fastapi.security import APIKeyHeader
@@ -21,19 +22,19 @@ except Exception as e:
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
-CLIENT_KEYS = (
-    ("bible-garden", BIBLE_GARDEN_API_KEY),
-    ("lampada", LAMPADA_API_KEY),
-    ("ops", OPS_API_KEY),
+CLIENT_KEY_DIGESTS = (
+    ("bible-garden", sha256(BIBLE_GARDEN_API_KEY.encode("utf-8")).digest()),
+    ("lampada", sha256(LAMPADA_API_KEY.encode("utf-8")).digest()),
+    ("ops", sha256(OPS_API_KEY.encode("utf-8")).digest()),
 )
 
 
 def resolve_application(api_key: Optional[str]) -> str:
-    # Evaluate all comparisons, even after a match, without exposing the key.
+    # Hash before comparison so every compare_digest operand is exactly 32 bytes.
+    presented_digest = sha256((api_key or "").encode("utf-8")).digest()
     matches = [
-        (name, hmac.compare_digest((api_key or "").encode("utf-8"),
-                                   configured_key.encode("utf-8")))
-        for name, configured_key in CLIENT_KEYS
+        (name, hmac.compare_digest(presented_digest, configured_digest))
+        for name, configured_digest in CLIENT_KEY_DIGESTS
     ]
     for name, matched in matches:
         if matched:

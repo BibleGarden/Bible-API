@@ -75,6 +75,7 @@ def test_all_keys_are_compared_even_after_a_match(monkeypatch):
     monkeypatch.setattr(auth.hmac, "compare_digest", observed)
     assert auth.resolve_application("test-api-key") == "bible-garden"
     assert len(calls) == 3
+    assert all(len(left) == len(right) == 32 for left, right in calls)
 
 
 def test_audio_query_takes_precedence_and_preflight_is_not_logged(app_and_insert):

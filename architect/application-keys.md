@@ -5,7 +5,9 @@ Bible-API accepts exactly three client identities: `bible-garden` uses
 `LAMPADA_API_KEY`, and monitoring, operator checks and live evaluations use the
 new `OPS_API_KEY`. All are required at startup; `API_KEY` is rejected. The two
 new keys must each contain at least 32 characters. Key values are never logged
-or stored with request statistics.
+or stored with request statistics. Authentication hashes the request key and
+each configured key with SHA-256, then compares all three fixed-length digests
+with `hmac.compare_digest` before selecting an identity.
 
 `X-API-Key` authenticates normal API requests. Audio GET/HEAD use a non-empty
 `api_key` query parameter first, then the header. Invalid non-empty query keys
@@ -24,6 +26,8 @@ eligible for request statistics.
 
 Raw requests retain their 14-day limit. Daily endpoint and per-application
 total rows are grouped by application; `application='all'` endpoint and daily
-total rows count distinct clients across applications correctly. Historical rows are
-`unknown` because their original key cannot be reconstructed. See the
+total rows count distinct clients across applications correctly. Historical rows
+and requests from the old Bible-API during migration are `unknown` because their
+original key cannot be reconstructed. The schema keeps `DEFAULT 'unknown'` for
+that old writer; this writer supplies an explicit application. See the
 cross-repository decision in `Architecture/decisions/0014-per-application-api-keys.md`.
