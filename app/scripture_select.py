@@ -1395,6 +1395,25 @@ def build_response(
     )
 
 
+def degraded_reason(response: SelectResponse, final: FinalSelection) -> str | None:
+    """Request-statistics code for an answer served through a degraded path.
+
+    The public fallback category when the AI choice did not decide, except
+    `empty_topic` (no topic to search is expected, not a failure); otherwise
+    `rewrite_failed` when retrieval had to search the raw query alone. None
+    for a fully AI-decided answer. A category only, never the context.
+    """
+    if (
+        response.source is not SelectionSource.rerank
+        and response.fallback_reason is not None
+        and response.fallback_reason is not FallbackReason.empty_topic
+    ):
+        return response.fallback_reason.value
+    if final.selection.rewrite_failed:
+        return "rewrite_failed"
+    return None
+
+
 @router.post(
     "/ai/scripture",
     response_model=SelectResponse,
@@ -1537,7 +1556,7 @@ async def scripture_select(
                 reference_translation(resources.indexed, language),
                 deadline,
             )
-        return build_response(
+        response = build_response(
             final,
             language,
             translation,
@@ -1550,3 +1569,7 @@ async def scripture_select(
         raise HTTPException(
             status_code=503, detail="Scripture selection temporarily unavailable"
         ) from error
+    reason = degraded_reason(response, final)
+    if reason is not None:
+        http_request.state.degraded_reason = reason
+    return response

@@ -6,8 +6,15 @@ so if cron was down for a few days, next run catches up automatically.
 
 Run daily via cron:
   0 2 * * * docker exec <container> python app/aggregate_stats.py
+
+One-time recompute of already aggregated days from raw rows (e.g. after new
+counter columns were added), from the given date through yesterday:
+  docker exec <container> python app/aggregate_stats.py --recompute-since YYYY-MM-DD
+It refuses a date whose raw rows may already be purged, and does not purge.
 """
 
+import argparse
+import datetime
 import sys
 import os
 
@@ -19,7 +26,8 @@ from database import create_connection
 
 AGGREGATE_SQL = """
     INSERT INTO api_request_daily_stats
-        (date, endpoint, application, request_count, unique_ips, avg_response_time_ms, error_count)
+        (date, endpoint, application, request_count, unique_ips, avg_response_time_ms,
+         error_count, server_error_count, degraded_count)
     SELECT
         DATE(created_at)         AS date,
         endpoint,
@@ -27,7 +35,9 @@ AGGREGATE_SQL = """
         COUNT(*)                 AS request_count,
         COUNT(DISTINCT client_ip) AS unique_ips,
         ROUND(AVG(response_time_ms)) AS avg_response_time_ms,
-        SUM(status_code >= 400)  AS error_count
+        SUM(status_code >= 400)  AS error_count,
+        SUM(status_code >= 500)  AS server_error_count,
+        SUM(degraded_reason IS NOT NULL) AS degraded_count
     FROM api_requests
     WHERE DATE(created_at) = %s
     GROUP BY DATE(created_at), endpoint, application
@@ -35,15 +45,19 @@ AGGREGATE_SQL = """
         request_count       = VALUES(request_count),
         unique_ips          = VALUES(unique_ips),
         avg_response_time_ms = VALUES(avg_response_time_ms),
-        error_count         = VALUES(error_count)
+        error_count         = VALUES(error_count),
+        server_error_count  = VALUES(server_error_count),
+        degraded_count      = VALUES(degraded_count)
 """
 
 AGGREGATE_OVERALL_ENDPOINT_SQL = """
     INSERT INTO api_request_daily_stats
-        (date, endpoint, application, request_count, unique_ips, avg_response_time_ms, error_count)
+        (date, endpoint, application, request_count, unique_ips, avg_response_time_ms,
+         error_count, server_error_count, degraded_count)
     SELECT DATE(created_at), endpoint, 'all', COUNT(*),
            COUNT(DISTINCT client_ip), ROUND(AVG(response_time_ms)),
-           SUM(status_code >= 400)
+           SUM(status_code >= 400), SUM(status_code >= 500),
+           SUM(degraded_reason IS NOT NULL)
     FROM api_requests
     WHERE DATE(created_at) = %s
     GROUP BY DATE(created_at), endpoint
@@ -51,13 +65,16 @@ AGGREGATE_OVERALL_ENDPOINT_SQL = """
         request_count = VALUES(request_count),
         unique_ips = VALUES(unique_ips),
         avg_response_time_ms = VALUES(avg_response_time_ms),
-        error_count = VALUES(error_count)
+        error_count = VALUES(error_count),
+        server_error_count = VALUES(server_error_count),
+        degraded_count = VALUES(degraded_count)
 """
 
 # Per-application and overall totals keep unique clients correct across endpoints.
 AGGREGATE_APP_TOTAL_SQL = """
     INSERT INTO api_request_daily_stats
-        (date, endpoint, application, request_count, unique_ips, avg_response_time_ms, error_count)
+        (date, endpoint, application, request_count, unique_ips, avg_response_time_ms,
+         error_count, server_error_count, degraded_count)
     SELECT
         DATE(created_at)         AS date,
         '_total_'                AS endpoint,
@@ -65,7 +82,9 @@ AGGREGATE_APP_TOTAL_SQL = """
         COUNT(*)                 AS request_count,
         COUNT(DISTINCT client_ip) AS unique_ips,
         ROUND(AVG(response_time_ms)) AS avg_response_time_ms,
-        SUM(status_code >= 400)  AS error_count
+        SUM(status_code >= 400)  AS error_count,
+        SUM(status_code >= 500)  AS server_error_count,
+        SUM(degraded_reason IS NOT NULL) AS degraded_count
     FROM api_requests
     WHERE DATE(created_at) = %s
     GROUP BY DATE(created_at), application
@@ -73,16 +92,20 @@ AGGREGATE_APP_TOTAL_SQL = """
         request_count       = VALUES(request_count),
         unique_ips          = VALUES(unique_ips),
         avg_response_time_ms = VALUES(avg_response_time_ms),
-        error_count         = VALUES(error_count)
+        error_count         = VALUES(error_count),
+        server_error_count  = VALUES(server_error_count),
+        degraded_count      = VALUES(degraded_count)
 """
 
 AGGREGATE_TOTAL_SQL = """
     INSERT INTO api_request_daily_stats
-        (date, endpoint, application, request_count, unique_ips, avg_response_time_ms, error_count)
+        (date, endpoint, application, request_count, unique_ips, avg_response_time_ms,
+         error_count, server_error_count, degraded_count)
     SELECT
         DATE(created_at), '_total_', 'all', COUNT(*),
         COUNT(DISTINCT client_ip), ROUND(AVG(response_time_ms)),
-        SUM(status_code >= 400)
+        SUM(status_code >= 400), SUM(status_code >= 500),
+        SUM(degraded_reason IS NOT NULL)
     FROM api_requests
     WHERE DATE(created_at) = %s
     GROUP BY DATE(created_at)
@@ -90,8 +113,66 @@ AGGREGATE_TOTAL_SQL = """
         request_count = VALUES(request_count),
         unique_ips = VALUES(unique_ips),
         avg_response_time_ms = VALUES(avg_response_time_ms),
-        error_count = VALUES(error_count)
+        error_count = VALUES(error_count),
+        server_error_count = VALUES(server_error_count),
+        degraded_count = VALUES(degraded_count)
 """
+
+
+def _aggregate_day(cursor, day) -> None:
+    cursor.execute(AGGREGATE_SQL, (day,))
+    cursor.execute(AGGREGATE_OVERALL_ENDPOINT_SQL, (day,))
+    cursor.execute(AGGREGATE_APP_TOTAL_SQL, (day,))
+    cursor.execute(AGGREGATE_TOTAL_SQL, (day,))
+
+
+def recompute_since(since: datetime.date) -> None:
+    """Re-aggregate every day from `since` through yesterday from raw rows.
+
+    Only days whose raw rows are provably complete are accepted: raw rows are
+    purged by age, so a raw row older than `since` proves that nothing from
+    `since` onwards has been purged yet. Anything else would overwrite a
+    complete daily row with a partial count, so it is refused.
+    """
+    connection = create_connection()
+    if connection is None:
+        sys.exit("ERROR: could not connect to database")
+
+    cursor = connection.cursor()
+    try:
+        cursor.execute("SELECT CURDATE(), MIN(created_at) FROM api_requests")
+        today, earliest_raw = cursor.fetchone()
+        if since >= today:
+            raise ValueError(
+                f"{since} is not a complete past day (today is {today})"
+            )
+        if earliest_raw is None or earliest_raw >= datetime.datetime.combine(
+            since, datetime.time.min
+        ):
+            raise ValueError(
+                f"raw rows for {since} may be incomplete: the earliest raw "
+                f"row is {earliest_raw}; choose a later date"
+            )
+        cursor.execute(
+            """
+            SELECT DISTINCT DATE(created_at) AS d
+            FROM api_requests
+            WHERE created_at >= %s AND DATE(created_at) < CURDATE()
+            ORDER BY d
+            """,
+            (since,),
+        )
+        dates = [row[0] for row in cursor.fetchall()]
+        for d in dates:
+            _aggregate_day(cursor, d)
+        connection.commit()
+        print(f"Recomputed {len(dates)} day(s) since {since}")
+    except Exception as e:
+        connection.rollback()
+        sys.exit(f"ERROR: {e}")
+    finally:
+        cursor.close()
+        connection.close()
 
 
 def aggregate_and_purge():
@@ -121,10 +202,7 @@ def aggregate_and_purge():
             print("All past days already aggregated")
         else:
             for d in dates:
-                cursor.execute(AGGREGATE_SQL, (d,))
-                cursor.execute(AGGREGATE_OVERALL_ENDPOINT_SQL, (d,))
-                cursor.execute(AGGREGATE_APP_TOTAL_SQL, (d,))
-                cursor.execute(AGGREGATE_TOTAL_SQL, (d,))
+                _aggregate_day(cursor, d)
             print(f"Aggregated {len(dates)} day(s)")
 
         # Purge raw rows older than 14 days
@@ -146,5 +224,20 @@ def aggregate_and_purge():
         connection.close()
 
 
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0].strip())
+    parser.add_argument(
+        "--recompute-since",
+        type=datetime.date.fromisoformat,
+        metavar="YYYY-MM-DD",
+        help="re-aggregate already aggregated days from raw rows, then exit",
+    )
+    args = parser.parse_args(argv)
+    if args.recompute_since is not None:
+        recompute_since(args.recompute_since)
+    else:
+        aggregate_and_purge()
+
+
 if __name__ == "__main__":
-    aggregate_and_purge()
+    main()

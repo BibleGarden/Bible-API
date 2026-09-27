@@ -35,3 +35,29 @@ and requests from the old Bible-API during migration are `unknown` because their
 original key cannot be reconstructed. The schema keeps `DEFAULT 'unknown'` for
 that old writer; this writer supplies an explicit application. See the
 cross-repository decision in `Architecture/decisions/0014-per-application-api-keys.md`.
+
+## Degraded answers
+
+A handler that serves a successful answer through a degraded path sets
+`request.state.degraded_reason` to a stable code (at most 32 characters); the
+middleware writes it to `api_requests.degraded_reason`, NULL otherwise. It is
+a category only, never request or response content. Failed requests carry no
+code: their status already says so.
+
+| Endpoint | Code | Meaning |
+|----------|------|---------|
+| `/api/ai/scripture` | `ai_unavailable`, `rerank_failed`, `no_reranker`, `deadline`, `coverage_empty`, `ranking_empty` | the public `fallback_reason` of a non-`rerank` answer; `empty_topic` is expected and not recorded |
+| `/api/ai/scripture` | `rewrite_failed` | otherwise AI-decided answer whose query rewrite failed, so retrieval searched the raw query |
+| `/api/ai/question` | `format_unparsed` | the answer's raw first line was served without a format retry (no budget, or it came from the novelty retry) |
+| `/api/ai/question` | `format_retry_failed` | the format regeneration did not parse either; the first answer's raw line was served |
+| `/api/ai/question` | `retry_generation_failed` | a second generation (format or novelty) failed and the answer already in hand was served |
+
+Safety replies and novelty repeats are intended behaviour and carry no code;
+`/api/ai/transcribe` failures are already 502.
+
+`app/aggregate_stats.py` stores per daily row `error_count` (status >= 400),
+`server_error_count` (status >= 500) and `degraded_count` (rows with a code).
+The last two are NULL for days aggregated before they existed: unknown, not
+zero. `--recompute-since YYYY-MM-DD` re-aggregates already aggregated days
+through yesterday from raw rows; it refuses a date whose raw rows may already
+be purged (no raw row older than that date) and does not purge.

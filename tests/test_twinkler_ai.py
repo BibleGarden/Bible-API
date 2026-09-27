@@ -1873,6 +1873,72 @@ def test_a_failed_second_generation_still_answers_with_the_first_text(
     assert PERSON_REPLY not in caplog.text
 
 
+def _format_budget_exhausted(monkeypatch):
+    """The first answer leaves less than the floor for a second generation."""
+    from test_gemini_retry import FakeClock
+
+    clock = FakeClock()
+    real_deadline = twinkler_ai.Deadline
+    monkeypatch.setattr(
+        twinkler_ai,
+        "Deadline",
+        lambda seconds: real_deadline(seconds, clock=clock),
+    )
+
+    async def burn_the_budget(user, language_source_text=None, deadline=None):
+        clock.advance(twinkler_ai.AI_QUESTION_TIMEOUT_SECONDS - 2.0)
+        return "Что для тебя главное завтра?"
+
+    monkeypatch.setattr(twinkler_ai, "complete", burn_the_budget)
+
+
+@pytest.mark.parametrize(
+    ("answers", "expected"),
+    [
+        ((NEW_QUESTION,), None),
+        ((Raw("Что для тебя главное завтра?"), NEW_QUESTION), None),
+        (
+            (Raw("Что для тебя главное завтра?"), Raw("И снова без объекта?")),
+            "format_retry_failed",
+        ),
+        (
+            (
+                Raw("Что для тебя главное завтра?"),
+                twinkler_ai.GeminiError("second call exploded"),
+            ),
+            "retry_generation_failed",
+        ),
+        ((NEAR_REPEAT, twinkler_ai.GeminiError("second call exploded")),
+         "retry_generation_failed"),
+        # A novelty repeat is intended behaviour, not a degradation.
+        ((FAR_REPEAT, NEAR_REPEAT), None),
+        # The second answer replaces the first, and so does its format.
+        ((NEAR_REPEAT, Raw("Что для тебя главное завтра?")), "format_unparsed"),
+    ],
+)
+def test_statistics_record_the_degraded_reason_code(
+    monkeypatch, request_log, answers, expected
+):
+    monkeypatch.setattr(twinkler_ai, "complete", ScriptedComplete(*answers))
+
+    response = post_question(novelty_body())
+
+    assert response.status_code == 200
+    assert request_log.call_args.args[:3] == ("/api/ai/question", "POST", 200)
+    assert request_log.call_args.args[7] == expected
+
+
+def test_statistics_record_an_unparsed_answer_served_without_a_retry(
+    monkeypatch, request_log
+):
+    _format_budget_exhausted(monkeypatch)
+
+    response = post_question(novelty_body())
+
+    assert response.status_code == 200
+    assert request_log.call_args.args[7] == "format_unparsed"
+
+
 def test_a_failed_first_generation_is_still_a_502_and_never_retried(monkeypatch):
     generated = ScriptedComplete(twinkler_ai.GeminiError("first call exploded"))
     monkeypatch.setattr(twinkler_ai, "complete", generated)
@@ -2288,21 +2354,7 @@ def test_the_format_line_says_raw_when_no_retry_was_affordable(
     monkeypatch, caplog
 ):
     """No budget for a second call: the label stays the rung that read it."""
-    from test_gemini_retry import FakeClock
-
-    clock = FakeClock()
-    real_deadline = twinkler_ai.Deadline
-    monkeypatch.setattr(
-        twinkler_ai,
-        "Deadline",
-        lambda seconds: real_deadline(seconds, clock=clock),
-    )
-
-    async def burn_the_budget(user, language_source_text=None, deadline=None):
-        clock.advance(twinkler_ai.AI_QUESTION_TIMEOUT_SECONDS - 2.0)
-        return "Что для тебя главное завтра?"
-
-    monkeypatch.setattr(twinkler_ai, "complete", burn_the_budget)
+    _format_budget_exhausted(monkeypatch)
 
     with caplog.at_level("INFO", logger="twinkler_ai"):
         response = post_question(novelty_body())
@@ -3230,7 +3282,7 @@ def test_transcription_stats_are_pseudonymized_without_user_agent(monkeypatch):
         "POST",
         200,
     )
-    assert kwargs["args"][4:] == (expected_client, "", "bible-garden")
+    assert kwargs["args"][4:] == (expected_client, "", "bible-garden", None)
     assert "private-name" not in repr(kwargs)
     assert "private audio" not in repr(kwargs)
 

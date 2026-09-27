@@ -83,19 +83,32 @@ class RequestStatsMiddleware(BaseHTTPMiddleware):
             user_agent = ""
 
         endpoint = _normalize_endpoint(path)
+        # A stable code set by the handler when a successful answer was served
+        # through a degraded path (architect/application-keys.md). It is a
+        # category only, never request or response content.
+        degraded_reason = getattr(request.state, "degraded_reason", None)
 
         # Fire-and-forget insert in a daemon thread
         threading.Thread(
             target=_insert_request_log,
             args=(endpoint, request.method, response.status_code, elapsed_ms,
-                  client_ip, user_agent, application),
+                  client_ip, user_agent, application, degraded_reason),
             daemon=True,
         ).start()
 
         return response
 
 
-def _insert_request_log(endpoint: str, method: str, status_code: int, response_time_ms: int, client_ip: str, user_agent: str, application: str):
+def _insert_request_log(
+    endpoint: str,
+    method: str,
+    status_code: int,
+    response_time_ms: int,
+    client_ip: str,
+    user_agent: str,
+    application: str,
+    degraded_reason: str | None,
+):
     try:
         connection = create_connection()
         if connection is None:
@@ -104,9 +117,11 @@ def _insert_request_log(endpoint: str, method: str, status_code: int, response_t
         try:
             cursor.execute(
                 """INSERT INTO api_requests
-                   (endpoint, method, status_code, response_time_ms, client_ip, user_agent, application)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s)""",
-                (endpoint, method, status_code, response_time_ms, client_ip, user_agent, application),
+                   (endpoint, method, status_code, response_time_ms, client_ip,
+                    user_agent, application, degraded_reason)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                (endpoint, method, status_code, response_time_ms, client_ip,
+                 user_agent, application, degraded_reason),
             )
             connection.commit()
         finally:
