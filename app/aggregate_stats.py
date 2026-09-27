@@ -10,7 +10,8 @@ Run daily via cron:
 One-time recompute of already aggregated days from raw rows (e.g. after new
 counter columns were added), from the given date through yesterday:
   docker exec <container> python app/aggregate_stats.py --recompute-since YYYY-MM-DD
-It refuses a date whose raw rows may already be purged, and does not purge.
+It refuses a date whose raw rows may already be purged, does not purge, and
+leaves degraded_count untouched (raw rows before its writer cannot tell).
 """
 
 import argparse
@@ -24,110 +25,67 @@ sys.path.insert(0, os.path.dirname(__file__))
 from database import create_connection
 
 
-AGGREGATE_SQL = """
-    INSERT INTO api_request_daily_stats
-        (date, endpoint, application, request_count, unique_ips, avg_response_time_ms,
-         error_count, server_error_count, degraded_count)
-    SELECT
-        DATE(created_at)         AS date,
-        endpoint,
-        application,
-        COUNT(*)                 AS request_count,
-        COUNT(DISTINCT client_ip) AS unique_ips,
-        ROUND(AVG(response_time_ms)) AS avg_response_time_ms,
-        SUM(status_code >= 400)  AS error_count,
-        SUM(status_code >= 500)  AS server_error_count,
-        SUM(degraded_reason IS NOT NULL) AS degraded_count
-    FROM api_requests
-    WHERE DATE(created_at) = %s
-    GROUP BY DATE(created_at), endpoint, application
-    ON DUPLICATE KEY UPDATE
-        request_count       = VALUES(request_count),
-        unique_ips          = VALUES(unique_ips),
-        avg_response_time_ms = VALUES(avg_response_time_ms),
-        error_count         = VALUES(error_count),
-        server_error_count  = VALUES(server_error_count),
-        degraded_count      = VALUES(degraded_count)
-"""
+# (column, expression over the raw rows of one group)
+DAILY_COUNTERS = (
+    ("request_count", "COUNT(*)"),
+    ("unique_ips", "COUNT(DISTINCT client_ip)"),
+    ("avg_response_time_ms", "ROUND(AVG(response_time_ms))"),
+    ("error_count", "SUM(status_code >= 400)"),
+    ("server_error_count", "SUM(status_code >= 500)"),
+    ("degraded_count", "SUM(degraded_reason IS NOT NULL)"),
+)
+# Raw rows written before the degraded-reason writer carry NULL for every
+# request, so a recompute would turn "not measured" into a measured zero. It
+# leaves `degraded_count` as it is (NULL on days aggregated before it existed).
+RECOMPUTE_COUNTERS = tuple(
+    counter for counter in DAILY_COUNTERS if counter[0] != "degraded_count"
+)
 
-AGGREGATE_OVERALL_ENDPOINT_SQL = """
-    INSERT INTO api_request_daily_stats
-        (date, endpoint, application, request_count, unique_ips, avg_response_time_ms,
-         error_count, server_error_count, degraded_count)
-    SELECT DATE(created_at), endpoint, 'all', COUNT(*),
-           COUNT(DISTINCT client_ip), ROUND(AVG(response_time_ms)),
-           SUM(status_code >= 400), SUM(status_code >= 500),
-           SUM(degraded_reason IS NOT NULL)
-    FROM api_requests
-    WHERE DATE(created_at) = %s
-    GROUP BY DATE(created_at), endpoint
-    ON DUPLICATE KEY UPDATE
-        request_count = VALUES(request_count),
-        unique_ips = VALUES(unique_ips),
-        avg_response_time_ms = VALUES(avg_response_time_ms),
-        error_count = VALUES(error_count),
-        server_error_count = VALUES(server_error_count),
-        degraded_count = VALUES(degraded_count)
-"""
+# (endpoint, application, extra GROUP BY). Per-application and overall totals
+# keep unique clients correct across endpoints.
+GROUPINGS = (
+    ("endpoint", "application", "endpoint, application"),
+    ("endpoint", "'all'", "endpoint"),
+    ("'_total_'", "application", "application"),
+    ("'_total_'", "'all'", None),
+)
 
-# Per-application and overall totals keep unique clients correct across endpoints.
-AGGREGATE_APP_TOTAL_SQL = """
-    INSERT INTO api_request_daily_stats
-        (date, endpoint, application, request_count, unique_ips, avg_response_time_ms,
-         error_count, server_error_count, degraded_count)
-    SELECT
-        DATE(created_at)         AS date,
-        '_total_'                AS endpoint,
-        application,
-        COUNT(*)                 AS request_count,
-        COUNT(DISTINCT client_ip) AS unique_ips,
-        ROUND(AVG(response_time_ms)) AS avg_response_time_ms,
-        SUM(status_code >= 400)  AS error_count,
-        SUM(status_code >= 500)  AS server_error_count,
-        SUM(degraded_reason IS NOT NULL) AS degraded_count
-    FROM api_requests
-    WHERE DATE(created_at) = %s
-    GROUP BY DATE(created_at), application
-    ON DUPLICATE KEY UPDATE
-        request_count       = VALUES(request_count),
-        unique_ips          = VALUES(unique_ips),
-        avg_response_time_ms = VALUES(avg_response_time_ms),
-        error_count         = VALUES(error_count),
-        server_error_count  = VALUES(server_error_count),
-        degraded_count      = VALUES(degraded_count)
-"""
 
-AGGREGATE_TOTAL_SQL = """
+def _aggregate_statement(endpoint, application, group_by, counters) -> str:
+    columns = ", ".join(name for name, _ in counters)
+    values = ", ".join(expression for _, expression in counters)
+    updates = ",\n        ".join(f"{name} = VALUES({name})" for name, _ in counters)
+    group = "DATE(created_at)" + (f", {group_by}" if group_by else "")
+    return f"""
     INSERT INTO api_request_daily_stats
-        (date, endpoint, application, request_count, unique_ips, avg_response_time_ms,
-         error_count, server_error_count, degraded_count)
-    SELECT
-        DATE(created_at), '_total_', 'all', COUNT(*),
-        COUNT(DISTINCT client_ip), ROUND(AVG(response_time_ms)),
-        SUM(status_code >= 400), SUM(status_code >= 500),
-        SUM(degraded_reason IS NOT NULL)
+        (date, endpoint, application, {columns})
+    SELECT DATE(created_at), {endpoint}, {application}, {values}
     FROM api_requests
     WHERE DATE(created_at) = %s
-    GROUP BY DATE(created_at)
+    GROUP BY {group}
     ON DUPLICATE KEY UPDATE
-        request_count = VALUES(request_count),
-        unique_ips = VALUES(unique_ips),
-        avg_response_time_ms = VALUES(avg_response_time_ms),
-        error_count = VALUES(error_count),
-        server_error_count = VALUES(server_error_count),
-        degraded_count = VALUES(degraded_count)
+        {updates}
 """
 
 
-def _aggregate_day(cursor, day) -> None:
-    cursor.execute(AGGREGATE_SQL, (day,))
-    cursor.execute(AGGREGATE_OVERALL_ENDPOINT_SQL, (day,))
-    cursor.execute(AGGREGATE_APP_TOTAL_SQL, (day,))
-    cursor.execute(AGGREGATE_TOTAL_SQL, (day,))
+AGGREGATE_STATEMENTS = tuple(
+    _aggregate_statement(*grouping, DAILY_COUNTERS) for grouping in GROUPINGS
+)
+RECOMPUTE_STATEMENTS = tuple(
+    _aggregate_statement(*grouping, RECOMPUTE_COUNTERS) for grouping in GROUPINGS
+)
+
+
+def _aggregate_day(cursor, day, statements) -> None:
+    for statement in statements:
+        cursor.execute(statement, (day,))
 
 
 def recompute_since(since: datetime.date) -> None:
     """Re-aggregate every day from `since` through yesterday from raw rows.
+
+    Every counter except `degraded_count` is recomputed (see
+    `RECOMPUTE_COUNTERS`).
 
     Only days whose raw rows are provably complete are accepted: raw rows are
     purged by age, so a raw row older than `since` proves that nothing from
@@ -164,7 +122,7 @@ def recompute_since(since: datetime.date) -> None:
         )
         dates = [row[0] for row in cursor.fetchall()]
         for d in dates:
-            _aggregate_day(cursor, d)
+            _aggregate_day(cursor, d, RECOMPUTE_STATEMENTS)
         connection.commit()
         print(f"Recomputed {len(dates)} day(s) since {since}")
     except Exception as e:
@@ -202,7 +160,7 @@ def aggregate_and_purge():
             print("All past days already aggregated")
         else:
             for d in dates:
-                _aggregate_day(cursor, d)
+                _aggregate_day(cursor, d, AGGREGATE_STATEMENTS)
             print(f"Aggregated {len(dates)} day(s)")
 
         # Purge raw rows older than 14 days

@@ -5,23 +5,24 @@ import pytest
 
 import aggregate_stats
 
-STATEMENTS = (
-    aggregate_stats.AGGREGATE_SQL,
-    aggregate_stats.AGGREGATE_OVERALL_ENDPOINT_SQL,
-    aggregate_stats.AGGREGATE_APP_TOTAL_SQL,
-    aggregate_stats.AGGREGATE_TOTAL_SQL,
-)
 TODAY = datetime.date(2026, 9, 27)
 
 
-@pytest.mark.parametrize("statement", STATEMENTS)
+@pytest.mark.parametrize("statement", aggregate_stats.AGGREGATE_STATEMENTS)
 def test_every_statement_writes_the_server_error_and_degraded_counters(statement):
     insert, update = statement.split("ON DUPLICATE KEY UPDATE")
     assert "error_count, server_error_count, degraded_count)" in insert
     assert "SUM(status_code >= 500)" in insert
     assert "SUM(degraded_reason IS NOT NULL)" in insert
-    assert "VALUES(server_error_count)" in update
-    assert "VALUES(degraded_count)" in update
+    assert "server_error_count = VALUES(server_error_count)" in update
+    assert "degraded_count = VALUES(degraded_count)" in update
+
+
+@pytest.mark.parametrize("statement", aggregate_stats.RECOMPUTE_STATEMENTS)
+def test_recompute_never_writes_the_degraded_counter(statement):
+    """Raw rows from before its writer would turn "unknown" into zero."""
+    assert "degraded" not in statement
+    assert "server_error_count = VALUES(server_error_count)" in statement
 
 
 def _database(monkeypatch, earliest_raw, days=()):
@@ -42,9 +43,9 @@ def test_recompute_reaggregates_every_raw_day_and_never_purges(monkeypatch, caps
     aggregate_stats.main(["--recompute-since", "2026-09-25"])
 
     queries = [call.args[0] for call in cursor.execute.call_args_list]
-    assert queries[2:] == list(STATEMENTS) * 2
+    assert queries[2:] == list(aggregate_stats.RECOMPUTE_STATEMENTS) * 2
     assert [call.args[1] for call in cursor.execute.call_args_list[2:]] == [
-        (day,) for day in days for _ in STATEMENTS
+        (day,) for day in days for _ in aggregate_stats.RECOMPUTE_STATEMENTS
     ]
     assert cursor.execute.call_args_list[1].args[1] == (datetime.date(2026, 9, 25),)
     assert not any("DELETE" in query for query in queries)
