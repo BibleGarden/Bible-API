@@ -150,6 +150,18 @@ MIN_SECOND_ATTEMPT_SECONDS = 3.0
 FORMAT_RETRY_OK = "retry_ok"
 FORMAT_RETRY_FAILED = "retry_failed"
 
+# Request-statistics codes (`api_requests.degraded_reason`) for a question that
+# was served, but through a degraded path. Safety replies and a novelty repeat
+# are the intended behaviour, not degradations, and carry no code.
+# `format_unparsed`: the raw first line was served without a format retry (no
+# budget left, or it came from the novelty retry); `format_retry_failed`: the
+# regenerated answer did not parse either; `retry_generation_failed`: a second
+# generation (format or novelty) failed and its error was swallowed in favour
+# of the answer already in hand.
+DEGRADED_FORMAT_UNPARSED = "format_unparsed"
+DEGRADED_FORMAT_RETRY_FAILED = "format_retry_failed"
+DEGRADED_RETRY_GENERATION_FAILED = "retry_generation_failed"
+
 # What each question we have shown was about (prompt v6, ClickUp 86cbejvt2).
 # Process-local, like the rate limiters and for the same reason — production
 # runs a single API worker — and, unlike them, entirely optional: a miss costs
@@ -1207,6 +1219,7 @@ async def twinkler_complete(
     # withhold a question the model already wrote.
     answer = parse_question(raw)
     format_kind = answer.kind
+    degraded_reason = None if answer.parsed else DEGRADED_FORMAT_UNPARSED
     if not answer.parsed and deadline.remaining() >= MIN_SECOND_ATTEMPT_SECONDS:
         try:
             regenerated = await complete(user_message, question_language, deadline)
@@ -1214,11 +1227,15 @@ async def twinkler_complete(
             # NOT a 502, for the reason above: a question is already in hand.
             logger.warning("Twinkler AI format regeneration failed: %s", error)
             regenerated = None
+            degraded_reason = DEGRADED_RETRY_GENERATION_FAILED
         format_kind = FORMAT_RETRY_FAILED
         if regenerated is not None:
             retried = parse_question(regenerated)
             if retried.parsed:
                 answer, format_kind = retried, FORMAT_RETRY_OK
+                degraded_reason = None
+            else:
+                degraded_reason = DEGRADED_FORMAT_RETRY_FAILED
     _log_format(format_kind)
     text = answer.question
     subject = answer.subject
@@ -1284,6 +1301,10 @@ async def twinkler_complete(
             # better served by a repeated question than by an error.
             logger.warning("Twinkler AI second generation failed: %s", error)
             second_answer = None
+            # A format degradation already recorded describes the text
+            # served more closely than this one, so it is kept.
+            if degraded_reason is None:
+                degraded_reason = DEGRADED_RETRY_GENERATION_FAILED
         else:
             # Read with the same parser and NO second format retry: this call
             # already is the extra one the budget allowed, and an unreadable
@@ -1304,8 +1325,12 @@ async def twinkler_complete(
             # similarity the person will never see.
             second_verdict = is_repeat(second, shown)
             if not second_verdict.repeat or second_verdict.score < verdict.score:
-                # The subject travels with the question it describes.
+                # The subject travels with the question it describes, and so
+                # does the format degradation: the first answer's is dropped.
                 text, verdict, subject = second, second_verdict, second_answer.subject
+                degraded_reason = (
+                    None if second_answer.parsed else DEGRADED_FORMAT_UNPARSED
+                )
             novel = not verdict.repeat
 
     # The one write to the subject memory, and the only place a question is
@@ -1314,6 +1339,8 @@ async def twinkler_complete(
     # be named (ADR 0017). A `None` subject records nothing.
     _subjects.remember(text, subject)
     _log_novelty(request, attempts=attempts, verdict=verdict, novel=novel)
+    if degraded_reason is not None:
+        http_request.state.degraded_reason = degraded_reason
     return QuestionResponse(text=text, novel=novel, subject=subject)
 
 

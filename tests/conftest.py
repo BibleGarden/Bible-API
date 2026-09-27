@@ -7,6 +7,10 @@ container's operational `.env`.
 """
 
 import os
+from types import SimpleNamespace
+from unittest.mock import Mock
+
+import pytest
 
 os.environ.pop("API_KEY", None)
 os.environ["BIBLE_GARDEN_API_KEY"] = "test-api-key"
@@ -103,3 +107,29 @@ os.environ["AI_SCRIPTURE_REWRITE_API_KEY"] = "test-rewrite-key"
 os.environ["AI_SCRIPTURE_RERANK_API_KEY"] = "test-rerank-key"
 os.environ["AI_TRANSCRIBE_API_KEY"] = "test-transcribe-key"
 os.environ["EMBEDDING_API_KEY"] = "test-embedding-key"
+
+
+class _ImmediateThread:
+    def __init__(self, *, target, args, daemon):
+        self.target = target
+        self.args = args
+
+    def start(self):
+        self.target(*self.args)
+
+
+@pytest.fixture
+def request_log(monkeypatch):
+    """Run the request-statistics insert synchronously; return its mock.
+
+    Positional arguments: endpoint, method, status, latency, client pseudonym,
+    user agent, application, degraded reason.
+    """
+    import middleware
+
+    insert = Mock()
+    monkeypatch.setattr(middleware, "_insert_request_log", insert)
+    monkeypatch.setattr(
+        middleware, "threading", SimpleNamespace(Thread=_ImmediateThread)
+    )
+    return insert

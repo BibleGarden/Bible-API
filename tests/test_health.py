@@ -1,4 +1,3 @@
-from types import SimpleNamespace
 from unittest.mock import Mock
 import hashlib
 import hmac
@@ -8,18 +7,8 @@ from fastapi.testclient import TestClient
 from auth import RequireAPIKey
 
 import health
-import middleware
 from health import router
 from middleware import RequestStatsMiddleware
-
-
-class ImmediateThread:
-    def __init__(self, *, target, args, daemon):
-        self.target = target
-        self.args = args
-
-    def start(self):
-        self.target(*self.args)
 
 
 def _app() -> FastAPI:
@@ -93,14 +82,12 @@ def test_health_returns_503_for_an_empty_languages_table(monkeypatch):
     assert response.json() == {"detail": "Service unavailable"}
 
 
-def test_health_never_records_stats_but_normal_requests_still_do(monkeypatch):
+def test_health_never_records_stats_but_normal_requests_still_do(
+    monkeypatch, request_log
+):
     connection, cursor = _connection()
     monkeypatch.setattr(health, "create_connection", lambda: connection)
-    insert = Mock()
-    monkeypatch.setattr(middleware, "_insert_request_log", insert)
-    monkeypatch.setattr(
-        middleware, "threading", SimpleNamespace(Thread=ImmediateThread)
-    )
+    insert = request_log
 
     assert client.get("/api/health", headers=headers).status_code == 200
     cursor.execute.side_effect = RuntimeError("database unavailable")
@@ -116,7 +103,9 @@ def test_health_never_records_stats_but_normal_requests_still_do(monkeypatch):
     expected = hmac.new(
         b"test-hmac-key", b"testclient", hashlib.sha256
     ).hexdigest()[:40]
-    assert insert.call_args.args[4:] == (expected, "ordinary-browser", "bible-garden")
+    assert insert.call_args.args[4:] == (
+        expected, "ordinary-browser", "bible-garden", None
+    )
 
 
 def test_openapi_documents_readiness_scope_and_authentication():

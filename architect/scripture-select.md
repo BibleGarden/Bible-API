@@ -512,8 +512,9 @@ were supplied by the caller (nginx preserves the header it receives), so
 believing them would hand out a fresh rate-limit bucket per request.
 
 Standard request statistics store the endpoint, method, status, latency, an
-HMAC pseudonym truncated to 40 hexadecimal characters, and an empty user
-agent. The prayer topic, the replies **and the selected passage** are never
+HMAC pseudonym truncated to 40 hexadecimal characters, an empty user
+agent and, for an AI fallback or a failed query rewrite, a `degraded_reason` code
+(`architect/application-keys.md`). The prayer topic, the replies **and the selected passage** are never
 stored or logged: the reference alone is not private, but next to a client
 identity it would reveal what the person prayed about. Logs carry failure
 categories only.

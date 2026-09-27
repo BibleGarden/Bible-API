@@ -1051,8 +1051,9 @@ HMAC configuration aborts startup, including when AI is disabled.
 
 For both Twinkler endpoints, standard request statistics store endpoint metadata,
 status, latency, an HMAC pseudonym truncated to 40 hexadecimal characters,
-the authenticated application (`bible-garden`, `lampada` or `ops`), and an empty
-user-agent value. Prompt, response body, original client address,
+the authenticated application (`bible-garden`, `lampada` or `ops`), an empty
+user-agent value and, for a question served through a degraded path, a
+`degraded_reason` code (`architect/application-keys.md`). Prompt, response body, original client address,
 user agent, recording, filename, and transcript are never stored. Raw
 statistics are purged after 14 days by
 `app/aggregate_stats.py`; daily aggregates retain counts only.

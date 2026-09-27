@@ -122,6 +122,7 @@ def make_final(
     candidate: Candidate | None = -1,  # sentinel: default candidate
     reason: str = "Speaks to fear before surgery.",
     highlight: tuple[int, int] | None = None,
+    rewrite_failed: bool = False,
 ) -> FinalSelection:
     if candidate == -1:
         candidate = make_candidate()
@@ -130,7 +131,7 @@ def make_final(
         source=source,
         fallback_reason=selection_reason,
         query_variants=["вариант"],
-        rewrite_failed=False,
+        rewrite_failed=rewrite_failed,
     )
     return FinalSelection(
         candidate=candidate,
@@ -518,6 +519,65 @@ def test_reports_the_selection_source_and_fallback_category(
     body = post({"language": "ru", "topic": TOPIC}).json()
 
     assert (body["source"], body["fallback_reason"]) == expected
+
+
+@pytest.mark.parametrize(
+    ("final_kwargs", "expected"),
+    [
+        ({}, None),
+        ({"rewrite_failed": True}, "rewrite_failed"),
+        (
+            {"method": "fallback_top1", "fallback_reason": "rerank_failed"},
+            "rerank_failed",
+        ),
+        (
+            {"method": "fallback_top1", "fallback_reason": "no_reranker"},
+            "no_reranker",
+        ),
+        (
+            {
+                "method": "fallback_top1", "fallback_reason": "safe_pool",
+                "source": "safe_pool", "selection_reason": "ai_unavailable",
+                "rewrite_failed": True,
+            },
+            "ai_unavailable",
+        ),
+        (
+            {
+                "method": "fallback_top1", "fallback_reason": "safe_pool",
+                "source": "safe_pool", "selection_reason": "coverage_empty",
+            },
+            None,
+        ),
+        (
+            {
+                "method": "fallback_top1", "fallback_reason": "safe_pool",
+                "source": "safe_pool", "selection_reason": "ranking_empty",
+            },
+            None,
+        ),
+        (
+            {
+                "method": "fallback_top1", "fallback_reason": "safe_pool",
+                "source": "safe_pool", "selection_reason": "empty_topic",
+            },
+            None,
+        ),
+    ],
+)
+def test_statistics_record_the_degraded_reason_code(
+    monkeypatch, request_log, final_kwargs, expected
+):
+    """A code for the operator, never the prayer context or the passage."""
+    monkeypatch.setattr(
+        scripture_select, "_run_selection", Mock(return_value=make_final(**final_kwargs))
+    )
+
+    response = post({"language": "ru", "topic": TOPIC})
+
+    assert response.status_code == 200
+    assert request_log.call_args.args[:3] == ("/api/ai/scripture", "POST", 200)
+    assert request_log.call_args.args[7] == expected
 
 
 def test_unknown_fallback_category_degrades_to_null_not_to_an_error(monkeypatch):
@@ -1601,7 +1661,7 @@ def test_statistics_store_no_prayer_context_no_passage_and_no_raw_client(
         b"test-hmac-key", b"testclient", hashlib.sha256
     ).hexdigest()[:40]
     assert logged[:3] == ("/api/ai/scripture", "POST", 200)
-    assert logged[4:] == (expected_client, "", "bible-garden")
+    assert logged[4:] == (expected_client, "", "bible-garden", None)
     recorded = repr(logged)
     for secret in PRIVATE_STRINGS + ("v3:19.023.001-006", "testclient",
                                      "private-device-details"):

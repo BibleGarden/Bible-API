@@ -1,4 +1,3 @@
-from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -10,17 +9,8 @@ import auth
 import middleware
 
 
-class ImmediateThread:
-    def __init__(self, *, target, args, daemon):
-        self.target = target
-        self.args = args
-
-    def start(self):
-        self.target(*self.args)
-
-
 @pytest.fixture
-def app_and_insert(monkeypatch):
+def app_and_insert(monkeypatch, request_log):
     app = FastAPI()
     app.add_middleware(middleware.RequestStatsMiddleware)
     app.include_router(audio.router, prefix="/api")
@@ -29,16 +19,18 @@ def app_and_insert(monkeypatch):
     def probe(request: Request, authenticated: bool = auth.RequireAPIKey):
         return {"application": request.state.application}
 
+    @app.get("/api/degraded-probe")
+    def degraded_probe(request: Request, authenticated: bool = auth.RequireAPIKey):
+        request.state.degraded_reason = "rerank_failed"
+        return {"ok": True}
+
     @app.get("/api/public-probe")
     def public_probe():
         return {"ok": True}
 
-    insert = Mock()
-    monkeypatch.setattr(middleware, "_insert_request_log", insert)
-    monkeypatch.setattr(middleware, "threading", SimpleNamespace(Thread=ImmediateThread))
     monkeypatch.setattr(audio, "validate_audio_path", lambda *args: "audio.mp3")
     monkeypatch.setattr(audio, "create_range_response", lambda *args: Response(status_code=200))
-    return TestClient(app), insert
+    return TestClient(app), request_log
 
 
 @pytest.mark.parametrize(
@@ -54,7 +46,16 @@ def test_header_resolves_application_and_logs_it(app_and_insert, application, ke
     response = client.get("/api/probe", headers={"X-API-Key": key})
     assert response.status_code == 200
     assert response.json() == {"application": application}
-    assert insert.call_args.args[-1] == application
+    assert insert.call_args.args[6] == application
+
+
+def test_degraded_reason_is_logged_only_when_the_handler_sets_it(app_and_insert):
+    client, insert = app_and_insert
+    client.get("/api/probe", headers={"X-API-Key": "test-api-key"})
+    assert insert.call_args.args[7] is None
+    response = client.get("/api/degraded-probe", headers={"X-API-Key": "test-api-key"})
+    assert response.status_code == 200
+    assert insert.call_args.args[7] == "rerank_failed"
 
 
 def test_invalid_key_is_forbidden_and_not_logged(app_and_insert):
@@ -86,7 +87,7 @@ def test_audio_query_takes_precedence_and_preflight_is_not_logged(app_and_insert
         headers={"X-API-Key": "test-api-key"},
     )
     assert response.status_code == 200
-    assert insert.call_args.args[-1] == "lampada"
+    assert insert.call_args.args[6] == "lampada"
     insert.reset_mock()
     assert client.get(path, params={"api_key": "invalid"},
                       headers={"X-API-Key": "test-api-key"}).status_code == 403
@@ -104,29 +105,28 @@ def test_success_without_authenticated_application_is_not_logged(
     insert.assert_not_called()
 
 
-def test_request_insert_persists_application(monkeypatch):
+def test_request_insert_persists_application_and_degraded_reason(monkeypatch):
     connection = Mock()
     cursor = connection.cursor.return_value
     monkeypatch.setattr(middleware, "create_connection", lambda: connection)
     middleware._insert_request_log(
-        "/api/probe", "GET", 200, 12, "a" * 40, "test-agent", "lampada"
+        "/api/probe", "GET", 200, 12, "a" * 40, "test-agent", "lampada",
+        "deadline",
     )
     query, values = cursor.execute.call_args.args
-    assert "application" in query
-    assert values[-1] == "lampada"
+    assert "application, degraded_reason)" in query
+    assert values[-2:] == ("lampada", "deadline")
     connection.commit.assert_called_once_with()
 
 
-def test_cache_clear_is_ops_only(monkeypatch):
+def test_cache_clear_is_ops_only(monkeypatch, request_log):
     import main
 
     monkeypatch.setattr(main, "_cache", {})
     monkeypatch.setattr(main, "_cache_timestamps", {})
     clear_corpus = Mock()
     monkeypatch.setattr(main, "clear_cached_resources", clear_corpus)
-    insert = Mock()
-    monkeypatch.setattr(middleware, "_insert_request_log", insert)
-    monkeypatch.setattr(middleware, "threading", SimpleNamespace(Thread=ImmediateThread))
+    insert = request_log
     client = TestClient(main.app)
 
     for key in ("test-api-key", "lampada-test-key-12345678901234567890"):
@@ -141,4 +141,4 @@ def test_cache_clear_is_ops_only(monkeypatch):
     )
     assert response.status_code == 200
     clear_corpus.assert_called_once_with()
-    assert insert.call_args.args[-1] == "ops"
+    assert insert.call_args.args[6] == "ops"
