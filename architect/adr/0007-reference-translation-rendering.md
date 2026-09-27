@@ -216,9 +216,9 @@ primary path there is no coverage filter, and naming one would blame a
 mechanism that never ran. The two categories are how the difference between
 "this Bible is incomplete" and "this client has exhausted the corpus for
 its topic" actually reaches anyone: the client sees it in the response's
-`fallback_reason`, and an operator sees it in the retrieval log line and in
-the request statistics (`api_requests.degraded_reason`, see
-`architect/application-keys.md`). `ranking_empty` is likewise new and public, and needs
+`fallback_reason`, and an operator sees it in the retrieval log line. Request
+statistics do not record either: both are expected outcomes, not degradations
+(`architect/application-keys.md`). `ranking_empty` is likewise new and public, and needs
 the same client announcement `coverage_empty` did; both are additive values
 of an existing enum, and a client that does not know the value still
 receives a valid passage.

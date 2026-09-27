@@ -56,7 +56,10 @@ def test_recompute_reaggregates_every_raw_day_and_never_purges(monkeypatch, caps
     ("since", "earliest_raw", "message"),
     [
         ("2026-09-27", datetime.datetime(2026, 9, 13), "not a complete past day"),
+        # The age-based purge cut this day in the middle: its earlier rows
+        # are gone, so the oldest raw day itself must be refused.
         ("2026-09-13", datetime.datetime(2026, 9, 13, 2, 0), "may be incomplete"),
+        ("2026-09-13", datetime.datetime(2026, 9, 13, 0, 0), "may be incomplete"),
         ("2026-09-20", None, "may be incomplete"),
     ],
 )

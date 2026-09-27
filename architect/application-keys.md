@@ -46,7 +46,7 @@ code: their status already says so.
 
 | Endpoint | Code | Meaning |
 |----------|------|---------|
-| `/api/ai/scripture` | `ai_unavailable`, `rerank_failed`, `no_reranker`, `deadline`, `coverage_empty`, `ranking_empty` | the public `fallback_reason` of a non-`rerank` answer; `empty_topic` is expected and not recorded |
+| `/api/ai/scripture` | `ai_unavailable`, `rerank_failed`, `no_reranker`, `deadline` | the public `fallback_reason` of a non-`rerank` answer; `empty_topic`, `coverage_empty` and `ranking_empty` are expected and not recorded |
 | `/api/ai/scripture` | `rewrite_failed` | otherwise AI-decided answer whose query rewrite failed, so retrieval searched the raw query |
 | `/api/ai/question` | `format_unparsed` | the answer's raw first line was served without a format retry (no budget, or it came from the novelty retry) |
 | `/api/ai/question` | `format_retry_failed` | the format regeneration did not parse either; the first answer's raw line was served |

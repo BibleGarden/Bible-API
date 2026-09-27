@@ -547,7 +547,14 @@ def test_reports_the_selection_source_and_fallback_category(
                 "method": "fallback_top1", "fallback_reason": "safe_pool",
                 "source": "safe_pool", "selection_reason": "coverage_empty",
             },
-            "coverage_empty",
+            None,
+        ),
+        (
+            {
+                "method": "fallback_top1", "fallback_reason": "safe_pool",
+                "source": "safe_pool", "selection_reason": "ranking_empty",
+            },
+            None,
         ),
         (
             {
