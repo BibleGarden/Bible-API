@@ -238,6 +238,7 @@ field is answered byte for byte as before. See
 
 - `stage 'first' is the opening question and takes no shown_questions: nothing has been shown to the person yet (use stage 'next' after a question was answered)`
 - `each shown_questions entry must not exceed 300 characters (got N)`
+- more than ten entries is pydantic's own `List should have at most 10 items`, at `loc: ["body", "shown_questions"]`
 
 ### Which text each rule reads
 
