@@ -49,8 +49,9 @@ and two optional fields:
 | --- | --- |
 | `default_language` | `"ru"`, `"uk"`, `"en"` or `null` (default). The UI language is used for question prompts only after detection abstains across the complete source chain; it never overrides a detected code and is not included in the 16 000-character content limit |
 | `skipped_questions` | questions already shown and left unanswered — replaced or skipped — chronological, ≤ 10 items of ≤ 300 characters each; defaults to `[]`, and must be empty with `first` (ClickUp 86cbehyfe) |
+| `shown_questions` | questions already shown and **answered** whose answer is not in `messages` — a voice answer whose transcription failed, or every answered question when the person withheld consent to send their answers — chronological, none that is in `messages` or `skipped_questions`, the newest ≤ 10 items of ≤ 300 characters each; defaults to `[]`, and must be empty with `first` (ClickUp 123pfqn0t4h) |
 
-`topic`, every `text` and every skipped question together must not exceed
+`topic`, every `text`, every skipped and every shown question together must not exceed
 **16 000 characters** — the client's own ceiling, counted there in UTF-16 units
 and here in code points (they differ only for astral characters, where this
 bound is the looser of the two; the tighter side is the one that decides what
@@ -67,7 +68,9 @@ What the client guarantees, and what the server therefore relies on:
   trimmed from the front, whole turns at a time, so the question that answer
   belonged to can be gone.
 - Skipped questions and empty answers are omitted, so the two roles do not
-  have to alternate.
+  have to alternate. A question whose answer was omitted, or every answered
+  question when the answers may not be sent, goes to `shown_questions`
+  instead, so the novelty check still sees it.
 - Several transcriptions and the typed text of **one** turn are already joined
   with newlines into a single `user` element. A multi-line turn is normal.
 - **`messages: []` with `next` or `reflect` is normal**, not an error: the
@@ -206,12 +209,35 @@ answered are `assistant` turns, the one they replaced is in
 
 - `stage 'first' is the opening question and takes no skipped_questions: nothing has been shown to the person yet (use stage 'next' after a question was replaced)`
 - `each skipped_questions entry must not exceed 300 characters (got N)`
-- `topic, messages and skipped_questions together must not exceed 16000 characters (got N)`
+- `topic, messages, skipped_questions and shown_questions together must not exceed 16000 characters (got N)`
 - more than ten entries is pydantic's own `List should have at most 10 items`, at `loc: ["body", "skipped_questions"]`
 
 **The field reaches the model and nothing else.** It votes on neither the
 answer's language nor the despair rule — see the table below and
 `architect/adr/0015-skipped-questions-in-question-request.md`.
+
+### Answered questions missing from the history: `shown_questions` (ClickUp 123pfqn0t4h)
+
+Two client cases leave an answered question out of `messages`: a voice-only
+answer whose transcription failed (an empty answer is omitted, and the
+question was answered, so it is not skipped), and a person who withheld
+consent to send their answers (`messages` is empty altogether). The novelty
+check could not see those questions and could return one of them with
+`novel: true`. `skipped_questions` does not fit — the model is told the person
+asked to replace those, and its length rotates the clarification angle — and
+`messages` must end with a non-empty `user` turn.
+
+The client sends them in `shown_questions`: same limits, blank handling and
+`first` rule as `skipped_questions`, counted in the same 16 000 total, and the
+three lists never overlap. The server adds them to what the novelty check
+compares against and to the used-subjects block; there is **no block of their
+own**, the prompt templates are unchanged, and the novelty retry still hands
+the model `skipped_questions` plus the rejected text. A request without the
+field is answered byte for byte as before. See
+`architect/adr/0026-shown-questions-in-question-request.md`.
+
+- `stage 'first' is the opening question and takes no shown_questions: nothing has been shown to the person yet (use stage 'next' after a question was answered)`
+- `each shown_questions entry must not exceed 300 characters (got N)`
 
 ### Which text each rule reads
 
@@ -225,6 +251,7 @@ of the despair rule now agree with each other on which part:
 | **both tiers** of the despair rule | the **last `user` turn** — or `topic` when `stage` is `first`, where the topic is the newest thing the person wrote | see below |
 | the answer's language (prompt, and tier 2's fixed reply) | the last `user` turn → the topic → their earlier replies, newest first → else the last `assistant` turn → else undetermined | detected words decide; after complete abstention, `default_language` may select question prompts only. Safety does not read it |
 | `skipped_questions` | read by **nothing** but the model | our own generated text inside the localized block: it can neither name the language nor speak despair on the person's behalf (ClickUp 86cbehyfe) |
+| `shown_questions` | read by **nothing** but the novelty check and the used subjects | our own generated text, for the same reason; it does not stand in for the last `assistant` turn in the language chain either (ClickUp 123pfqn0t4h) |
 
 That language chain is walked by **decidability, not presence**: the offline
 `py3langid` detector returns `None` when its normalized top probability is
@@ -273,8 +300,10 @@ single sentence, the last five differing from the first only in the tail
 So the server now checks the answer before returning it.
 
 **What is compared.** The generated text against everything the person has
-already been *shown* in this prayer: the `assistant` turns of `messages` plus
-`skipped_questions`. Their own replies are not in that list — a question is
+already been *shown* in this prayer: the `assistant` turns of `messages`, then
+`shown_questions`, then `skipped_questions` (`CompleteRequest.seen_questions`;
+grouped by list, since the request does not carry their relative order and the
+check names the closest match wherever it is). Their own replies are not in that list — a question is
 never a repeat of an answer.
 
 **The metric** is `app/question_novelty.py`: normalize (casefold, ё→е, drop

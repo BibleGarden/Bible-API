@@ -287,9 +287,9 @@ def parse_question(text: str) -> ParsedQuestion:
 # Which subjects this prayer has already used (ClickUp 86cbejvt2)
 # ---------------------------------------------------------------------------
 # The request carries the *texts* of the questions the person has seen — the
-# `assistant` turns and `skipped_questions` — and never their subjects: the
-# client has no reason to send back a field it does not use, and ADR 0015's
-# contract is deliberately not being reopened. But this service generated every
+# `assistant` turns, `shown_questions` and `skipped_questions` — and never
+# their subjects: the client has no reason to send back a field it does not
+# use, and ADR 0015's contract is deliberately not being reopened. But this service generated every
 # one of those questions, so it is the one party that can remember what each
 # was about. That is what this cache is: question text -> subject, written when
 # an answer is returned and read when the next message is assembled.
