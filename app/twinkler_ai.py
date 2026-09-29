@@ -513,8 +513,8 @@ def person_language_candidates(request: CompleteRequest) -> list[str]:
     Russian question is a language switch the person made, and the prompt
     honours it). `skipped_questions` and `shown_questions` are excluded for
     exactly that reason and more strongly: those are our questions too, and
-    never even stand in for the last `assistant` turn below (ClickUp
-    86cbehyfe, 123pfqn0t4h). Blank
+    never even stand in for the last `assistant` turn `language_source`
+    falls back to (ClickUp 86cbehyfe, 123pfqn0t4h). Blank
     texts are dropped, so the list is empty exactly when the person
     contributed nothing.
     """
@@ -1389,8 +1389,8 @@ async def twinkler_complete(
 
     # The one write to the subject memory, and the only place a question is
     # about to be SHOWN: the next request will carry this text back as an
-    # `assistant` turn or in `skipped_questions`, and this is how it will then
-    # be named (ADR 0017). A `None` subject records nothing.
+    # `assistant` turn, in `shown_questions` or in `skipped_questions`, and
+    # this is how it will then be named (ADR 0017). A `None` subject records nothing.
     _subjects.remember(text, subject)
     _log_novelty(request, attempts=attempts, verdict=verdict, novel=novel)
     if degraded_reason is not None:
