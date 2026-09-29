@@ -63,6 +63,7 @@ def question_body(
     stage: str = "first",
     messages: tuple = (),
     skipped: tuple | None = None,
+    shown: tuple | None = None,
 ) -> dict:
     """One request body of the structured contract (ClickUp 86cbegmzz).
 
@@ -70,7 +71,8 @@ def question_body(
     format is the list of objects this builds. `skipped` is the optional
     `skipped_questions` list (ClickUp 86cbehyfe) and the key is **omitted
     entirely** when it is `None`, so every caller written before that ticket
-    keeps sending the body it always sent.
+    keeps sending the body it always sent. `shown` is `shown_questions`
+    (ClickUp 123pfqn0t4h), omitted the same way.
     """
     body = {
         "topic": topic,
@@ -79,6 +81,8 @@ def question_body(
     }
     if skipped is not None:
         body["skipped_questions"] = list(skipped)
+    if shown is not None:
+        body["shown_questions"] = list(shown)
     return body
 
 
@@ -1217,6 +1221,188 @@ def test_a_despair_phrase_in_a_skipped_question_never_fires_the_rule(
     ) == "Позвонила сестре, стало чуть легче."
 
 
+# --- answered questions missing from the history (ClickUp 123pfqn0t4h) -----
+#
+# `shown_questions` carries questions the person answered whose answer is not
+# in `messages`: a failed voice transcription, or every answer when they
+# withheld consent to send them. Our own text again, so it may reach the
+# novelty check and the used subjects and nothing that reads the person.
+
+
+@pytest.mark.parametrize(
+    ("shown", "why"),
+    [
+        (tuple(f"Вопрос {index}?" for index in range(11)), "more than 10 entries"),
+        (("в" * 301,), "an entry over 300 characters"),
+    ],
+)
+def test_the_shown_questions_have_their_own_limits(shown, why):
+    response = post_question(question_body(topic="Тема", stage="next", shown=shown))
+
+    assert response.status_code == 422, why
+    assert "shown_questions" in response.text
+
+
+def test_first_takes_no_shown_questions():
+    response = post_question(
+        question_body(topic="Тема", stage="first", shown=(SKIPPED_ONE,))
+    )
+
+    assert response.status_code == 422
+    assert (
+        "stage 'first' is the opening question and takes no shown_questions"
+        in response.text
+    )
+
+
+def test_the_shown_questions_count_towards_the_total(
+    monkeypatch, debug_question_language
+):
+    monkeypatch.setattr(
+        twinkler_ai, "complete", AsyncMock(return_value=model_answer("Ответ"))
+    )
+    body = question_body(
+        topic="т" * 2000,
+        stage="next",
+        messages=(("user", "о" * 13400),),
+        skipped=("в" * 300,),
+        shown=("  " + "п" * 300 + "  ",),
+    )
+
+    # Counted after stripping, like the skipped questions: exactly 16 000.
+    assert post_question(body).status_code == 200
+
+    body["shown_questions"].append("ещё")
+    response = post_question(body)
+    assert response.status_code == 422
+    assert (
+        "topic, messages, skipped_questions and shown_questions together must "
+        "not exceed 16000 characters (got 16003)"
+    ) in response.text
+
+
+def test_the_shown_questions_reach_the_model_only_as_used_subjects(monkeypatch):
+    """No block of their own, and no change to the skipped block or angle.
+
+    Grouped after the `assistant` turns and before the skipped questions:
+    answered first, declined second, which is what `seen_questions` promises.
+    """
+    asked = "Что сейчас тревожит тебя?"
+    reply = "Мне одиноко, и я не знаю, с кем об этом поговорить."
+    body = question_body(
+        topic="Тема",
+        stage="next",
+        messages=(("assistant", asked), ("user", reply)),
+        skipped=(SKIPPED_TWO,),
+        shown=("  ", SHOWN_QUESTION),
+    )
+
+    message = _model_message(monkeypatch, body)
+
+    assert message == question_prompt.build_user_message(
+        "Тема",
+        "next",
+        [("assistant", asked), ("user", reply)],
+        [SKIPPED_TWO],
+        "ru",
+        None,
+        [
+            question_format.subject_excerpt(asked),
+            question_format.subject_excerpt(SHOWN_QUESTION),
+            question_format.subject_excerpt(SKIPPED_TWO),
+        ],
+    )
+    assert json.dumps(SHOWN_QUESTION, ensure_ascii=False) not in message
+
+
+def test_an_empty_shown_list_is_the_request_without_the_field(monkeypatch):
+    messages = (("assistant", "Что сейчас тревожит тебя?"), ("user", "Мне одиноко."))
+    without = _model_message(
+        monkeypatch, question_body(topic="Тема", stage="next", messages=messages)
+    )
+    empty = _model_message(
+        monkeypatch,
+        question_body(topic="Тема", stage="next", messages=messages, shown=("  ",)),
+    )
+
+    assert empty == without
+
+
+def test_the_shown_questions_never_decide_the_language():
+    """Not even as the last resort a lone `assistant` turn would be.
+
+    The consent-withheld shape: no answers at all, a topic the detector
+    cannot place, and our Russian questions. The UI hint decides — had the
+    shown questions voted, this would be Russian.
+    """
+    request = twinkler_ai.CompleteRequest(
+        **question_body(topic="", stage="next", shown=(SKIPPED_ONE, SKIPPED_TWO)),
+        default_language="uk",
+    )
+
+    assert twinkler_ai.person_language_candidates(request) == []
+    assert twinkler_ai.request_question_language(request).code == "uk"
+    english = twinkler_ai.CompleteRequest(
+        **question_body(
+            topic="Praying for my father",
+            stage="next",
+            shown=(SKIPPED_ONE,),
+        )
+    )
+    assert twinkler_ai.person_language_candidates(english) == [
+        "Praying for my father"
+    ]
+
+
+def test_the_shown_questions_never_decide_the_gender():
+    request = twinkler_ai.CompleteRequest(
+        **question_body(
+            topic="Тема",
+            stage="next",
+            messages=(("user", "Мне одиноко."),),
+            shown=("Что ты сама почувствовала, когда пришла сюда?",),
+        )
+    )
+
+    assert twinkler_ai.person_gender_texts(request) == ["Мне одиноко.", "Тема"]
+
+
+def test_a_despair_phrase_in_a_shown_question_never_fires_the_rule(
+    monkeypatch, debug_question_language
+):
+    generated = AsyncMock(return_value=model_answer("Что помогло тебе сегодня?"))
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+    body = question_body(
+        topic="Развод",
+        stage="next",
+        messages=(("user", "Позвонила сестре, стало чуть легче."),),
+        shown=(_probe_topic("probe-despair"),),
+    )
+
+    response = post_question(body)
+
+    assert response.status_code == 200
+    generated.assert_awaited_once()
+    assert response.json() == answered("Что помогло тебе сегодня?", True)
+    assert twinkler_ai.safety_input_text(twinkler_ai.CompleteRequest(**body)) == (
+        "Позвонила сестре, стало чуть легче."
+    )
+    # With the answers withheld there is no reply to read, and the shown
+    # questions do not stand in for one.
+    assert (
+        twinkler_ai.safety_input_text(
+            twinkler_ai.CompleteRequest(
+                **question_body(
+                    topic="Развод",
+                    stage="next",
+                    shown=(_probe_topic("probe-despair"),),
+                )
+            )
+        )
+        is None
+    )
+
+
 # --- the despair rule lives in code (ClickUp 86cbegg23) -------------------
 #
 # The measurement of 2026-09-05 (86cbegctz) had Qwen3-30B answer the explicit
@@ -1998,6 +2184,56 @@ def test_a_skipped_question_counts_as_shown(monkeypatch):
 
     assert response.status_code == 200
     assert response.json() == answered(NEW_QUESTION, True)
+    assert len(generated.calls) == 2
+
+
+def test_a_shown_question_counts_as_shown(monkeypatch):
+    """The consent-withheld shape: no history, the answered question in
+    `shown_questions`. Its repeat is caught and generated once more, and the
+    retry's skipped block carries only the rejected text — the shown question
+    was answered, not declined (ClickUp 123pfqn0t4h)."""
+    generated = ScriptedComplete(NEAR_REPEAT, NEW_QUESTION)
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+    body = question_body(
+        topic="Понять масштаб целей на завтра",
+        stage="next",
+        shown=(SHOWN_QUESTION,),
+    )
+    # The topic alone is too short for the detector: with no answers sent,
+    # the UI hint is what names the language.
+    body["default_language"] = "ru"
+
+    response = post_question(body)
+
+    assert response.status_code == 200
+    assert response.json() == answered(NEW_QUESTION, True)
+    assert len(generated.calls) == 2
+    assert generated.calls[1].user == question_prompt.build_user_message(
+        body["topic"],
+        "next",
+        [],
+        [NEAR_REPEAT],
+        "ru",
+        None,
+        [question_format.subject_excerpt(SHOWN_QUESTION), ANSWER_SUBJECT],
+    )
+
+
+def test_a_repeat_of_a_shown_question_is_reported_as_not_novel(monkeypatch):
+    generated = ScriptedComplete(NEAR_REPEAT, NEAR_REPEAT)
+    monkeypatch.setattr(twinkler_ai, "complete", generated)
+
+    body = question_body(
+        topic="Понять масштаб целей на завтра",
+        stage="reflect",
+        shown=(SHOWN_QUESTION,),
+    )
+    body["default_language"] = "ru"
+
+    response = post_question(body)
+
+    assert response.status_code == 200
+    assert response.json() == answered(NEAR_REPEAT, False)
     assert len(generated.calls) == 2
 
 

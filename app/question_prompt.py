@@ -151,9 +151,10 @@ measured answer can never be an example copied back).
 
 5. **The subjects already used are listed**, and the *server* is what
    remembers them: the request carries the texts of the questions the person
-   has seen (the `assistant` turns and `skipped_questions`) and this service
-   wrote every one of those, so `question_format.SubjectMemory` maps each back
-   to the subject the model named for it. `used_subjects` renders one block at
+   has seen (the `assistant` turns, `shown_questions` and
+   `skipped_questions`) and this service wrote every one of those, so
+   `question_format.SubjectMemory` maps each back to the subject the model
+   named for it. `used_subjects` renders one block at
    `next`. The client contract is untouched — the three options considered, and
    why this one, are in
    `architect/adr/0017-structured-question-response.md`. A miss (a restart, an

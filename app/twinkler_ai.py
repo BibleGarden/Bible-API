@@ -11,6 +11,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    ValidationInfo,
     field_validator,
     model_validator,
 )
@@ -213,6 +214,14 @@ class CompleteRequest(BaseModel):
     `default_language` joined on 2026-09-14 (ClickUp 86cbh47mf). It carries
     the UI language only for the case where the full detector chain abstains;
     it is not person-authored content and no safety or content limit reads it.
+
+    `shown_questions` joined on 2026-09-29 (ClickUp 123pfqn0t4h): questions the
+    person was shown and answered that are nevertheless absent from `messages`
+    — a voice answer whose transcription failed, or every answered question
+    when the person withheld consent to send their answers. Without it the
+    novelty check could not see them. Same shape and limits as
+    `skipped_questions`, and like it our own text; it feeds the novelty check
+    and the used subjects only (ADR 0026).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -265,10 +274,29 @@ class CompleteRequest(BaseModel):
             "total. Empty for `first` (nothing has been shown yet)"
         ),
     )
+    shown_questions: list[str] = Field(
+        default_factory=list,
+        max_length=MAX_SKIPPED_QUESTIONS,
+        description=(
+            "Questions of the current prayer already shown to the person and "
+            "answered, yet absent from `messages` — an answer that came out "
+            "empty (a failed voice transcription), or every answered question "
+            "when the person withheld consent to send their answers — "
+            "chronologically, none that is in `messages` or "
+            "`skipped_questions`. Used only to recognise a repeated question; "
+            "never read as the person's words. Optional, empty by default; at "
+            "most 10 entries (the newest ones) of at most 300 characters each, "
+            "counted with `topic`, `messages` and `skipped_questions` against "
+            "the same 16 000 total. Empty for `first` (nothing has been shown "
+            "yet)"
+        ),
+    )
 
-    @field_validator("skipped_questions")
+    @field_validator("skipped_questions", "shown_questions")
     @classmethod
-    def _drop_the_blanks_and_bound_each_entry(cls, value: list[str]) -> list[str]:
+    def _drop_the_blanks_and_bound_each_entry(
+        cls, value: list[str], info: ValidationInfo
+    ) -> list[str]:
         """Strip, drop the blanks, then bound what is left.
 
         A blank entry is dropped rather than refused, unlike a blank
@@ -283,7 +311,7 @@ class CompleteRequest(BaseModel):
         for text in cleaned:
             if len(text) > MAX_SKIPPED_QUESTION_LENGTH:
                 raise ValueError(
-                    f"each skipped_questions entry must not exceed "
+                    f"each {info.field_name} entry must not exceed "
                     f"{MAX_SKIPPED_QUESTION_LENGTH} characters (got {len(text)})"
                 )
         return cleaned
@@ -316,31 +344,56 @@ class CompleteRequest(BaseModel):
                 "skipped_questions: nothing has been shown to the person yet "
                 "(use stage 'next' after a question was replaced)"
             )
+        if self.stage == "first" and self.shown_questions:
+            raise ValueError(
+                "stage 'first' is the opening question and takes no "
+                "shown_questions: nothing has been shown to the person yet "
+                "(use stage 'next' after a question was answered)"
+            )
         if self.messages and self.messages[-1].role != "user":
             raise ValueError(
                 "a non-empty history must end with a 'user' turn: the question "
                 "is asked about what the person said last"
             )
-        # The skipped questions are counted here as they are *stored* — the
-        # field validator above has already stripped them and dropped the
-        # blanks — while `topic` and the turns are counted raw, exactly as
-        # before. Whichever way it is counted, the ceiling is the client's own
-        # and the client is the side that decides what is ever sent.
+        # The skipped and shown questions are counted here as they are
+        # *stored* — the field validator above has already stripped them and
+        # dropped the blanks — while `topic` and the turns are counted raw,
+        # exactly as before. Whichever way it is counted, the ceiling is the
+        # client's own and the client is the side that decides what is ever
+        # sent.
         total = (
             len(self.topic)
             + sum(len(message.text) for message in self.messages)
             + sum(len(question) for question in self.skipped_questions)
+            + sum(len(question) for question in self.shown_questions)
         )
         if total > MAX_TOTAL_LENGTH:
             raise ValueError(
-                f"topic, messages and skipped_questions together must not "
-                f"exceed {MAX_TOTAL_LENGTH} characters (got {total})"
+                f"topic, messages, skipped_questions and shown_questions "
+                f"together must not exceed {MAX_TOTAL_LENGTH} characters (got {total})"
             )
         return self
 
     def turns(self) -> list[tuple[str, str]]:
         """`(role, text)` pairs — what `question_prompt.build_user_message` takes."""
         return [(message.role, message.text) for message in self.messages]
+
+    def seen_questions(self) -> list[str]:
+        """Every question this prayer has already put before the person.
+
+        The `assistant` turns, then `shown_questions` (answered too, just
+        absent from the history), then `skipped_questions`. Their own replies
+        are not here — a question is never a repeat of an answer. Grouped by
+        list rather than interleaved: the request does not carry the relative
+        order of the three, and neither reader needs it (`is_repeat` names
+        the closest match wherever it is, `used_subjects` is deduplicated by
+        `build_user_message`).
+        """
+        return (
+            [message.text for message in self.messages if message.role == "assistant"]
+            + list(self.shown_questions)
+            + list(self.skipped_questions)
+        )
 
     def last_text(self, role: str) -> str | None:
         """The most recent turn of `role`, or `None` when there is none."""
@@ -379,8 +432,9 @@ class QuestionResponse(CompleteResponse):
         default=True,
         description=(
             "`false` when this text repeats a question the person has already "
-            "been shown in this prayer (the `assistant` turns and "
-            "`skipped_questions` of the request) and one further generation "
+            "been shown in this prayer (the `assistant` turns, "
+            "`shown_questions` and `skipped_questions` of the request) and "
+            "one further generation "
             "did not produce a new one, was not affordable inside the request "
             "budget, or failed. The text returned is then still the best of "
             "what was generated — the answer is never withheld — and the "
@@ -457,9 +511,10 @@ def person_language_candidates(request: CompleteRequest) -> list[str]:
     first. Only their own words: an assistant question already in the
     conversation is *our* text and must never vote (an English answer to a
     Russian question is a language switch the person made, and the prompt
-    honours it). `skipped_questions` is excluded for exactly that reason and
-    more strongly: those are our questions too, whatever localized block
-    surrounds them (ClickUp 86cbehyfe). Blank
+    honours it). `skipped_questions` and `shown_questions` are excluded for
+    exactly that reason and more strongly: those are our questions too, and
+    never even stand in for the last `assistant` turn `language_source`
+    falls back to (ClickUp 86cbehyfe, 123pfqn0t4h). Blank
     texts are dropped, so the list is empty exactly when the person
     contributed nothing.
     """
@@ -479,7 +534,8 @@ def person_gender_texts(request: CompleteRequest) -> list[str]:
     rule `person_language_candidates` follows, and for a sharper reason: a
     Twinkler question may carry the WRONG gender (that is the defect this
     computes its way around), so letting one vote would launder the error into
-    the instruction. `skipped_questions` is excluded for the same reason.
+    the instruction. `skipped_questions` and `shown_questions` are excluded
+    for the same reason.
 
     Order does not matter here — `detect_gender` answers `None` on a
     contradiction whichever text carried which form — so the topic is simply
@@ -495,8 +551,8 @@ def used_subjects(
 ) -> list[str]:
     """What this prayer has already asked about, best name first available.
 
-    One entry per question the person has been shown — the `assistant` turns
-    and then `skipped_questions`, the same two lists `shown` is built from —
+    One entry per question the person has been shown —
+    `CompleteRequest.seen_questions`, the same list `shown` is —
     named by the subject the model committed to when we generated it
     (`question_format.SubjectMemory`), or by an excerpt of the question when
     this process no longer remembers it (ADR 0017).
@@ -506,13 +562,12 @@ def used_subjects(
     question was never shown, so it is deliberately never written to the
     memory, and its subject is still in the caller's hand.
 
-    Deduplication belongs to `build_user_message`, so this list is simply
-    chronological.
+    Deduplication belongs to `build_user_message`, so this list simply keeps
+    the order of `seen_questions`.
     """
-    questions = [
-        message.text for message in request.messages if message.role == "assistant"
-    ] + list(request.skipped_questions)
-    subjects = [_subjects.subject_of(question) for question in questions]
+    subjects = [
+        _subjects.subject_of(question) for question in request.seen_questions()
+    ]
     if extra_subject:
         subjects.append(extra_subject)
     return subjects
@@ -587,10 +642,11 @@ def safety_input_text(request: CompleteRequest) -> str | None:
     the topic there would fire the fixed reply on every question of a prayer
     whose topic once carried the phrase.
 
-    `skipped_questions` is never read here either (ClickUp 86cbehyfe): those
-    are questions *we* generated, so a despair phrase can only be in one
-    because the model wrote it — and tier 2 already answers that case on the
-    reply itself, against the person's own last words.
+    `skipped_questions` and `shown_questions` are never read here either
+    (ClickUp 86cbehyfe, 123pfqn0t4h): those are questions *we* generated, so
+    a despair phrase can only be in one because the model wrote it — and
+    tier 2 already answers that case on the reply itself, against the
+    person's own last words.
 
     Tier 2's fixed reply still needs a *language*. `language_source` supplies
     known conversation context; only when its detector abstains does the
@@ -1094,14 +1150,15 @@ async def _transcribe_gemini(
         "the question is asked about: a reply showing despair or self-harm is "
         "answered with a fixed supportive text in the same language and no "
         "model is called. Questions the person asked to replace are sent in "
-        "`skipped_questions` so the next one takes another direction, and a "
+        "`skipped_questions` so the next one takes another direction; answered "
+        "questions missing from `messages` are sent in `shown_questions`. A "
         "question that repeats one already shown is generated once more; "
         "`novel: false` says the text returned still repeats one. `subject` "
         "carries the 2-4 words the model named as the subject of this "
         "question, or `null` when its answer could not be read as the "
         "structured object; `text` is the question either way. `422` "
-        "also covers the shape rules: `first` takes neither history nor "
-        "skipped questions, and a non-empty history must end with a `user` "
+        "also covers the shape rules: `first` takes no history, skipped or "
+        "shown questions, and a non-empty history must end with a `user` "
         "turn."
     ),
     responses={
@@ -1180,18 +1237,15 @@ async def twinkler_complete(
     # word the question so that it needs no gendered forms.
     gender = detect_gender(person_gender_texts(request))
     # What the person has already SEEN in this prayer: the questions they
-    # answered and the ones they asked to replace. Their own replies are not
-    # here — a question is never a repeat of an answer.
-    shown = [
-        message.text
-        for message in request.messages
-        if message.role == "assistant"
-    ] + list(request.skipped_questions)
+    # answered — in the history or, when their answer is not there, in
+    # `shown_questions` — and the ones they asked to replace.
+    shown = request.seen_questions()
 
-    # `skipped_questions` reaches the model and nothing else: it is our own
-    # generated text, so it votes on neither the answer's language
-    # (`language_source`, above) nor the despair rule (`safety_input_text`,
-    # above) — see architect/adr/0015-skipped-questions-in-question-request.md.
+    # `skipped_questions` and `shown_questions` are our own generated text, so
+    # they vote on neither the answer's language (`language_source`, above)
+    # nor the despair rule (`safety_input_text`, above) — see ADRs 0015 and
+    # 0026. The first reaches the model as its own block; the second only
+    # through `shown` and the used subjects.
     user_message = build_user_message(
         request.topic,
         request.stage,
@@ -1335,8 +1389,8 @@ async def twinkler_complete(
 
     # The one write to the subject memory, and the only place a question is
     # about to be SHOWN: the next request will carry this text back as an
-    # `assistant` turn or in `skipped_questions`, and this is how it will then
-    # be named (ADR 0017). A `None` subject records nothing.
+    # `assistant` turn, in `shown_questions` or in `skipped_questions`, and
+    # this is how it will then be named (ADR 0017). A `None` subject records nothing.
     _subjects.remember(text, subject)
     _log_novelty(request, attempts=attempts, verdict=verdict, novel=novel)
     if degraded_reason is not None:

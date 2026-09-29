@@ -142,9 +142,19 @@ replaced or skipped question of the current prayer, chronologically, and never
 one that is already an `assistant` turn of `messages` — an answered question
 belongs in the history, a replaced one here, and the two lists do not overlap.
 
+An optional `shown_questions` (same limits, empty by default, empty with
+`first`, counted in the same total) carries questions the person answered
+whose answer is not in `messages` — a failed voice transcription, or every
+answered question when the person withheld consent to send their answers —
+chronologically, the newest ten at most, none that is in `messages` or
+`skipped_questions`. It is used only to recognise a repeated question and to
+list the subjects already asked about; it never votes on the language or the
+despair rule. See
+[ADR 0026](architect/adr/0026-shown-questions-in-question-request.md).
+
 `novel` is additive and says whether the returned text repeats a question the
-person has already been shown in this prayer (those `assistant` turns plus
-`skipped_questions`). The server checks it, and on a repeat generates once more
+person has already been shown in this prayer (those `assistant` turns,
+`shown_questions` and `skipped_questions`). The server checks it, and on a repeat generates once more
 inside the same request budget; `novel: false` means that second question
 repeated too, was not affordable or failed — the best text obtained is still
 returned, so a client that reads only `text` behaves exactly as before. Details:

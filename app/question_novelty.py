@@ -246,7 +246,8 @@ def is_repeat(candidate: str, shown: Sequence[str]) -> Verdict:
     """Has `candidate` already been shown, exactly or in another wording?
 
     `shown` is everything the person has seen in this prayer: the `assistant`
-    turns of the request plus its `skipped_questions`. Order does not matter;
+    turns of the request plus its `shown_questions` and `skipped_questions`
+    (`CompleteRequest.seen_questions`). Order does not matter;
     the verdict names the closest match. An empty candidate or an empty
     `shown` is `NOT_A_REPEAT` — there is nothing to compare, which is not the
     same as having compared and found nothing.
