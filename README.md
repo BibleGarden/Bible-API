@@ -1,13 +1,13 @@
 # Bible API
 
-Public read-only REST API for the [Bible Garden](https://github.com/Bible-Garden) app. Serves Bible texts, translations, and word-level audio alignments.
+Public read-only REST API for the [Bible Garden](https://github.com/BibleGarden) app. Serves Bible texts, translations, and word-level audio alignments.
 
 Built with FastAPI and MySQL.
 
 Model benchmarks, evaluation datasets, generated outputs and research notes
-live in [BibleGarden/AI-Evaluation](https://github.com/BibleGarden/AI-Evaluation).
-This repository keeps only the small immutable snapshots required by
-production regression tests under `tests/fixtures/ai/`.
+live in the private AI-Evaluation repository. This repository keeps only the
+small immutable snapshots required by production regression tests under
+`tests/fixtures/ai/`.
 
 ## Setup
 
@@ -270,11 +270,12 @@ AI_TRANSCRIBE_MODEL=deepdml/faster-whisper-large-v3-turbo-ct2
 AI_TRANSCRIBE_ENDPOINT=https://your-audio-server/v1
 ```
 
-The Together integration is retained for optional trials. See
-[AI-Evaluation](https://github.com/BibleGarden/AI-Evaluation/blob/main/evaluation/bench_data/together_gemma_2026-09-15/report.md)
-for trial results and provider suitability. To deliberately run another trial,
-configure the strict profile below. Rewrite and rerank keep their independent
-providers and keys; no provider key is stored in the application `.env`:
+The Together integration is retained for optional trials. Trial results and
+provider suitability are recorded in the private AI-Evaluation repository
+(`evaluation/bench_data/together_gemma_2026-09-15/report.md`). To deliberately
+run another trial, configure the strict profile below. Rewrite and rerank keep
+their independent providers and keys; no provider key is stored in the
+application `.env`:
 
 ```bash
 : "${TOGETHER_API_KEY:?export the shell-only Together key first}"
