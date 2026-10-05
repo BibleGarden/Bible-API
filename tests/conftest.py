@@ -14,6 +14,7 @@ import pytest
 
 os.environ.pop("API_KEY", None)
 os.environ["BIBLE_GARDEN_API_KEY"] = "test-api-key"
+os.environ["BIBLE_GARDEN_SITE_API_KEY"] = "site-test-key-12345678901234567890123"
 os.environ["LAMPADA_API_KEY"] = "lampada-test-key-12345678901234567890"
 os.environ["OPS_API_KEY"] = "ops-test-key-1234567890123456789012"
 os.environ["CLIENT_HMAC_KEY"] = "test-hmac-key"

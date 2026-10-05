@@ -109,17 +109,25 @@ def parse_range_header(range_header: str, file_size: int):
 
         start_str, end_str = range_spec.split('-', 1)
 
-        start = int(start_str) if start_str else 0
-        end = int(end_str) if end_str else file_size - 1
-
-        # Ensure values are correct
-        start = max(0, start)
-        end = min(file_size - 1, end)
-
+        if file_size <= 0:
+            return None, None
+        if not start_str:
+            # A suffix range asks for the last N bytes, not bytes 0 through N.
+            if not end_str.isascii() or not end_str.isdecimal():
+                return None, None
+            suffix_length = int(end_str)
+            if suffix_length <= 0:
+                return None, None
+            return max(0, file_size - suffix_length), file_size - 1
+        if not start_str.isascii() or not start_str.isdecimal():
+            return None, None
+        if end_str and (not end_str.isascii() or not end_str.isdecimal()):
+            return None, None
+        start = int(start_str)
+        end = min(int(end_str), file_size - 1) if end_str else file_size - 1
         if start <= end:
             return start, end
-        else:
-            return None, None
+        return None, None
 
     except (ValueError, IndexError):
         return None, None
@@ -146,6 +154,7 @@ def create_range_response(file_path: Path, range_header: Optional[str], translat
     base_headers = {
         "Accept-Ranges": "bytes",
         "Access-Control-Allow-Origin": "*",
+        "Access-Control-Expose-Headers": "Accept-Ranges, Content-Range, Content-Length",
         "Cache-Control": "max-age=432000",  # 5 days
         "Connection": "keep-alive",
         "Last-Modified": datetime.fromtimestamp(file_stat.st_mtime, timezone.utc).strftime('%a, %d %b %Y %H:%M:%S GMT'),
@@ -172,10 +181,7 @@ def create_range_response(file_path: Path, range_header: Optional[str], translat
         # Invalid Range, return 416
         return Response(
             status_code=416,
-            headers={
-                "Content-Range": f"bytes */{file_size}",
-                "Accept-Ranges": "bytes"
-            }
+            headers={**base_headers, "Content-Range": f"bytes */{file_size}"}
         )
 
     # Read needed part of file
@@ -232,13 +238,14 @@ def get_audio_file(
     api_key: Optional[str] = None
 ):
     """
-    Returns mp3 file with HTTP Range requests support for iOS/Android players
+    Returns mp3 file with HTTP Range support for browser and mobile players
     """
     # Handle OPTIONS request for CORS
     if request.method == "OPTIONS":
         return Response(
             headers={
                 "Access-Control-Allow-Origin": "*",
+                "Access-Control-Expose-Headers": "Accept-Ranges, Content-Range, Content-Length",
                 "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
                 "Access-Control-Allow-Headers": "Range, Content-Type, If-Range, X-API-Key",
                 "Accept-Ranges": "bytes"

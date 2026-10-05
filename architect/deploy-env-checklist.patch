@@ -1,0 +1,19 @@
+--- a/env-checklist.md
++++ b/env-checklist.md
+@@ -48,6 +48,7 @@
+ | Variable | Note |
+ |---|---|
+ | `BIBLE_GARDEN_API_KEY` | Former `API_KEY` value, preserved byte-for-byte for the released Bible Garden iOS app |
++| `BIBLE_GARDEN_SITE_API_KEY` | Required public browser key, distinct and at least 32 characters; audio GET/HEAD only (`api_key` query or `X-API-Key`), statistics identity `bible-garden-site`; other authenticated API routes return 403 |
+ | `LAMPADA_API_KEY` | New random key of at least 32 characters for Lampada; `EXPO_PUBLIC_AI_PROXY_KEY` holds this value in its local and EAS build environments |
+ | `OPS_API_KEY` | New random key of at least 32 characters for monitoring, runbook checks and AI-Evaluation live runs |
+ | `DB_HOST` | |
+@@ -60,7 +61,7 @@
+ | `EMBEDDING_DIMENSIONS` | must be ≥ 1, same reason |
+ | `EMBEDDING_PROVIDER` | `gemini` \| `local` \| `openai_compat`; required in every deployment because it names the vector space the service reads. **Prod is `openai_compat` from 2026-09-05** (bge-m3 on the company server, no weights in the process); `local` is the index-build path on the local machine |
+ 
+-All three application keys are required at startup. The old `API_KEY` name is
++All four application keys are required at startup. The old `API_KEY` name is
+ rejected. The nginx IP restriction on `/api/import` remains; see `data-flow.md`.
+ 
+ `EMBEDDING_MODELS_DIR` (compose, not the app) is the host directory mounted

@@ -10,6 +10,7 @@ import config
 # or deleting a required variable from both validation and its test would pass.
 ALWAYS_REQUIRED = (
     "BIBLE_GARDEN_API_KEY",
+    "BIBLE_GARDEN_SITE_API_KEY",
     "LAMPADA_API_KEY",
     "OPS_API_KEY",
     "CLIENT_HMAC_KEY",
@@ -141,6 +142,7 @@ AI_DISABLED_FORBIDDEN = (
 
 BASE_ENV = {
     "BIBLE_GARDEN_API_KEY": "k",
+    "BIBLE_GARDEN_SITE_API_KEY": "s" * 32,
     "LAMPADA_API_KEY": "l" * 32,
     "OPS_API_KEY": "o" * 32,
     "DB_HOST": "db",
@@ -428,14 +430,14 @@ def test_old_api_key_is_rejected_with_rename_instruction(value):
         config._validate(env, [])
 
 
-@pytest.mark.parametrize("name", ["BIBLE_GARDEN_API_KEY", "LAMPADA_API_KEY", "OPS_API_KEY"])
+@pytest.mark.parametrize("name", ["BIBLE_GARDEN_API_KEY", "BIBLE_GARDEN_SITE_API_KEY", "LAMPADA_API_KEY", "OPS_API_KEY"])
 def test_client_key_must_be_present_and_not_blank(name):
     for value in ("", " "):
         with pytest.raises(config.ConfigError, match=f"{name} is required"):
             config._validate({**BASE_ENV, name: value}, [])
 
 
-@pytest.mark.parametrize("name", ["LAMPADA_API_KEY", "OPS_API_KEY"])
+@pytest.mark.parametrize("name", ["BIBLE_GARDEN_SITE_API_KEY", "LAMPADA_API_KEY", "OPS_API_KEY"])
 def test_new_client_key_has_minimum_length(name):
     with pytest.raises(config.ConfigError, match=f"{name}: must contain at least 32"):
         config._validate({**BASE_ENV, name: "x" * 31}, [])
@@ -1387,3 +1389,14 @@ def test_prefetch_cannot_be_enabled_with_ai_disabled(monkeypatch, stage):
     name = f"AI_{stage}_PREFETCH_ENABLED"
     with pytest.raises(RuntimeError, match=name):
         _reload_config(monkeypatch, {**BASE_ENV, name: "true"})
+
+
+@pytest.mark.parametrize("other", ["BIBLE_GARDEN_API_KEY", "LAMPADA_API_KEY", "OPS_API_KEY"])
+def test_site_key_cannot_duplicate_another_application(other):
+    with pytest.raises(config.ConfigError, match="duplicate API keys"):
+        config._validate({**BASE_ENV, "BIBLE_GARDEN_SITE_API_KEY": BASE_ENV[other]}, [])
+
+
+def test_site_key_cannot_have_padding():
+    with pytest.raises(config.ConfigError, match="leading or trailing whitespace"):
+        config._validate({**BASE_ENV, "BIBLE_GARDEN_SITE_API_KEY": " " + "s" * 32}, [])

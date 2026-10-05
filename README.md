@@ -13,7 +13,7 @@ small immutable snapshots required by production regression tests under
 
 ```bash
 cp .env.example .env
-# fill in DB credentials and all three client keys in .env
+# fill in DB credentials and all four client keys in .env
 
 docker compose up -d --build
 ```
@@ -71,14 +71,17 @@ and other responses produced before authentication have no application identity
 and are not recorded; the authenticated follow-up request is recorded.
 
 Set `BIBLE_GARDEN_API_KEY` to the released iOS app's former `API_KEY` value
-without changing any byte. Set distinct, new `LAMPADA_API_KEY` and
-`OPS_API_KEY` values of at least 32 characters. All three are required even
-when AI is disabled; blank, padded or duplicate values stop startup. The
+without changing any byte. Set distinct, new `BIBLE_GARDEN_SITE_API_KEY`,
+`LAMPADA_API_KEY` and `OPS_API_KEY` values of at least 32 characters. All four
+are required even when AI is disabled; blank, padded or duplicate values stop startup. The
 removed `API_KEY` name also stops startup. `OPS_API_KEY` belongs to monitoring,
 operator checks and live evaluations; it is the only key accepted by
 `/api/import` and `/api/cache/clear`. Other valid client keys receive the same
 403 response as an invalid key. Never commit the values. See
-`architect/application-keys.md`.
+`architect/application-keys.md`. The public site key is accepted only by audio
+GET/HEAD (query `api_key` or header); other authenticated API routes reject it.
+Audio exposes `Accept-Ranges`, `Content-Range` and `Content-Length` through CORS
+and supports 206 responses for browser seeking.
 
 `POST /api/ai/content-reports` stores a report about a generated question or
 selected scripture passage. The body contains `content_type` (`question` or

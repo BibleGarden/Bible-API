@@ -31,6 +31,7 @@ class ConfigError(RuntimeError):
 # Required in every deployment, whatever is configured. Blank counts as unset.
 ALWAYS_REQUIRED_VARS = (
     "BIBLE_GARDEN_API_KEY",
+    "BIBLE_GARDEN_SITE_API_KEY",
     "LAMPADA_API_KEY",
     "OPS_API_KEY",
     "CLIENT_HMAC_KEY",
@@ -626,7 +627,8 @@ def invalid_required_values(env: Mapping[str, str]) -> list[str]:
             "changing its value"
         )
     client_keys = (
-        "BIBLE_GARDEN_API_KEY", "LAMPADA_API_KEY", "OPS_API_KEY"
+        "BIBLE_GARDEN_API_KEY", "BIBLE_GARDEN_SITE_API_KEY",
+        "LAMPADA_API_KEY", "OPS_API_KEY"
     )
     for name in client_keys:
         value = env.get(name, "")
@@ -1068,6 +1070,7 @@ AUDIO_BASE_URL = os.getenv("AUDIO_BASE_URL", "http://localhost:8000")
 
 # API Authorization settings (required)
 BIBLE_GARDEN_API_KEY = os.getenv("BIBLE_GARDEN_API_KEY", "")
+BIBLE_GARDEN_SITE_API_KEY = os.getenv("BIBLE_GARDEN_SITE_API_KEY", "")
 LAMPADA_API_KEY = os.getenv("LAMPADA_API_KEY", "")
 OPS_API_KEY = os.getenv("OPS_API_KEY", "")
 

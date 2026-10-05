@@ -75,7 +75,7 @@ def test_all_keys_are_compared_even_after_a_match(monkeypatch):
 
     monkeypatch.setattr(auth.hmac, "compare_digest", observed)
     assert auth.resolve_application("test-api-key") == "bible-garden"
-    assert len(calls) == 3
+    assert len(calls) == 4
     assert all(len(left) == len(right) == 32 for left, right in calls)
 
 
@@ -142,3 +142,55 @@ def test_cache_clear_is_ops_only(monkeypatch, request_log):
     assert response.status_code == 200
     clear_corpus.assert_called_once_with()
     assert insert.call_args.args[6] == "ops"
+
+
+SITE_KEY = "site-test-key-12345678901234567890123"
+
+
+@pytest.mark.parametrize("method", ["get", "head"])
+@pytest.mark.parametrize("transport", ["query", "header"])
+def test_site_key_is_accepted_on_audio_and_logged(app_and_insert, method, transport):
+    client, insert = app_and_insert
+    kwargs = ({"params": {"api_key": SITE_KEY}} if transport == "query"
+              else {"headers": {"X-API-Key": SITE_KEY}})
+    response = getattr(client, method)("/api/audio/en/voice/gen/1.mp3", **kwargs)
+    assert response.status_code == 200
+    assert insert.call_args.args[6] == "bible-garden-site"
+
+
+@pytest.mark.parametrize("method,path", [
+    ("GET", "/api/about"),
+    ("GET", "/api/health"),
+    ("GET", "/api/version-check"),
+    ("GET", "/api/languages"),
+    ("GET", "/api/translations"),
+    ("GET", "/api/translations/1/books"),
+    ("GET", "/api/excerpt_with_alignment"),
+    ("GET", "/api/import"),
+    ("POST", "/api/cache/clear"),
+    ("POST", "/api/ai/question"),
+    ("POST", "/api/ai/transcribe"),
+    ("POST", "/api/ai/scripture"),
+    ("POST", "/api/ai/content-reports"),
+])
+@pytest.mark.parametrize("transport", ["query", "header"])
+def test_site_key_is_forbidden_on_every_other_api_route(
+    request_log, method, path, transport,
+):
+    import main
+
+    kwargs = ({"params": {"api_key": SITE_KEY}} if transport == "query"
+              else {"headers": {"X-API-Key": SITE_KEY}})
+    response = TestClient(main.app).request(method, path, **kwargs)
+    assert response.status_code == 403
+    assert response.json() == {"detail": "Invalid or missing API Key"}
+    request_log.assert_not_called()
+
+
+def test_invalid_audio_query_does_not_use_site_header(app_and_insert):
+    client, insert = app_and_insert
+    response = client.get("/api/audio/en/voice/gen/1.mp3",
+                          params={"api_key": "invalid"},
+                          headers={"X-API-Key": SITE_KEY})
+    assert response.status_code == 403
+    insert.assert_not_called()
