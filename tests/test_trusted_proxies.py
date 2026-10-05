@@ -188,6 +188,7 @@ def test_both_variables_report_through_the_aggregated_config_error():
         config._validate(
             {
                 "BIBLE_GARDEN_API_KEY": "k",
+                "BIBLE_GARDEN_SITE_API_KEY": "s" * 32,
                 "LAMPADA_API_KEY": "l" * 32,
                 "OPS_API_KEY": "o" * 32,
                 "CLIENT_HMAC_KEY": "test-hmac-key",

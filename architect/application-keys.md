@@ -1,13 +1,16 @@
 # Application keys and request statistics
 
-Bible-API accepts exactly three client identities: `bible-garden` uses
-`BIBLE_GARDEN_API_KEY` (the released iOS key, unchanged), `lampada` uses the new
-`LAMPADA_API_KEY`, and monitoring, operator checks and live evaluations use the
-new `OPS_API_KEY`. All are required at startup; `API_KEY` is rejected. The two
-new keys must each contain at least 32 characters. Key values are never logged
-or stored with request statistics. Authentication hashes the request key and
-each configured key with SHA-256, then compares all three fixed-length digests
-with `hmac.compare_digest` before selecting an identity.
+Bible-API accepts four client identities: `bible-garden` uses
+`BIBLE_GARDEN_API_KEY` (the released iOS key, unchanged), `bible-garden-site`
+uses the public `BIBLE_GARDEN_SITE_API_KEY`, `lampada` uses `LAMPADA_API_KEY`,
+and monitoring, operator checks and live evaluations use `OPS_API_KEY`.
+All are required at startup; `API_KEY` is rejected. Every key except the
+released iOS key must contain at least 32 characters, and all must differ.
+Key values are never logged or stored with request statistics. Authentication
+hashes the request key and each configured key with SHA-256, then compares all
+four fixed-length digests with `hmac.compare_digest` before selecting an identity.
+The site identity is allowed only by audio GET/HEAD authentication; normal
+API authentication rejects it with 403 even when presented in `X-API-Key`.
 
 `X-API-Key` authenticates normal API requests. Audio GET/HEAD use a non-empty
 `api_key` query parameter first, then the header. Invalid non-empty query keys
@@ -15,8 +18,8 @@ do not fall through to a valid header. Auth sets `request.state.application`;
 request statistics write that identity, never a missing or inferred one.
 `GET /api/import` and `POST /api/cache/clear` require the `ops` identity.
 Bible Garden and Lampada keys receive the same 403 shape as an invalid key.
-`GET /api/health` is a read-only readiness probe and accepts any valid client
-key; it is excluded from statistics.
+`GET /api/health` is a read-only readiness probe and accepts the Bible Garden,
+Lampada and ops keys; it is excluded from statistics.
 Only requests that passed authentication are eligible for statistics; 403/404/405,
 audio OPTIONS and `/api/health` remain excluded. FastAPI's trailing-slash 307
 redirect happens before the auth dependency, so that redirect is not counted;

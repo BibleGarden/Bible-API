@@ -351,6 +351,7 @@ print(json.dumps({
 # Synthetic, complete environment: config fails fast on an incomplete one.
 _PROBE_ENV = {
     "BIBLE_GARDEN_API_KEY": "k",
+    "BIBLE_GARDEN_SITE_API_KEY": "s" * 32,
     "LAMPADA_API_KEY": "l" * 32,
     "OPS_API_KEY": "o" * 32,
     "DB_HOST": "h", "DB_USER": "u", "DB_PASSWORD": "p", "DB_NAME": "n",

@@ -73,7 +73,7 @@ class RequestStatsMiddleware(BaseHTTPMiddleware):
                     response.status_code,
                 )
             return response
-        if application not in {"bible-garden", "lampada", "ops"}:
+        if application not in {"bible-garden", "bible-garden-site", "lampada", "ops"}:
             logger.error("Request statistics omitted: invalid application identity")
             return response
 
