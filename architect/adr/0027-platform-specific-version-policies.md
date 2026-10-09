@@ -24,12 +24,19 @@ instead of an App Store link on Android.
 Lampada's four policy constants in `app/version_check.py` keep their names
 and meaning and become per-platform maps: `LAMPADA_MIN_SUPPORTED_VERSION`,
 `LAMPADA_LATEST_VERSION`, `LAMPADA_UPDATES_ENABLED` and `LAMPADA_STORE_URL`,
-each keyed by `ios` and `android`. Each platform's switch stays `False` until
-that store listing is public. The Android store URL is
+each keyed by `ios` and `android`. Store URLs: iOS
+https://apps.apple.com/app/id6806024678, Android
 https://play.google.com/store/apps/details?id=com.nf404.twinkler.
 
+Activation, per platform `<p>`: after that store listing is public, set
+`LAMPADA_UPDATES_ENABLED[<p>]` to `True`. Set `LAMPADA_LATEST_VERSION[<p>]` to
+offer optional updates and `LAMPADA_MIN_SUPPORTED_VERSION[<p>]` to require an
+update. Always keep minimum <= latest for each platform.
+
 Bible Garden is released for iOS only: `app=bible-garden&platform=android`
-returns 422 rather than an App Store answer labelled `android`.
+returns 422 rather than an App Store answer labelled `android`, with the same
+validation-error body as any other invalid query parameter
+(`detail[0].loc == ["query", "platform"]`).
 
 The constants remain code, not environment variables, for the reason given in
 ADR 0013: forcing an update is a release decision for a reviewed commit.

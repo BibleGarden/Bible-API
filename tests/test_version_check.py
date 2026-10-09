@@ -78,7 +78,12 @@ def test_legacy_bible_garden_default():
 
 
 def test_bible_garden_has_no_android_release():
-    assert request('1.0', 'bible-garden', 'android').status_code == 422
+    response = request('1.0', 'bible-garden', 'android')
+    assert response.status_code == 422
+    error, = response.json()['detail']
+    assert error['loc'] == ['query', 'platform']
+    assert error['type'] == 'value_error'
+    assert error['msg'] == 'Bible Garden is released for ios only'
 
 
 @pytest.mark.parametrize('version', ['abc', '1.2-beta', '-1', '1..0', '1.2.3.4'])

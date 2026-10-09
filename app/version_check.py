@@ -1,7 +1,8 @@
 # version_check.py
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Query
+from fastapi.exceptions import RequestValidationError
 from auth import RequireAPIKey
 from models import VersionCheckModel
 
@@ -61,7 +62,13 @@ def version_check(
     elif platform == "ios":
         minimum, latest, store_url, updates_enabled = MIN_SUPPORTED_VERSION, LATEST_VERSION, STORE_URL, True
     else:
-        raise HTTPException(status_code=422, detail="Bible Garden is released for ios only")
+        # Тот же формат 422, что и у остальных ошибок параметров запроса.
+        raise RequestValidationError([{
+            "type": "value_error",
+            "loc": ("query", "platform"),
+            "msg": "Bible Garden is released for ios only",
+            "input": platform,
+        }])
     v = parse_version(app_version)
 
     if not store_url or not updates_enabled:
