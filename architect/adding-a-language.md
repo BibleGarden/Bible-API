@@ -171,7 +171,7 @@ three existing texts.
 `("en", "ru", "uk")` — it will fail until updated.
 
 **3.4 — `GET /api/version-check` — add both messages.**
-`app/version_check.py:18-29`, `MESSAGES["soft"]` and `MESSAGES["hard"]`, one
+`app/version_check.py:22-33`, `MESSAGES["soft"]` and `MESSAGES["hard"]`, one
 string per language. (The endpoint currently returns the whole dict and lets
 the client pick — `:62-71`; the Lampada branch rewrites the product name in
 every language at `:63-64`.)
@@ -731,7 +731,7 @@ the list is complete. Every "✅" was verified in the file named.
 | 2.5 | `docs/translations.md` section | ✅ `## UK`, `:327` |
 | 3.1-3.2 | `/api/languages`, `/api/translations` | ✅ data-driven |
 | 3.3 | `/api/about` labels + subtitles + `about_text` | ✅ uk keys at `app/about.py:19,24,35,40,51,56,63,84,88` |
-| 3.4 | `/api/version-check` messages | ✅ uk at `app/version_check.py:22,27` |
+| 3.4 | `/api/version-check` messages | ✅ uk at `app/version_check.py:26,31` |
 | 3.5 | Book-alias lookup | ✅ **out of scope by decision** (Maria, 2026-09-05, ClickUp 86cbehfqx): books are addressed by the catalogue's Latin alias in any case, in every language. `excerpt=Бут 1:1` answers `422` naming the format — the contract, not a gap |
 | 3.6 | `Language` enum member | ✅ `app/scripture_select.py:158` |
 | 3.7 | `retrieval_cli --language` | ✅ `:156` |
@@ -835,7 +835,7 @@ table to work through; the checklist above is its narrative.
 | `app/about.py:60-63` | `about_text` (Bible Garden) — **prose naming these three languages** | **add + rewrite the paragraph** |
 | `app/about.py:84` | `for language in ("en", "ru", "uk")` (Lampada subtitle) | **add** |
 | `app/about.py:85-89` | `about_text` (Lampada) | **add** |
-| `app/version_check.py:18-29` | `MESSAGES["soft"]` / `MESSAGES["hard"]` per language | **add** |
+| `app/version_check.py:22-33` | `MESSAGES["soft"]` / `MESSAGES["hard"]` per language | **add** |
 | `app/excerpt.py` `EXCERPT_PATTERN` | excerpt grammar `(?P<book>[A-Za-z0-9]+)` — Latin book token, case folded before the lookup | nothing (contract, see 3.5) |
 | `app/excerpt.py` `get_books_info` | book-alias `WHERE` matches `code1..code5` only — `short_name_en` / `short_name_ru` **removed 2026-09-05** | nothing |
 | `app/retrieval_cli.py:156` | `--language choices=("ru","en","uk")` | **add** |

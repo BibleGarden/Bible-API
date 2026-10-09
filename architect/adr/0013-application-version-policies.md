@@ -18,6 +18,8 @@ Versions contain one to three numeric components and normalize missing parts
 to zero. Malformed values and unknown applications return 422.
 
 Lampada starts at 1.0.0 with updates explicitly disabled until publication.
+ADR 0027 makes the Lampada policy per platform (`ios`, `android`); the names
+below are now maps keyed by platform.
 Its App Store URL is https://apps.apple.com/app/id6806024678. After that page is
 public, set `LAMPADA_UPDATES_ENABLED` to `True`. Set `LAMPADA_LATEST_VERSION` to
 offer optional updates, and `LAMPADA_MIN_SUPPORTED_VERSION` to require an
