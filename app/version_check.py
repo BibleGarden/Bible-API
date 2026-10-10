@@ -17,7 +17,7 @@ LAMPADA_LATEST_VERSION = {"ios": "1.0.0", "android": "1.0.0"}
 LAMPADA_UPDATES_ENABLED = {"ios": False, "android": False}
 LAMPADA_STORE_URL = {
     "ios": "https://apps.apple.com/app/id6806024678",
-    "android": "https://play.google.com/store/apps/details?id=com.nf404.twinkler",
+    "android": "https://play.google.com/store/apps/details?id=app.lampada",
 }
 
 MESSAGES = {

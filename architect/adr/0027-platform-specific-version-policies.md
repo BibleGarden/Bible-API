@@ -26,7 +26,7 @@ and meaning and become per-platform maps: `LAMPADA_MIN_SUPPORTED_VERSION`,
 `LAMPADA_LATEST_VERSION`, `LAMPADA_UPDATES_ENABLED` and `LAMPADA_STORE_URL`,
 each keyed by `ios` and `android`. Store URLs: iOS
 https://apps.apple.com/app/id6806024678, Android
-https://play.google.com/store/apps/details?id=com.nf404.twinkler.
+https://play.google.com/store/apps/details?id=app.lampada.
 
 Activation, per platform `<p>`: after that store listing is public, set
 `LAMPADA_UPDATES_ENABLED[<p>]` to `True`. Set `LAMPADA_LATEST_VERSION[<p>]` to

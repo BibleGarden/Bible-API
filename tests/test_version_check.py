@@ -9,7 +9,7 @@ client = TestClient(app)
 headers = {"X-API-Key": "test-api-key"}
 
 APP_STORE_URL = "https://apps.apple.com/app/id6806024678"
-PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=com.nf404.twinkler"
+PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=app.lampada"
 
 
 def request(version, application="lampada", platform=None):
