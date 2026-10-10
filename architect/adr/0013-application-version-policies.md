@@ -1,6 +1,7 @@
 # ADR 0013: Independent application version policies
 
-Status: accepted (2026-09-05).
+Status: accepted (2026-09-05). Extended by ADR 0027 (per-platform Lampada
+policies, 2026-10-10).
 Ticket: ClickUp 86cbbt978 — delivered as GitHub PR #4; the Lampada client
 change lives in the Lampada workspace. Follows ADR 0011, which introduced the
 same `app` selector on `GET /api/about`. (Numbered 0012 in the pull request;
@@ -18,10 +19,8 @@ Versions contain one to three numeric components and normalize missing parts
 to zero. Malformed values and unknown applications return 422.
 
 Lampada starts at 1.0.0 with updates explicitly disabled until publication.
-Its App Store URL is https://apps.apple.com/app/id6806024678. After that page is
-public, set `LAMPADA_UPDATES_ENABLED` to `True`. Set `LAMPADA_LATEST_VERSION` to
-offer optional updates, and `LAMPADA_MIN_SUPPORTED_VERSION` to require an
-update. Always keep minimum <= latest. Policy changes require an API deployment.
+Its policy is per platform since ADR 0027, which holds the store URLs and the
+activation instructions. Policy changes require an API deployment.
 
 **These four names are code constants in `app/version_check.py`, not
 environment variables** — the same shape as the Bible Garden trio beside them
