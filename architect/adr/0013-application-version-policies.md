@@ -22,8 +22,9 @@ Lampada starts at 1.0.0 with updates explicitly disabled until publication.
 Its policy is per platform since ADR 0027, which holds the store URLs and the
 activation instructions. Policy changes require an API deployment.
 
-**These four names are code constants in `app/version_check.py`, not
-environment variables** — the same shape as the Bible Garden trio beside them
+**Lampada's four policy names (`LAMPADA_MIN_SUPPORTED_VERSION`,
+`LAMPADA_LATEST_VERSION`, `LAMPADA_UPDATES_ENABLED`, `LAMPADA_STORE_URL`) are
+code constants in `app/version_check.py`, not environment variables** — the same shape as the Bible Garden trio beside them
 (`MIN_SUPPORTED_VERSION`, `LATEST_VERSION`, `STORE_URL`). Forcing every user of
 a published app to update is a release decision that belongs in a reviewed
 commit, not in a deployment's `.env`; ADR 0008's rule about silent defaults
