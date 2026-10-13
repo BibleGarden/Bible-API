@@ -48,13 +48,17 @@ The API will be available at `http://localhost:9084/api`.
   Both variants require a configured client key.
 - `GET /api/version-check` — app version check. `?app_version=` is required and
   takes one to three numeric components (missing ones are read as zero);
-  anything else returns 422. `GET /api/version-check?app=lampada&app_version=1.0.0`
-  applies Lampada's own thresholds and store link; omitting `app` keeps the
-  Bible Garden response released clients already receive, with `app` added to
-  it. `update_type` is `none`, `soft` or `hard`; Lampada always answers `none`
-  until its App Store listing is public — see
-  `architect/adr/0013-application-version-policies.md` for the activation
-  constants.
+  anything else returns 422. `GET /api/version-check?app=lampada&app_version=1.0.0&platform=android`
+  applies Lampada's own thresholds and store link for that store;
+  `platform` is `ios` or `android` (anything else returns 422) and defaults to
+  `ios` for builds that do not send it. Omitting `app` keeps the Bible Garden
+  response released clients already receive, with `app` and `platform` added
+  to it; Bible Garden has no Android release, so `platform=android` returns
+  422 for it. `update_type` is `none`, `soft` or `hard`; Lampada answers
+  `none` on each platform until that store listing is public — see
+  `architect/adr/0013-application-version-policies.md` and
+  `architect/adr/0027-platform-specific-version-policies.md` for the
+  per-platform activation constants.
 - `POST /api/ai/question` — AI companion question (see below)
 - `POST /api/ai/transcribe` — voice recording to text (see below)
 - `POST /api/ai/scripture` — contextual Bible passage selection

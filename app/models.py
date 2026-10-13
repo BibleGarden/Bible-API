@@ -172,6 +172,7 @@ class AboutModel(BaseModel):
 
 class VersionCheckModel(BaseModel):
     app: Literal["bible-garden", "lampada"] = "bible-garden"
+    platform: Literal["ios", "android"]
     update_type: Literal["none", "soft", "hard"]
     latest_version: str
     store_url: str
