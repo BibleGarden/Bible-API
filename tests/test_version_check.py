@@ -19,12 +19,19 @@ def request(version, application="lampada", platform=None):
     return client.get('/api/version-check', params=params, headers=headers)
 
 
-@pytest.mark.parametrize("platform,store_url", [("ios", APP_STORE_URL), ("android", PLAY_STORE_URL)])
-def test_unpublished_lampada_never_blocks(platform, store_url):
-    data = request("0.1", platform=platform).json()
-    assert data["platform"] == platform
+def test_unpublished_lampada_never_blocks():
+    data = request("0.1", platform="ios").json()
+    assert data["platform"] == "ios"
     assert data["update_type"] == "none"
-    assert data["store_url"] == store_url
+    assert data["store_url"] == APP_STORE_URL
+
+
+@pytest.mark.parametrize("version,expected", [("1.4", "soft"), ("1.5", "none")])
+def test_lampada_android_release_policy(version, expected):
+    data = request(version, platform="android").json()
+    assert data["update_type"] == expected
+    assert data["latest_version"] == "1.5"
+    assert data["store_url"] == PLAY_STORE_URL
 
 
 def test_missing_platform_is_answered_for_ios():

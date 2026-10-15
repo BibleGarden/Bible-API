@@ -55,10 +55,19 @@ The API will be available at `http://localhost:9084/api`.
   response released clients already receive, with `app` and `platform` added
   to it; Bible Garden has no Android release, so `platform=android` returns
   422 for it. `update_type` is `none`, `soft` or `hard`; Lampada answers
-  `none` on each platform until that store listing is public — see
-  `architect/adr/0013-application-version-policies.md` and
-  `architect/adr/0027-platform-specific-version-policies.md` for the
-  per-platform activation constants.
+  `none` on a platform while its `LAMPADA_UPDATES_ENABLED` entry is `False` —
+  see `architect/adr/0013-application-version-policies.md` and
+  `architect/adr/0027-platform-specific-version-policies.md`.
+
+  **Lampada release on platform `<p>`** is one reviewed change to
+  `app/version_check.py`, deployed by the Bible-API procedure in
+  `Deploy/runbook.md`: set `LAMPADA_LATEST_VERSION[<p>]` to the released
+  version, so older builds get `soft`; raise
+  `LAMPADA_MIN_SUPPORTED_VERSION[<p>]` only to force an update (`hard`), and
+  keep it no higher than latest. Update the expected version in
+  `tests/test_version_check.py`. After the deploy,
+  `?app=lampada&platform=<p>&app_version=<previous>` must answer `soft` and
+  `app_version=<released>` must answer `none`.
 - `POST /api/ai/question` — AI companion question (see below)
 - `POST /api/ai/transcribe` — voice recording to text (see below)
 - `POST /api/ai/scripture` — contextual Bible passage selection
