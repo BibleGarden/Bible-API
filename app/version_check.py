@@ -12,9 +12,10 @@ STORE_URL = "https://apps.apple.com/app/biblegarden/id123456789"
 
 # Пороги, выключатель и ссылка у каждого магазина свои (ADR 0027).
 LAMPADA_MIN_SUPPORTED_VERSION = {"ios": "1.0.0", "android": "1.0.0"}
-LAMPADA_LATEST_VERSION = {"ios": "1.0.0", "android": "1.0.0"}
+LAMPADA_LATEST_VERSION = {"ios": "1.0.0", "android": "1.5"}
 # До публикации страницы в магазине уведомления этой платформы выключены.
-LAMPADA_UPDATES_ENABLED = {"ios": False, "android": False}
+# Android включён на закрытом тесте Google Play: 1.4 стоит только у тестировщиков.
+LAMPADA_UPDATES_ENABLED = {"ios": False, "android": True}
 LAMPADA_STORE_URL = {
     "ios": "https://apps.apple.com/app/id6806024678",
     "android": "https://play.google.com/store/apps/details?id=app.lampada",

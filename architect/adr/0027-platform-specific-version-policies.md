@@ -48,3 +48,9 @@ ADR 0013: forcing an update is a release decision for a reviewed commit.
 - iOS and Android versions are compared against their own thresholds, so a
   release published on one store first does not prompt users of the other.
 - A global Lampada switch is gone: turning notices on is a per-store decision.
+
+## Amendment 2026-10-15 (ClickUp 123pfqn2zrt)
+
+Android notices are enabled during Google Play closed testing, before the
+listing is public: Lampada 1.5 went to testers while some still run 1.4, and
+only testers have the app and can open the Play link.
