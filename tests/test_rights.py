@@ -26,6 +26,7 @@ def test_reviewed_materials_and_aliases():
     } <= set(REGISTRY.items)
     for item in REGISTRY.items.values():
         assert re.fullmatch(r"[a-z][a-z0-9_]*", item.translation_alias)
+        # Sources document license evidence from publishers, not the download location.
         assert all("bible.com" != source.host for source in item.sources)
     npu = REGISTRY.items["text:npu"]
     assert npu.trademark_required is True
@@ -33,9 +34,24 @@ def test_reviewed_materials_and_aliases():
         assert "© 2022" in getattr(npu.attribution, lang)
         assert "https://creativecommons.org/licenses/by-sa/4.0/" in getattr(npu.attribution, lang)
         assert "The original work by Biblica, Inc." in getattr(npu.attribution, lang)
-        assert "Новий Завіт і Книга Псалмів" in getattr(npu.attribution, lang)
+        for field in (npu.title, npu.attribution, npu.changes, npu.trademark, npu.credit):
+            for forbidden in ("Biblica®", "Бібліка®", "™", "Used with permission"):
+                assert forbidden not in getattr(field, lang)
     assert "has not been performed" in npu.changes.en
     assert "must not be called World English Bible" in REGISTRY.items["text:webus"].trademark.en
+
+
+def test_public_domain_materials_use_credit_instead_of_rights_holder(document):
+    for item_id, item in REGISTRY.items.items():
+        if item.public_domain_basis is not None or (item.license and item.license.id == "CC0-1.0"):
+            assert item.rights_holder is None
+            assert item.credit is not None
+            document["items"][item_id]["rights_holder"] = "A narrator is not a rights holder"
+            with pytest.raises(ValidationError, match="public-domain materials have no rights holder"):
+                RightsRegistry.model_validate(document)
+            document["items"][item_id]["rights_holder"] = None
+    assert REGISTRY.items["text:npu"].rights_holder == "Biblica, Inc."
+    assert "has been removed" in REGISTRY.items["text:npu"].trademark.en
 
 
 @pytest.mark.parametrize("item_id", ["text:npu", "text:webus", "text:webbe"])
@@ -47,7 +63,7 @@ def test_required_trademark_cannot_be_missing_or_null(document, item_id, missing
         del item["trademark"]
     else:
         item["trademark"] = None
-    with pytest.raises(ValidationError, match="require a localized trademark block"):
+    with pytest.raises(ValidationError, match="require a localized trademark terms notice"):
         RightsRegistry.model_validate(document)
 
 
@@ -56,7 +72,7 @@ def test_trademark_requirement_is_data_driven(document):
     item["translation_alias"] = "another_translation"
     item["trademark_required"] = True
     document["items"]["text:another_translation"] = item
-    with pytest.raises(ValidationError, match="require a localized trademark block"):
+    with pytest.raises(ValidationError, match="require a localized trademark terms notice"):
         RightsRegistry.model_validate(document)
     item["trademark"] = {"en": "Terms", "ru": "Условия", "uk": "Умови"}
     RightsRegistry.model_validate(document)
@@ -79,7 +95,7 @@ def test_required_fields(document, field):
         RightsRegistry.model_validate(document)
 
 
-@pytest.mark.parametrize("field", ["title", "attribution", "changes", "trademark"])
+@pytest.mark.parametrize("field", ["title", "attribution", "changes", "trademark", "credit"])
 @pytest.mark.parametrize("lang", ["en", "ru", "uk"])
 def test_all_localizations_are_required(document, field, lang):
     del document["items"]["text:npu"][field][lang]

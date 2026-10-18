@@ -45,7 +45,8 @@ class RightsItem(RightsModel):
     translation_alias: Alias
     voice_alias: Alias | None = None
     title: LocalizedNotice
-    rights_holder: Text
+    rights_holder: Text | None
+    credit: LocalizedNotice | None = None
     copyright: Text | None = None
     license: RightsLicense | None = None
     public_domain_basis: LocalizedNotice | None = None
@@ -53,7 +54,9 @@ class RightsItem(RightsModel):
     attribution: LocalizedNotice
     changes: LocalizedNotice
     trademark_required: bool = Field(strict=True)
-    trademark: LocalizedNotice | None = None
+    trademark: LocalizedNotice | None = Field(
+        default=None, description="Trademark restrictions, including removal terms for adaptations."
+    )
     checked_on: date
 
     @model_validator(mode="after")
@@ -64,8 +67,11 @@ class RightsItem(RightsModel):
             raise ValueError("provide exactly one license or public-domain basis")
         if self.license and self.license.id == "CC-BY-SA-4.0" and not self.copyright:
             raise ValueError("CC BY-SA attribution requires a copyright line")
+        if self.public_domain_basis is not None or (self.license and self.license.id == "CC0-1.0"):
+            if self.rights_holder is not None:
+                raise ValueError("public-domain materials have no rights holder; use localized credit")
         if self.trademark_required and self.trademark is None:
-            raise ValueError("material terms require a localized trademark block")
+            raise ValueError("material terms require a localized trademark terms notice")
         if self.checked_on > date.today():
             raise ValueError("checked_on must not be in the future")
         return self
