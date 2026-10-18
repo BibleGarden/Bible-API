@@ -22,3 +22,14 @@ for `/api/audio/` in production nginx; the orchestrator decides the policy.
 Deploy was read-only for task 123pfqn1yjg. Apply
 `architect/deploy-env-checklist.patch` in the Deploy repository before release;
 it adds the required variable without modifying Deploy from this worktree.
+
+## Rights metadata
+
+The owner chose a versioned file on 2026-10-18: `app/rights.yaml`, served by
+`GET /api/rights` with ordinary catalog API-key auth. See README's Rights
+registry section for the schema, adding permissions and isolated-container
+tests. Invalid registry data aborts router import/startup. Change one entry
+through a PR, then refresh Site's derived snapshot; do not add database or
+Dashboard storage for these notices. Bible text/timing publication still
+follows the existing admin-to-public data flow. Existing About text and
+catalog response shapes must remain unchanged.

@@ -478,3 +478,55 @@ persistent storage.
 ## License
 
 [GPLv3](LICENSE)
+
+## Rights registry
+
+`app/rights.yaml` is the single source of truth for confirmed rights metadata.
+`GET /api/rights` returns `schema_version: 1` and `items`, keyed by stable ids
+(`text:<translation_alias>` or `audio:<translation_alias>:<voice_alias>`). It uses
+the same `X-API-Key` authentication as `/api/translations`; the browser audio
+key is not accepted. Existing catalog and About responses are unchanged.
+
+The registry is validated when the router is imported, before startup can
+complete. Missing/invalid files, duplicate keys, unknown licenses, bad URLs or
+incomplete EN/RU/UK notices abort startup. This is versioned legal metadata,
+not Bible content: it has no DB table, migration, Dashboard editor or content
+export/import step (owner decision, 2026-10-18; Architecture ADR-0019).
+
+To add a permission, edit one YAML entry in a branch: use an existing alias,
+link the official publisher/license evidence, supply all three localized
+notices and changes, and date `checked_on` to the evidence review. Use either
+a known license (`CC0-1.0`, `CC-BY-SA-4.0`, with its canonical URL) or an explicit
+public-domain basis. Text and recording permissions are separate; never infer
+audio clearance from the text license. Review the change through a PR and
+refresh Site's committed snapshot from `/api/rights` after the API is released.
+Do not maintain another list in Site.
+
+Evidence reviewed 2026-10-18: four texts and three recordings are included;
+this is not a claim of clearance for the whole catalog. The NPU notice covers
+NT and Psalms text only. Local parser documentation records preserved wording
+and adjusted red-letter markup on 2026-09-24; no complete current word-level
+audit was available. Its notice therefore says the stored text may contain
+typographical corrections, rather than claiming unmodified wording. WEB
+notices likewise distinguish the stored edition and source name from verified
+faithful copies; modified text must not be called World English Bible.
+The original Biblica notice is quoted as the original edition's notice, not
+as trademark permission for a Bible Garden adaptation. Word-level verification
+and app-side offline/display/EULA checks remain owner follow-ups.
+
+Apps need a separate UI change to display these notices from `/api/rights`,
+link licenses/sources and retain attribution with offline/shared content.
+Publishing this endpoint alone does not update existing app screens. The
+existing `about.py` claim of clear legal status is flagged for the owner; its
+text is deliberately unchanged.
+
+Tests run in an isolated container, never in the running API or against DBs:
+
+```bash
+docker run --rm -v "$PWD":/code -w /code \
+  -e API_KEY=test-api-key -e AI_CLIENT_HMAC_KEY=test-hmac-key \
+  bible-api-bible-api pytest -q -p no:cacheprovider
+```
+
+The test configuration replaces those legacy variable names with the current
+per-application test keys before importing application modules.

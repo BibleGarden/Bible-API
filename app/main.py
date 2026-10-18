@@ -14,6 +14,7 @@ from excerpt import router as excerpt_router
 from excerpt import check_audio_file_exists
 from audio import router as audio_router
 from about import router as about_router
+from rights import router as rights_router
 from version_check import router as version_check_router
 from health import router as health_router
 from import_data import router as import_data_router
@@ -319,6 +320,7 @@ api_router = APIRouter(prefix="/api")
 api_router.include_router(excerpt_router)
 api_router.include_router(audio_router)
 api_router.include_router(about_router)
+api_router.include_router(rights_router)
 api_router.include_router(version_check_router)
 api_router.include_router(health_router)
 api_router.include_router(import_data_router)
