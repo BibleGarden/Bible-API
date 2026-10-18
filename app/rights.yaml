@@ -1,0 +1,315 @@
+# Source of truth for confirmed rights. Review changes through a pull request.
+schema_version: 1
+items:
+  text:bsb:
+    kind: text
+    translation_alias: bsb
+    voice_alias: null
+    trademark_required: false
+    title:
+      en: Berean Standard Bible (BSB)
+      ru: Berean Standard Bible (BSB)
+      uk: Berean Standard Bible (BSB)
+    rights_holder: null
+    copyright: null
+    license: null
+    public_domain_basis:
+      en: The publisher dedicates the BSB text to the public domain.
+      ru: Издатель передал текст BSB в общественное достояние.
+      uk: Видавець передав текст BSB у суспільне надбання.
+    sources:
+    - https://ebible.org/engbsb/copyright.htm
+    - https://berean.bible/
+    attribution:
+      en: Berean Standard Bible. Published by BSB Publishing, LLC. The text is in the public domain.
+      ru: Berean Standard Bible. Издатель — BSB Publishing, LLC. Текст находится в общественном достоянии.
+      uk: Berean Standard Bible. Видавець — BSB Publishing, LLC. Текст є суспільним надбанням.
+    changes:
+      en: Converted to application data and HTML formats. Formatting and navigation may differ from the
+        source edition.
+      ru: Преобразовано в форматы данных и HTML приложения. Форматирование и навигация могут отличаться
+        от исходного издания.
+      uk: Перетворено на формати даних та HTML застосунку. Форматування й навігація можуть відрізнятися
+        від оригінального видання.
+    trademark: null
+    checked_on: '2026-10-18'
+    credit:
+      en: Published by BSB Publishing, LLC.
+      ru: Издатель — BSB Publishing, LLC.
+      uk: Видавець — BSB Publishing, LLC.
+  text:webus:
+    kind: text
+    translation_alias: webus
+    voice_alias: null
+    trademark_required: true
+    title:
+      en: Text based on World English Bible (US edition)
+      ru: Текст на основе World English Bible (US)
+      uk: Текст на основі World English Bible (US)
+    rights_holder: null
+    copyright: null
+    license: null
+    public_domain_basis:
+      en: The publisher declares the translation public domain and permits copying, publication, transmission
+        and redistribution.
+      ru: Издатель объявляет перевод общественным достоянием и разрешает копирование, публикацию, передачу
+        и распространение.
+      uk: Видавець оголошує переклад суспільним надбанням і дозволяє копіювання, публікацію, передавання
+        та поширення.
+    sources:
+    - https://ebible.org/eng-web/copyright.htm
+    - https://worldenglish.bible/
+    attribution:
+      en: The World English Bible US edition source text is in the public domain. Prepared for Bible Garden
+        from the stored edition.
+      ru: Исходный текст World English Bible (US) находится в общественном достоянии. Для Bible Garden
+        использована сохранённая редакция.
+      uk: Вихідний текст World English Bible (US) є суспільним надбанням. Для Bible Garden використано
+        збережену редакцію.
+    changes: &id001
+      en: Converted to application data and HTML formats; red-letter markup was transferred onto the stored
+        wording. Differences between the stored wording and later source editions are documented; a complete
+        word-level comparison has not been performed.
+      ru: Преобразовано в форматы данных и HTML приложения; разметка слов Иисуса перенесена на сохранённый
+        текст. Документированы различия сохранённого текста и более поздних изданий источника; полная
+        пословная сверка не выполнена.
+      uk: Перетворено на формати даних та HTML застосунку; розмітку слів Ісуса перенесено на збережений
+        текст. Задокументовано відмінності збереженого тексту й пізніших видань джерела; повного послівного
+        звірення не виконано.
+    trademark: &id002
+      en: World English Bible is a trademark identifying faithful copies. If the words are changed, the
+        resulting text must not be called World English Bible. The name here identifies the source translation;
+        it is not a certification that every stored word matches the current publisher edition.
+      ru: World English Bible — товарный знак для точных копий перевода. При изменении слов получившийся
+        текст нельзя называть World English Bible. Здесь название обозначает исходный перевод и не удостоверяет
+        пословное совпадение сохранённого текста с текущим изданием издателя.
+      uk: World English Bible — торговельна марка для точних копій перекладу. Якщо слова змінено, отриманий
+        текст не можна називати World English Bible. Тут назва позначає вихідний переклад і не засвідчує
+        послівного збігу збереженого тексту з поточним виданням видавця.
+    checked_on: '2026-10-18'
+    credit:
+      en: World English Bible contributors; published by eBible.org.
+      ru: Участники проекта World English Bible; издатель — eBible.org.
+      uk: Учасники проєкту World English Bible; видавець — eBible.org.
+  text:webbe:
+    kind: text
+    translation_alias: webbe
+    voice_alias: null
+    trademark_required: true
+    title:
+      en: Text based on World English Bible (British edition)
+      ru: Текст на основе World English Bible (British)
+      uk: Текст на основі World English Bible (British)
+    rights_holder: null
+    copyright: null
+    license: null
+    public_domain_basis:
+      en: The publisher declares the translation public domain and permits copying, publication, transmission
+        and redistribution.
+      ru: Издатель объявляет перевод общественным достоянием и разрешает копирование, публикацию, передачу
+        и распространение.
+      uk: Видавець оголошує переклад суспільним надбанням і дозволяє копіювання, публікацію, передавання
+        та поширення.
+    sources:
+    - https://ebible.org/eng-webbe/copyright.htm
+    - https://worldenglish.bible/
+    attribution:
+      en: The World English Bible British edition source text is in the public domain. Prepared for Bible
+        Garden from the stored edition.
+      ru: Исходный текст World English Bible (British) находится в общественном достоянии. Для Bible Garden
+        использована сохранённая редакция.
+      uk: Вихідний текст World English Bible (British) є суспільним надбанням. Для Bible Garden використано
+        збережену редакцію.
+    changes: *id001
+    trademark: *id002
+    checked_on: '2026-10-18'
+    credit:
+      en: World English Bible contributors; British edition published by eBible.org.
+      ru: Участники проекта World English Bible; британское издание опубликовано eBible.org.
+      uk: Учасники проєкту World English Bible; британське видання опубліковано eBible.org.
+  text:npu:
+    kind: text
+    translation_alias: npu
+    voice_alias: null
+    trademark_required: true
+    title:
+      en: Ukrainian New Testament and Psalms — Bible Garden prepared text (NPU source)
+      ru: Украинский Новый Завет и Псалтирь — текст для Bible Garden (источник NPU)
+      uk: Український Новий Завіт та Книга Псалмів — текст для Bible Garden (джерело НПУ)
+    rights_holder: Biblica, Inc.
+    copyright: Copyright © 2022 by Biblica, Inc.
+    license:
+      id: CC-BY-SA-4.0
+      name: Creative Commons Attribution-ShareAlike 4.0 International
+      url: https://creativecommons.org/licenses/by-sa/4.0/
+    public_domain_basis: null
+    sources:
+    - https://ebible.org/ukronpu/copyright.htm
+    - https://open.bible/
+    - https://www.biblica.com/
+    attribution:
+      en: 'Ukrainian New Testament and Psalms, prepared for Bible Garden from the original translation
+        by Biblica, Inc.
+
+        Copyright © 2022 by Biblica, Inc.
+
+        The original work by Biblica, Inc. is available for free at www.biblica.com and open.bible.
+
+        Licensed under Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0): https://creativecommons.org/licenses/by-sa/4.0/.
+        Share adaptations under the same license and identify changes.'
+      ru: 'Украинский Новый Завет и Псалтирь, подготовленные для Bible Garden на основе оригинального
+        перевода Biblica, Inc.
+
+        Copyright © 2022 by Biblica, Inc.
+
+        The original work by Biblica, Inc. is available for free at www.biblica.com and open.bible.
+
+        Текст распространяется по лицензии Creative Commons Attribution-ShareAlike 4.0 International (CC
+        BY-SA 4.0): https://creativecommons.org/licenses/by-sa/4.0/. Распространяйте переработки по той
+        же лицензии и указывайте изменения.'
+      uk: 'Новий Завіт і Книга Псалмів українською, підготовлені для Bible Garden на основі оригінального
+        перекладу Biblica, Inc.
+
+        Copyright © 2022 by Biblica, Inc.
+
+        The original work by Biblica, Inc. is available for free at www.biblica.com and open.bible.
+
+        Текст поширюється за ліцензією Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA
+        4.0): https://creativecommons.org/licenses/by-sa/4.0/. Поширюйте переробки за тією самою ліцензією
+        та зазначайте зміни.'
+    changes:
+      en: 'Prepared for Bible Garden: conversion to application data and HTML formats and adjustment of
+        red-letter markup. The stored text may contain corrections of typographical errors; a complete
+        word-level comparison with the original edition has not been performed. This notice covers the
+        text only, not the separate audio edition.'
+      ru: 'Подготовка для Bible Garden: преобразование в форматы данных и HTML приложения, изменение разметки
+        слов Иисуса. Сохранённый текст может содержать исправления опечаток; полная пословная сверка с
+        исходным изданием не выполнена. Это уведомление относится только к тексту, а не к отдельной аудиозаписи.'
+      uk: 'Підготовка для Bible Garden: перетворення на формати даних та HTML застосунку, зміна розмітки
+        слів Ісуса. Збережений текст може містити виправлення друкарських помилок; повного послівного
+        звірення з оригінальним виданням не виконано. Це повідомлення стосується лише тексту, а не окремого
+        аудіозапису.'
+    trademark:
+      en: For this prepared edition, the original publisher’s trademark branding has been removed as required
+        for derivative works. Biblica, Inc. is identified only as the original author and copyright holder.
+        Adaptations must identify their changes and remain under CC BY-SA 4.0. This is not an official
+        Biblica edition.
+      ru: В подготовленном издании удалено оформление с товарными знаками исходного издателя, как требуется
+        для производных произведений. Biblica, Inc. указана только как автор оригинала и правообладатель.
+        Переработки должны обозначать изменения и распространяться по CC BY-SA 4.0. Это не официальное
+        издание Biblica.
+      uk: У підготовленому виданні прибрано оформлення з торговельними марками оригінального видавця,
+        як вимагається для похідних творів. Biblica, Inc. зазначена лише як автор оригіналу та правовласник.
+        Переробки мають зазначати зміни й поширюватися за CC BY-SA 4.0. Це не офіційне видання Biblica.
+    checked_on: '2026-10-18'
+    credit:
+      en: Original translation by Biblica, Inc.; prepared for Bible Garden.
+      ru: Оригинальный перевод — Biblica, Inc.; подготовка для Bible Garden.
+      uk: Оригінальний переклад — Biblica, Inc.; підготовка для Bible Garden.
+  audio:bsb:bsb_souer:
+    kind: audio
+    translation_alias: bsb
+    voice_alias: bsb_souer
+    trademark_required: false
+    title:
+      en: BSB audio — Bob Souer
+      ru: Аудио BSB — Боб Суэр
+      uk: Аудіо BSB — Боб Суер
+    rights_holder: null
+    copyright: null
+    license:
+      id: CC0-1.0
+      name: CC0 1.0 Universal
+      url: https://creativecommons.org/publicdomain/zero/1.0/
+    public_domain_basis: null
+    sources:
+    - https://bereanbible.com/audio/
+    attribution:
+      en: Berean Standard Bible, narrated by Bob Souer. This recording is released under CC0 1.0 Universal.
+      ru: Berean Standard Bible, читает Боб Суэр. Эта запись предоставлена по CC0 1.0 Universal.
+      uk: Berean Standard Bible, читає Боб Суер. Цей запис надано за CC0 1.0 Universal.
+    changes: &id003
+      en: The recording is served with chapter and verse navigation and separate alignment timing metadata.
+        This notice does not assert a new copyright in the recording.
+      ru: Запись предоставляется с навигацией по главам и стихам и отдельными метаданными таймингов. Это
+        уведомление не заявляет новых авторских прав на запись.
+      uk: Запис надається з навігацією за розділами й віршами та окремими метаданими таймінгів. Це повідомлення
+        не заявляє нових авторських прав на запис.
+    trademark: null
+    checked_on: '2026-10-18'
+    credit:
+      en: Narrated by Bob Souer; published by Berean / BSB.
+      ru: Читает Боб Суэр; издатель — Berean / BSB.
+      uk: Читає Боб Суер; видавець — Berean / BSB.
+  audio:webus:winfred_henson:
+    kind: audio
+    translation_alias: webus
+    voice_alias: winfred_henson
+    trademark_required: false
+    title:
+      en: WEB US audio — Winfred Henson (Hinson)
+      ru: Аудио WEB US — Уинфред Хенсон (Hinson)
+      uk: Аудіо WEB US — Вінфред Генсон (Hinson)
+    rights_holder: null
+    copyright: null
+    license: null
+    public_domain_basis:
+      en: The recording page explicitly declares this recording public domain.
+      ru: Страница записи прямо объявляет эту запись общественным достоянием.
+      uk: Сторінка запису прямо оголошує цей запис суспільним надбанням.
+    sources:
+    - https://publicdomainaudiobibles.com/WEBW.html
+    - https://ebible.org/webaudio/
+    attribution:
+      en: World English Bible recording by Winfred Hinson, also credited as Henson. The narrator placed
+        it in the public domain on LibriVox in 2017; the source permits use without restriction.
+      ru: World English Bible, читает Уинфред Hinson, также указан как Henson. Чтец передал запись в общественное
+        достояние на LibriVox в 2017 году; источник разрешает использование без ограничений.
+      uk: World English Bible, читає Вінфред Hinson, також зазначений як Henson. Читець передав запис
+        у суспільне надбання на LibriVox у 2017 році; джерело дозволяє використання без обмежень.
+    changes: *id003
+    trademark: null
+    checked_on: '2026-10-18'
+    credit:
+      en: Narrated by Winfred Hinson, also credited as Henson.
+      ru: Читает Уинфред Хинсон (Hinson), также указан как Henson.
+      uk: Читає Вінфред Гінсон (Hinson), також зазначений як Henson.
+  audio:webbe:web_british:
+    kind: audio
+    translation_alias: webbe
+    voice_alias: web_british
+    trademark_required: false
+    title:
+      en: WEB British audio — narrator not named
+      ru: Аудио WEB British — имя чтеца не указано
+      uk: Аудіо WEB British — ім’я читця не зазначено
+    rights_holder: null
+    copyright: null
+    license: null
+    public_domain_basis:
+      en: 'Original MP3 TCOP/WCOP: “The text and audio are released to the public domain and can be used
+        without restriction”.'
+      ru: 'TCOP/WCOP исходных MP3: «The text and audio are released to the public domain and can be used
+        without restriction».'
+      uk: 'TCOP/WCOP оригінальних MP3: «The text and audio are released to the public domain and can be
+        used without restriction».'
+    sources:
+    - https://ebible.org/eng-webbe/mp3/
+    - https://ebible.org/eng-webbe/mp3/eng-webbe_070_MAT_01.mp3
+    attribution:
+      en: World English Bible British Edition. Audio supplied by PublicDomainAudioBibles.com via eBible.org.
+        The original MP3 copyright metadata releases the text and audio to the public domain for use without
+        restriction. The narrator is not named.
+      ru: World English Bible British Edition. Источник аудио — PublicDomainAudioBibles.com через eBible.org.
+        Метаданные авторских прав исходных MP3 объявляют текст и аудио общественным достоянием с использованием
+        без ограничений. Имя чтеца не указано.
+      uk: World English Bible British Edition. Джерело аудіо — PublicDomainAudioBibles.com через eBible.org.
+        Метадані авторських прав оригінальних MP3 оголошують текст і аудіо суспільним надбанням із використанням
+        без обмежень. Ім’я читця не зазначено.
+    changes: *id003
+    trademark: null
+    checked_on: '2026-10-18'
+    credit:
+      en: Audio published by PublicDomainAudioBibles.com and distributed through eBible.org.
+      ru: Аудио опубликовано PublicDomainAudioBibles.com и распространяется через eBible.org.
+      uk: Аудіо опубліковано PublicDomainAudioBibles.com і поширюється через eBible.org.

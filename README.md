@@ -475,6 +475,43 @@ original language and does not translate it. Files larger than 14 MiB are
 rejected. Recordings, filenames, and transcripts are not written to logs or
 persistent storage.
 
+## Rights registry
+
+`app/rights.yaml` is the single source of truth for confirmed rights metadata.
+`GET /api/rights` returns `schema_version: 1` and `items` keyed by stable ids
+(`text:<translation_alias>` or `audio:<translation_alias>:<voice_alias>`). It
+uses the same `X-API-Key` authentication as `/api/translations`; the browser
+audio key is not accepted. Existing catalog and About responses are unchanged.
+
+To add a permission, edit one YAML entry through a PR: use an existing alias,
+link official publisher/license evidence, provide EN/RU/UK attribution and
+changes notices, and set `checked_on` to the evidence review date. Use either
+a supported license with its canonical URL or an explicit public-domain basis.
+Text and recording permissions are separate. Public-domain materials, including
+CC0 recordings, have `rights_holder: null`; put author, narrator and publisher
+information in localized `credit`. Every entry explicitly sets
+`trademark_required`; when true, a localized `trademark` terms notice is
+required. For derivative editions, describe trademark removal rather than
+reproducing the original branding or asserting permission to use it. Preserve
+the author's copyright, attribution, license, source and changes notices.
+
+The file is validated before startup; missing/invalid files or incomplete
+required notices abort startup. Rights metadata is independent of Bible
+content: no DB table, migration, Dashboard or content export step is involved
+(Architecture ADR-0019). After publication, refresh Site's derived snapshot
+from `/api/rights`; do not maintain a second list.
+
+Run tests in an isolated container, never in the running API or against DBs:
+
+```bash
+docker run --rm -v "$PWD":/code -w /code \
+  -e API_KEY=test-api-key -e AI_CLIENT_HMAC_KEY=test-hmac-key \
+  bible-api-bible-api pytest -q -p no:cacheprovider
+```
+
+The test configuration replaces the legacy variable names above with current
+per-application test keys before importing application modules.
+
 ## License
 
 [GPLv3](LICENSE)

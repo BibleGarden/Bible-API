@@ -22,3 +22,8 @@ for `/api/audio/` in production nginx; the orchestrator decides the policy.
 Deploy was read-only for task 123pfqn1yjg. Apply
 `architect/deploy-env-checklist.patch` in the Deploy repository before release;
 it adds the required variable without modifying Deploy from this worktree.
+
+## Rights metadata
+
+See [README: Rights registry](README.md#rights-registry) for the authoritative
+file, schema, permission-update workflow and isolated-container test command.
