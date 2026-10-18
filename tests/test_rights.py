@@ -28,6 +28,7 @@ def test_reviewed_materials_and_aliases():
         assert re.fullmatch(r"[a-z][a-z0-9_]*", item.translation_alias)
         assert all("bible.com" != source.host for source in item.sources)
     npu = REGISTRY.items["text:npu"]
+    assert npu.trademark_required is True
     for lang in ("en", "ru", "uk"):
         assert "© 2022" in getattr(npu.attribution, lang)
         assert "https://creativecommons.org/licenses/by-sa/4.0/" in getattr(npu.attribution, lang)
@@ -37,7 +38,41 @@ def test_reviewed_materials_and_aliases():
     assert "must not be called World English Bible" in REGISTRY.items["text:webus"].trademark.en
 
 
-@pytest.mark.parametrize("field", ["title", "rights_holder", "sources", "attribution", "changes", "checked_on"])
+@pytest.mark.parametrize("item_id", ["text:npu", "text:webus", "text:webbe"])
+@pytest.mark.parametrize("missing", [True, False])
+def test_required_trademark_cannot_be_missing_or_null(document, item_id, missing):
+    item = document["items"][item_id]
+    assert item["trademark_required"] is True
+    if missing:
+        del item["trademark"]
+    else:
+        item["trademark"] = None
+    with pytest.raises(ValidationError, match="require a localized trademark block"):
+        RightsRegistry.model_validate(document)
+
+
+def test_trademark_requirement_is_data_driven(document):
+    item = document["items"].pop("text:bsb")
+    item["translation_alias"] = "another_translation"
+    item["trademark_required"] = True
+    document["items"]["text:another_translation"] = item
+    with pytest.raises(ValidationError, match="require a localized trademark block"):
+        RightsRegistry.model_validate(document)
+    item["trademark"] = {"en": "Terms", "ru": "Условия", "uk": "Умови"}
+    RightsRegistry.model_validate(document)
+    item["trademark_required"] = False
+    del item["trademark"]
+    RightsRegistry.model_validate(document)
+
+
+@pytest.mark.parametrize("value", [None, "true", 1])
+def test_trademark_requirement_must_be_explicit_boolean(document, value):
+    document["items"]["text:npu"]["trademark_required"] = value
+    with pytest.raises(ValidationError):
+        RightsRegistry.model_validate(document)
+
+
+@pytest.mark.parametrize("field", ["title", "rights_holder", "sources", "attribution", "changes", "checked_on", "trademark_required"])
 def test_required_fields(document, field):
     del document["items"]["text:npu"][field]
     with pytest.raises(ValidationError):

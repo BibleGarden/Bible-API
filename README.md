@@ -497,7 +497,10 @@ To add a permission, edit one YAML entry in a branch: use an existing alias,
 link the official publisher/license evidence, supply all three localized
 notices and changes, and date `checked_on` to the evidence review. Use either
 a known license (`CC0-1.0`, `CC-BY-SA-4.0`, with its canonical URL) or an explicit
-public-domain basis. Text and recording permissions are separate; never infer
+public-domain basis. Every entry must explicitly set `trademark_required`;
+when true, a non-null EN/RU/UK `trademark` block is required, independently
+of the license id (including public-domain materials with trademark terms).
+Text and recording permissions are separate; never infer
 audio clearance from the text license. Review the change through a PR and
 refresh Site's committed snapshot from `/api/rights` after the API is released.
 Do not maintain another list in Site.

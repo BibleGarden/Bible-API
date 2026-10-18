@@ -52,6 +52,7 @@ class RightsItem(RightsModel):
     sources: list[HttpUrl] = Field(min_length=1)
     attribution: LocalizedNotice
     changes: LocalizedNotice
+    trademark_required: bool = Field(strict=True)
     trademark: LocalizedNotice | None = None
     checked_on: date
 
@@ -63,6 +64,8 @@ class RightsItem(RightsModel):
             raise ValueError("provide exactly one license or public-domain basis")
         if self.license and self.license.id == "CC-BY-SA-4.0" and not self.copyright:
             raise ValueError("CC BY-SA attribution requires a copyright line")
+        if self.trademark_required and self.trademark is None:
+            raise ValueError("material terms require a localized trademark block")
         if self.checked_on > date.today():
             raise ValueError("checked_on must not be in the future")
         return self
