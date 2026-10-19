@@ -241,6 +241,43 @@ items:
       en: Narrated by Bob Souer; published by Berean / BSB.
       ru: Читает Боб Суэр; издатель — Berean / BSB.
       uk: Читає Боб Суер; видавець — Berean / BSB.
+  audio:bsb:bsb_david:
+    kind: audio
+    translation_alias: bsb
+    voice_alias: bsb_david
+    trademark_required: false
+    title:
+      en: BSB audio — David (computer-generated voice)
+      ru: Аудио BSB — Дэвид (компьютерный голос)
+      uk: Аудіо BSB — Девід (комп’ютерний голос)
+    rights_holder: null
+    copyright: null
+    license: null
+    public_domain_basis:
+      en: Berean Bible confirmed by email on 2026-10-19 that the David recording is in the public domain.
+      ru: Berean Bible подтвердила по электронной почте 2026-10-19, что запись David находится в общественном
+        достоянии.
+      uk: Berean Bible підтвердила електронною поштою 2026-10-19, що запис David є суспільним надбанням.
+    sources:
+    - https://openbible.com/audio.htm
+    attribution:
+      en: Berean Standard Bible, David computer-generated voice based on a professional narrator’s voice.
+        Published by Berean Bible / OpenBible.com. The recording is in the public domain, as confirmed
+        by Berean Bible by email on 2026-10-19.
+      ru: Berean Standard Bible, David — компьютерный голос на основе голоса профессионального чтеца.
+        Издатель — Berean Bible / OpenBible.com. Запись находится в общественном достоянии, что Berean
+        Bible подтвердила по электронной почте 2026-10-19.
+      uk: Berean Standard Bible, David — комп’ютерний голос на основі голосу професійного читця.
+        Видавець — Berean Bible / OpenBible.com. Запис є суспільним надбанням, що Berean Bible підтвердила
+        електронною поштою 2026-10-19.
+    changes: *id003
+    trademark: null
+    checked_on: '2026-10-19'
+    credit:
+      en: Computer-generated voice based on a professional narrator’s voice; published by Berean Bible
+        / OpenBible.com.
+      ru: Компьютерный голос на основе голоса профессионального чтеца; издатель — Berean Bible / OpenBible.com.
+      uk: Комп’ютерний голос на основі голосу професійного читця; видавець — Berean Bible / OpenBible.com.
   audio:webus:winfred_henson:
     kind: audio
     translation_alias: webus
