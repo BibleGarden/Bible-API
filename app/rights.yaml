@@ -206,6 +206,48 @@ items:
       en: Original translation by Biblica, Inc.; prepared for Bible Garden.
       ru: Оригинальный перевод — Biblica, Inc.; подготовка для Bible Garden.
       uk: Оригінальний переклад — Biblica, Inc.; підготовка для Bible Garden.
+  text:srp:
+    kind: text
+    translation_alias: srp
+    voice_alias: null
+    trademark_required: false
+    title:
+      en: Contemporary Russian Translation of the Bible (SRP)
+      ru: Современный русский перевод Библии (СРП)
+      uk: Сучасний російський переклад Біблії (СРП)
+    rights_holder: Российское Библейское общество
+    copyright: © Российское Библейское общество, 2011; дополнение и переработка, 2014
+    license: null
+    public_domain_basis: null
+    permission:
+      en: Used with the written permission of the Russian Bible Society.
+      ru: Используется с письменного разрешения Российского Библейского общества.
+      uk: Використовується з письмового дозволу Російського Біблійного товариства.
+    sources:
+    - https://biblia.ru/AboutBible/ContemporaryRussian/
+    attribution:
+      en: 'Contemporary Russian Translation of the Bible. © Russian Bible Society, 2011; revised and expanded,
+        2014. Used with permission.'
+      ru: 'Современный русский перевод Библии. © Российское Библейское общество, 2011; дополнение и переработка,
+        2014. Используется с разрешения.'
+      uk: 'Сучасний російський переклад Біблії. © Російське Біблійне товариство, 2011; доповнення та переробка,
+        2014. Використовується з дозволу.'
+    changes:
+      en: Converted to application data and HTML formats. Where the edition joins verses and splits a verse
+        between two joined ranges, both ranges are shown as one joined verse. This notice covers the text
+        only, not the separate audio recording.
+      ru: Преобразовано в форматы данных и HTML приложения. Там, где издание объединяет стихи и делит стих
+        между двумя объединёнными диапазонами, оба диапазона показаны одним объединённым стихом. Это уведомление
+        относится только к тексту, а не к отдельной аудиозаписи.
+      uk: Перетворено на формати даних та HTML застосунку. Там, де видання об'єднує вірші й ділить вірш між
+        двома об'єднаними діапазонами, обидва діапазони показано одним об'єднаним віршем. Це повідомлення
+        стосується лише тексту, а не окремого аудіозапису.
+    trademark: null
+    checked_on: '2026-10-24'
+    credit:
+      en: Russian Bible Society.
+      ru: Российское Библейское общество.
+      uk: Російське Біблійне товариство.
   audio:bsb:bsb_souer:
     kind: audio
     translation_alias: bsb
@@ -350,3 +392,46 @@ items:
       en: Audio published by PublicDomainAudioBibles.com and distributed through eBible.org.
       ru: Аудио опубликовано PublicDomainAudioBibles.com и распространяется через eBible.org.
       uk: Аудіо опубліковано PublicDomainAudioBibles.com і поширюється через eBible.org.
+  audio:srp:orgin:
+    kind: audio
+    translation_alias: srp
+    voice_alias: orgin
+    trademark_required: false
+    title:
+      en: SRP audio — Dmitry Orgin
+      ru: Аудио СРП — Дмитрий Оргин
+      uk: Аудіо СРП — Дмитро Оргін
+    rights_holder: Дмитрий Оргин, студия озвучания «Глагол»
+    copyright: null
+    license: null
+    public_domain_basis: null
+    permission:
+      en: Used with the written permission of Dmitry Orgin, given on 2026-10-20. The recording must not be
+        used for AI voice cloning.
+      ru: Используется с письменного разрешения Дмитрия Оргина от 2026-10-20. Запись нельзя использовать
+        для клонирования голоса с помощью ИИ.
+      uk: Використовується з письмового дозволу Дмитра Оргіна від 2026-10-20. Запис не можна використовувати
+        для клонування голосу за допомогою ШІ.
+    sources:
+    - https://orgin.ru/index.php/projects/item/bibliya
+    - https://bible.by/audio/rbo-orgin/
+    attribution:
+      en: Contemporary Russian Translation of the Bible, read by Dmitry Orgin (Glagol voice studio, 2013–2018).
+        Used with permission.
+      ru: Современный русский перевод Библии, читает Дмитрий Оргин (студия озвучания «Глагол», 2013–2018).
+        Используется с разрешения.
+      uk: Сучасний російський переклад Біблії, читає Дмитро Оргін (студія озвучення «Глагол», 2013–2018).
+        Використовується з дозволу.
+    changes:
+      en: The recording is served with chapter and verse navigation and separate alignment timing metadata.
+        This notice does not assert a new copyright in the recording.
+      ru: Запись предоставляется с навигацией по главам и стихам и отдельными метаданными таймингов. Это
+        уведомление не заявляет новых авторских прав на запись.
+      uk: Запис надається з навігацією за розділами й віршами та окремими метаданими таймінгів. Це повідомлення
+        не заявляє нових авторських прав на запис.
+    trademark: null
+    checked_on: '2026-10-24'
+    credit:
+      en: Read by Dmitry Orgin, Glagol voice studio.
+      ru: Читает Дмитрий Оргин, студия озвучания «Глагол».
+      uk: Читає Дмитро Оргін, студія озвучення «Глагол».
