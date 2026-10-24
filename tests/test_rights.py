@@ -113,10 +113,26 @@ def test_all_localizations_are_required(document, field, lang):
     {"license": {"id": "MIT", "name": "MIT", "url": "https://example.org/"}},
     {"license": {"id": "CC-BY-SA-4.0", "name": "CC BY-SA", "url": "https://example.org/"}},
     {"public_domain_basis": {"en": "PD", "ru": "PD", "uk": "PD"}},
+    {"permission": {"en": "Permission", "ru": "Разрешение", "uk": "Дозвіл"}},
 ])
 def test_invalid_entries_are_rejected(document, patch):
     document["items"]["text:npu"].update(patch)
     with pytest.raises(ValidationError):
+        RightsRegistry.model_validate(document)
+
+
+def test_permission_is_the_only_basis_and_names_its_grantor(document):
+    item = document["items"]["audio:srp:orgin"]
+    assert item["license"] is None and item["public_domain_basis"] is None
+    for lang in ("en", "ru", "uk"):
+        assert "2026-10-20" in item["permission"][lang]
+    assert "AI voice cloning" in item["permission"]["en"]
+    item["rights_holder"] = None
+    with pytest.raises(ValidationError, match="permission requires the rights holder"):
+        RightsRegistry.model_validate(document)
+    item["rights_holder"] = "Дмитрий Оргин"
+    item["permission"] = None
+    with pytest.raises(ValidationError, match="exactly one license, public-domain basis or permission"):
         RightsRegistry.model_validate(document)
 
 

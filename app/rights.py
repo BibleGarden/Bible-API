@@ -50,6 +50,9 @@ class RightsItem(RightsModel):
     copyright: Text | None = None
     license: RightsLicense | None = None
     public_domain_basis: LocalizedNotice | None = None
+    permission: LocalizedNotice | None = Field(
+        default=None, description="Written permission of the rights holder: who granted it, when, and its conditions."
+    )
     sources: list[HttpUrl] = Field(min_length=1)
     attribution: LocalizedNotice
     changes: LocalizedNotice
@@ -63,8 +66,10 @@ class RightsItem(RightsModel):
     def check_material(self):
         if (self.kind == "audio") != (self.voice_alias is not None):
             raise ValueError("only audio entries require a voice_alias")
-        if (self.license is None) == (self.public_domain_basis is None):
-            raise ValueError("provide exactly one license or public-domain basis")
+        if sum(basis is not None for basis in (self.license, self.public_domain_basis, self.permission)) != 1:
+            raise ValueError("provide exactly one license, public-domain basis or permission")
+        if self.permission is not None and self.rights_holder is None:
+            raise ValueError("permission requires the rights holder who granted it")
         if self.license and self.license.id == "CC-BY-SA-4.0" and not self.copyright:
             raise ValueError("CC BY-SA attribution requires a copyright line")
         if self.public_domain_basis is not None or (self.license and self.license.id == "CC0-1.0"):

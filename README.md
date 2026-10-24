@@ -485,8 +485,11 @@ audio key is not accepted. Existing catalog and About responses are unchanged.
 
 To add a permission, edit one YAML entry through a PR: use an existing alias,
 link official publisher/license evidence, provide EN/RU/UK attribution and
-changes notices, and set `checked_on` to the evidence review date. Use either
-a supported license with its canonical URL or an explicit public-domain basis.
+changes notices, and set `checked_on` to the evidence review date. Use exactly
+one basis: a supported license with its canonical URL, an explicit public-domain
+basis, or a localized `permission` notice for a written permission (who granted
+it, when, and its conditions; `rights_holder` is required). Keep the permission
+letter itself outside git; the ClickUp ticket holds it.
 Text and recording permissions are separate. Public-domain materials, including
 CC0 recordings, have `rights_holder: null`; put author, narrator and publisher
 information in localized `credit`. Every entry explicitly sets
