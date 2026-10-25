@@ -378,6 +378,71 @@ def test_search_refuses_stale_corpus_on_refresh_failure(environment, monkeypatch
         scripture_select.get_resources(allow_stale=False)
 
 
+@pytest.mark.parametrize("warm_cache", [True, False])
+def test_search_refuses_corpus_with_failed_metadata(
+    environment, monkeypatch, warm_cache
+):
+    environment.resources.metadata_available = False
+    environment.resources.loaded_at = scripture_select.time.monotonic()
+    monkeypatch.setattr(
+        scripture_select, "_resources", environment.resources if warm_cache else None
+    )
+    monkeypatch.setattr(
+        scripture_select, "_load_resources", Mock(return_value=environment.resources)
+    )
+    with pytest.raises(scripture_select.ScriptureSelectUnavailable, match="metadata"):
+        scripture_select.get_resources(allow_stale=False)
+
+
+@pytest.mark.parametrize("stage", ["psalm_maps", "catalogue"])
+def test_loader_records_metadata_failures(environment, monkeypatch, stage):
+    monkeypatch.setattr(
+        scripture_select, "create_connection", Mock(return_value=environment.connection)
+    )
+    monkeypatch.setattr(
+        scripture_select, "load_index", Mock(return_value=environment.resources.index)
+    )
+    monkeypatch.setattr(
+        scripture_select,
+        "load_lexical_indexes",
+        Mock(return_value=environment.resources.lexical),
+    )
+    monkeypatch.setattr(
+        scripture_select,
+        "load_psalm_maps",
+        Mock(return_value=environment.resources.psalm_maps),
+    )
+    monkeypatch.setattr(
+        scripture_select,
+        "_build_catalogue",
+        Mock(
+            return_value=(
+                environment.resources.translations,
+                environment.resources.coverage,
+            )
+        ),
+    )
+    failed = (
+        scripture_select.load_psalm_maps
+        if stage == "psalm_maps"
+        else scripture_select._build_catalogue
+    )
+    failed.side_effect = RuntimeError("metadata unavailable")
+    resources = scripture_select._load_resources()
+    assert resources.metadata_available is False
+
+
+def test_unknown_identifier_fields_are_not_echoed():
+    response = post({**BODY, "privateQuery": "private text"})
+    assert response.status_code == 422
+    assert "privateQuery" not in response.text
+
+
+def test_empty_lexical_index_is_an_error(environment):
+    environment.resources.lexical["ru"] = LexicalIndex([])
+    assert post().status_code == 503
+
+
 def test_request_stats_do_not_include_search_text_or_user_agent(request_log):
     response = post()
     assert response.status_code == 200

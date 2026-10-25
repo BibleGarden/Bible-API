@@ -645,7 +645,7 @@ class ScriptureRetriever:
         The caller supplies search-intent rewrites. Every embedding must
         succeed; neither the prayer blacklist nor safe pool participates.
         """
-        if language not in self.lexical_indexes:
+        if language not in self.lexical_indexes or not self.lexical_indexes[language]:
             raise RuntimeError("search lexical index is unavailable")
         rankings = []
         for query in queries:

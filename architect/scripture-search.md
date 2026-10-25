@@ -42,7 +42,8 @@ catalogue, coverage and Psalm mapping with scripture selection. It does not
 call `select` or `select_final` and does not apply their prayer genre blacklist,
 safe pool, comforting-text preferences or degraded answers.
 
-1. Load the corpus, refusing a failed refresh instead of serving stale data.
+1. Load the corpus, refusing a failed refresh or failed catalogue/Psalm-map
+   loading instead of serving stale or degraded metadata.
 2. Use the configured scripture rewrite provider/model with a general-search
    prompt: three paraphrases preserving names, events and approximate quotes.
    Search the original query as well, preserving literal wording.

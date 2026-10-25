@@ -578,6 +578,10 @@ async def validation_exception_handler(
     request: Request, exc: RequestValidationError
 ) -> JSONResponse:
     """App-level handler: sanitised body for this endpoint, default elsewhere."""
+    if request.url.path.rstrip("/") == "/api/ai/scripture/search":
+        return JSONResponse(
+            status_code=422, content={"detail": "Invalid scripture search request"}
+        )
     if request.url.path.rstrip("/") in SANITIZED_VALIDATION_PATHS:
         return JSONResponse(
             status_code=422, content={"detail": summarize_validation_error(exc)}
@@ -644,6 +648,8 @@ class CorpusResources:
     # Built only for non-primary renderable translations (the primary needs
     # no filter: the corpus is its own chunk set).
     coverage: dict = field(default_factory=dict)
+    # Selection can survive metadata load failures; general search must fail.
+    metadata_available: bool = True
 
 
 _resources_lock = threading.Lock()
@@ -875,6 +881,7 @@ def _build_catalogue(
 
 
 def _load_resources() -> CorpusResources:
+    metadata_available = True
     connection = create_connection()
     if connection is None:
         raise ScriptureSelectUnavailable("database is not available")
@@ -903,6 +910,7 @@ def _load_resources() -> CorpusResources:
                 type(error).__name__,
             )
             psalm_maps = {}
+            metadata_available = False
         indexed = _indexed_translations(index)
         primary = resolve_primary_translations(
             indexed, AI_SCRIPTURE_PRIMARY_TRANSLATIONS
@@ -919,6 +927,7 @@ def _load_resources() -> CorpusResources:
                 type(error).__name__,
             )
             translations, coverage = dict(indexed), {}
+            metadata_available = False
     finally:
         cursor.close()
         connection.close()
@@ -932,6 +941,7 @@ def _load_resources() -> CorpusResources:
         indexed=indexed,
         primary=primary,
         coverage=coverage,
+        metadata_available=metadata_available,
     )
 
 
@@ -954,6 +964,8 @@ def get_resources(*, allow_stale: bool = True) -> CorpusResources:
         if cached is not None and (
             time.monotonic() - cached.loaded_at < AI_SCRIPTURE_INDEX_CACHE_SECONDS
         ):
+            if not allow_stale and not cached.metadata_available:
+                raise ScriptureSelectUnavailable("corpus metadata is unavailable")
             return cached
         try:
             _resources = _load_resources()
@@ -969,6 +981,8 @@ def get_resources(*, allow_stale: bool = True) -> CorpusResources:
             )
             cached.loaded_at = time.monotonic()
             return cached
+        if not allow_stale and not _resources.metadata_available:
+            raise ScriptureSelectUnavailable("corpus metadata is unavailable")
         return _resources
 
 
