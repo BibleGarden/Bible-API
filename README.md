@@ -72,6 +72,8 @@ The API will be available at `http://localhost:9084/api`.
 - `POST /api/ai/transcribe` — voice recording to text (see below)
 - `POST /api/ai/scripture` — contextual Bible passage selection
   (`architect/scripture-select.md`)
+- `POST /api/ai/scripture/search` — general Bible search by meaning for the
+  `bible-garden` client (`architect/scripture-search.md`)
 
 All API endpoints require a configured client key in `X-API-Key`; audio GET/HEAD
 also accept `api_key` in the query for native players. A non-empty audio query

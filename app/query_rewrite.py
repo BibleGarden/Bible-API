@@ -586,13 +586,27 @@ class GeminiQueryRewriter:
         if not _MODEL_PATTERN.fullmatch(self.model):
             raise QueryRewriteError("rewrite model name contains invalid characters")
 
+        text = self.complete(
+            build_rewrite_instruction(language, self.variants),
+            build_rewrite_user_content(topic, user_replies),
+            deadline=deadline,
+        )
+        return parse_rewrite_response(text, self.variants)
+
+    def complete(
+        self, instruction: str, user_content: str,
+        deadline: Deadline | None = None,
+    ) -> str:
+        """Generate JSON with the configured transport, independent of intent."""
+        if not self.api_key or not _MODEL_PATTERN.fullmatch(self.model):
+            raise QueryRewriteError("generation provider is not configured")
         payload = {
             "system_instruction": {
-                "parts": [{"text": build_rewrite_instruction(language, self.variants)}]
+                "parts": [{"text": instruction}]
             },
             "contents": [{
                 "role": "user",
-                "parts": [{"text": build_rewrite_user_content(topic, user_replies)}],
+                "parts": [{"text": user_content}],
             }],
             "generationConfig": {
                 # Leave room for reasoning tokens: on "thinking" Gemini
@@ -649,7 +663,7 @@ class GeminiQueryRewriter:
             )
         except (KeyError, IndexError, TypeError) as exc:
             raise QueryRewriteError("rewrite response has no candidates") from exc
-        return parse_rewrite_response(text, self.variants)
+        return text
 
 
 class OpenAICompatQueryRewriter:
@@ -728,6 +742,19 @@ class OpenAICompatQueryRewriter:
         except LLMError as exc:
             raise QueryRewriteError(f"rewrite failed: {exc}") from None
         return parse_rewrite_response(text, self.variants)
+
+    def complete(
+        self, instruction: str, user_content: str,
+        deadline: Deadline | None = None,
+    ) -> str:
+        """Generate JSON without applying the prayer rewrite prompt."""
+        try:
+            return self._chat.complete(
+                instruction, user_content, deadline=deadline,
+                json_object=True, temperature=0.0,
+            )
+        except LLMError:
+            raise QueryRewriteError("generation request failed") from None
 
 
 def build_query_rewriter(

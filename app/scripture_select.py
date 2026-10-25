@@ -502,6 +502,7 @@ class ErrorResponse(BaseModel):
 
 SANITIZED_VALIDATION_PATHS = frozenset({
     "/api/ai/scripture",
+    "/api/ai/scripture/search",
     "/api/ai/content-reports",
 })
 
@@ -934,7 +935,7 @@ def _load_resources() -> CorpusResources:
     )
 
 
-def get_resources() -> CorpusResources:
+def get_resources(*, allow_stale: bool = True) -> CorpusResources:
     """Cached vector + BM25 indexes; reloaded after the configured TTL.
 
     Loading them costs ~1 s and ~45 MB, and the data is identical for every
@@ -944,7 +945,8 @@ def get_resources() -> CorpusResources:
     A failed refresh serves the stale copy instead of failing the request:
     the cached corpus is still a valid corpus, and a DB blip during a
     refresh must not take the endpoint down. Only a cold cache propagates
-    the failure (503).
+    the failure (503). General search passes allow_stale=False to propagate
+    refresh failures even with a warm cache.
     """
     global _resources
     with _resources_lock:
@@ -956,7 +958,7 @@ def get_resources() -> CorpusResources:
         try:
             _resources = _load_resources()
         except Exception as error:
-            if cached is None:
+            if cached is None or not allow_stale:
                 raise
             # Category only, and keep serving the previous corpus. Reset
             # the timer so the next refresh is attempted after a full TTL
