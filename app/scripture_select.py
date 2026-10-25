@@ -400,7 +400,7 @@ class HighlightPassage(BaseModel):
 
 class HighlightModel(BaseModel):
     """Key verses inside `passage` — 1 to 3 verses carrying its central
-    thought for this prayer, chosen by the same grounded AI call that chose
+    thought for the request, chosen by the same grounded AI call that chose
     the passage. `passage` coordinates are always a real sub-range of the
     returned passage, and whenever `passage.verses` is served as well, both
     boundary numbers of that range occur among those verses (a translation

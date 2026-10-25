@@ -44,6 +44,17 @@ def post(body=None, key="test-api-key", **kwargs):
     )
 
 
+def rank_answer(*indices, start=2, end=3):
+    return json.dumps(
+        {
+            "matches": [
+                {"index": index, "key_verse_start": start, "key_verse_end": end}
+                for index in indices
+            ]
+        }
+    )
+
+
 @pytest.fixture(autouse=True)
 def environment(monkeypatch, request_log):
     maxima = {
@@ -99,7 +110,7 @@ def environment(monkeypatch, request_log):
     rewrite.complete.return_value = json.dumps(
         {"queries": ["Adam", "Seth", "genealogy"]}
     )
-    ranker.complete.return_value = '{"indices": [1, 0]}'
+    ranker.complete.return_value = rank_answer(1, 0)
     embedder.embed_query.return_value = [1.0, 0.0]
     monkeypatch.setattr(search, "get_resources", Mock(return_value=resources))
     factory = Mock(
@@ -161,6 +172,17 @@ def test_returns_grounded_ranked_passages_and_preserves_genealogies(environment)
         == "translation 1 verse 1 translation 1 verse 2 translation 1 verse 3"
     )
     assert [v["number"] for v in psalm["passage"]["verses"]] == [1, 2, 3]
+    assert psalm["highlight"] == {
+        "canonical": {
+            "book_number": 19,
+            "chapter_number": 23,
+            "verse_start": 2,
+            "verse_end": 3,
+        },
+        "passage": {"chapter_number": 22, "verse_start": 2, "verse_end": 3},
+    }
+    prompt = json.loads(environment.ranker.complete.call_args.args[1])
+    assert "[1] translation 1 verse 1" in prompt["candidates"][1]["text"]
     assert environment.embedder.embed_query.call_args_list[0].args == (QUERY,)
     environment.connection.close.assert_called_once()
 
@@ -172,7 +194,7 @@ def test_pipeline_uses_strict_resources(environment):
 
 
 def test_limit_and_requested_nonindexed_translation(environment):
-    environment.ranker.complete.return_value = '{"indices": [0]}'
+    environment.ranker.complete.return_value = rank_answer(0)
     response = post({**BODY, "limit": 1, "translation": 2})
     assert response.status_code == 200
     results = response.json()["results"]
@@ -182,6 +204,7 @@ def test_limit_and_requested_nonindexed_translation(environment):
     assert results[0]["passage"]["translation_alias"] == "rst"
     assert results[0]["passage"]["chapter_number"] == 22
     assert "translation 2" in results[0]["passage"]["text"]
+    assert results[0]["highlight"]["passage"]["chapter_number"] == 22
 
 
 @pytest.mark.parametrize(
@@ -236,7 +259,7 @@ def test_requires_bible_garden_identity(environment, key):
 
 
 def test_empty_ranking_is_a_success(environment):
-    environment.ranker.complete.return_value = '{"indices": []}'
+    environment.ranker.complete.return_value = rank_answer()
     assert post().json() == {"language": "ru", "translation": 1, "results": []}
 
 
@@ -296,10 +319,65 @@ def test_stage_failures_are_explicit_and_private(
 
 @pytest.mark.parametrize(
     "answer",
-    ["not JSON", '{"indices": [200]}', '{"indices": [0, 0]}', '{"indices": [true]}'],
+    ["not JSON", rank_answer(200), rank_answer(0, 0), rank_answer(True)],
 )
 def test_ranking_cannot_invent_or_duplicate_results(environment, answer):
     environment.ranker.complete.return_value = answer
+    assert post().status_code == 503
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        rank_answer(0, start=0, end=1),
+        rank_answer(0, start=3, end=2),
+        rank_answer(0, start=1, end=4),
+        rank_answer(0, start=1, end=5),
+        rank_answer(0, start=True, end=2),
+        rank_answer(0, start=1.0, end=2),
+        '{"matches": [{"index": 0}]}',
+        '{"matches": [0]}',
+        '{"matches": null}',
+    ],
+)
+def test_invalid_key_verses_fail_explicitly(environment, answer):
+    environment.ranker.complete.return_value = answer
+    assert post().status_code == 503
+
+
+def test_single_key_verse(environment):
+    environment.ranker.complete.return_value = rank_answer(1, start=2, end=2)
+    result = post().json()["results"][0]
+    assert result["highlight"]["passage"]["verse_start"] == 2
+    assert result["highlight"]["passage"]["verse_end"] == 2
+
+
+def test_highlight_uses_markers_instead_of_verse_numbers(environment):
+    environment.verse_loader.side_effect = lambda *args: [
+        VerseText(n, f"verse {n}") for n in (1, 3, 4)
+    ]
+    environment.ranker.complete.return_value = rank_answer(0)
+    result = post().json()["results"][0]
+    assert result["highlight"]["passage"]["verse_start"] == 3
+    assert result["highlight"]["passage"]["verse_end"] == 4
+
+
+def test_counted_psalm_superscription_is_mapped_exactly(environment):
+    for meta in environment.resources.index.metas:
+        if meta["canonical_id"] == PSALM:
+            meta["canonical_id"] = "v3:19.003.001-003"
+            meta["chapter_number"] = 3
+    environment.resources.lexical["ru"] = LexicalIndex(
+        [(GENEALOGY, "Adam"), ("v3:19.003.001-003", "psalm")]
+    )
+    environment.ranker.complete.return_value = rank_answer(1, start=1, end=1)
+    result = post().json()["results"][0]
+    assert result["highlight"]["canonical"]["verse_start"] == 1
+    assert result["highlight"]["passage"]["verse_start"] == 2
+
+
+def test_unmappable_highlight_is_not_guessed(environment):
+    del environment.resources.psalm_maps[1]
     assert post().status_code == 503
 
 
@@ -310,7 +388,7 @@ def test_malformed_rewrites_are_not_replaced_by_raw_search(environment):
 
 
 def test_deduplicates_index_hits_across_variants(environment):
-    environment.ranker.complete.return_value = '{"indices": [0, 1]}'
+    environment.ranker.complete.return_value = rank_answer(0, 1)
     result = post().json()["results"]
     assert [r["canonical"]["canonical_id"] for r in result] == [GENEALOGY, PSALM]
 
@@ -462,6 +540,9 @@ def test_openapi_exposes_search_contract():
     request = schema["components"]["schemas"]["SearchRequest"]
     assert request["required"] == ["query", "language"]
     assert request["properties"]["limit"]["maximum"] == 10
+    result = schema["components"]["schemas"]["SearchResult"]
+    assert "highlight" in result["required"]
+    assert result["properties"]["highlight"]["$ref"].endswith("/HighlightModel")
 
 
 @pytest.mark.parametrize("provider", ["gemini", "openai_compat"])

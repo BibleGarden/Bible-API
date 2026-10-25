@@ -25,14 +25,29 @@ in descending relevance order. Each result has:
   `verse_start`, `verse_end` in canonical coordinates;
 - `passage`: `translation`, `translation_alias`, `book_number`,
   `chapter_number`, `verse_start`, `verse_end`, optional `title`, exact `text`
-  and `verses` (`number`, `text`, `paragraph_start`).
+  and `verses` (`number`, `text`, `paragraph_start`);
+- `highlight`: required key-verse range in the same format as scripture
+  selection: `canonical` (`book_number`, `chapter_number`, `verse_start`,
+  `verse_end`) and `passage` (`chapter_number`, `verse_start`, `verse_end`).
 
 Open reading using **passage coordinates**, which belong to the requested
 translation. Psalm numbers may differ from canonical numbers: canonical
 Psalm 23 is Psalm 22 in the Synodal translation. Canonical IDs identify
 windows within the current chunking version. No model-generated text,
-explanation, confidence score or highlight is returned. Results may contain
+explanation or confidence score is returned. Results may contain
 fewer than `limit` passages, including an empty list.
+
+Every result's `highlight` identifies the 1–3 consecutive verses most directly
+answering the query. Highlight the entries of `passage.verses` whose `number`
+is between `highlight.passage.verse_start` and `verse_end`, inclusive. Open
+reading using the result's `passage.book_number`, translation and
+`highlight.passage` coordinates. Both highlight boundary numbers are guaranteed
+to exist in the returned verse list; they are verse numbers, not array indices.
+The full passage text and coordinates remain available for context.
+
+As in scripture selection, a canonical highlight can span more than three
+verse numbers when one translation verse merges several canonical verses.
+The server retains the exact mapping in both coordinate systems.
 
 ## Pipeline
 
@@ -53,10 +68,17 @@ safe pool, comforting-text preferences or degraded answers.
 4. Read candidate text from the database in the requested translation using
    the existing range renderer. Deduplicate identical reading ranges.
 5. Use the configured scripture rerank provider/model with a separate search
-   prompt. It returns only a validated, unique list of candidate indices in
-   relevance order, omitting irrelevant passages. An empty list is valid;
-   malformed JSON, invalid/duplicate indices or a failed stage are errors.
-6. Return at most `limit` verified passages. No safe-pool or raw-only answer
+   prompt and server-numbered verse markers `[1]`, `[2]`, etc. In the same
+   call it returns `matches`: unique candidate indices in relevance order,
+   each with `key_verse_start`/`key_verse_end` marker positions. Each span
+   must cover 1–3 consecutive markers inside its own candidate. Irrelevant
+   passages are omitted; an empty list is valid. No extra model call is added.
+6. Resolve marker positions against the exact verses shown to the model,
+   using the existing scripture-highlight Psalm mapping. Malformed JSON,
+   invalid/duplicate candidates, missing/out-of-range key-verse markers,
+   unmappable highlights or a failed stage return 503; the server does not
+   guess or silently omit the required highlight.
+7. Return at most `limit` verified passages. No safe-pool or raw-only answer
    replaces a failed stage, even if some embeddings succeeded.
 
 Both `gemini` and `openai_compat` use the existing stage transports and
@@ -97,7 +119,7 @@ Keep Uvicorn access logging disabled as required by `AGENTS.md`.
 `tests/test_scripture_search.py` exercises the endpoint and real hybrid/range
 rendering logic over a tiny synthetic corpus, with model and database stand-ins.
 It covers ordering, limits, genre eligibility, translation selection, ru/en/uk,
-Psalm coordinates, deduplication, authorization, validation/privacy, empty
+Psalm and key-verse coordinates, deduplication, authorization, validation/privacy, empty
 results, partial-stage failures, rate limiting and deadlines. Existing
 `test_scripture_select.py`, `test_retrieval.py`, `test_query_rewrite.py` and
 `test_passage_render.py` remain regression checks for shared behavior.
