@@ -1,0 +1,305 @@
+[
+  {
+    "id": "ru-split",
+    "category": "event",
+    "query": "распад государства",
+    "language": "ru",
+    "translation": 1,
+    "anchors": [
+      [
+        11,
+        12,
+        1,
+        24
+      ],
+      [
+        14,
+        10,
+        1,
+        19
+      ]
+    ]
+  },
+  {
+    "id": "en-split",
+    "category": "event",
+    "query": "collapse of a state",
+    "language": "en",
+    "translation": 16,
+    "anchors": [
+      [
+        11,
+        12,
+        1,
+        24
+      ],
+      [
+        14,
+        10,
+        1,
+        19
+      ]
+    ]
+  },
+  {
+    "id": "uk-split",
+    "category": "event",
+    "query": "розпад держави",
+    "language": "uk",
+    "translation": 20,
+    "anchors": [
+      [
+        11,
+        12,
+        1,
+        24
+      ],
+      [
+        14,
+        10,
+        1,
+        19
+      ]
+    ]
+  },
+  {
+    "id": "ru-sea",
+    "category": "event",
+    "query": "переход через море по сухому",
+    "language": "ru",
+    "translation": 1,
+    "anchors": [
+      [
+        2,
+        14,
+        1,
+        31
+      ]
+    ]
+  },
+  {
+    "id": "en-sea",
+    "category": "event",
+    "query": "crossing the sea on dry ground",
+    "language": "en",
+    "translation": 16,
+    "anchors": [
+      [
+        2,
+        14,
+        1,
+        31
+      ]
+    ]
+  },
+  {
+    "id": "uk-sea",
+    "category": "event",
+    "query": "перехід через море по суші",
+    "language": "uk",
+    "translation": 20,
+    "anchors": [
+      [
+        2,
+        14,
+        1,
+        31
+      ]
+    ]
+  },
+  {
+    "id": "ru-enemies",
+    "category": "topic",
+    "query": "прощение врагов",
+    "language": "ru",
+    "translation": 1,
+    "anchors": [
+      [
+        40,
+        5,
+        38,
+        48
+      ],
+      [
+        42,
+        6,
+        27,
+        36
+      ],
+      [
+        45,
+        12,
+        14,
+        21
+      ]
+    ]
+  },
+  {
+    "id": "en-enemies",
+    "category": "topic",
+    "query": "forgiving enemies",
+    "language": "en",
+    "translation": 16,
+    "anchors": [
+      [
+        40,
+        5,
+        38,
+        48
+      ],
+      [
+        42,
+        6,
+        27,
+        36
+      ],
+      [
+        45,
+        12,
+        14,
+        21
+      ]
+    ]
+  },
+  {
+    "id": "uk-enemies",
+    "category": "topic",
+    "query": "прощення ворогів",
+    "language": "uk",
+    "translation": 20,
+    "anchors": [
+      [
+        40,
+        5,
+        38,
+        48
+      ],
+      [
+        42,
+        6,
+        27,
+        36
+      ],
+      [
+        45,
+        12,
+        14,
+        21
+      ]
+    ]
+  },
+  {
+    "id": "ru-jonah",
+    "category": "person",
+    "query": "Иона убегает от Божьего поручения",
+    "language": "ru",
+    "translation": 1,
+    "anchors": [
+      [
+        32,
+        1,
+        1,
+        17
+      ]
+    ]
+  },
+  {
+    "id": "en-jonah",
+    "category": "person",
+    "query": "Jonah runs away from God's command",
+    "language": "en",
+    "translation": 16,
+    "anchors": [
+      [
+        32,
+        1,
+        1,
+        17
+      ]
+    ]
+  },
+  {
+    "id": "uk-jonah",
+    "category": "person",
+    "query": "Йона тікає від Божого доручення",
+    "language": "uk",
+    "translation": 20,
+    "anchors": [
+      [
+        32,
+        1,
+        1,
+        17
+      ]
+    ]
+  },
+  {
+    "id": "ru-season",
+    "category": "quote",
+    "query": "всему свое время",
+    "language": "ru",
+    "translation": 1,
+    "anchors": [
+      [
+        21,
+        3,
+        1,
+        8
+      ]
+    ]
+  },
+  {
+    "id": "en-season",
+    "category": "quote",
+    "query": "there is a season for everything",
+    "language": "en",
+    "translation": 16,
+    "anchors": [
+      [
+        21,
+        3,
+        1,
+        8
+      ]
+    ]
+  },
+  {
+    "id": "uk-season",
+    "category": "quote",
+    "query": "для всього є свій час",
+    "language": "uk",
+    "translation": 20,
+    "anchors": [
+      [
+        21,
+        3,
+        1,
+        8
+      ]
+    ]
+  },
+  {
+    "id": "ru-router",
+    "category": "unrelated",
+    "query": "как настроить Wi-Fi роутер",
+    "language": "ru",
+    "translation": 1,
+    "anchors": []
+  },
+  {
+    "id": "en-router",
+    "category": "unrelated",
+    "query": "how to configure a Wi-Fi router",
+    "language": "en",
+    "translation": 16,
+    "anchors": []
+  },
+  {
+    "id": "uk-router",
+    "category": "unrelated",
+    "query": "як налаштувати Wi-Fi роутер",
+    "language": "uk",
+    "translation": 20,
+    "anchors": []
+  }
+]

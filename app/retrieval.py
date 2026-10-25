@@ -636,6 +636,37 @@ class ScriptureRetriever:
 
     # -- public entry point -------------------------------------------------
 
+    def search(
+        self, language: str, queries: list[str], deadline: Deadline,
+        top_k: int = 20,
+    ) -> list[Candidate]:
+        """General search: strict hybrid retrieval without prayer policies.
+
+        The caller supplies search-intent rewrites. Every embedding must
+        succeed; neither the prayer blacklist nor safe pool participates.
+        """
+        if language not in self.lexical_indexes or not self.lexical_indexes[language]:
+            raise RuntimeError("search lexical index is unavailable")
+        rankings = []
+        for query in queries:
+            if deadline.expired():
+                raise TimeoutError("search deadline exceeded")
+            vector = self.embedder.embed_query(query, deadline=deadline)
+            semantic = [
+                (hit.canonical_id, hit.score)
+                for hit in self.index.search(
+                    vector, top_k=self.fetch_k, language=language
+                )
+            ]
+            rankings.append(self._merge_lexical(language, query, vector, semantic))
+        fused = fuse_interleave(rankings)
+        covered = [hit for hit in fused if self._allowed(hit.canonical_id)]
+        hits = apply_diversity(covered, top_k, self.max_per_book)
+        candidates = self._resolve_candidates(language, hits)
+        if any(not candidate.passages for candidate in candidates):
+            raise RuntimeError("search indexed passage is missing")
+        return candidates
+
     def select(
         self, request: SelectionRequest, deadline: Deadline | None = None
     ) -> SelectionResult:

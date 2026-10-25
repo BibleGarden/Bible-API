@@ -400,7 +400,7 @@ class HighlightPassage(BaseModel):
 
 class HighlightModel(BaseModel):
     """Key verses inside `passage` — 1 to 3 verses carrying its central
-    thought for this prayer, chosen by the same grounded AI call that chose
+    thought for the request, chosen by the same grounded AI call that chose
     the passage. `passage` coordinates are always a real sub-range of the
     returned passage, and whenever `passage.verses` is served as well, both
     boundary numbers of that range occur among those verses (a translation
@@ -502,6 +502,7 @@ class ErrorResponse(BaseModel):
 
 SANITIZED_VALIDATION_PATHS = frozenset({
     "/api/ai/scripture",
+    "/api/ai/scripture/search",
     "/api/ai/content-reports",
 })
 
@@ -577,6 +578,10 @@ async def validation_exception_handler(
     request: Request, exc: RequestValidationError
 ) -> JSONResponse:
     """App-level handler: sanitised body for this endpoint, default elsewhere."""
+    if request.url.path.rstrip("/") == "/api/ai/scripture/search":
+        return JSONResponse(
+            status_code=422, content={"detail": "Invalid scripture search request"}
+        )
     if request.url.path.rstrip("/") in SANITIZED_VALIDATION_PATHS:
         return JSONResponse(
             status_code=422, content={"detail": summarize_validation_error(exc)}
@@ -643,6 +648,8 @@ class CorpusResources:
     # Built only for non-primary renderable translations (the primary needs
     # no filter: the corpus is its own chunk set).
     coverage: dict = field(default_factory=dict)
+    # Selection can survive metadata load failures; general search must fail.
+    metadata_available: bool = True
 
 
 _resources_lock = threading.Lock()
@@ -874,6 +881,7 @@ def _build_catalogue(
 
 
 def _load_resources() -> CorpusResources:
+    metadata_available = True
     connection = create_connection()
     if connection is None:
         raise ScriptureSelectUnavailable("database is not available")
@@ -902,6 +910,7 @@ def _load_resources() -> CorpusResources:
                 type(error).__name__,
             )
             psalm_maps = {}
+            metadata_available = False
         indexed = _indexed_translations(index)
         primary = resolve_primary_translations(
             indexed, AI_SCRIPTURE_PRIMARY_TRANSLATIONS
@@ -918,6 +927,7 @@ def _load_resources() -> CorpusResources:
                 type(error).__name__,
             )
             translations, coverage = dict(indexed), {}
+            metadata_available = False
     finally:
         cursor.close()
         connection.close()
@@ -931,10 +941,11 @@ def _load_resources() -> CorpusResources:
         indexed=indexed,
         primary=primary,
         coverage=coverage,
+        metadata_available=metadata_available,
     )
 
 
-def get_resources() -> CorpusResources:
+def get_resources(*, allow_stale: bool = True) -> CorpusResources:
     """Cached vector + BM25 indexes; reloaded after the configured TTL.
 
     Loading them costs ~1 s and ~45 MB, and the data is identical for every
@@ -944,7 +955,8 @@ def get_resources() -> CorpusResources:
     A failed refresh serves the stale copy instead of failing the request:
     the cached corpus is still a valid corpus, and a DB blip during a
     refresh must not take the endpoint down. Only a cold cache propagates
-    the failure (503).
+    the failure (503). General search passes allow_stale=False to propagate
+    refresh failures even with a warm cache.
     """
     global _resources
     with _resources_lock:
@@ -952,11 +964,13 @@ def get_resources() -> CorpusResources:
         if cached is not None and (
             time.monotonic() - cached.loaded_at < AI_SCRIPTURE_INDEX_CACHE_SECONDS
         ):
+            if not allow_stale and not cached.metadata_available:
+                raise ScriptureSelectUnavailable("corpus metadata is unavailable")
             return cached
         try:
             _resources = _load_resources()
         except Exception as error:
-            if cached is None:
+            if cached is None or not allow_stale:
                 raise
             # Category only, and keep serving the previous corpus. Reset
             # the timer so the next refresh is attempted after a full TTL
@@ -967,6 +981,8 @@ def get_resources() -> CorpusResources:
             )
             cached.loaded_at = time.monotonic()
             return cached
+        if not allow_stale and not _resources.metadata_available:
+            raise ScriptureSelectUnavailable("corpus metadata is unavailable")
         return _resources
 
 
