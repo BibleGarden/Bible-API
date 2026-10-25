@@ -104,20 +104,13 @@ def environment(monkeypatch, request_log):
         loaded_at=0,
         psalm_maps=maps,
     )
-    rewrite, ranker, embedder = MagicMock(), MagicMock(), MagicMock()
-    for provider in (rewrite, ranker, embedder):
+    ranker, embedder = MagicMock(), MagicMock()
+    for provider in (ranker, embedder):
         provider.__enter__.return_value = provider
-    rewrite.complete.return_value = json.dumps(
-        {"queries": ["Adam", "Seth", "genealogy"]}
-    )
     ranker.complete.return_value = rank_answer(1, 0)
     embedder.embed_query.return_value = [1.0, 0.0]
     monkeypatch.setattr(search, "get_resources", Mock(return_value=resources))
-    factory = Mock(
-        side_effect=lambda **kw: (
-            rewrite if kw["stage"] is search.SCRIPTURE_REWRITE_PROVIDER else ranker
-        )
-    )
+    factory = Mock(return_value=ranker)
     monkeypatch.setattr(search, "build_query_rewriter", factory)
     monkeypatch.setattr(search, "build_embedding_client", Mock(return_value=embedder))
     connection = MagicMock()
@@ -144,7 +137,6 @@ def environment(monkeypatch, request_log):
     search._limiter.reset()
     yield SimpleNamespace(
         resources=resources,
-        rewrite=rewrite,
         ranker=ranker,
         embedder=embedder,
         factory=factory,
@@ -191,6 +183,13 @@ def test_pipeline_uses_strict_resources(environment):
     result = search._run_search(search.SearchRequest(**BODY), Deadline(5))
     assert len(result.results) == 2
     search.get_resources.assert_called_once_with(allow_stale=False)
+    environment.factory.assert_called_once()
+    assert (
+        environment.factory.call_args.kwargs["stage"]
+        is search.SCRIPTURE_RERANK_PROVIDER
+    )
+    environment.embedder.embed_query.assert_called_once()
+    assert environment.embedder.embed_query.call_args.args == (QUERY,)
 
 
 def test_limit_and_requested_nonindexed_translation(environment):
@@ -275,7 +274,6 @@ def test_no_covered_candidates_does_not_call_ranker(environment):
     "stage",
     [
         "resources",
-        "rewrite",
         "embedding",
         "index",
         "lexical",
@@ -290,14 +288,8 @@ def test_stage_failures_are_explicit_and_private(
     error = RuntimeError(QUERY)
     if stage == "resources":
         search.get_resources.side_effect = error
-    elif stage == "rewrite":
-        environment.rewrite.complete.side_effect = QueryRewriteError(QUERY)
     elif stage == "embedding":
-        # A partial failure must fail the entire search as well.
-        environment.embedder.embed_query.side_effect = [
-            [1.0, 0.0],
-            EmbeddingUnavailable(QUERY),
-        ]
+        environment.embedder.embed_query.side_effect = EmbeddingUnavailable(QUERY)
     elif stage == "index":
         monkeypatch.setattr(
             environment.resources.index, "search", Mock(side_effect=error)
@@ -381,13 +373,12 @@ def test_unmappable_highlight_is_not_guessed(environment):
     assert post().status_code == 503
 
 
-def test_malformed_rewrites_are_not_replaced_by_raw_search(environment):
-    environment.rewrite.complete.return_value = '{"queries": []}'
-    assert post().status_code == 503
-    environment.embedder.embed_query.assert_not_called()
-
-
-def test_deduplicates_index_hits_across_variants(environment):
+def test_deduplicates_index_hits(environment):
+    index = environment.resources.index
+    environment.resources.index = InMemoryVectorIndex(
+        np.vstack([index.vectors, index.vectors[:1]]),
+        [*index.metas, {**index.metas[0], "translation": 3}],
+    )
     environment.ranker.complete.return_value = rank_answer(0, 1)
     result = post().json()["results"]
     assert [r["canonical"]["canonical_id"] for r in result] == [GENEALOGY, PSALM]
@@ -551,7 +542,7 @@ def test_search_prompts_use_both_existing_transports(provider):
 
     def respond(request):
         requests.append(json.loads(request.content))
-        output = '{"queries": ["Adam", "Seth", "genealogy"]}'
+        output = rank_answer(0)
         if provider == "gemini":
             return httpx.Response(
                 200, json={"candidates": [{"content": {"parts": [{"text": output}]}}]}
@@ -559,7 +550,7 @@ def test_search_prompts_use_both_existing_transports(provider):
         return httpx.Response(200, json={"choices": [{"message": {"content": output}}]})
 
     stage = StageProvider(
-        stage="scripture_rewrite",
+        stage="scripture_rerank",
         provider=provider,
         model="test-model",
         endpoint="https://test.invalid/v1" if provider == "openai_compat" else "",
@@ -570,12 +561,18 @@ def test_search_prompts_use_both_existing_transports(provider):
         with build_query_rewriter(
             stage=stage, http_client=transport, attempts=1
         ) as generator:
-            assert search._rewrites(generator, QUERY, "en", Deadline(2)) == [
-                QUERY,
-                "Adam",
-                "Seth",
-                "genealogy",
-            ]
+            passage = search.PassageText(
+                translation=1,
+                alias="syn",
+                book_number=13,
+                chapter_number=1,
+                verse_number_start=1,
+                verse_number_end=3,
+                title=None,
+                text="verified",
+                verses=[VerseText(n, f"verse {n}") for n in (1, 2, 3)],
+            )
+            assert search._rank(generator, QUERY, [passage], Deadline(2)) == [(0, 2, 3)]
     payload = requests[0]
     if provider == "gemini":
         instruction = payload["system_instruction"]["parts"][0]["text"]
@@ -583,5 +580,6 @@ def test_search_prompts_use_both_existing_transports(provider):
     else:
         instruction = payload["messages"][0]["content"]
         content = payload["messages"][1]["content"]
-    assert "general Bible search" in instruction
-    assert json.loads(content) == {"query": QUERY}
+    assert "general search" in instruction
+    assert json.loads(content)["query"] == QUERY
+    assert "[1] verse 1" in json.loads(content)["candidates"][0]["text"]

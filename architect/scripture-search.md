@@ -59,11 +59,10 @@ safe pool, comforting-text preferences or degraded answers.
 
 1. Load the corpus, refusing a failed refresh or failed catalogue/Psalm-map
    loading instead of serving stale or degraded metadata.
-2. Use the configured scripture rewrite provider/model with a general-search
-   prompt: three paraphrases preserving names, events and approximate quotes.
-   Search the original query as well, preserving literal wording.
-3. For every query, require successful embedding and combine semantic top-50
-   with BM25 top-20. Interleave variants, deduplicate canonical IDs, apply
+2. Embed the original query once. General search makes no rewrite request
+   and does not send its query to Cerebras.
+3. Require successful embedding and combine semantic top-50 with BM25 top-20
+   for that same original query. Deduplicate canonical IDs, apply
    translation coverage and diversity, retaining up to 20 candidates.
 4. Read candidate text from the database in the requested translation using
    the existing range renderer. Deduplicate identical reading ranges.
@@ -81,11 +80,22 @@ safe pool, comforting-text preferences or degraded answers.
 7. Return at most `limit` verified passages. No safe-pool or raw-only answer
    replaces a failed stage, even if some embeddings succeeded.
 
-Both `gemini` and `openai_compat` use the existing stage transports and
-credentials. There are no new model choices, indexes, databases or services.
+Both `gemini` and `openai_compat` use the existing rerank-stage transports and
+credentials. With candidates, search makes one embedding call and one ranking
+call. There are no new model choices, indexes, databases or services.
 The prayer rewrite prompt, rerank prompt and `/api/ai/scripture` behavior
 remain governed by their existing ADRs. Search ranking quality requires its
 own human-reviewed live evaluation; prayer benchmark scores do not transfer.
+
+The [2026-10-25 rewrite ablation](experiments/search-rewrite-2026-10-25/report.md)
+compared the same 18 synthetic queries in both modes. Direct search found
+reference anchors among candidates in 13/15 positive cases versus 12/15 with
+rewriting. Among 12 paired successful positive cases it returned anchors in
+10 versus 9 and reduced median latency from 2.423 to 1.970 seconds. This small
+set supports removing the extra stage for the development API; it is not a
+general quality guarantee. Gemini 429 responses prevented a complete comparison
+of unrelated queries, and the Russian abstract state-collapse query remains
+unresolved in both modes. Preserved inputs and results are linked in the report.
 
 ## Limits, privacy and errors
 
