@@ -70,8 +70,10 @@ safe pool, comforting-text preferences or degraded answers.
    that passage. References are discarded; only the worded queries are
    searched, so a misremembered reference cannot become a result. A query with
    no biblical subject gets none. The answer is constrained by Gemini
-   `responseSchema` and validated by the server.
-3. Embed the expansion queries and the original query concurrently; every
+   `responseSchema` (each query at most 1000 characters) and validated by the
+   server. The call runs before the database connection is opened.
+3. Embed the expansion queries and the original query concurrently (one at a
+   time with the `local` embedding provider, like scripture selection); every
    embedding must succeed. Combine semantic top-50 with BM25 top-20 for each,
    fuse them by round-robin interleave with expansions first (the original
    query last), deduplicate canonical IDs, apply translation coverage and

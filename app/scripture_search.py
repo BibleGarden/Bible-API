@@ -47,6 +47,7 @@ from scripture_select import (
     PassageModel,
     build_passage_verses,
     coverage_filter,
+    embed_workers,
     get_resources,
     resolve_translation,
     translation_alias,
@@ -97,6 +98,7 @@ def _check_deadline(deadline: Deadline) -> None:
 
 _LANGUAGE_NAMES = {"ru": "Russian", "en": "English", "uk": "Ukrainian"}
 MAX_EXPANSIONS = 3
+MAX_QUERY_LENGTH = 1000
 EXPANSION_SCHEMA = {
     "type": "OBJECT",
     "properties": {
@@ -105,7 +107,10 @@ EXPANSION_SCHEMA = {
             "maxItems": MAX_EXPANSIONS,
             "items": {
                 "type": "OBJECT",
-                "properties": {"ref": {"type": "STRING"}, "query": {"type": "STRING"}},
+                "properties": {
+                    "ref": {"type": "STRING"},
+                    "query": {"type": "STRING", "maxLength": MAX_QUERY_LENGTH},
+                },
                 "required": ["ref", "query"],
                 "propertyOrdering": ["ref", "query"],
             },
@@ -155,7 +160,7 @@ def _expand(generator, query: str, language: str, deadline: Deadline) -> list[st
             not isinstance(passage, dict)
             or not isinstance(passage.get("query"), str)
             or not passage["query"].strip()
-            or len(passage["query"]) > 1000
+            or len(passage["query"]) > MAX_QUERY_LENGTH
             for passage in passages
         )
     ):
@@ -284,6 +289,15 @@ def _run_search(request: SearchRequest, deadline: Deadline) -> SearchResponse:
         raise RuntimeError("search translation coverage is unavailable")
     _check_deadline(deadline)
     with ExitStack() as stack:
+        # Expand first: no database connection is held during the LLM call.
+        rewriter = stack.enter_context(
+            build_query_rewriter(
+                stage=SCRIPTURE_REWRITE_PROVIDER,
+                timeout=AI_SCRIPTURE_PROVIDER_TIMEOUT_SECONDS,
+                attempts=1,
+            )
+        )
+        queries = _expand(rewriter, request.query, language, deadline)
         embedder = stack.enter_context(
             build_embedding_client(
                 timeout=AI_SCRIPTURE_PROVIDER_TIMEOUT_SECONDS,
@@ -305,16 +319,8 @@ def _run_search(request: SearchRequest, deadline: Deadline) -> SearchResponse:
             blacklist=[],
             safe_pool=[],
             allowed_canonical_ids=allowed,
-            embed_workers=MAX_EXPANSIONS + 1,
+            embed_workers=embed_workers(MAX_EXPANSIONS + 1),
         )
-        rewriter = stack.enter_context(
-            build_query_rewriter(
-                stage=SCRIPTURE_REWRITE_PROVIDER,
-                timeout=AI_SCRIPTURE_PROVIDER_TIMEOUT_SECONDS,
-                attempts=1,
-            )
-        )
-        queries = _expand(rewriter, request.query, language, deadline)
         candidates = retriever.search(language, queries, deadline, CANDIDATE_LIMIT)
         results = []
         passages = []

@@ -221,6 +221,44 @@ def test_search_adds_passage_worded_queries(environment):
     assert prompt["query"] == QUERY
 
 
+def test_expansion_candidates_precede_original_query_candidates(environment):
+    # The expansion hits the psalm, the original query hits the genealogy;
+    # the ranker must see the expansion's candidate first.
+    vectors = {"shepherd psalm": [0.0, 1.0], QUERY: [1.0, 0.0]}
+    environment.embedder.embed_query.side_effect = lambda query, **kwargs: vectors[
+        query
+    ]
+    environment.rewriter.complete.return_value = expansion_answer("shepherd psalm")
+    assert post().status_code == 200
+    prompt = json.loads(environment.ranker.complete.call_args.args[1])
+    texts = [candidate["text"] for candidate in prompt["candidates"]]
+    assert len(texts) == 2
+    # The psalm has three verses, the genealogy four.
+    assert "verse 4" not in texts[0] and "verse 4" in texts[1]
+
+
+def test_one_failed_expansion_embedding_fails_search_before_ranking(environment):
+    environment.rewriter.complete.return_value = expansion_answer("make an ark")
+
+    def embed(query, **kwargs):
+        if query == "make an ark":
+            raise EmbeddingUnavailable("down")
+        return [1.0, 0.0]
+
+    environment.embedder.embed_query.side_effect = embed
+    assert post().status_code == 503
+    environment.ranker.complete.assert_not_called()
+
+
+def test_expansion_runs_before_database_connection(environment):
+    def complete(*args, **kwargs):
+        search.create_connection.assert_not_called()
+        return expansion_answer()
+
+    environment.rewriter.complete.side_effect = complete
+    assert post().status_code == 200
+
+
 def test_expansions_precede_the_original_query():
     generator = Mock()
     generator.complete.return_value = expansion_answer(" make an ark ", QUERY)
@@ -228,9 +266,10 @@ def test_expansions_precede_the_original_query():
         "make an ark",
         QUERY,
     ]
-    assert generator.complete.call_args.kwargs["response_schema"] == (
-        search.EXPANSION_SCHEMA
-    )
+    schema = generator.complete.call_args.kwargs["response_schema"]
+    assert schema == search.EXPANSION_SCHEMA
+    query = schema["properties"]["passages"]["items"]["properties"]["query"]
+    assert query["maxLength"] == search.MAX_QUERY_LENGTH == 1000
 
 
 @pytest.mark.parametrize(

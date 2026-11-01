@@ -155,9 +155,12 @@ _PROVIDER_ATTEMPTS = 2
 # other cost. Sending all six in ONE request would be 504 ms — not done here,
 # because `retrieval._embed_queries` degrades per variant and a single batch
 # would make one bad variant lose all six.
-_EMBED_WORKERS = (
-    1 if EMBEDDING_PROVIDER == EMBEDDING_PROVIDER_LOCAL else REWRITE_VARIANTS
-)
+def embed_workers(queries: int) -> int:
+    """Pool size for embedding `queries` variants at once (1 on `local`)."""
+    return 1 if EMBEDDING_PROVIDER == EMBEDDING_PROVIDER_LOCAL else queries
+
+
+_EMBED_WORKERS = embed_workers(REWRITE_VARIANTS)
 
 
 class ScriptureSelectUnavailable(RuntimeError):
