@@ -596,8 +596,13 @@ class GeminiQueryRewriter:
     def complete(
         self, instruction: str, user_content: str,
         deadline: Deadline | None = None,
+        response_schema: dict | None = None,
     ) -> str:
-        """Generate JSON with the configured transport, independent of intent."""
+        """Generate JSON with the configured transport, independent of intent.
+
+        `response_schema` is sent as Gemini `responseSchema` (constrained
+        decoding); callers still validate the answer themselves.
+        """
         if not self.api_key or not _MODEL_PATTERN.fullmatch(self.model):
             raise QueryRewriteError("generation provider is not configured")
         payload = {
@@ -619,6 +624,8 @@ class GeminiQueryRewriter:
                 "responseMimeType": "application/json",
             },
         }
+        if response_schema is not None:
+            payload["generationConfig"]["responseSchema"] = response_schema
         url = GEMINI_GENERATE_URL.format(model=self.model)
         data = None
         last_error: Exception | None = None
@@ -746,8 +753,14 @@ class OpenAICompatQueryRewriter:
     def complete(
         self, instruction: str, user_content: str,
         deadline: Deadline | None = None,
+        response_schema: dict | None = None,
     ) -> str:
-        """Generate JSON without applying the prayer rewrite prompt."""
+        """Generate JSON without applying the prayer rewrite prompt.
+
+        Chat completions have no counterpart of Gemini `responseSchema`
+        (see `llm_client.build_payload`): `response_schema` is not sent and
+        the caller's validation carries the whole contract.
+        """
         try:
             return self._chat.complete(
                 instruction, user_content, deadline=deadline,

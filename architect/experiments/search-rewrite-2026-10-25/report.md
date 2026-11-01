@@ -32,6 +32,10 @@ Remove query rewriting from general search. On this small set it added no measur
 
 The selected search path makes one embedding request and one ranking request when candidates exist. It makes no Cerebras rewrite request. The accepted prayer-selection pipeline, prompts, models and regression tests remain unchanged; this experiment is not evidence for removing prayer rewriting.
 
+## Correction (2026-11-01)
+
+The enemies anchor `[45, 12, 14, 21]` was meant as Romans 12:14–21, but book 45 is James in the canonical numbering (`app/canon.py`, Synodal New Testament order; Romans is 52). James has five chapters, so this anchor could never match: its misses are an artifact of the reference, not a retrieval or ranking result. The preserved inputs and results below are left unchanged; [search-quality-2026-11-01](../search-quality-2026-11-01/queries.json) uses the corrected anchor.
+
 ## Unresolved cases
 
 The Russian `распад государства` and English `collapse of a state` miss the Israel/Judah split anchors in BOTH arms. Removing rewriting does not fix that limitation. The Ukrainian equivalent reaches the split references with direct search; the rewrite arm retrieved an anchor but returned an invalid ranking/highlight payload. A broader evaluation, especially abstract historical concepts and unrelated queries, is still needed. Do not add fixed query-to-reference mappings based on this set.
