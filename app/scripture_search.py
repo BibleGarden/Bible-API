@@ -8,6 +8,7 @@ import logging
 from contextlib import ExitStack
 from typing import Annotated
 
+import httpx
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from starlette.concurrency import run_in_threadpool
@@ -29,7 +30,7 @@ from embeddings import build_embedding_client
 from passage_render import render_passage
 from passage_highlight import resolve_highlight
 from passage_rerank import MAX_KEY_VERSES
-from query_rewrite import build_query_rewriter
+from query_rewrite import QueryRewriteError, build_query_rewriter
 from rate_limit import RateLimiter, RateLimitError
 from retrieval import (
     PassageText,
@@ -44,6 +45,7 @@ from scripture_select import (
     HighlightModel,
     HighlightPassage,
     Language,
+    PROVIDER_ATTEMPTS,
     PassageModel,
     build_passage_verses,
     coverage_filter,
@@ -121,6 +123,29 @@ EXPANSION_SCHEMA = {
 RELEVANT_GRADES = ("direct", "related")
 
 
+class ExpansionError(QueryRewriteError):
+    """The expansion provider call failed; the class names the stage in logs."""
+
+
+class RankingError(QueryRewriteError):
+    """The ranking provider call failed; the class names the stage in logs."""
+
+
+def _failure_chain(error: BaseException | None) -> str:
+    """The failure and its causes for the log, by class and HTTP status.
+
+    Messages may carry request data, so they are never logged.
+    """
+    parts = []
+    while error is not None:
+        if isinstance(error, httpx.HTTPStatusError):
+            parts.append(f"HTTP {error.response.status_code}")
+        else:
+            parts.append(type(error).__name__)
+        error = error.__cause__
+    return " <- ".join(parts)
+
+
 def _expand(generator, query: str, language: str, deadline: Deadline) -> list[str]:
     """Queries worded like the passages answering the query, then the query.
 
@@ -144,14 +169,16 @@ def _expand(generator, query: str, language: str, deadline: Deadline) -> list[st
         'own words. Return only JSON {"passages": [{"ref": "...", '
         '"query": "..."}]}.'
     )
-    payload = json.loads(
-        generator.complete(
+    try:
+        text = generator.complete(
             instruction,
             json.dumps({"query": query}, ensure_ascii=False),
             deadline=deadline,
             response_schema=EXPANSION_SCHEMA,
         )
-    )
+    except QueryRewriteError as error:
+        raise ExpansionError from error
+    payload = json.loads(text)
     passages = payload.get("passages") if isinstance(payload, dict) else None
     if (
         not isinstance(passages, list)
@@ -242,15 +269,16 @@ def _rank(
             for i, passage in enumerate(passages)
         ],
     }
-    payload = json.loads(
-        generator.complete(
+    try:
+        text = generator.complete(
             instruction,
             json.dumps(content, ensure_ascii=False),
             deadline=deadline,
             response_schema=_ranking_schema(passages),
-        ),
-        object_pairs_hook=_unique_keys,
-    )
+        )
+    except QueryRewriteError as error:
+        raise RankingError from error
+    payload = json.loads(text, object_pairs_hook=_unique_keys)
     if not isinstance(payload, dict):
         raise ValueError("invalid search ranking response")
     ids = {f"c{i}": i for i in range(len(passages))}
@@ -294,14 +322,14 @@ def _run_search(request: SearchRequest, deadline: Deadline) -> SearchResponse:
             build_query_rewriter(
                 stage=SCRIPTURE_REWRITE_PROVIDER,
                 timeout=AI_SCRIPTURE_PROVIDER_TIMEOUT_SECONDS,
-                attempts=1,
+                attempts=PROVIDER_ATTEMPTS,
             )
         )
         queries = _expand(rewriter, request.query, language, deadline)
         embedder = stack.enter_context(
             build_embedding_client(
                 timeout=AI_SCRIPTURE_PROVIDER_TIMEOUT_SECONDS,
-                max_retries=1,
+                max_retries=PROVIDER_ATTEMPTS,
             )
         )
         connection = create_connection()
@@ -378,7 +406,7 @@ def _run_search(request: SearchRequest, deadline: Deadline) -> SearchResponse:
                 build_query_rewriter(
                     stage=SCRIPTURE_RERANK_PROVIDER,
                     timeout=AI_SCRIPTURE_PROVIDER_TIMEOUT_SECONDS,
-                    attempts=1,
+                    attempts=PROVIDER_ATTEMPTS,
                 )
             )
             matches = _rank(ranker, request.query, passages, deadline)
@@ -482,8 +510,7 @@ async def scripture_search(
             status_code=504, detail="Scripture search time budget exceeded"
         ) from None
     except Exception as error:
-        # Provider errors may contain request data: log the class only.
-        logger.warning("Scripture search failed: %s", type(error).__name__)
+        logger.warning("Scripture search failed: %s", _failure_chain(error))
         code = 504 if deadline.expired() else 503
         raise HTTPException(
             status_code=code, detail="Scripture search temporarily unavailable"

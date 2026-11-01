@@ -28,7 +28,7 @@ from test_gemini_retry import FakeClock, quota_body
 
 BUDGET = 15.0            # AI_SCRIPTURE_TIMEOUT_SECONDS in production
 PROVIDER_TIMEOUT = 8.0   # scripture_select._PROVIDER_TIMEOUT_SECONDS
-PROVIDER_ATTEMPTS = 2    # scripture_select._PROVIDER_ATTEMPTS
+PROVIDER_ATTEMPTS = 2    # scripture_select.PROVIDER_ATTEMPTS
 
 
 def test_budget_shrinks_with_elapsed_time():

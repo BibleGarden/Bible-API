@@ -641,8 +641,10 @@ class GeminiQueryRewriter:
                     timeout=timeout,
                 )
                 if response.status_code in RETRYABLE_STATUS:
-                    last_error = QueryRewriteError(
-                        f"rewrite request failed (HTTP {response.status_code})"
+                    last_error = httpx.HTTPStatusError(
+                        f"HTTP {response.status_code}",
+                        request=response.request,
+                        response=response,
                     )
                     if not self._pause_before_retry(
                         deadline, attempt, rate_limit_of(response)

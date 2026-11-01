@@ -409,7 +409,43 @@ def test_stage_failures_are_explicit_and_private(
     assert QUERY not in response.text + caplog.text
 
 
-GRADE = {"relevance": "direct", "key_verse_start": 1, "key_verse_count": 1}
+def test_provider_failure_is_retried_and_logged_by_cause(
+    environment, monkeypatch, caplog
+):
+    requests = []
+
+    def respond(http_request):
+        requests.append(http_request)
+        return httpx.Response(503, text=QUERY)
+
+    stage = StageProvider(
+        stage="scripture_rewrite",
+        provider="gemini",
+        model="test-model",
+        endpoint="",
+        api_key="unit-test-secret",
+        reasoning_effort="omit",
+    )
+    monkeypatch.setattr("query_rewrite.time.sleep", lambda seconds: None)
+    with httpx.Client(transport=httpx.MockTransport(respond)) as transport:
+        monkeypatch.setattr(
+            search,
+            "build_query_rewriter",
+            lambda **kwargs: build_query_rewriter(
+                **{**kwargs, "stage": stage, "http_client": transport}
+            ),
+        )
+        response = post()
+    assert response.status_code == 503
+    assert len(requests) == scripture_select.PROVIDER_ATTEMPTS == 2
+    assert (
+        "Scripture search failed: ExpansionError <- QueryRewriteError <- HTTP 503"
+        in caplog.text
+    )
+    assert QUERY not in caplog.text
+
+
+GRADE ={"relevance": "direct", "key_verse_start": 1, "key_verse_count": 1}
 
 
 @pytest.mark.parametrize(

@@ -131,7 +131,8 @@ using `AI_SCRIPTURE_REQUESTS_PER_MINUTE` and
 pseudonyms. The overall budget is `AI_SCRIPTURE_TIMEOUT_SECONDS`, starting
 before corpus loading. Each model call is additionally capped by
 `AI_SCRIPTURE_PROVIDER_TIMEOUT_SECONDS` and the remaining budget. Each call
-has one attempt. The HTTP wait is bounded even if a blocking worker has not
+has two attempts, as in scripture selection, so a hung or overloaded provider
+call is cut and retried instead of consuming the whole budget. The HTTP wait is bounded even if a blocking worker has not
 returned; the worker checks the deadline before starting further stages.
 Cancellation cannot forcibly terminate a native operation already running.
 
@@ -146,7 +147,9 @@ Cancellation cannot forcibly terminate a native operation already running.
 
 Error bodies contain only `detail`. Validation errors do not echo query
 values or unknown user-controlled field names. Queries and model answers are
-never logged or cached. Statistics omit the user agent for this private
+never logged or cached. A failure is logged as its exception chain by class
+and HTTP status, e.g. `ExpansionError <- QueryRewriteError <- ReadTimeout`;
+`ExpansionError`/`RankingError` name the failed model stage. Statistics omit the user agent for this private
 route and retain the existing application identity and HMAC client pseudonym.
 Keep Uvicorn access logging disabled as required by `AGENTS.md`.
 
