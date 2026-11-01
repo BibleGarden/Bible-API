@@ -126,8 +126,9 @@ final pass (Gemini daily quota) are listed in that report.
 ## Limits, privacy and errors
 
 Search has its own process-local global/per-client rolling 60-second limiter,
-using `AI_SCRIPTURE_REQUESTS_PER_MINUTE` and
-`AI_SCRIPTURE_REQUESTS_PER_CLIENT_PER_MINUTE`. Client identifiers are HMAC
+using `AI_SCRIPTURE_SEARCH_REQUESTS_PER_MINUTE` (global, default 60) and the
+per-client `AI_SCRIPTURE_REQUESTS_PER_CLIENT_PER_MINUTE` shared with scripture
+selection (default 3). Client identifiers are HMAC
 pseudonyms. The overall budget is `AI_SCRIPTURE_TIMEOUT_SECONDS`, starting
 before corpus loading. Each model call is additionally capped by
 `AI_SCRIPTURE_PROVIDER_TIMEOUT_SECONDS` and the remaining budget. Each call

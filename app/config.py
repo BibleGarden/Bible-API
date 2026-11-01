@@ -1270,6 +1270,12 @@ AI_SCRIPTURE_REQUESTS_PER_CLIENT_PER_MINUTE = min(
     AI_SCRIPTURE_REQUESTS_PER_MINUTE,
     max(1, _get_int("AI_SCRIPTURE_REQUESTS_PER_CLIENT_PER_MINUTE", 3)),
 )
+# General search shares the per-client limit above but has its own global
+# budget: one search costs ~2 Gemini calls (expansion + ranking), a quarter
+# of a selection, so the selection budget would cap all users at 10/min.
+AI_SCRIPTURE_SEARCH_REQUESTS_PER_MINUTE = _get_positive_int(
+    "AI_SCRIPTURE_SEARCH_REQUESTS_PER_MINUTE", 60
+)
 # Total time budget of one selection (rewrite + embeddings + rerank).
 # Measured p50 ~5-6 s with concurrent variant embeddings; 15 s leaves room
 # for a slow provider before the endpoint degrades to a verified fallback.

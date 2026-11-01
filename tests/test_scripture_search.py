@@ -145,7 +145,7 @@ def environment(monkeypatch, request_log):
     )
     monkeypatch.setattr(passage_render, "load_range_verses", verse_loader)
     monkeypatch.setattr(search, "AI_ENABLED", True)
-    monkeypatch.setattr(search, "AI_SCRIPTURE_REQUESTS_PER_MINUTE", 100)
+    monkeypatch.setattr(search, "AI_SCRIPTURE_SEARCH_REQUESTS_PER_MINUTE", 100)
     monkeypatch.setattr(search, "AI_SCRIPTURE_REQUESTS_PER_CLIENT_PER_MINUTE", 100)
     search._limiter.reset()
     yield SimpleNamespace(

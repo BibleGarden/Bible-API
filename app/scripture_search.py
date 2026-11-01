@@ -19,7 +19,7 @@ from config import (
     AI_ENABLED,
     AI_SCRIPTURE_PROVIDER_TIMEOUT_SECONDS,
     AI_SCRIPTURE_REQUESTS_PER_CLIENT_PER_MINUTE,
-    AI_SCRIPTURE_REQUESTS_PER_MINUTE,
+    AI_SCRIPTURE_SEARCH_REQUESTS_PER_MINUTE,
     AI_SCRIPTURE_TIMEOUT_SECONDS,
     SCRIPTURE_RERANK_PROVIDER,
     SCRIPTURE_REWRITE_PROVIDER,
@@ -487,7 +487,7 @@ async def scripture_search(
     try:
         _limiter.reserve(
             resolve_client_ip(http_request),
-            AI_SCRIPTURE_REQUESTS_PER_MINUTE,
+            AI_SCRIPTURE_SEARCH_REQUESTS_PER_MINUTE,
             AI_SCRIPTURE_REQUESTS_PER_CLIENT_PER_MINUTE,
         )
     except RateLimitError as error:
