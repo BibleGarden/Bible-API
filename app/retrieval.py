@@ -642,16 +642,25 @@ class ScriptureRetriever:
     ) -> list[Candidate]:
         """General search: strict hybrid retrieval without prayer policies.
 
-        The caller supplies search-intent rewrites. Every embedding must
-        succeed; neither the prayer blacklist nor safe pool participates.
+        The caller supplies search-intent rewrites, embedded concurrently up
+        to `embed_workers`. Every embedding must succeed; neither the prayer
+        blacklist nor safe pool participates.
         """
         if language not in self.lexical_indexes or not self.lexical_indexes[language]:
             raise RuntimeError("search lexical index is unavailable")
+        if deadline.expired():
+            raise TimeoutError("search deadline exceeded")
+        with ThreadPoolExecutor(
+            max_workers=min(self.embed_workers, len(queries))
+        ) as pool:
+            vectors = list(
+                pool.map(
+                    lambda query: self.embedder.embed_query(query, deadline=deadline),
+                    queries,
+                )
+            )
         rankings = []
-        for query in queries:
-            if deadline.expired():
-                raise TimeoutError("search deadline exceeded")
-            vector = self.embedder.embed_query(query, deadline=deadline)
+        for query, vector in zip(queries, vectors):
             semantic = [
                 (hit.canonical_id, hit.score)
                 for hit in self.index.search(

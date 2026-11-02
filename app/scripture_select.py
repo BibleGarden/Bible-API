@@ -135,7 +135,7 @@ TOP_K = 10
 # takes the MINIMUM of the two: a stage moved to a slower self-hosted model
 # would otherwise stay capped at 8 s however large the request budget is.
 _PROVIDER_TIMEOUT_SECONDS = AI_SCRIPTURE_PROVIDER_TIMEOUT_SECONDS
-_PROVIDER_ATTEMPTS = 2
+PROVIDER_ATTEMPTS = 2
 
 # How many query variants are embedded at once. On Gemini they are
 # independent round trips and doing them concurrently is the single biggest
@@ -155,9 +155,12 @@ _PROVIDER_ATTEMPTS = 2
 # other cost. Sending all six in ONE request would be 504 ms — not done here,
 # because `retrieval._embed_queries` degrades per variant and a single batch
 # would make one bad variant lose all six.
-_EMBED_WORKERS = (
-    1 if EMBEDDING_PROVIDER == EMBEDDING_PROVIDER_LOCAL else REWRITE_VARIANTS
-)
+def embed_workers(queries: int) -> int:
+    """Pool size for embedding `queries` variants at once (1 on `local`)."""
+    return 1 if EMBEDDING_PROVIDER == EMBEDDING_PROVIDER_LOCAL else queries
+
+
+_EMBED_WORKERS = embed_workers(REWRITE_VARIANTS)
 
 
 class ScriptureSelectUnavailable(RuntimeError):
@@ -1031,18 +1034,18 @@ def _provider_clients() -> tuple:
         if _clients is None:
             _clients = (
                 build_query_rewriter(
-                    timeout=_PROVIDER_TIMEOUT_SECONDS, attempts=_PROVIDER_ATTEMPTS
+                    timeout=_PROVIDER_TIMEOUT_SECONDS, attempts=PROVIDER_ATTEMPTS
                 ),
                 (
                     build_embedding_client(
                         timeout=_PROVIDER_TIMEOUT_SECONDS,
-                        max_retries=_PROVIDER_ATTEMPTS,
+                        max_retries=PROVIDER_ATTEMPTS,
                     )
                     if AI_ENABLED
                     else _DisabledEmbeddingClient()
                 ),
                 build_passage_reranker(
-                    timeout=_PROVIDER_TIMEOUT_SECONDS, attempts=_PROVIDER_ATTEMPTS
+                    timeout=_PROVIDER_TIMEOUT_SECONDS, attempts=PROVIDER_ATTEMPTS
                 ),
             )
         return _clients

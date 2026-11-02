@@ -44,15 +44,23 @@ def post(body=None, key="test-api-key", **kwargs):
     )
 
 
-def rank_answer(*indices, start=2, end=3):
+def rank_answer(direct=(), related=(), start=2, count=2):
+    grades = {index: "direct" for index in direct}
+    grades.update({index: "related" for index in related})
     return json.dumps(
         {
-            "matches": [
-                {"index": index, "key_verse_start": start, "key_verse_end": end}
-                for index in indices
-            ]
+            f"c{index}": {
+                "relevance": relevance,
+                "key_verse_start": start,
+                "key_verse_count": count,
+            }
+            for index, relevance in grades.items()
         }
     )
+
+
+def expansion_answer(*queries):
+    return json.dumps({"passages": [{"ref": "Gen 6:14", "query": q} for q in queries]})
 
 
 @pytest.fixture(autouse=True)
@@ -104,13 +112,18 @@ def environment(monkeypatch, request_log):
         loaded_at=0,
         psalm_maps=maps,
     )
-    ranker, embedder = MagicMock(), MagicMock()
-    for provider in (ranker, embedder):
+    rewriter, ranker, embedder = MagicMock(), MagicMock(), MagicMock()
+    for provider in (rewriter, ranker, embedder):
         provider.__enter__.return_value = provider
-    ranker.complete.return_value = rank_answer(1, 0)
+    rewriter.complete.return_value = expansion_answer()
+    ranker.complete.return_value = rank_answer(direct=[1], related=[0])
     embedder.embed_query.return_value = [1.0, 0.0]
     monkeypatch.setattr(search, "get_resources", Mock(return_value=resources))
-    factory = Mock(return_value=ranker)
+    factory = Mock(
+        side_effect=lambda stage, **kwargs: (
+            rewriter if stage is search.SCRIPTURE_REWRITE_PROVIDER else ranker
+        )
+    )
     monkeypatch.setattr(search, "build_query_rewriter", factory)
     monkeypatch.setattr(search, "build_embedding_client", Mock(return_value=embedder))
     connection = MagicMock()
@@ -132,11 +145,12 @@ def environment(monkeypatch, request_log):
     )
     monkeypatch.setattr(passage_render, "load_range_verses", verse_loader)
     monkeypatch.setattr(search, "AI_ENABLED", True)
-    monkeypatch.setattr(search, "AI_SCRIPTURE_REQUESTS_PER_MINUTE", 100)
+    monkeypatch.setattr(search, "AI_SCRIPTURE_SEARCH_REQUESTS_PER_MINUTE", 100)
     monkeypatch.setattr(search, "AI_SCRIPTURE_REQUESTS_PER_CLIENT_PER_MINUTE", 100)
     search._limiter.reset()
     yield SimpleNamespace(
         resources=resources,
+        rewriter=rewriter,
         ranker=ranker,
         embedder=embedder,
         factory=factory,
@@ -183,17 +197,101 @@ def test_pipeline_uses_strict_resources(environment):
     result = search._run_search(search.SearchRequest(**BODY), Deadline(5))
     assert len(result.results) == 2
     search.get_resources.assert_called_once_with(allow_stale=False)
-    environment.factory.assert_called_once()
-    assert (
-        environment.factory.call_args.kwargs["stage"]
-        is search.SCRIPTURE_RERANK_PROVIDER
-    )
+    assert [call.kwargs["stage"] for call in environment.factory.call_args_list] == [
+        search.SCRIPTURE_REWRITE_PROVIDER,
+        search.SCRIPTURE_RERANK_PROVIDER,
+    ]
+    assert json.loads(environment.rewriter.complete.call_args.args[1]) == {
+        "query": QUERY
+    }
     environment.embedder.embed_query.assert_called_once()
     assert environment.embedder.embed_query.call_args.args == (QUERY,)
 
 
+def test_search_adds_passage_worded_queries(environment):
+    environment.rewriter.complete.return_value = expansion_answer(
+        "make yourself an ark", QUERY, "make yourself an ark"
+    )
+    assert post().status_code == 200
+    # Embedded concurrently: compare without order.
+    assert sorted(
+        c.args[0] for c in environment.embedder.embed_query.call_args_list
+    ) == sorted(["make yourself an ark", QUERY])
+    prompt = json.loads(environment.ranker.complete.call_args.args[1])
+    assert prompt["query"] == QUERY
+
+
+def test_expansion_candidates_precede_original_query_candidates(environment):
+    # The expansion hits the psalm, the original query hits the genealogy;
+    # the ranker must see the expansion's candidate first.
+    vectors = {"shepherd psalm": [0.0, 1.0], QUERY: [1.0, 0.0]}
+    environment.embedder.embed_query.side_effect = lambda query, **kwargs: vectors[
+        query
+    ]
+    environment.rewriter.complete.return_value = expansion_answer("shepherd psalm")
+    assert post().status_code == 200
+    prompt = json.loads(environment.ranker.complete.call_args.args[1])
+    texts = [candidate["text"] for candidate in prompt["candidates"]]
+    assert len(texts) == 2
+    # The psalm has three verses, the genealogy four.
+    assert "verse 4" not in texts[0] and "verse 4" in texts[1]
+
+
+def test_one_failed_expansion_embedding_fails_search_before_ranking(environment):
+    environment.rewriter.complete.return_value = expansion_answer("make an ark")
+
+    def embed(query, **kwargs):
+        if query == "make an ark":
+            raise EmbeddingUnavailable("down")
+        return [1.0, 0.0]
+
+    environment.embedder.embed_query.side_effect = embed
+    assert post().status_code == 503
+    environment.ranker.complete.assert_not_called()
+
+
+def test_expansion_runs_before_database_connection(environment):
+    def complete(*args, **kwargs):
+        search.create_connection.assert_not_called()
+        return expansion_answer()
+
+    environment.rewriter.complete.side_effect = complete
+    assert post().status_code == 200
+
+
+def test_expansions_precede_the_original_query():
+    generator = Mock()
+    generator.complete.return_value = expansion_answer(" make an ark ", QUERY)
+    assert search._expand(generator, QUERY, "en", Deadline(2)) == [
+        "make an ark",
+        QUERY,
+    ]
+    schema = generator.complete.call_args.kwargs["response_schema"]
+    assert schema == search.EXPANSION_SCHEMA
+    query = schema["properties"]["passages"]["items"]["properties"]["query"]
+    assert query["maxLength"] == search.MAX_QUERY_LENGTH == 1000
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "not JSON",
+        '{"passages": null}',
+        '{"passages": ["make yourself an ark"]}',
+        expansion_answer(" "),
+        expansion_answer("x" * 1001),
+        expansion_answer("a", "b", "c", "d"),
+    ],
+)
+def test_invalid_expansion_fails_explicitly(environment, caplog, answer):
+    environment.rewriter.complete.return_value = answer
+    assert post().status_code == 503
+    environment.ranker.complete.assert_not_called()
+    assert "Scripture search failed: ExpansionError <- " in caplog.text
+
+
 def test_limit_and_requested_nonindexed_translation(environment):
-    environment.ranker.complete.return_value = rank_answer(0)
+    environment.ranker.complete.return_value = rank_answer(direct=[0])
     response = post({**BODY, "limit": 1, "translation": 2})
     assert response.status_code == 200
     results = response.json()["results"]
@@ -279,6 +377,7 @@ def test_no_covered_candidates_does_not_call_ranker(environment):
         "lexical",
         "database",
         "render",
+        "rewrite",
         "rank",
     ],
 )
@@ -302,6 +401,8 @@ def test_stage_failures_are_explicit_and_private(
         search.create_connection.return_value = None
     elif stage == "render":
         environment.verse_loader.side_effect = error
+    elif stage == "rewrite":
+        environment.rewriter.complete.side_effect = QueryRewriteError(QUERY)
     elif stage == "rank":
         environment.ranker.complete.side_effect = QueryRewriteError(QUERY)
     response = post()
@@ -309,9 +410,86 @@ def test_stage_failures_are_explicit_and_private(
     assert QUERY not in response.text + caplog.text
 
 
+def _time_out(http_request):
+    raise httpx.ReadTimeout(QUERY, request=http_request)
+
+
+@pytest.mark.parametrize(
+    ("stage", "logged"), [("rewrite", "ExpansionError"), ("rank", "RankingError")]
+)
+@pytest.mark.parametrize(
+    ("failure", "cause"),
+    [
+        (lambda http_request: httpx.Response(503, text=QUERY), "HTTP 503"),
+        (_time_out, "ReadTimeout"),
+    ],
+)
+def test_provider_failure_is_retried_and_logged_by_cause(
+    environment, monkeypatch, caplog, stage, logged, failure, cause
+):
+    requests = []
+
+    def respond(http_request):
+        requests.append(http_request)
+        return failure(http_request)
+
+    failing = (
+        search.SCRIPTURE_REWRITE_PROVIDER
+        if stage == "rewrite"
+        else search.SCRIPTURE_RERANK_PROVIDER
+    )
+    provider = StageProvider(
+        stage=f"scripture_{stage}",
+        provider="gemini",
+        model="test-model",
+        endpoint="",
+        api_key="unit-test-secret",
+        reasoning_effort="omit",
+    )
+    stand_in = search.build_query_rewriter
+    monkeypatch.setattr("query_rewrite.time.sleep", lambda seconds: None)
+    with httpx.Client(transport=httpx.MockTransport(respond)) as transport:
+        monkeypatch.setattr(
+            search,
+            "build_query_rewriter",
+            lambda **kwargs: (
+                build_query_rewriter(
+                    **{**kwargs, "stage": provider, "http_client": transport}
+                )
+                if kwargs["stage"] is failing
+                else stand_in(**kwargs)
+            ),
+        )
+        response = post()
+    assert response.status_code == 503
+    assert len(requests) == scripture_select.PROVIDER_ATTEMPTS == 2
+    assert (
+        f"Scripture search failed: {logged} <- QueryRewriteError <- {cause}"
+        in caplog.text
+    )
+    assert QUERY not in caplog.text
+
+
+def test_search_has_its_own_global_limit(environment, monkeypatch):
+    monkeypatch.setattr(search, "AI_SCRIPTURE_SEARCH_REQUESTS_PER_MINUTE", 1)
+    assert post().status_code == 200
+    assert post().status_code == 429
+
+
+GRADE = {"relevance": "direct", "key_verse_start": 1, "key_verse_count": 1}
+
+
 @pytest.mark.parametrize(
     "answer",
-    ["not JSON", rank_answer(200), rank_answer(0, 0), rank_answer(True)],
+    [
+        "not JSON",
+        "[]",
+        json.dumps({"c2": GRADE}),
+        json.dumps({"0": GRADE}),
+        json.dumps({"c0": "direct"}),
+        json.dumps({"c0": {**GRADE, "relevance": "unrelated"}}),
+        '{"c0": %s, "c0": %s}' % (json.dumps(GRADE), json.dumps(GRADE)),
+    ],
 )
 def test_ranking_cannot_invent_or_duplicate_results(environment, answer):
     environment.ranker.complete.return_value = answer
@@ -321,15 +499,14 @@ def test_ranking_cannot_invent_or_duplicate_results(environment, answer):
 @pytest.mark.parametrize(
     "answer",
     [
-        rank_answer(0, start=0, end=1),
-        rank_answer(0, start=3, end=2),
-        rank_answer(0, start=1, end=4),
-        rank_answer(0, start=1, end=5),
-        rank_answer(0, start=True, end=2),
-        rank_answer(0, start=1.0, end=2),
-        '{"matches": [{"index": 0}]}',
-        '{"matches": [0]}',
-        '{"matches": null}',
+        rank_answer(direct=[0], start=0, count=1),
+        rank_answer(direct=[0], start=1, count=0),
+        rank_answer(direct=[0], start=1, count=4),
+        rank_answer(direct=[0], start=4, count=2),
+        rank_answer(related=[0], start=5, count=1),
+        rank_answer(direct=[0], start=True, count=1),
+        rank_answer(direct=[0], start=1.0, count=1),
+        rank_answer(direct=[0], start=1, count=None),
     ],
 )
 def test_invalid_key_verses_fail_explicitly(environment, answer):
@@ -337,8 +514,21 @@ def test_invalid_key_verses_fail_explicitly(environment, answer):
     assert post().status_code == 503
 
 
+def test_direct_answers_precede_related_in_retrieval_order(environment):
+    environment.ranker.complete.return_value = rank_answer(direct=[1], related=[0])
+    assert [r["canonical"]["canonical_id"] for r in post().json()["results"]] == [
+        PSALM,
+        GENEALOGY,
+    ]
+    environment.ranker.complete.return_value = rank_answer(direct=[1, 0])
+    assert [r["canonical"]["canonical_id"] for r in post().json()["results"]] == [
+        GENEALOGY,
+        PSALM,
+    ]
+
+
 def test_single_key_verse(environment):
-    environment.ranker.complete.return_value = rank_answer(1, start=2, end=2)
+    environment.ranker.complete.return_value = rank_answer(direct=[1], start=2, count=1)
     result = post().json()["results"][0]
     assert result["highlight"]["passage"]["verse_start"] == 2
     assert result["highlight"]["passage"]["verse_end"] == 2
@@ -348,7 +538,7 @@ def test_highlight_uses_markers_instead_of_verse_numbers(environment):
     environment.verse_loader.side_effect = lambda *args: [
         VerseText(n, f"verse {n}") for n in (1, 3, 4)
     ]
-    environment.ranker.complete.return_value = rank_answer(0)
+    environment.ranker.complete.return_value = rank_answer(direct=[0])
     result = post().json()["results"][0]
     assert result["highlight"]["passage"]["verse_start"] == 3
     assert result["highlight"]["passage"]["verse_end"] == 4
@@ -362,7 +552,7 @@ def test_counted_psalm_superscription_is_mapped_exactly(environment):
     environment.resources.lexical["ru"] = LexicalIndex(
         [(GENEALOGY, "Adam"), ("v3:19.003.001-003", "psalm")]
     )
-    environment.ranker.complete.return_value = rank_answer(1, start=1, end=1)
+    environment.ranker.complete.return_value = rank_answer(direct=[1], start=1, count=1)
     result = post().json()["results"][0]
     assert result["highlight"]["canonical"]["verse_start"] == 1
     assert result["highlight"]["passage"]["verse_start"] == 2
@@ -379,7 +569,7 @@ def test_deduplicates_index_hits(environment):
         np.vstack([index.vectors, index.vectors[:1]]),
         [*index.metas, {**index.metas[0], "translation": 3}],
     )
-    environment.ranker.complete.return_value = rank_answer(0, 1)
+    environment.ranker.complete.return_value = rank_answer(direct=[0, 1])
     result = post().json()["results"]
     assert [r["canonical"]["canonical_id"] for r in result] == [GENEALOGY, PSALM]
 
@@ -542,7 +732,7 @@ def test_search_prompts_use_both_existing_transports(provider):
 
     def respond(request):
         requests.append(json.loads(request.content))
-        output = rank_answer(0)
+        output = rank_answer(direct=[0])
         if provider == "gemini":
             return httpx.Response(
                 200, json={"candidates": [{"content": {"parts": [{"text": output}]}}]}
@@ -581,5 +771,14 @@ def test_search_prompts_use_both_existing_transports(provider):
         instruction = payload["messages"][0]["content"]
         content = payload["messages"][1]["content"]
     assert "general search" in instruction
+    schema = payload.get("generationConfig", {}).get("responseSchema")
+    if provider == "gemini":
+        grade = schema["properties"]["c0"]["properties"]
+        assert "required" not in schema
+        assert grade["relevance"]["enum"] == ["direct", "related"]
+        assert grade["key_verse_start"]["maximum"] == 3
+        assert grade["key_verse_count"]["maximum"] == 3
+    else:
+        assert schema is None and "response_format" in payload
     assert json.loads(content)["query"] == QUERY
     assert "[1] verse 1" in json.loads(content)["candidates"][0]["text"]

@@ -1,7 +1,8 @@
 # General Bible search
 
-Implemented for task 123pfqn46h2. Contract and source references checked on
-2026-10-25 against `app/scripture_search.py` and its offline contract tests.
+Implemented for task 123pfqn46h2; ranking and expansion revised for task
+123pfqn4yz5. Contract and source references checked on 2026-11-01 against
+`app/scripture_search.py` and its offline contract tests.
 
 `POST /api/ai/scripture/search` accepts only the existing Bible Garden
 `X-API-Key` (`bible-garden` identity). No key is rotated. Lampada, site and
@@ -59,54 +60,83 @@ safe pool, comforting-text preferences or degraded answers.
 
 1. Load the corpus, refusing a failed refresh or failed catalogue/Psalm-map
    loading instead of serving stale or degraded metadata.
-2. Embed the original query once. General search makes no rewrite request
-   and does not send its query to Cerebras.
-3. Require successful embedding and combine semantic top-50 with BM25 top-20
-   for that same original query. Deduplicate canonical IDs, apply
-   translation coverage and diversity, retaining up to 20 candidates.
+2. Expand the query with the configured scripture rewrite stage and a
+   separate search prompt. The query goes to that stage's provider: Gemini
+   Flash-Lite in production (ADR 0016); the development server's rewrite
+   stage is configured separately and on 2026-11-01 used Cerebras. The model
+   recalls up to three best-known passages answering the query, covering each
+   meaning of an ambiguous query (Noah's ark and the ark of the covenant are
+   both «ковчег»), and returns for each a reference and a query worded like
+   that passage. References are discarded; only the worded queries are
+   searched, so a misremembered reference cannot become a result. A query with
+   no biblical subject gets none. The answer is constrained by Gemini
+   `responseSchema` (each query at most 1000 characters) and validated by the
+   server. The call runs before the database connection is opened.
+3. Embed the expansion queries and the original query concurrently (one at a
+   time with the `local` embedding provider, like scripture selection); every
+   embedding must succeed. Combine semantic top-50 with BM25 top-20 for each,
+   fuse them by round-robin interleave with expansions first (the original
+   query last), deduplicate canonical IDs, apply translation coverage and
+   diversity, retaining up to 20 candidates.
 4. Read candidate text from the database in the requested translation using
    the existing range renderer. Deduplicate identical reading ranges.
 5. Use the configured scripture rerank provider/model with a separate search
-   prompt and server-numbered verse markers `[1]`, `[2]`, etc. In the same
-   call it returns `matches`: unique candidate indices in relevance order,
-   each with `key_verse_start`/`key_verse_end` marker positions. Each span
-   must cover 1–3 consecutive markers inside its own candidate. Irrelevant
-   passages are omitted; an empty list is valid. No extra model call is added.
+   prompt, the original query and server-numbered verse markers `[1]`, `[2]`,
+   etc. It returns an object keyed by candidate id (`c0`, `c1`, …) holding
+   only relevant candidates: `relevance` is `direct` (the passage narrates,
+   states or quotes what is asked, including the narrative of an event a
+   question is about) or `related` (same event, person, object or topic,
+   answered indirectly), with `key_verse_start` and `key_verse_count`
+   (1–3 consecutive markers inside that candidate). Unrelated candidates are
+   left out; `{}` is valid. On Gemini a `responseSchema` bounds every
+   candidate's markers and span length; a repeated key is rejected. Results
+   are ordered direct before related, in retrieval order within a grade.
+   The server never adds unverified candidates to reach `limit`.
 6. Resolve marker positions against the exact verses shown to the model,
    using the existing scripture-highlight Psalm mapping. Malformed JSON,
-   invalid/duplicate candidates, missing/out-of-range key-verse markers,
+   an invalid expansion, unknown/duplicate candidates or grades,
+   missing/out-of-range key-verse markers,
    unmappable highlights or a failed stage return 503; the server does not
    guess or silently omit the required highlight.
 7. Return at most `limit` verified passages. No safe-pool or raw-only answer
    replaces a failed stage, even if some embeddings succeeded.
 
-Both `gemini` and `openai_compat` use the existing rerank-stage transports and
-credentials. With candidates, search makes one embedding call and one ranking
-call. There are no new model choices, indexes, databases or services.
+Both stages accept `gemini` and `openai_compat` through the existing rewrite
+and rerank transports and credentials; chat completions have no counterpart
+of `responseSchema`, so there the server validation alone carries the
+contract. Search makes one expansion call, one to four embedding calls and,
+with candidates, one ranking call. There are no new model choices, indexes,
+databases or services.
 The prayer rewrite prompt, rerank prompt and `/api/ai/scripture` behavior
 remain governed by their existing ADRs. Search ranking quality requires its
 own human-reviewed live evaluation; prayer benchmark scores do not transfer.
 
-The [2026-10-25 rewrite ablation](experiments/search-rewrite-2026-10-25/report.md)
-compared the same 18 synthetic queries in both modes. Direct search found
-reference anchors among candidates in 13/15 positive cases versus 12/15 with
-rewriting. Among 12 paired successful positive cases it returned anchors in
-10 versus 9 and reduced median latency from 2.423 to 1.970 seconds. This small
-set supports removing the extra stage for the development API; it is not a
-general quality guarantee. Gemini 429 responses prevented a complete comparison
-of unrelated queries, and the Russian abstract state-collapse query remains
-unresolved in both modes. Preserved inputs and results are linked in the report.
+The [2026-10-25 ablation](experiments/search-rewrite-2026-10-25/report.md)
+removed paraphrase rewriting: on 15 queries without ambiguous ones it added no
+anchor coverage and about 0.45 s. The
+[2026-11-01 measurement](experiments/search-quality-2026-11-01/report.md)
+(22 ru/en queries, two passes) introduced passage-recall expansion and graded
+ranking. With the final prompts the primary reference reached the top 5 in
+33/35 completed passes (baseline 27/33), every broad query returned at least
+three passages (16/16, baseline 7/13), unrelated queries stayed empty (8/8,
+baseline 6/8) and the invalid-span failures disappeared. The median request
+grew by about 1.1 s, mostly the expansion call. Open cases and the partial
+final pass (Gemini daily quota) are listed in that report.
 
 ## Limits, privacy and errors
 
-Search has its own process-local global/per-client rolling 60-second limiter,
-using `AI_SCRIPTURE_REQUESTS_PER_MINUTE` and
-`AI_SCRIPTURE_REQUESTS_PER_CLIENT_PER_MINUTE`. Client identifiers are HMAC
-pseudonyms. The overall budget is `AI_SCRIPTURE_TIMEOUT_SECONDS`, starting
-before corpus loading. Each model call is additionally capped by
+Search has its own process-local global/per-client rolling 60-second limiter
+with its own counters: `AI_SCRIPTURE_SEARCH_REQUESTS_PER_MINUTE` (global,
+default 60) and the per-client setting `AI_SCRIPTURE_REQUESTS_PER_CLIENT_PER_MINUTE`
+of scripture selection (default 3). Client identifiers are HMAC pseudonyms.
+The overall budget is `AI_SCRIPTURE_TIMEOUT_SECONDS`, starting before corpus
+loading. Each model call is additionally capped by
 `AI_SCRIPTURE_PROVIDER_TIMEOUT_SECONDS` and the remaining budget. Each call
-has one attempt. The HTTP wait is bounded even if a blocking worker has not
-returned; the worker checks the deadline before starting further stages.
+has two attempts, as in scripture selection, so a hung or overloaded provider
+call is cut and retried instead of consuming the whole budget; this works only
+while the per-call ceiling is under about half the budget (8 s of 30 s). The
+HTTP wait is bounded even if a blocking worker has not returned; the worker
+checks the deadline before starting further stages.
 Cancellation cannot forcibly terminate a native operation already running.
 
 | Status | Meaning |
@@ -120,7 +150,11 @@ Cancellation cannot forcibly terminate a native operation already running.
 
 Error bodies contain only `detail`. Validation errors do not echo query
 values or unknown user-controlled field names. Queries and model answers are
-never logged or cached. Statistics omit the user agent for this private
+never logged or cached. A failure is logged as its exception chain by class
+and HTTP status, e.g. `ExpansionError <- QueryRewriteError <- ReadTimeout`;
+`ExpansionError`/`RankingError` name the failed model stage. OpenAI-compatible
+stages hide the cause by design (an endpoint may embed a key), so their chain
+ends at `QueryRewriteError`. Statistics omit the user agent for this private
 route and retain the existing application identity and HMAC client pseudonym.
 Keep Uvicorn access logging disabled as required by `AGENTS.md`.
 
@@ -128,9 +162,11 @@ Keep Uvicorn access logging disabled as required by `AGENTS.md`.
 
 `tests/test_scripture_search.py` exercises the endpoint and real hybrid/range
 rendering logic over a tiny synthetic corpus, with model and database stand-ins.
-It covers ordering, limits, genre eligibility, translation selection, ru/en/uk,
-Psalm and key-verse coordinates, deduplication, authorization, validation/privacy, empty
-results, partial-stage failures, rate limiting and deadlines. Existing
+It covers expansion queries and their validation, grade ordering, unknown or
+repeated candidates, the Gemini `responseSchema`, limits, genre eligibility,
+translation selection, ru/en/uk, Psalm and key-verse coordinates,
+deduplication, authorization, validation/privacy, empty results, partial-stage
+failures, rate limiting and deadlines. Existing
 `test_scripture_select.py`, `test_retrieval.py`, `test_query_rewrite.py` and
 `test_passage_render.py` remain regression checks for shared behavior.
 GitHub Actions runs these through the ordinary offline `pytest -q` suite.
