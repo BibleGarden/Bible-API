@@ -155,12 +155,9 @@ PROVIDER_ATTEMPTS = 2
 # other cost. Sending all six in ONE request would be 504 ms — not done here,
 # because `retrieval._embed_queries` degrades per variant and a single batch
 # would make one bad variant lose all six.
-def embed_workers(queries: int) -> int:
-    """Pool size for embedding `queries` variants at once (1 on `local`)."""
-    return 1 if EMBEDDING_PROVIDER == EMBEDDING_PROVIDER_LOCAL else queries
-
-
-_EMBED_WORKERS = embed_workers(REWRITE_VARIANTS)
+_EMBED_WORKERS = (
+    1 if EMBEDDING_PROVIDER == EMBEDDING_PROVIDER_LOCAL else REWRITE_VARIANTS
+)
 
 
 class ScriptureSelectUnavailable(RuntimeError):
@@ -776,7 +773,7 @@ def reference_translation(
     return entries[0][0] if entries else None
 
 
-def _canonical_windows(index) -> dict[str, list[tuple]]:
+def canonical_windows(index) -> dict[str, list[tuple]]:
     """language -> [(canonical_id, book, chapter, start, end), ...].
 
     The candidate universe of a language: every canonical window its indexed
@@ -836,7 +833,7 @@ def _build_catalogue(
     its request path must stay byte-for-byte what it was, and the filter
     would be a no-op that costs a full verse scan.
     """
-    windows = _canonical_windows(index)
+    windows = canonical_windows(index)
     active = _load_active_translations(cursor)
     renderable: dict[str, list[tuple[int, str]]] = {}
     coverage: dict[int, frozenset[str]] = {}

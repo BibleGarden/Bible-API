@@ -1,7 +1,7 @@
 # General Bible search
 
 Implemented for task 123pfqn46h2; ranking and expansion revised for task
-123pfqn4yz5. Contract and source references checked on 2026-11-01 against
+123pfqn4yz5. Contract and source references checked on 2026-11-02 against
 `app/scripture_search.py` and its offline contract tests.
 
 `POST /api/ai/scripture/search` accepts only the existing Bible Garden
@@ -63,27 +63,31 @@ safe pool, comforting-text preferences or degraded answers.
 2. Expand the query with the configured scripture rewrite stage and a
    separate search prompt. The query goes to that stage's provider: Gemini
    Flash-Lite in production (ADR 0016); the development server's stages are
-   listed in `Deploy/local-development.md`. The model
-   recalls up to three best-known passages answering the query, covering each
-   meaning of an ambiguous query (Noah's ark and the ark of the covenant are
-   both «ковчег»), and returns for each a reference and a query retelling
-   that passage. The query keeps the passage's key nouns and names (ark, Noah,
-   gopher wood) and paraphrases the rest, because Gemini blocks answers that
-   recite a Bible translation (`RECITATION`). The model still quotes at
-   times, so a blocked expansion remains possible (1 of 10 calls on a
-   recitation-prone query); see
-   `experiments/search-paraphrase-2026-11-02/report.md`. References are
-   discarded; only the retold queries are searched, so a misremembered
-   reference cannot become a result. A query with no biblical subject gets
-   none. The answer is constrained by Gemini
-   `responseSchema` (each query at most 1000 characters) and validated by the
-   server. The call runs before the database connection is opened.
-3. Embed the expansion queries and the original query concurrently (one at a
-   time with the `local` embedding provider, like scripture selection); every
-   embedding must succeed. Combine semantic top-50 with BM25 top-20 for each,
-   fuse them by round-robin interleave with expansions first (the original
-   query last), deduplicate canonical IDs, apply translation coverage and
-   diversity, retaining up to 20 candidates.
+   listed in `Deploy/local-development.md`. The model recalls up to three
+   best-known passages answering the query, covering each meaning of an
+   ambiguous query (Noah's ark and the ark of the covenant are both
+   «ковчег»), and returns only their references: `book` (one of the 66 codes
+   of `canon.CANONICAL_BOOK_CODES`, e.g. `gen`, `1pe`), `chapter`,
+   `verse_start`, `verse_end` in English numbering, Psalms included. It
+   writes no Bible text, so Gemini has nothing to block as a recitation
+   (`RECITATION`, which made the earlier retold queries fail with 503; see
+   `experiments/search-refs-2026-11-02/report.md`). A query with no
+   biblical subject gets none. The answer is constrained by Gemini
+   `responseSchema` (book enum, integers from 1) and validated by the server
+   (`verse_start` ≤ `verse_end`). The call runs before the database
+   connection is opened.
+3. Map each reference to the canonical window of the request language
+   overlapping it most (canonical IDs share the references' English
+   numbering). A reference absent from that corpus (a misremembered chapter,
+   Malachi 4 in `ubh`) yields no window and is not an error; a window still
+   has to pass the ranker, so a wrong reference cannot become an unverified
+   result. Embed the original query (the only embedding call). Search each
+   window by its stored vector (semantic top-50: the window itself, then its
+   nearest passages, e.g. the parallel Exodus 37 for Exodus 25), then the
+   query by semantic top-50 and BM25 top-20. Fuse them by round-robin
+   interleave with windows first in reference order (the query last),
+   deduplicate canonical IDs, apply translation coverage and diversity,
+   retaining up to 20 candidates.
 4. Read candidate text from the database in the requested translation using
    the existing range renderer. Deduplicate identical reading ranges.
 5. Use the configured scripture rerank provider/model with a separate search
@@ -110,8 +114,8 @@ safe pool, comforting-text preferences or degraded answers.
 Both stages accept `gemini` and `openai_compat` through the existing rewrite
 and rerank transports and credentials; chat completions have no counterpart
 of `responseSchema`, so there the server validation alone carries the
-contract. Search makes one expansion call, one to four embedding calls and,
-with candidates, one ranking call. There are no new model choices, indexes,
+contract. Search makes one expansion call, one embedding call and, with
+candidates, one ranking call. There are no new model choices, indexes,
 databases or services.
 The prayer rewrite prompt, rerank prompt and `/api/ai/scripture` behavior
 remain governed by their existing ADRs. Search ranking quality requires its
@@ -128,6 +132,11 @@ three passages (16/16, baseline 7/13), unrelated queries stayed empty (8/8,
 baseline 6/8) and the invalid-span failures disappeared. The median request
 grew by about 1.1 s, mostly the expansion call. Open cases and the partial
 final pass (Gemini daily quota) are listed in that report.
+The [2026-11-02 measurement](experiments/search-refs-2026-11-02/report.md)
+replaced retold queries with references and stored window vectors: no
+blocked expansion in 10 calls on a recitation-prone query (was 1/10), the
+primary reference in the top 5 in 36/36 passes, anchors in the top 5 67/72
+(was 62/72), and a median request of 2.9 s (was 3.3 s).
 
 ## Limits, privacy and errors
 
@@ -169,7 +178,9 @@ Keep Uvicorn access logging disabled as required by `AGENTS.md`.
 
 `tests/test_scripture_search.py` exercises the endpoint and real hybrid/range
 rendering logic over a tiny synthetic corpus, with model and database stand-ins.
-It covers expansion queries and their validation, grade ordering, unknown or
+It covers expansion references and their validation, reference-to-window
+matching (overlap, absent references, Psalm numbering), windows leading
+retrieval with a single embedding, grade ordering, unknown or
 repeated candidates, the Gemini `responseSchema`, limits, genre eligibility,
 translation selection, ru/en/uk, Psalm and key-verse coordinates,
 deduplication, authorization, validation/privacy, empty results, partial-stage

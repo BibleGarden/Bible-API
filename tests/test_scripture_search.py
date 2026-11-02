@@ -59,8 +59,9 @@ def rank_answer(direct=(), related=(), start=2, count=2):
     )
 
 
-def expansion_answer(*queries):
-    return json.dumps({"passages": [{"ref": "Gen 6:14", "query": q} for q in queries]})
+def expansion_answer(*references):
+    fields = ("book", "chapter", "verse_start", "verse_end")
+    return json.dumps({"passages": [dict(zip(fields, r)) for r in references]})
 
 
 @pytest.fixture(autouse=True)
@@ -208,46 +209,59 @@ def test_pipeline_uses_strict_resources(environment):
     assert environment.embedder.embed_query.call_args.args == (QUERY,)
 
 
-def test_search_adds_passage_worded_queries(environment):
-    environment.rewriter.complete.return_value = expansion_answer(
-        "make yourself an ark", QUERY, "make yourself an ark"
-    )
-    assert post().status_code == 200
-    # Embedded concurrently: compare without order.
-    assert sorted(
-        c.args[0] for c in environment.embedder.embed_query.call_args_list
-    ) == sorted(["make yourself an ark", QUERY])
-    prompt = json.loads(environment.ranker.complete.call_args.args[1])
-    assert prompt["query"] == QUERY
-
-
-def test_expansion_candidates_precede_original_query_candidates(environment):
-    # The expansion hits the psalm, the original query hits the genealogy;
-    # the ranker must see the expansion's candidate first.
-    vectors = {"shepherd psalm": [0.0, 1.0], QUERY: [1.0, 0.0]}
-    environment.embedder.embed_query.side_effect = lambda query, **kwargs: vectors[
-        query
-    ]
-    environment.rewriter.complete.return_value = expansion_answer("shepherd psalm")
+def test_reference_windows_precede_original_query_candidates(environment):
+    # The query embedding hits the genealogy; the referenced psalm window is
+    # searched by its stored vector and reaches the ranker first.
+    environment.rewriter.complete.return_value = expansion_answer(("psa", 23, 1, 6))
     assert post().status_code == 200
     prompt = json.loads(environment.ranker.complete.call_args.args[1])
     texts = [candidate["text"] for candidate in prompt["candidates"]]
     assert len(texts) == 2
     # The psalm has three verses, the genealogy four.
     assert "verse 4" not in texts[0] and "verse 4" in texts[1]
+    assert prompt["query"] == QUERY
+    # Only the original query is embedded: references bring no model text.
+    environment.embedder.embed_query.assert_called_once()
+    assert environment.embedder.embed_query.call_args.args == (QUERY,)
 
 
-def test_one_failed_expansion_embedding_fails_search_before_ranking(environment):
-    environment.rewriter.complete.return_value = expansion_answer("make an ark")
+def test_reference_outside_corpus_is_not_an_error(environment):
+    environment.rewriter.complete.return_value = expansion_answer(
+        ("gen", 6, 14, 14), ("psa", 151, 1, 7)
+    )
+    assert post().status_code == 200
+    prompt = json.loads(environment.ranker.complete.call_args.args[1])
+    assert "verse 4" in prompt["candidates"][0]["text"]
 
-    def embed(query, **kwargs):
-        if query == "make an ark":
-            raise EmbeddingUnavailable("down")
-        return [1.0, 0.0]
 
-    environment.embedder.embed_query.side_effect = embed
-    assert post().status_code == 503
-    environment.ranker.complete.assert_not_called()
+WINDOWS = [
+    ("v3:19.022.001-011", 19, 22, 1, 11),
+    ("v3:19.022.012-021", 19, 22, 12, 21),
+    ("v3:19.023.001-006", 19, 23, 1, 6),
+    ("v3:40.006.019-024", 40, 6, 19, 24),
+    ("v3:40.006.025-034", 40, 6, 25, 34),
+]
+
+
+@pytest.mark.parametrize(
+    ("references", "expected"),
+    [
+        # English Psalm numbering: psa 23 is not the Synodal Psalm 22.
+        ([(19, 23, 1, 1)], ["v3:19.023.001-006"]),
+        # The window with the largest overlap wins; the first on a tie.
+        ([(40, 6, 22, 34)], ["v3:40.006.025-034"]),
+        ([(19, 22, 9, 14)], ["v3:19.022.001-011"]),
+        # Outside the corpus: a wrong chapter, verse or book matches nothing.
+        ([(40, 7, 1, 5), (40, 6, 35, 40), (1, 6, 14, 14)], []),
+        # Order is kept and a repeated window appears once.
+        (
+            [(40, 6, 34, 34), (19, 23, 4, 4), (40, 6, 25, 26)],
+            ["v3:40.006.025-034", "v3:19.023.001-006"],
+        ),
+    ],
+)
+def test_reference_windows(references, expected):
+    assert search._reference_windows(WINDOWS, references) == expected
 
 
 def test_expansion_runs_before_database_connection(environment):
@@ -259,17 +273,22 @@ def test_expansion_runs_before_database_connection(environment):
     assert post().status_code == 200
 
 
-def test_expansions_precede_the_original_query():
+def test_expansion_returns_canonical_references():
     generator = Mock()
-    generator.complete.return_value = expansion_answer(" make an ark ", QUERY)
-    assert search._expand(generator, QUERY, "en", Deadline(2)) == [
-        "make an ark",
-        QUERY,
+    generator.complete.return_value = expansion_answer(
+        ("psa", 23, 1, 6), ("1pe", 5, 7, 7)
+    )
+    assert search._expand(generator, QUERY, Deadline(2)) == [
+        (19, 23, 1, 6),
+        (46, 5, 7, 7),
     ]
     schema = generator.complete.call_args.kwargs["response_schema"]
     assert schema == search.EXPANSION_SCHEMA
-    query = schema["properties"]["passages"]["items"]["properties"]["query"]
-    assert query["maxLength"] == search.MAX_QUERY_LENGTH == 1000
+    item = schema["properties"]["passages"]["items"]
+    assert item["required"] == ["book", "chapter", "verse_start", "verse_end"]
+    assert len(item["properties"]["book"]["enum"]) == 66
+    assert {"gen", "psa", "1pe", "rev"} <= set(item["properties"]["book"]["enum"])
+    assert "psa 23:1" in generator.complete.call_args.args[0]
 
 
 @pytest.mark.parametrize(
@@ -277,10 +296,16 @@ def test_expansions_precede_the_original_query():
     [
         "not JSON",
         '{"passages": null}',
-        '{"passages": ["make yourself an ark"]}',
-        expansion_answer(" "),
-        expansion_answer("x" * 1001),
-        expansion_answer("a", "b", "c", "d"),
+        '{"passages": ["Genesis 6:14"]}',
+        expansion_answer(("Genesis", 6, 14, 14)),
+        expansion_answer((["gen"], 6, 14, 14)),
+        expansion_answer(("gen", 0, 14, 14)),
+        expansion_answer(("gen", 6, 0, 14)),
+        expansion_answer(("gen", 6, 15, 14)),
+        expansion_answer(("gen", "6", 14, 14)),
+        expansion_answer(("gen", 6, 14, True)),
+        json.dumps({"passages": [{"book": "gen", "chapter": 6, "verse_start": 14}]}),
+        expansion_answer(*[("gen", 6, 14, 14)] * 4),
     ],
 )
 def test_invalid_expansion_fails_explicitly(environment, caplog, answer):

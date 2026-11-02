@@ -2,7 +2,7 @@
 
 `run` executes `scripture_search._run_search` directly (no HTTP, auth or rate
 limit) inside a disposable container built from the development API image and
-records, per query and pass: retrieval queries, candidate canonical ids, every
+records, per query and pass: retrieval windows, candidate canonical ids, every
 model call (stage, model, HTTP statuses, raw answer), final results, seconds
 and errors. No retries; existing output files are never overwritten.
 `summary` needs no application code and can run on the host.
@@ -49,10 +49,10 @@ def run(args):
     original_factory = search.build_query_rewriter
     record = {}
 
-    def retrieve(self, language, queries, deadline, top_k=20):
+    def retrieve(self, language, query, windows, deadline, top_k=20):
         started = time.monotonic()
-        record["retrieval_queries"] = list(queries)
-        candidates = original_search(self, language, queries, deadline, top_k)
+        record["retrieval_windows"] = list(windows)
+        candidates = original_search(self, language, query, windows, deadline, top_k)
         record["retrieval_seconds"] = round(time.monotonic() - started, 3)
         record["candidates"] = [
             [c.canonical_id, *parse_canonical_id(c.canonical_id)[1:]]
@@ -159,9 +159,13 @@ def summary(args):
             except json.JSONDecodeError:
                 answer = None
             if call["stage"] == "scripture_rewrite" and answer:
-                # Intermediate runs used the key "meanings".
+                # Intermediate runs used the key "meanings"; reference
+                # answers (2026-11-02) have no query.
                 expansions = answer.get("passages", answer.get("meanings"))
-                notes += " expansions=" + str([m["query"] for m in expansions])
+                notes += " expansions=" + str([
+                    m.get("query") or "{book} {chapter}:{verse_start}-{verse_end}".format(**m)
+                    for m in expansions
+                ])
             if call["stage"] == "scripture_rerank" and isinstance(answer, dict) and "matches" not in answer:
                 if isinstance(answer.get("direct"), list):  # intermediate list format
                     count = Counter({k: len(answer[k]) for k in ("direct", "related")})
