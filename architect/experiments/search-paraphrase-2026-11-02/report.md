@@ -31,7 +31,7 @@ per-call ceiling 8 s, two attempts per call.
 
 | Metric | Before | Paraphrase | Paraphrase + names |
 |---|---|---|---|
-| Errors (of 44) | 4 (1 RECITATION, 3 timeouts) | 0 | 0 |
+| Errors (of 44) | 4 (1 blocked answer, 3 timeouts) | 0 | 0 |
 | Primary passage in top 5 | 31/32 | 33/36 | 36/36 |
 | Primary among candidates | 32/32 | 33/36 | 36/36 |
 | Broad queries with ≥3 results | 14/14 | 16/16 | 16/16 |
@@ -46,6 +46,21 @@ Successful runs only; errored runs are excluded from the hit counts.
   Keeping the passage's key nouns and names fixed both.
 - The final prompt also found Leviticus 19 for "О любви к ближнему" in both
   passes, which the 2026-11-01 report left unresolved.
-- No answer was blocked in 44 expansion calls. Paraphrase lowers the chance
-  of recitation but cannot exclude it; a blocked answer is now logged as
-  `GenerationStopped RECITATION` and is not retried.
+- The gain comes from keeping the key words, not from the paraphrase: the
+  model still often quotes a translation verbatim (Matthew 6:34, 1 Peter 5:7,
+  Ecclesiastes 3:2 in the final run). The blocked "before" run recorded only
+  `KeyError: 'parts'`; its finish reason was seen as RECITATION on the stand.
+
+## Block rate
+
+`blockrate.py` ran the expansion call 10 times per query on each prompt and
+counted Gemini finish reasons:
+
+| Query | Old prompt | Final prompt |
+|---|---|---|
+| How can I cope with worry? | 4/10 RECITATION | 1/10 RECITATION |
+| Who built the ark? | 0/10 | 0/10 |
+
+The paraphrase lowers blocking on a recitation-prone query but does not
+remove it; the samples are small. A blocked answer is logged as
+`GenerationStopped RECITATION`, is not retried and fails the search with 503.

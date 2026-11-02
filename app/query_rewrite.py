@@ -676,10 +676,11 @@ class GeminiQueryRewriter:
 
         try:
             candidate = data["candidates"][0]
-            parts = candidate.get("content", {}).get("parts")
+            content = candidate.get("content")
         except (KeyError, IndexError, TypeError, AttributeError) as exc:
             raise QueryRewriteError("rewrite response has no candidates") from exc
-        if not isinstance(parts, list):
+        parts = content.get("parts") if isinstance(content, dict) else None
+        if parts is None:
             # A blocked answer (RECITATION, SAFETY, ...) arrives as HTTP 200
             # without content; the enum is safe to log, anything else is not.
             reason = candidate.get("finishReason")
@@ -688,6 +689,8 @@ class GeminiQueryRewriter:
                 if isinstance(reason, str) and _FINISH_REASON.fullmatch(reason)
                 else "UNKNOWN"
             )
+        if not isinstance(parts, list):
+            raise QueryRewriteError("rewrite response is malformed")
         return "".join(
             part.get("text", "") for part in parts if isinstance(part, dict)
         )
