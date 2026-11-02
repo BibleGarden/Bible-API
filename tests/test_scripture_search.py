@@ -283,10 +283,11 @@ def test_expansions_precede_the_original_query():
         expansion_answer("a", "b", "c", "d"),
     ],
 )
-def test_invalid_expansion_fails_explicitly(environment, answer):
+def test_invalid_expansion_fails_explicitly(environment, caplog, answer):
     environment.rewriter.complete.return_value = answer
     assert post().status_code == 503
     environment.ranker.complete.assert_not_called()
+    assert "Scripture search failed: ExpansionError <- " in caplog.text
 
 
 def test_limit_and_requested_nonindexed_translation(environment):
@@ -409,43 +410,73 @@ def test_stage_failures_are_explicit_and_private(
     assert QUERY not in response.text + caplog.text
 
 
+def _time_out(http_request):
+    raise httpx.ReadTimeout(QUERY, request=http_request)
+
+
+@pytest.mark.parametrize(
+    ("stage", "logged"), [("rewrite", "ExpansionError"), ("rank", "RankingError")]
+)
+@pytest.mark.parametrize(
+    ("failure", "cause"),
+    [
+        (lambda http_request: httpx.Response(503, text=QUERY), "HTTP 503"),
+        (_time_out, "ReadTimeout"),
+    ],
+)
 def test_provider_failure_is_retried_and_logged_by_cause(
-    environment, monkeypatch, caplog
+    environment, monkeypatch, caplog, stage, logged, failure, cause
 ):
     requests = []
 
     def respond(http_request):
         requests.append(http_request)
-        return httpx.Response(503, text=QUERY)
+        return failure(http_request)
 
-    stage = StageProvider(
-        stage="scripture_rewrite",
+    failing = (
+        search.SCRIPTURE_REWRITE_PROVIDER
+        if stage == "rewrite"
+        else search.SCRIPTURE_RERANK_PROVIDER
+    )
+    provider = StageProvider(
+        stage=f"scripture_{stage}",
         provider="gemini",
         model="test-model",
         endpoint="",
         api_key="unit-test-secret",
         reasoning_effort="omit",
     )
+    stand_in = search.build_query_rewriter
     monkeypatch.setattr("query_rewrite.time.sleep", lambda seconds: None)
     with httpx.Client(transport=httpx.MockTransport(respond)) as transport:
         monkeypatch.setattr(
             search,
             "build_query_rewriter",
-            lambda **kwargs: build_query_rewriter(
-                **{**kwargs, "stage": stage, "http_client": transport}
+            lambda **kwargs: (
+                build_query_rewriter(
+                    **{**kwargs, "stage": provider, "http_client": transport}
+                )
+                if kwargs["stage"] is failing
+                else stand_in(**kwargs)
             ),
         )
         response = post()
     assert response.status_code == 503
     assert len(requests) == scripture_select.PROVIDER_ATTEMPTS == 2
     assert (
-        "Scripture search failed: ExpansionError <- QueryRewriteError <- HTTP 503"
+        f"Scripture search failed: {logged} <- QueryRewriteError <- {cause}"
         in caplog.text
     )
     assert QUERY not in caplog.text
 
 
-GRADE ={"relevance": "direct", "key_verse_start": 1, "key_verse_count": 1}
+def test_search_has_its_own_global_limit(environment, monkeypatch):
+    monkeypatch.setattr(search, "AI_SCRIPTURE_SEARCH_REQUESTS_PER_MINUTE", 1)
+    assert post().status_code == 200
+    assert post().status_code == 429
+
+
+GRADE = {"relevance": "direct", "key_verse_start": 1, "key_verse_count": 1}
 
 
 @pytest.mark.parametrize(

@@ -125,16 +125,18 @@ final pass (Gemini daily quota) are listed in that report.
 
 ## Limits, privacy and errors
 
-Search has its own process-local global/per-client rolling 60-second limiter,
-using `AI_SCRIPTURE_SEARCH_REQUESTS_PER_MINUTE` (global, default 60) and the
-per-client `AI_SCRIPTURE_REQUESTS_PER_CLIENT_PER_MINUTE` shared with scripture
-selection (default 3). Client identifiers are HMAC
-pseudonyms. The overall budget is `AI_SCRIPTURE_TIMEOUT_SECONDS`, starting
-before corpus loading. Each model call is additionally capped by
+Search has its own process-local global/per-client rolling 60-second limiter
+with its own counters: `AI_SCRIPTURE_SEARCH_REQUESTS_PER_MINUTE` (global,
+default 60) and the per-client setting `AI_SCRIPTURE_REQUESTS_PER_CLIENT_PER_MINUTE`
+of scripture selection (default 3). Client identifiers are HMAC pseudonyms.
+The overall budget is `AI_SCRIPTURE_TIMEOUT_SECONDS`, starting before corpus
+loading. Each model call is additionally capped by
 `AI_SCRIPTURE_PROVIDER_TIMEOUT_SECONDS` and the remaining budget. Each call
 has two attempts, as in scripture selection, so a hung or overloaded provider
-call is cut and retried instead of consuming the whole budget. The HTTP wait is bounded even if a blocking worker has not
-returned; the worker checks the deadline before starting further stages.
+call is cut and retried instead of consuming the whole budget; this works only
+while the per-call ceiling is under about half the budget (8 s of 30 s). The
+HTTP wait is bounded even if a blocking worker has not returned; the worker
+checks the deadline before starting further stages.
 Cancellation cannot forcibly terminate a native operation already running.
 
 | Status | Meaning |
@@ -150,7 +152,9 @@ Error bodies contain only `detail`. Validation errors do not echo query
 values or unknown user-controlled field names. Queries and model answers are
 never logged or cached. A failure is logged as its exception chain by class
 and HTTP status, e.g. `ExpansionError <- QueryRewriteError <- ReadTimeout`;
-`ExpansionError`/`RankingError` name the failed model stage. Statistics omit the user agent for this private
+`ExpansionError`/`RankingError` name the failed model stage. OpenAI-compatible
+stages hide the cause by design (an endpoint may embed a key), so their chain
+ends at `QueryRewriteError`. Statistics omit the user agent for this private
 route and retain the existing application identity and HMAC client pseudonym.
 Keep Uvicorn access logging disabled as required by `AGENTS.md`.
 

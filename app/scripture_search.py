@@ -124,11 +124,11 @@ RELEVANT_GRADES = ("direct", "related")
 
 
 class ExpansionError(QueryRewriteError):
-    """The expansion provider call failed; the class names the stage in logs."""
+    """Expansion failed (provider call or invalid answer); names the stage in logs."""
 
 
 class RankingError(QueryRewriteError):
-    """The ranking provider call failed; the class names the stage in logs."""
+    """Ranking failed (provider call or invalid answer); names the stage in logs."""
 
 
 def _failure_chain(error: BaseException | None) -> str:
@@ -169,16 +169,14 @@ def _expand(generator, query: str, language: str, deadline: Deadline) -> list[st
         'own words. Return only JSON {"passages": [{"ref": "...", '
         '"query": "..."}]}.'
     )
-    try:
-        text = generator.complete(
+    payload = json.loads(
+        generator.complete(
             instruction,
             json.dumps({"query": query}, ensure_ascii=False),
             deadline=deadline,
             response_schema=EXPANSION_SCHEMA,
         )
-    except QueryRewriteError as error:
-        raise ExpansionError from error
-    payload = json.loads(text)
+    )
     passages = payload.get("passages") if isinstance(payload, dict) else None
     if (
         not isinstance(passages, list)
@@ -269,16 +267,15 @@ def _rank(
             for i, passage in enumerate(passages)
         ],
     }
-    try:
-        text = generator.complete(
+    payload = json.loads(
+        generator.complete(
             instruction,
             json.dumps(content, ensure_ascii=False),
             deadline=deadline,
             response_schema=_ranking_schema(passages),
-        )
-    except QueryRewriteError as error:
-        raise RankingError from error
-    payload = json.loads(text, object_pairs_hook=_unique_keys)
+        ),
+        object_pairs_hook=_unique_keys,
+    )
     if not isinstance(payload, dict):
         raise ValueError("invalid search ranking response")
     ids = {f"c{i}": i for i in range(len(passages))}
@@ -325,7 +322,10 @@ def _run_search(request: SearchRequest, deadline: Deadline) -> SearchResponse:
                 attempts=PROVIDER_ATTEMPTS,
             )
         )
-        queries = _expand(rewriter, request.query, language, deadline)
+        try:
+            queries = _expand(rewriter, request.query, language, deadline)
+        except (QueryRewriteError, ValueError) as error:
+            raise ExpansionError from error
         embedder = stack.enter_context(
             build_embedding_client(
                 timeout=AI_SCRIPTURE_PROVIDER_TIMEOUT_SECONDS,
@@ -409,7 +409,10 @@ def _run_search(request: SearchRequest, deadline: Deadline) -> SearchResponse:
                     attempts=PROVIDER_ATTEMPTS,
                 )
             )
-            matches = _rank(ranker, request.query, passages, deadline)
+            try:
+                matches = _rank(ranker, request.query, passages, deadline)
+            except (QueryRewriteError, ValueError) as error:
+                raise RankingError from error
             highlighted = []
             for index, start, end in matches[: request.limit]:
                 result, passage = results[index], passages[index]

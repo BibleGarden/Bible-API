@@ -1270,9 +1270,10 @@ AI_SCRIPTURE_REQUESTS_PER_CLIENT_PER_MINUTE = min(
     AI_SCRIPTURE_REQUESTS_PER_MINUTE,
     max(1, _get_int("AI_SCRIPTURE_REQUESTS_PER_CLIENT_PER_MINUTE", 3)),
 )
-# General search shares the per-client limit above but has its own global
-# budget: one search costs ~2 Gemini calls (expansion + ranking), a quarter
-# of a selection, so the selection budget would cap all users at 10/min.
+# General search uses the per-client setting above (counted separately from
+# selection) but its own global budget: one search costs ~2 Gemini calls
+# (expansion + ranking), a quarter of a selection, so the selection budget
+# would cap all users at 10/min.
 AI_SCRIPTURE_SEARCH_REQUESTS_PER_MINUTE = _get_positive_int(
     "AI_SCRIPTURE_SEARCH_REQUESTS_PER_MINUTE", 60
 )
