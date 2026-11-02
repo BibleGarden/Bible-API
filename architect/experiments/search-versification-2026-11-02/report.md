@@ -25,16 +25,47 @@ had no `en` window).
 - **A, versification:** convert each window's stored verses from its
   translation's numbering to English and match references there. Data:
   Paratext versification files (`eng`, `org`, `rso`) from sillsdev/machine.py
-  `machine/scripture` at `abe3718`, MIT, 50 KB, plus two correction files.
-  Checked against `cep_public` chapter lengths: `syn` = `rso` in every
-  chapter outside the Psalms (which keep ADR 0003); `bsb` = `eng` except
-  3 John 1 and Revelation 12 (one verse each holds two); `ubh` = `org` except
-  Numbers 25-26, Nehemiah 7 and Joel (English numbering), the Greek additions
-  in Esther and Daniel, and Song of Songs 1, where the stored text lacks
-  verses 15-17. `bsb.vrs` and `ubh.vrs` record these; the texts of every
-  pair in the mini set were read in the database. No new table, import,
+  `machine/scripture` at `abe3718`, MIT, 50 KB, plus correction files
+  `bsb.vrs`, `syn.vrs` and `ubh.vrs` (ADR 0028). No new table, import,
   export or production step: the files ship with the code and corpus
-  loading validates them against the loaded index.
+  loading validates chapter lengths against the loaded index.
+
+## Checking the files against the texts
+
+Chapter lengths (every non-Psalm chapter of `cep_public`): `syn` matches
+`rso` everywhere; `bsb` matches `eng` except 3 John 1 and Revelation 12
+(one verse each holds two); `ubh` matches `org` except Numbers 25-26,
+Nehemiah 7 and Joel (English numbering), the Greek additions in Esther and
+Daniel, and Song of Songs 1, where the stored text lacks verses 15-17.
+
+Equal lengths do not exclude a shift inside a chapter, so `verify.py`
+checks every verse: the local bge-m3 cosine between a `syn`/`ubh` verse and
+its mapped `bsb` verses, against every `bsb` verse of the neighbouring
+chapters; a verse is flagged when the mapped similarity is under 0.6 and
+another `bsb` verse scores 0.1 higher. Coverage: all 28,829 non-Psalm `syn`
+verses and 28,842 `ubh` verses, 28,621 and 28,624 of them with an English
+counterpart (median cosine 0.82), embedded in 79 minutes on 8 CPU cores.
+Output: `verify.jsonl`, and `verify-base.jsonl` with rso.vrs alone.
+
+- With rso.vrs alone the check flags 50 `syn` verses, among them two runs:
+  Isaiah 3:20-25 (6 verses) and Daniel 6:1-28 (26 verses), both mapped one
+  verse off by rso.vrs (Daniel 5:31-6:28 of `syn` is numbered as in English
+  Bibles). `syn.vrs` corrects them.
+- Pairs whose order or division differs inside a chapter, all corrected in
+  `syn.vrs`/`ubh.vrs`: `syn` Philippians 1:16-17 (Textus Receptus order) and
+  Revelation 20:7-9; `ubh` Proverbs 6:22-23, Song of Songs 8:3-5 and
+  Nahum 2:2-3. `syn` Proverbs 13:14 and 18:8 are Septuagint additions that
+  rso.vrs left mapped onto the next verse; they are now marked as having no
+  counterpart.
+- Remaining after the corrections: 13 `syn` and 6 `ubh` single verses, no
+  runs. Each was read: genealogies and lists, numerals, bracketed
+  Septuagint text inside a verse (`syn` Genesis 11:12, 1 Kings 2:35,
+  2 Chronicles 35:20, Esther 1:1), short variants (Luke 20:30) and poetry
+  paraphrase; none is a numbering error. One is a data error: `ubh`
+  1 Samuel 13:1 holds the text of 13:2 and its 13:2 is empty.
+- The review also added mappings eng.vrs lacks (Numbers 26:1, Nehemiah
+  7:68, Isaiah 64:1, Acts 19:41), so every `bsb` verse maps back onto
+  itself or onto the pair the original numbering merges.
 
 ## Replay
 
@@ -66,6 +97,7 @@ translation's own numbering. Ranks are candidate positions before the ranker.
   still matching ID ranges, gave `ru` 13/13 and `uk` 10/13 top 1 (12/13 in
   the top 5); matching stored verses fixed the rest.
 - Converting all windows at corpus loading takes 0.06 s.
+- Re-run after the corrections above: the same figures.
 
 ## Decision
 

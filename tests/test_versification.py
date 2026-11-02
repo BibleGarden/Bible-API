@@ -14,12 +14,14 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from canon import CANONICAL_BOOK_CODES
 from chunking import Verse
 from scripture_select import reference_windows
 from vector_index import InMemoryVectorIndex
 from versification import (
     PSALM_151_VERSES,
     TRANSLATION_VERSIFICATIONS,
+    VRS_DIRECTORY,
     PsalmMap,
     build_psalm_map,
     canonical_counts_with_extras,
@@ -393,6 +395,17 @@ def test_versifications_match_the_stored_chapters(stored_chapters):
         check_chapters(alias, chapters)
 
 
+def test_correction_files_name_only_the_66_books():
+    # The parser skips unknown books, which the vendored files need; a
+    # mistyped code in our files (NAH for NAM) would vanish silently.
+    known = {code.upper() for code in CANONICAL_BOOK_CODES.values()}
+    for name in ("bsb", "syn", "ubh"):
+        for line in (VRS_DIRECTORY / f"{name}.vrs").read_text().splitlines():
+            line = line.partition("#")[0].strip().lstrip("-")
+            for side in filter(None, line.split("=")):
+                assert side.split()[0] in known, (name, line)
+
+
 def test_differing_stored_chapter_is_refused(stored_chapters):
     chapters = {**stored_chapters["syn"], (32, 2): 10}
     with pytest.raises(ValueError, match=r"\(\(32, 2\), 11, 10\)"):
@@ -422,7 +435,14 @@ def test_differing_stored_chapter_is_refused(stored_chapters):
         ("syn", (23, 3, 24, 24), [(23, 3, 25, 25)]),
         ("syn", (27, 5, 31, 31), [(27, 5, 31, 31)]),
         ("syn", (27, 6, 1, 28), [(27, 6, 1, 28)]),
-        # Septuagint additions keep their number, which English lacks.
+        ("syn", (57, 1, 16, 16), [(57, 1, 17, 17)]),
+        ("syn", (66, 20, 7, 7), [(66, 20, 7, 8)]),
+        ("ubh", (34, 2, 3, 3), [(34, 2, 1, 1)]),
+        ("ubh", (20, 6, 22, 22), [(20, 6, 23, 23)]),
+        # Septuagint additions: marked in syn.vrs, or numbered past the
+        # English chapter's end.
+        ("syn", (20, 13, 14, 14), []),
+        ("syn", (20, 13, 15, 15), [(20, 13, 14, 14)]),
         ("syn", (6, 24, 34, 36), []),
         ("syn", (4, 26, 1, 1), [(4, 26, 1, 1)]),
         # ubh numbers Joel and Nehemiah 7 as English Bibles do.

@@ -350,7 +350,7 @@ def canonicalize_psalm_chapters(
 # 16:25-27 its 14:24-26), `ubh` mostly the Hebrew one (Malachi 4 is its
 # 3:19-24, Numbers 16:36-50 its 17:1-15). A Paratext versification file lists a numbering's chapter
 # lengths and maps its verses onto the original numbering (org.vrs); an
-# unmapped verse keeps its number. eng, org and rso.vrs are copied unchanged
+# unmapped verse keeps its number, a `-` line marks verses without one. eng, org and rso.vrs are copied unchanged
 # from sillsdev/machine.py `machine/scripture/*.vrs.txt` at abe3718 (MIT,
 # `vrs/LICENSE`); bsb, syn and ubh.vrs correct their base file to the
 # stored texts (ADR 0028).
@@ -415,6 +415,10 @@ def load_versification(names: tuple[str, ...]) -> Versification:
         for line in (VRS_DIRECTORY / f"{name}.vrs").read_text().splitlines():
             line = line.partition("#")[0].strip()
             if not line:
+                continue
+            if line.startswith("-"):  # a verse with no original counterpart
+                for verse in _verse_range(line[1:]) or ():
+                    mappings[verse] = ()
                 continue
             if "=" not in line:
                 book, *lengths = line.split()
