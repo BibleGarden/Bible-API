@@ -62,13 +62,16 @@ safe pool, comforting-text preferences or degraded answers.
    loading instead of serving stale or degraded metadata.
 2. Expand the query with the configured scripture rewrite stage and a
    separate search prompt. The query goes to that stage's provider: Gemini
-   Flash-Lite in production (ADR 0016); the development server's rewrite
-   stage is configured separately and on 2026-11-01 used Cerebras. The model
+   Flash-Lite in production (ADR 0016); the development server's stages are
+   listed in `Deploy/local-development.md`. The model
    recalls up to three best-known passages answering the query, covering each
    meaning of an ambiguous query (Noah's ark and the ark of the covenant are
-   both «ковчег»), and returns for each a reference and a query worded like
-   that passage. References are discarded; only the worded queries are
-   searched, so a misremembered reference cannot become a result. A query with
+   both «ковчег»), and returns for each a reference and a query retelling
+   that passage. The query keeps the passage's key nouns and names (ark, Noah,
+   gopher wood) and paraphrases the rest, because Gemini blocks answers that
+   recite a Bible translation (`RECITATION`); see
+   `experiments/search-paraphrase-2026-11-02/report.md`.
+   References are discarded; only the retold queries are searched, so a misremembered reference cannot become a result. A query with
    no biblical subject gets none. The answer is constrained by Gemini
    `responseSchema` (each query at most 1000 characters) and validated by the
    server. The call runs before the database connection is opened.
@@ -152,7 +155,9 @@ Error bodies contain only `detail`. Validation errors do not echo query
 values or unknown user-controlled field names. Queries and model answers are
 never logged or cached. A failure is logged as its exception chain by class
 and HTTP status, e.g. `ExpansionError <- QueryRewriteError <- ReadTimeout`;
-`ExpansionError`/`RankingError` name the failed model stage. OpenAI-compatible
+`ExpansionError`/`RankingError` name the failed model stage, and an answer
+Gemini blocked is logged with its finish reason (`GenerationStopped RECITATION`)
+and is not retried. OpenAI-compatible
 stages hide the cause by design (an endpoint may embed a key), so their chain
 ends at `QueryRewriteError`. Statistics omit the user agent for this private
 route and retain the existing application identity and HMAC client pseudonym.

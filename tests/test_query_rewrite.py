@@ -16,6 +16,7 @@ os.environ.setdefault("BIBLE_GARDEN_API_KEY", "test-api-key")
 import config
 from query_rewrite import (
     GeminiQueryRewriter,
+    GenerationStopped,
     QueryRewriteError,
     REWRITE_PROMPT_VERSION,
     REWRITE_VARIANTS,
@@ -294,6 +295,21 @@ def test_rewrite_fails_after_retries_without_leaking_context(monkeypatch):
         rewriter.rewrite("ru", "секретная тема молитвы", [])
     # failure category only — never the prayer context
     assert "секретная" not in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    ("reason", "logged"),
+    [("RECITATION", "RECITATION"), ("secret prayer text", "UNKNOWN"), (None, "UNKNOWN")],
+)
+def test_blocked_answer_names_only_a_safe_finish_reason(reason, logged):
+    rewriter = make_rewriter(
+        lambda r: httpx.Response(
+            200, json={"candidates": [{"finishReason": reason, "content": {}}]}
+        )
+    )
+    with pytest.raises(GenerationStopped) as exc_info:
+        rewriter.complete("instruction", "content")
+    assert exc_info.value.reason == logged
 
 
 def test_rewrite_fails_on_empty_candidates():

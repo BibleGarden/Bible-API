@@ -77,6 +77,7 @@ REWRITE_PROMPT_VERSION = 8
 REWRITE_VARIANTS = 6
 _MAX_QUERY_CHARS = 200
 _MODEL_PATTERN = re.compile(r"^[a-zA-Z0-9._-]+$")
+_FINISH_REASON = re.compile(r"[A-Z_]{1,40}")
 # Linear backoff of the retry ladder: 2 s before the second attempt, 4 s
 # before the third (unchanged; only when the budget can still afford it).
 _RETRY_BASE_SECONDS = 2.0
@@ -114,6 +115,14 @@ SUPPORTED_LANGUAGES = tuple(_LANGUAGES)
 
 class QueryRewriteError(RuntimeError):
     """The rewrite backend is not configured, unreachable or returned junk."""
+
+
+class GenerationStopped(QueryRewriteError):
+    """Gemini returned no answer; `reason` is its finishReason (e.g. RECITATION)."""
+
+    def __init__(self, reason: str):
+        super().__init__(f"generation stopped: {reason}")
+        self.reason = reason
 
 
 def build_search_query(topic: str, user_replies: list[str]) -> str:
@@ -666,13 +675,22 @@ class GeminiQueryRewriter:
             ) from last_error
 
         try:
-            parts = data["candidates"][0]["content"]["parts"]
-            text = "".join(
-                part.get("text", "") for part in parts if isinstance(part, dict)
-            )
-        except (KeyError, IndexError, TypeError) as exc:
+            candidate = data["candidates"][0]
+            parts = candidate.get("content", {}).get("parts")
+        except (KeyError, IndexError, TypeError, AttributeError) as exc:
             raise QueryRewriteError("rewrite response has no candidates") from exc
-        return text
+        if not isinstance(parts, list):
+            # A blocked answer (RECITATION, SAFETY, ...) arrives as HTTP 200
+            # without content; the enum is safe to log, anything else is not.
+            reason = candidate.get("finishReason")
+            raise GenerationStopped(
+                reason
+                if isinstance(reason, str) and _FINISH_REASON.fullmatch(reason)
+                else "UNKNOWN"
+            )
+        return "".join(
+            part.get("text", "") for part in parts if isinstance(part, dict)
+        )
 
 
 class OpenAICompatQueryRewriter:
