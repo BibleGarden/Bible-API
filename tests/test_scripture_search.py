@@ -97,8 +97,9 @@ def environment(monkeypatch, request_log):
         )
         for cid, book, chapter, end in ((GENEALOGY, 13, 1, 4), (PSALM, 19, 23, 3))
     ]
+    index = InMemoryVectorIndex(np.array([[1.0, 0.0], [0.0, 1.0]] * 3), metas)
     resources = CorpusResources(
-        index=InMemoryVectorIndex(np.array([[1.0, 0.0], [0.0, 1.0]] * 3), metas),
+        index=index,
         lexical={
             lang: LexicalIndex([(GENEALOGY, "Adam Seth"), (PSALM, "shepherd")])
             for lang in ("ru", "en", "uk")
@@ -112,6 +113,7 @@ def environment(monkeypatch, request_log):
         coverage={2: frozenset({PSALM})},
         loaded_at=0,
         psalm_maps=maps,
+        windows=scripture_select.canonical_windows(index),
     )
     rewriter, ranker, embedder = MagicMock(), MagicMock(), MagicMock()
     for provider in (rewriter, ranker, embedder):
@@ -261,7 +263,30 @@ WINDOWS = [
     ],
 )
 def test_reference_windows(references, expected):
-    assert search._reference_windows(WINDOWS, references) == expected
+    assert search._reference_windows(WINDOWS, None, references) == expected
+
+
+def test_reference_windows_of_a_nonprimary_translation_are_covered_ones():
+    # The best overlap is not served by the translation; a covered
+    # neighbour overlapping the reference is chosen instead of nothing.
+    allowed = frozenset({"v3:40.006.019-024", "v3:19.023.001-006"})
+    assert search._reference_windows(WINDOWS, allowed, [(40, 6, 22, 34)]) == [
+        "v3:40.006.019-024"
+    ]
+    assert search._reference_windows(WINDOWS, allowed, [(19, 22, 1, 5)]) == []
+
+
+def test_nonprimary_translation_searches_covered_reference_windows(environment):
+    # Translation 2 covers only the psalm: a genealogy reference adds nothing.
+    environment.rewriter.complete.return_value = expansion_answer(
+        ("1ch", 1, 1, 4), ("psa", 23, 1, 6)
+    )
+    environment.ranker.complete.return_value = rank_answer(direct=[0])
+    response = post({**BODY, "translation": 2})
+    assert response.status_code == 200
+    prompt = json.loads(environment.ranker.complete.call_args.args[1])
+    assert len(prompt["candidates"]) == 1
+    assert "verse 4" not in prompt["candidates"][0]["text"]
 
 
 def test_expansion_runs_before_database_connection(environment):

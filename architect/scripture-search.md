@@ -76,14 +76,19 @@ safe pool, comforting-text preferences or degraded answers.
    `responseSchema` (book enum, integers from 1) and validated by the server
    (`verse_start` ≤ `verse_end`). The call runs before the database
    connection is opened.
-3. Map each reference to the canonical window of the request language
-   overlapping it most (canonical IDs share the references' English
-   numbering). A reference absent from that corpus (a misremembered chapter,
-   Malachi 4 in `ubh`) yields no window and is not an error; a window still
-   has to pass the ranker, so a wrong reference cannot become an unverified
-   result. Embed the original query (the only embedding call). Search each
-   window by its stored vector (semantic top-50: the window itself, then its
-   nearest passages, e.g. the parallel Exodus 37 for Exodus 25), then the
+3. Map each reference to the canonical window of the request language that
+   the requested translation can serve and that overlaps it most. Windows
+   match the references' English numbering for `en` and for Psalms
+   (ADR 0003); other books of `ru` (`syn`) and `uk` (`ubh`) are cut in their
+   own versification (English Jonah 1:17 is their 2:1, Romans 16:25-27 is
+   `syn` 14:24-26, Malachi 4 is `ubh` 3:19-24, Numbers 16:36-50 is `ubh`
+   17:1-15). There a reference is lost or points to neighbouring text, which
+   the ranker leaves out as unrelated. A reference without a window is not an
+   error, and every window still has to pass the ranker, so a wrong reference
+   cannot become an unverified result. Embed the original query (the only
+   embedding call). Search each window by its stored vector (semantic
+   top-50: the window itself, then its nearest passages, e.g. the parallel
+   Exodus 37 for Exodus 25), then the
    query by semantic top-50 and BM25 top-20. Fuse them by round-robin
    interleave with windows first in reference order (the query last),
    deduplicate canonical IDs, apply translation coverage and diversity,

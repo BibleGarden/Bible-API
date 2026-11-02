@@ -64,7 +64,6 @@ def rank_of(candidates, anchor):
 def main(records, queries):
     cases = {case["id"]: case for case in json.load(open(queries))}
     resources = select.get_resources(allow_stale=False)
-    windows_by_language = select.canonical_windows(resources.index)
     connection = create_connection()
     cursor = connection.cursor(dictionary=True)
     load = make_db_passage_loader(cursor)
@@ -79,16 +78,14 @@ def main(records, queries):
                 c["answer"] for c in record["calls"] if c["stage"] == "scripture_rewrite"
             )
             references = [parse(p["ref"]) for p in json.loads(answer)["passages"]]
+            allowed = select.coverage_filter(resources, language, case["translation"])
             windows = search._reference_windows(
-                windows_by_language[language], references
+                resources.windows[language], allowed, references
             )
             retriever = ScriptureRetriever(
                 index=resources.index, embedder=embedder, rewriter=None,
                 load_passages=load, lexical_indexes=resources.lexical,
-                blacklist=[], safe_pool=[],
-                allowed_canonical_ids=select.coverage_filter(
-                    resources, language, case["translation"]
-                ),
+                blacklist=[], safe_pool=[], allowed_canonical_ids=allowed,
             )
 
             def hybrid(text, vector):

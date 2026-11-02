@@ -17,8 +17,9 @@ switched off.
 The expansion returns only references, constrained by `responseSchema`:
 `book` (enum of the 66 `canon.CANONICAL_BOOK_CODES`), `chapter`,
 `verse_start`, `verse_end` in English numbering. Each reference maps to the
-canonical window of the request language that overlaps it most; a reference
-the corpus lacks yields nothing. With no Bible text in the answer there is
+canonical window of the request language that the requested translation can
+serve and that overlaps it most; a reference without such a window yields
+nothing. With no Bible text in the answer there is
 nothing to recite.
 
 ## How windows enter retrieval
@@ -67,10 +68,20 @@ disposable container on the development corpus; rewrite and rerank
 - Median expansion call 0.88 s (was 1.03 s), retrieval 0.13 s (was 0.21 s).
 - Open: one Russian ark pass named no Hebrews 11, so that secondary anchor
   was missed; the neighbour queries still miss Luke 10, as before.
+- Open: references use English numbering, which matches the windows for `en`
+  and for Psalms only (ADR 0003). Other books of `ru` (`syn`) and `uk`
+  (`ubh`) are cut in their own versification: English Jonah 1:17 is their
+  2:1, Romans 16:25-27 is `syn` 14:24-26, Malachi 4 is `ubh` 3:19-24 and
+  Numbers 16:36-50 is `ubh` 17:1-15 (so `num 17:8` lands on other text in
+  `uk`). Such a reference is lost or points to neighbouring text, which the
+  ranker leaves out; the control set has no such reference. Converting
+  references to translation coordinates is a separate task.
 
 ## Block rate
 
-`blockrate.py` ran the expansion call 10 times on "How can I cope with
-worry?": 10/10 `STOP`, no `RECITATION` (paraphrase prompt: 1/10, original
-prompt: 4/10). Every answer named Matthew 6:25-34, Philippians 4:6-7 and
-1 Peter 5:7.
+`blockrate.py` of this folder measures the reference schema only: 10
+expansion calls on "How can I cope with worry?" gave 10/10 `STOP`, no
+`RECITATION`. The earlier figures, 1/10 with the paraphrase prompt and 4/10
+with the original one, come from
+[search-paraphrase-2026-11-02](../search-paraphrase-2026-11-02/report.md).
+Every answer named Matthew 6:25-34, Philippians 4:6-7 and 1 Peter 5:7.

@@ -49,7 +49,6 @@ from scripture_select import (
     PROVIDER_ATTEMPTS,
     PassageModel,
     build_passage_verses,
-    canonical_windows,
     coverage_filter,
     get_resources,
     resolve_translation,
@@ -206,14 +205,19 @@ def _expand(generator, query: str, deadline: Deadline) -> list[tuple[int, int, i
 
 
 def _reference_windows(
-    windows: list[tuple], references: list[tuple[int, int, int, int]]
+    windows: list[tuple],
+    allowed: frozenset[str] | None,
+    references: list[tuple[int, int, int, int]],
 ) -> list[str]:
-    """The window overlapping each reference most, in reference order.
+    """The window the translation can serve overlapping each reference most.
 
-    Windows use English numbering, Psalms included (ADR 0003), like the
-    references. A reference the language's corpus lacks (a misremembered
-    chapter, Malachi 4 that `ubh` joins to chapter 3) matches nothing: a
-    wrong reference is the model's mistake, not a stage failure.
+    References use English numbering. Windows match it for `en` and for
+    Psalms (ADR 0003); other books of `ru` (`syn`) and `uk` (`ubh`) are cut
+    in their own versification (English Jonah 1:17 is their 2:1, Romans
+    16:25-27 is `syn` 14:24-26, Malachi 4 is `ubh` 3:19-24, Numbers
+    16:36-50 is `ubh` 17:1-15). There a reference is lost or points to
+    neighbouring text, which the ranker leaves out as unrelated. A reference
+    without a window is the model's mistake, not a stage failure.
     """
     matched = []
     for book, chapter, first, last in references:
@@ -223,6 +227,7 @@ def _reference_windows(
             if (window_book, window_chapter) == (book, chapter)
             and start <= last
             and end >= first
+            and (allowed is None or canonical_id in allowed)
         ]
         if overlaps:
             matched.append(max(overlaps, key=lambda overlap: overlap[0])[1])
@@ -361,7 +366,7 @@ def _run_search(request: SearchRequest, deadline: Deadline) -> SearchResponse:
         except (QueryRewriteError, ValueError) as error:
             raise ExpansionError from error
         windows = _reference_windows(
-            canonical_windows(resources.index).get(language, []), references
+            resources.windows.get(language, []), allowed, references
         )
         embedder = stack.enter_context(
             build_embedding_client(

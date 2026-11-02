@@ -650,6 +650,8 @@ class CorpusResources:
     coverage: dict = field(default_factory=dict)
     # Selection can survive metadata load failures; general search must fail.
     metadata_available: bool = True
+    # language -> canonical windows of the corpus (`canonical_windows`).
+    windows: dict = field(default_factory=dict)
 
 
 _resources_lock = threading.Lock()
@@ -810,7 +812,7 @@ def _load_active_translations(cursor) -> dict[str, list[tuple[int, str]]]:
 
 
 def _build_catalogue(
-    cursor, index, psalm_maps: dict, indexed: dict, primary: dict
+    cursor, windows: dict, psalm_maps: dict, indexed: dict, primary: dict
 ) -> tuple[dict, dict]:
     """Renderable catalogue + per-translation coverage sets.
 
@@ -833,7 +835,6 @@ def _build_catalogue(
     its request path must stay byte-for-byte what it was, and the filter
     would be a no-op that costs a full verse scan.
     """
-    windows = canonical_windows(index)
     active = _load_active_translations(cursor)
     renderable: dict[str, list[tuple[int, str]]] = {}
     coverage: dict[int, frozenset[str]] = {}
@@ -912,12 +913,13 @@ def _load_resources() -> CorpusResources:
             psalm_maps = {}
             metadata_available = False
         indexed = _indexed_translations(index)
+        windows = canonical_windows(index)
         primary = resolve_primary_translations(
             indexed, AI_SCRIPTURE_PRIMARY_TRANSLATIONS
         )
         try:
             translations, coverage = _build_catalogue(
-                cursor, index, psalm_maps, indexed, primary
+                cursor, windows, psalm_maps, indexed, primary
             )
         except Exception as error:
             # The catalogue only ADDS translations; without it the endpoint
@@ -942,6 +944,7 @@ def _load_resources() -> CorpusResources:
         primary=primary,
         coverage=coverage,
         metadata_available=metadata_available,
+        windows=windows,
     )
 
 

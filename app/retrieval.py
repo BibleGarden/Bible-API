@@ -644,7 +644,9 @@ class ScriptureRetriever:
 
         `windows` are canonical IDs of the language, searched first by their
         stored vectors: each leads its own ranking (a unit vector is its own
-        nearest neighbour), followed by the passages closest to it. The query
+        nearest neighbour), followed by the passages closest to it. A window's
+        vector is that of its first index row, i.e. the language's first
+        indexed translation (currently the only one). The query
         is then searched like a prayer variant. Its embedding must succeed;
         neither the prayer blacklist nor safe pool participates.
         """
