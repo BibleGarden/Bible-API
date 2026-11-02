@@ -470,6 +470,42 @@ def test_provider_failure_is_retried_and_logged_by_cause(
     assert QUERY not in caplog.text
 
 
+def test_blocked_expansion_is_not_retried_and_logged_by_reason(
+    environment, monkeypatch, caplog
+):
+    requests = []
+
+    def respond(http_request):
+        requests.append(http_request)
+        return httpx.Response(
+            200, json={"candidates": [{"finishReason": "RECITATION", "content": {}}]}
+        )
+
+    provider = StageProvider(
+        stage="scripture_rewrite",
+        provider="gemini",
+        model="test-model",
+        endpoint="",
+        api_key="unit-test-secret",
+        reasoning_effort="omit",
+    )
+    with httpx.Client(transport=httpx.MockTransport(respond)) as transport:
+        monkeypatch.setattr(
+            search,
+            "build_query_rewriter",
+            lambda **kwargs: build_query_rewriter(
+                **{**kwargs, "stage": provider, "http_client": transport}
+            ),
+        )
+        response = post()
+    assert response.status_code == 503
+    assert len(requests) == 1
+    assert (
+        "Scripture search failed: ExpansionError <- GenerationStopped RECITATION"
+        in caplog.text
+    )
+
+
 def test_search_has_its_own_global_limit(environment, monkeypatch):
     monkeypatch.setattr(search, "AI_SCRIPTURE_SEARCH_REQUESTS_PER_MINUTE", 1)
     assert post().status_code == 200

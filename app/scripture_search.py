@@ -30,7 +30,7 @@ from embeddings import build_embedding_client
 from passage_render import render_passage
 from passage_highlight import resolve_highlight
 from passage_rerank import MAX_KEY_VERSES
-from query_rewrite import QueryRewriteError, build_query_rewriter
+from query_rewrite import GenerationStopped, QueryRewriteError, build_query_rewriter
 from rate_limit import RateLimiter, RateLimitError
 from retrieval import (
     PassageText,
@@ -140,6 +140,8 @@ def _failure_chain(error: BaseException | None) -> str:
     while error is not None:
         if isinstance(error, httpx.HTTPStatusError):
             parts.append(f"HTTP {error.response.status_code}")
+        elif isinstance(error, GenerationStopped):
+            parts.append(f"GenerationStopped {error.reason}")
         else:
             parts.append(type(error).__name__)
         error = error.__cause__
@@ -147,7 +149,7 @@ def _failure_chain(error: BaseException | None) -> str:
 
 
 def _expand(generator, query: str, language: str, deadline: Deadline) -> list[str]:
-    """Queries worded like the passages answering the query, then the query.
+    """Queries retelling the passages answering the query, then the query.
 
     Bridges the user's wording to Scripture's ("тревога" vs "не заботьтесь")
     and covers every meaning of an ambiguous query ("ковчег"). Expansions
@@ -163,10 +165,13 @@ def _expand(generator, query: str, language: str, deadline: Deadline) -> list[st
         "both 'ковчег' in Russian and 'ark' in English), cover each meaning, "
         "the most likely first. For each passage first write its reference in "
         "ref (book chapter:verses), then in query a short search query in "
-        f"{_LANGUAGE_NAMES[language]} worded like that passage itself, 5-25 "
-        "words, without book names or numbers. If the query has no biblical "
-        "subject at all, return passages: []. Do not answer the query in your "
-        'own words. Return only JSON {"passages": [{"ref": "...", '
+        f"{_LANGUAGE_NAMES[language]} that retells that passage, 5-25 words, "
+        "without book names or numbers. Keep the exact key nouns and the "
+        "names of people, places and objects the passage itself uses (ark, "
+        "Noah, gopher wood), but paraphrase the rest: never copy more than "
+        "three consecutive words of any Bible translation. If the query has "
+        "no biblical subject at all, return passages: []. Do not answer the "
+        'query in your own words. Return only JSON {"passages": [{"ref": "...", '
         '"query": "..."}]}.'
     )
     payload = json.loads(
