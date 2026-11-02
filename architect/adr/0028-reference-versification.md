@@ -34,8 +34,10 @@ Psalms keep the canon of ADR 0003.
   references there. A verse without an English counterpart (a Septuagint
   addition) is dropped.
 - Corpus loading refuses an indexed translation that has no versification,
-  whose stored chapter lengths differ from it, or that shares its language
-  with another indexed translation. Search then answers 503; scripture
+  whose stored chapter lengths differ from it, that has a verse landing past
+  the end of its English chapter without a `-` mark in its correction file
+  (`-` is our extension of Paratext's, see `app/vrs/syn.vrs`), or that
+  shares its language with another indexed translation. Search then answers 503; scripture
   selection does not use this layer and is unaffected.
 
 ### Alternatives

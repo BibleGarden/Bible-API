@@ -2,7 +2,8 @@
 # Bible-API correction file, checked 2026-11-02 against cep_public
 # translation 20 (chapter lengths and verse texts). A book line replaces the
 # book's chapter lengths; a mapping replaces the base mapping of its verse.
-# A `-` line marks verses with no original counterpart.
+# A `-` line, our extension of Paratext's (there: an excluded verse absent
+# from the text), marks a verse the text has but English lacks.
 #
 # Numbers 26:1 includes 25:19; Nehemiah 7 and Joel follow English numbering.
 NUM 1:54 2:34 3:51 4:49 5:31 6:27 7:89 8:26 9:23 10:36 11:35 12:16 13:33 14:45 15:41 16:35 17:28 18:32 19:22 20:29 21:35 22:41 23:30 24:25 25:18 26:65 27:23 28:31 29:39 30:17 31:54 32:42 33:56 34:29 35:34 36:13

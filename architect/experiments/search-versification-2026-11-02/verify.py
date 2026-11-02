@@ -70,7 +70,7 @@ def check(directory, base=None):
     for (alias, book, chapter, verse), i in row.items():
         if alias == "bsb":
             bsb[(book, chapter)].append((verse, i))
-    for alias in ("syn", "ubh"):
+    for alias in (("syn",) if base else ("syn", "ubh")):
         similarities, flags, unmapped = [], [], 0
         for (a, book, chapter, verse), i in row.items():
             if a != alias:

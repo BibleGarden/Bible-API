@@ -45,7 +45,8 @@ chapters; a verse is flagged when the mapped similarity is under 0.6 and
 another `bsb` verse scores 0.1 higher. Coverage: all 28,829 non-Psalm `syn`
 verses and 28,842 `ubh` verses, 28,621 and 28,624 of them with an English
 counterpart (median cosine 0.82), embedded in 79 minutes on 8 CPU cores.
-Output: `verify.jsonl`, and `verify-base.jsonl` with rso.vrs alone.
+Output: `verify.jsonl`, and `verify-base.jsonl`: `syn` with rso.vrs alone
+(`base` rolls back `syn` only; no org.vrs-alone run of `ubh` was made).
 
 - With rso.vrs alone the check flags 50 `syn` verses, among them two runs:
   Isaiah 3:20-25 (6 verses) and Daniel 6:1-28 (26 verses), both mapped one

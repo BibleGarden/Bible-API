@@ -348,10 +348,13 @@ def canonicalize_psalm_chapters(
 # `bsb`. Outside the Psalms the other indexed translations keep their own:
 # `syn` the Russian Synodal one (English Jonah 1:17 is its 2:1, Romans
 # 16:25-27 its 14:24-26), `ubh` mostly the Hebrew one (Malachi 4 is its
-# 3:19-24, Numbers 16:36-50 its 17:1-15). A Paratext versification file lists a numbering's chapter
-# lengths and maps its verses onto the original numbering (org.vrs); an
-# unmapped verse keeps its number, a `-` line marks verses without one. eng, org and rso.vrs are copied unchanged
-# from sillsdev/machine.py `machine/scripture/*.vrs.txt` at abe3718 (MIT,
+# 3:19-24, Numbers 16:36-50 its 17:1-15). A Paratext versification file
+# lists a numbering's chapter lengths and maps its verses onto the original
+# numbering (org.vrs); an unmapped verse keeps its number. In Paratext a `-`
+# line excludes a verse that is absent from the text; our correction files
+# use it as an extension, for a verse the text has but English lacks (a
+# Septuagint addition). eng, org and rso.vrs are copied unchanged from
+# sillsdev/machine.py `machine/scripture/*.vrs.txt` at abe3718 (MIT,
 # `vrs/LICENSE`); bsb, syn and ubh.vrs correct their base file to the
 # stored texts (ADR 0028).
 # ---------------------------------------------------------------------------
@@ -416,7 +419,7 @@ def load_versification(names: tuple[str, ...]) -> Versification:
             line = line.partition("#")[0].strip()
             if not line:
                 continue
-            if line.startswith("-"):  # a verse with no original counterpart
+            if line.startswith("-"):  # our extension: no original counterpart
                 for verse in _verse_range(line[1:]) or ():
                     mappings[verse] = ()
                 continue
@@ -489,9 +492,9 @@ def to_reference_numbering(
     """A non-Psalm verse range of the translation in English numbering.
 
     Returns (book, chapter, first, last) per English chapter it spans; empty
-    when no verse has an English counterpart. A verse kept unmapped by the
-    files (a Septuagint addition such as Joshua 24:34-36 of `syn`) keeps its
-    number, which may not exist in English: such a verse is dropped.
+    when no verse has an English counterpart. A verse that lands past the
+    end of its English chapter is an error in the files: a verse with no
+    English counterpart must be marked with `-`.
     """
     source = translation_versification(alias)
     reference = translation_versification(REFERENCE_ALIAS)
@@ -499,6 +502,10 @@ def to_reference_numbering(
     for verse in range(first, last + 1):
         for original in source.to_original((book, chapter, verse)):
             for b, c, v in reference.from_original(original):
-                if v <= reference.chapters.get((b, c), 0):
-                    verses.setdefault((b, c), []).append(v)
+                if v > reference.chapters.get((b, c), 0):
+                    raise ValueError(
+                        f"{alias} {book}:{chapter}:{verse} maps past the end "
+                        f"of English chapter {b}:{c}; mark it with `-`"
+                    )
+                verses.setdefault((b, c), []).append(v)
     return [(b, c, min(v), max(v)) for (b, c), v in sorted(verses.items())]

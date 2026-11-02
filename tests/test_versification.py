@@ -439,8 +439,7 @@ def test_differing_stored_chapter_is_refused(stored_chapters):
         ("syn", (66, 20, 7, 7), [(66, 20, 7, 8)]),
         ("ubh", (34, 2, 3, 3), [(34, 2, 1, 1)]),
         ("ubh", (20, 6, 22, 22), [(20, 6, 23, 23)]),
-        # Septuagint additions: marked in syn.vrs, or numbered past the
-        # English chapter's end.
+        # Septuagint additions: marked in syn.vrs.
         ("syn", (20, 13, 14, 14), []),
         ("syn", (20, 13, 15, 15), [(20, 13, 14, 14)]),
         ("syn", (6, 24, 34, 36), []),
@@ -456,6 +455,19 @@ def test_differing_stored_chapter_is_refused(stored_chapters):
 )
 def test_translation_ranges_in_english_numbering(alias, stored, english):
     assert to_reference_numbering(alias, *stored) == english
+
+
+@pytest.mark.parametrize("alias", ["syn", "ubh"])
+def test_every_stored_verse_has_an_english_verse_or_a_mark(stored_chapters, alias):
+    # A verse landing past the end of its English chapter raises.
+    for (book, chapter), last in stored_chapters[alias].items():
+        to_reference_numbering(alias, book, chapter, 1, last)
+
+
+def test_verse_past_the_english_chapter_is_refused():
+    # English Joshua 24 ends at 33; syn marks its 34-36 with `-`.
+    with pytest.raises(ValueError, match="mark it with"):
+        to_reference_numbering("bsb", 6, 24, 33, 34)
 
 
 def test_reference_translation_maps_onto_itself(stored_chapters):

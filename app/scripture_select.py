@@ -812,7 +812,6 @@ def reference_windows(index) -> dict[str, list[tuple]]:
     translation of a language, whose windows would share canonical IDs with
     other verse numbers.
     """
-    windows: dict[str, list[tuple]] = {}
     aliases: dict[str, str] = {}
     last_verses: dict[str, dict[tuple[int, int], int]] = {}
     for meta in index.metas:
@@ -822,20 +821,27 @@ def reference_windows(index) -> dict[str, list[tuple]]:
                 f"{aliases[meta['language']]}, {meta['alias']}"
             )
         book, chapter = meta["book_number"], meta["chapter_number"]
-        start, end = meta["verse_number_start"], meta["verse_number_end"]
         if book != PSALMS_BOOK:
             last = last_verses.setdefault(meta["alias"], {})
-            last[(book, chapter)] = max(last.get((book, chapter), 0), end)
+            last[(book, chapter)] = max(
+                last.get((book, chapter), 0), meta["verse_number_end"]
+            )
+    for alias, last in last_verses.items():
+        check_chapters(alias, last)
+    windows: dict[str, list[tuple]] = {}
+    for meta in index.metas:
+        book, chapter = meta["book_number"], meta["chapter_number"]
         ranges = (
             [parse_canonical_id(meta["canonical_id"])[1:]]
             if book == PSALMS_BOOK
-            else to_reference_numbering(meta["alias"], book, chapter, start, end)
+            else to_reference_numbering(
+                meta["alias"], book, chapter,
+                meta["verse_number_start"], meta["verse_number_end"],
+            )
         )
         windows.setdefault(meta["language"], []).extend(
             (meta["canonical_id"], *verse_range) for verse_range in ranges
         )
-    for alias, last in last_verses.items():
-        check_chapters(alias, last)
     return windows
 
 
