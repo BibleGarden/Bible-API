@@ -241,16 +241,29 @@ and title structure. Run it for the new translation:
 (ADR 0001, `architect/adr/0001-structural-chunking.md`).
 
 **4.2 — Psalm versification: add the translation's scheme.**
-`app/versification.py:68-76` — `TRANSLATION_SCHEMES` maps **translation alias →
+`app/versification.py:74-82` — `TRANSLATION_SCHEMES` maps **translation alias →
 `septuagint` | `masoretic`**. `build_psalm_map()` raises
 `"Unknown Psalm numbering scheme for translation '<alias>'; add it to
-versification.TRANSLATION_SCHEMES"` (`:167-172`), and
+versification.TRANSLATION_SCHEMES"` (`:173-178`), and
 `app/versification_cli.py:82-86` refuses the whole build listing the unmapped
-aliases. Per-verse exceptions go in `EXCEPTIONS` (`app/versification.py:84-86`).
+aliases. Per-verse exceptions go in `EXCEPTIONS` (`app/versification.py:90-92`).
 ADR 0003 (`architect/adr/0003-psalm-versification-canon.md`) is the canon
 decision.
 *Verify:* `python app/versification_cli.py build --translations <alias>` then
 `… verify`; `tests/test_versification.py`.
+
+**4.2a — Other books: the indexed translation's verse numbering.**
+General search locates English-numbered references in every indexed
+translation through `TRANSLATION_VERSIFICATIONS` in `app/versification.py`
+(alias → Paratext `.vrs` files in `app/vrs/`, base first). Corpus loading
+refuses an indexed alias missing there or whose stored chapter lengths differ
+from its files, and search then answers 503 (ADR 0028). Pick the matching
+base file (`eng`, `org`, `rso`; more in sillsdev/machine.py) and add a
+correction file for checked differences, as `syn.vrs` and `ubh.vrs` do.
+Chapter lengths miss shifts inside a chapter: check the mapping verse by
+verse with `architect/experiments/search-versification-2026-11-02/verify.py`.
+*Verify:* add the alias to `tests/data/chapter_max_verses.json` and run
+`tests/test_versification.py`.
 
 **4.3 — Canon exceptions, if the translation divides books differently.**
 `app/canon.py:142-144`, `TRANSLATION_CHAPTER_COUNTS`, keyed by
@@ -736,7 +749,7 @@ the list is complete. Every "✅" was verified in the file named.
 | 3.6 | `Language` enum member | ✅ `app/scripture_select.py:158` |
 | 3.7 | `retrieval_cli --language` | ✅ `:156` |
 | 4.1 | Chunking | ✅ language-independent |
-| 4.2 | `TRANSLATION_SCHEMES["ubh"]` | ✅ `app/versification.py:75` (masoretic) |
+| 4.2 | `TRANSLATION_SCHEMES["ubh"]` | ✅ `app/versification.py:81` (masoretic) |
 | 4.3 | Canon exception | ✅ `("ubh", 39): 3` — `app/canon.py:143` |
 | 4.4 | Embeddings cover the language | ✅ bge-m3 is multilingual; index version `c3:BAAI/bge-m3@1024` |
 | 4.5 | BM25 index | ✅ automatic (grouped by `t.language`) |
@@ -839,7 +852,7 @@ table to work through; the checklist above is its narrative.
 | `app/excerpt.py` `EXCERPT_PATTERN` | excerpt grammar `(?P<book>[A-Za-z0-9]+)` — Latin book token, case folded before the lookup | nothing (contract, see 3.5) |
 | `app/excerpt.py` `get_books_info` | book-alias `WHERE` matches `code1..code5` only — `short_name_en` / `short_name_ru` **removed 2026-09-05** | nothing |
 | `app/retrieval_cli.py:156` | `--language choices=("ru","en","uk")` | **add** |
-| `app/versification.py:68-76` | `TRANSLATION_SCHEMES` — per **translation alias** | **add per translation** |
+| `app/versification.py:74-82` | `TRANSLATION_SCHEMES` — per **translation alias** | **add per translation** |
 | `app/canon.py:142-144` | `TRANSLATION_CHAPTER_COUNTS` — `("ubh", 39): 3` | per translation, if needed |
 | `app/vector_index.py:14` | index version shape `c3:BAAI/bge-m3@1024` | revisit after 86cbehd6h |
 | `tests/test_evaluation_dataset.py:224` | `assert set(counts) == {"ru","en","uk"}` (+ ≥5 each, `:226`) | **will fail — update** |

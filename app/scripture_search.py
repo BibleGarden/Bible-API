@@ -211,13 +211,9 @@ def _reference_windows(
 ) -> list[str]:
     """The window the translation can serve overlapping each reference most.
 
-    References use English numbering. Windows match it for `en` and for
-    Psalms (ADR 0003); other books of `ru` (`syn`) and `uk` (`ubh`) are cut
-    in their own versification (English Jonah 1:17 is their 2:1, Romans
-    16:25-27 is `syn` 14:24-26, Malachi 4 is `ubh` 3:19-24, Numbers
-    16:36-50 is `ubh` 17:1-15). There a reference is lost or points to
-    neighbouring text, which the ranker leaves out as unrelated. A reference
-    without a window is the model's mistake, not a stage failure.
+    References and `windows` (`reference_windows`) use English numbering,
+    so English Jonah 1:17 finds the `syn` and `ubh` window of their 2:1. A
+    reference without a window is the model's mistake, not a stage failure.
     """
     matched = []
     for book, chapter, first, last in references:
@@ -366,7 +362,7 @@ def _run_search(request: SearchRequest, deadline: Deadline) -> SearchResponse:
         except (QueryRewriteError, ValueError) as error:
             raise ExpansionError from error
         windows = _reference_windows(
-            resources.windows.get(language, []), allowed, references
+            resources.reference_windows.get(language, []), allowed, references
         )
         embedder = stack.enter_context(
             build_embedding_client(
