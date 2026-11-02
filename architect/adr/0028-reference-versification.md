@@ -58,10 +58,11 @@ then drops the right one (Exodus 37, Daniel 4:34-37).
 
 ## Consequences
 
-- An edit of an indexed translation that changes a chapter's length (verses
-  added, removed or renumbered), published and re-chunked, makes general
-  search answer 503 until the matching `.vrs` file is corrected in
-  Bible-API. Correct the file first, or in the same release.
+- An edit of an indexed translation that changes a chapter's last verse
+  number needs the matching `.vrs` correction. Whichever lands first, the
+  release of the corrected file or the import of the new text, general
+  search answers 503 until the other follows; release the file right before
+  the import (Deploy `runbook.md`).
 - Chapter lengths do not reveal a shift inside a chapter (rso.vrs had two);
   the files were checked verse by verse against the stored texts with local
   embeddings, see the experiment report. A new indexed translation needs the
