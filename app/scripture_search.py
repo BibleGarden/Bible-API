@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from starlette.concurrency import run_in_threadpool
 
 from auth import RequireAPIKey
+from canon import CANONICAL_BOOK_CODES
 from client_ip import resolve_client_ip
 from config import (
     AI_ENABLED,
@@ -49,7 +50,6 @@ from scripture_select import (
     PassageModel,
     build_passage_verses,
     coverage_filter,
-    embed_workers,
     get_resources,
     resolve_translation,
     translation_alias,
@@ -98,9 +98,9 @@ def _check_deadline(deadline: Deadline) -> None:
         raise TimeoutError("search deadline exceeded")
 
 
-_LANGUAGE_NAMES = {"ru": "Russian", "en": "English", "uk": "Ukrainian"}
 MAX_EXPANSIONS = 3
-MAX_QUERY_LENGTH = 1000
+BOOK_NUMBERS = {code: number for number, code in CANONICAL_BOOK_CODES.items()}
+REFERENCE_FIELDS = ["book", "chapter", "verse_start", "verse_end"]
 EXPANSION_SCHEMA = {
     "type": "OBJECT",
     "properties": {
@@ -110,11 +110,13 @@ EXPANSION_SCHEMA = {
             "items": {
                 "type": "OBJECT",
                 "properties": {
-                    "ref": {"type": "STRING"},
-                    "query": {"type": "STRING", "maxLength": MAX_QUERY_LENGTH},
+                    "book": {"type": "STRING", "enum": list(BOOK_NUMBERS)},
+                    "chapter": {"type": "INTEGER", "minimum": 1},
+                    "verse_start": {"type": "INTEGER", "minimum": 1},
+                    "verse_end": {"type": "INTEGER", "minimum": 1},
                 },
-                "required": ["ref", "query"],
-                "propertyOrdering": ["ref", "query"],
+                "required": REFERENCE_FIELDS,
+                "propertyOrdering": REFERENCE_FIELDS,
             },
         }
     },
@@ -148,13 +150,14 @@ def _failure_chain(error: BaseException | None) -> str:
     return " <- ".join(parts)
 
 
-def _expand(generator, query: str, language: str, deadline: Deadline) -> list[str]:
-    """Queries retelling the passages answering the query, then the query.
+def _expand(generator, query: str, deadline: Deadline) -> list[tuple[int, int, int, int]]:
+    """References of the passages answering the query, the most direct first.
 
     Bridges the user's wording to Scripture's ("тревога" vs "не заботьтесь")
-    and covers every meaning of an ambiguous query ("ковчег"). Expansions
-    come first: `fuse_interleave` honours variant order, and the ranker keeps
-    retrieval order within a grade, so the best-known passage leads.
+    and covers every meaning of an ambiguous query ("ковчег"). The model
+    writes references only: their text comes from the corpus, so there is no
+    Bible text in the answer for Gemini to block as a recitation, and a
+    misremembered reference cannot become a result unverified by the ranker.
     """
     instruction = (
         "You prepare general Bible search, not prayer counselling. The user "
@@ -163,16 +166,15 @@ def _expand(generator, query: str, language: str, deadline: Deadline) -> list[st
         "first. When the query can refer to several DIFFERENT things, people "
         "or events in the Bible (Noah's ark and the ark of the covenant are "
         "both 'ковчег' in Russian and 'ark' in English), cover each meaning, "
-        "the most likely first. For each passage first write its reference in "
-        "ref (book chapter:verses), then in query a short search query in "
-        f"{_LANGUAGE_NAMES[language]} that retells that passage, 5-25 words, "
-        "without book names or numbers. Keep the exact key nouns and the "
-        "names of people, places and objects the passage itself uses (ark, "
-        "Noah, gopher wood), but paraphrase the rest: never copy more than "
-        "three consecutive words of any Bible translation. If the query has "
-        "no biblical subject at all, return passages: []. Do not answer the "
-        'query in your own words. Return only JSON {"passages": [{"ref": "...", '
-        '"query": "..."}]}.'
+        "the most likely first. Return each passage as a reference within one "
+        "chapter: book is one of the codes "
+        f"{' '.join(BOOK_NUMBERS)}; chapter, verse_start and verse_end use "
+        "English Bible numbering whatever the query language (Psalms as in "
+        "the KJV: 'The Lord is my shepherd' is psa 23:1, titles are not "
+        "numbered). If the query has no biblical subject at all, return "
+        "passages: []. Never write Bible text or answer the query. Return only "
+        'JSON {"passages": [{"book": "psa", "chapter": 23, "verse_start": 1, '
+        '"verse_end": 6}]}.'
     )
     payload = json.loads(
         generator.complete(
@@ -183,21 +185,53 @@ def _expand(generator, query: str, language: str, deadline: Deadline) -> list[st
         )
     )
     passages = payload.get("passages") if isinstance(payload, dict) else None
-    if (
-        not isinstance(passages, list)
-        or len(passages) > MAX_EXPANSIONS
-        or any(
-            not isinstance(passage, dict)
-            or not isinstance(passage.get("query"), str)
-            or not passage["query"].strip()
-            or len(passage["query"]) > MAX_QUERY_LENGTH
-            for passage in passages
-        )
-    ):
+    if not isinstance(passages, list) or len(passages) > MAX_EXPANSIONS:
         raise ValueError("invalid search expansion response")
-    # `ref` only makes the model recall a real passage; it is never searched,
-    # so a misremembered reference cannot become a result.
-    return list(dict.fromkeys([*(p["query"].strip() for p in passages), query]))
+    references = []
+    for passage in passages:
+        if not isinstance(passage, dict):
+            raise ValueError("invalid search expansion reference")
+        book, chapter, start, end = (passage.get(f) for f in REFERENCE_FIELDS)
+        if (
+            not isinstance(book, str)
+            or book not in BOOK_NUMBERS
+            or any(type(value) is not int for value in (chapter, start, end))
+            or chapter < 1
+            or not 1 <= start <= end
+        ):
+            raise ValueError("invalid search expansion reference")
+        references.append((BOOK_NUMBERS[book], chapter, start, end))
+    return references
+
+
+def _reference_windows(
+    windows: list[tuple],
+    allowed: frozenset[str] | None,
+    references: list[tuple[int, int, int, int]],
+) -> list[str]:
+    """The window the translation can serve overlapping each reference most.
+
+    References use English numbering. Windows match it for `en` and for
+    Psalms (ADR 0003); other books of `ru` (`syn`) and `uk` (`ubh`) are cut
+    in their own versification (English Jonah 1:17 is their 2:1, Romans
+    16:25-27 is `syn` 14:24-26, Malachi 4 is `ubh` 3:19-24, Numbers
+    16:36-50 is `ubh` 17:1-15). There a reference is lost or points to
+    neighbouring text, which the ranker leaves out as unrelated. A reference
+    without a window is the model's mistake, not a stage failure.
+    """
+    matched = []
+    for book, chapter, first, last in references:
+        overlaps = [
+            (min(end, last) - max(start, first), canonical_id)
+            for canonical_id, window_book, window_chapter, start, end in windows
+            if (window_book, window_chapter) == (book, chapter)
+            and start <= last
+            and end >= first
+            and (allowed is None or canonical_id in allowed)
+        ]
+        if overlaps:
+            matched.append(max(overlaps, key=lambda overlap: overlap[0])[1])
+    return list(dict.fromkeys(matched))
 
 
 def _ranking_schema(passages: list[PassageText]) -> dict:
@@ -328,9 +362,12 @@ def _run_search(request: SearchRequest, deadline: Deadline) -> SearchResponse:
             )
         )
         try:
-            queries = _expand(rewriter, request.query, language, deadline)
+            references = _expand(rewriter, request.query, deadline)
         except (QueryRewriteError, ValueError) as error:
             raise ExpansionError from error
+        windows = _reference_windows(
+            resources.windows.get(language, []), allowed, references
+        )
         embedder = stack.enter_context(
             build_embedding_client(
                 timeout=AI_SCRIPTURE_PROVIDER_TIMEOUT_SECONDS,
@@ -352,9 +389,10 @@ def _run_search(request: SearchRequest, deadline: Deadline) -> SearchResponse:
             blacklist=[],
             safe_pool=[],
             allowed_canonical_ids=allowed,
-            embed_workers=embed_workers(MAX_EXPANSIONS + 1),
         )
-        candidates = retriever.search(language, queries, deadline, CANDIDATE_LIMIT)
+        candidates = retriever.search(
+            language, request.query, windows, deadline, CANDIDATE_LIMIT
+        )
         results = []
         passages = []
         seen_ranges = set()

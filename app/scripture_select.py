@@ -155,12 +155,9 @@ PROVIDER_ATTEMPTS = 2
 # other cost. Sending all six in ONE request would be 504 ms — not done here,
 # because `retrieval._embed_queries` degrades per variant and a single batch
 # would make one bad variant lose all six.
-def embed_workers(queries: int) -> int:
-    """Pool size for embedding `queries` variants at once (1 on `local`)."""
-    return 1 if EMBEDDING_PROVIDER == EMBEDDING_PROVIDER_LOCAL else queries
-
-
-_EMBED_WORKERS = embed_workers(REWRITE_VARIANTS)
+_EMBED_WORKERS = (
+    1 if EMBEDDING_PROVIDER == EMBEDDING_PROVIDER_LOCAL else REWRITE_VARIANTS
+)
 
 
 class ScriptureSelectUnavailable(RuntimeError):
@@ -653,6 +650,8 @@ class CorpusResources:
     coverage: dict = field(default_factory=dict)
     # Selection can survive metadata load failures; general search must fail.
     metadata_available: bool = True
+    # language -> canonical windows of the corpus (`canonical_windows`).
+    windows: dict = field(default_factory=dict)
 
 
 _resources_lock = threading.Lock()
@@ -776,7 +775,7 @@ def reference_translation(
     return entries[0][0] if entries else None
 
 
-def _canonical_windows(index) -> dict[str, list[tuple]]:
+def canonical_windows(index) -> dict[str, list[tuple]]:
     """language -> [(canonical_id, book, chapter, start, end), ...].
 
     The candidate universe of a language: every canonical window its indexed
@@ -813,7 +812,7 @@ def _load_active_translations(cursor) -> dict[str, list[tuple[int, str]]]:
 
 
 def _build_catalogue(
-    cursor, index, psalm_maps: dict, indexed: dict, primary: dict
+    cursor, windows: dict, psalm_maps: dict, indexed: dict, primary: dict
 ) -> tuple[dict, dict]:
     """Renderable catalogue + per-translation coverage sets.
 
@@ -836,7 +835,6 @@ def _build_catalogue(
     its request path must stay byte-for-byte what it was, and the filter
     would be a no-op that costs a full verse scan.
     """
-    windows = _canonical_windows(index)
     active = _load_active_translations(cursor)
     renderable: dict[str, list[tuple[int, str]]] = {}
     coverage: dict[int, frozenset[str]] = {}
@@ -915,12 +913,13 @@ def _load_resources() -> CorpusResources:
             psalm_maps = {}
             metadata_available = False
         indexed = _indexed_translations(index)
+        windows = canonical_windows(index)
         primary = resolve_primary_translations(
             indexed, AI_SCRIPTURE_PRIMARY_TRANSLATIONS
         )
         try:
             translations, coverage = _build_catalogue(
-                cursor, index, psalm_maps, indexed, primary
+                cursor, windows, psalm_maps, indexed, primary
             )
         except Exception as error:
             # The catalogue only ADDS translations; without it the endpoint
@@ -945,6 +944,7 @@ def _load_resources() -> CorpusResources:
         primary=primary,
         coverage=coverage,
         metadata_available=metadata_available,
+        windows=windows,
     )
 
 

@@ -637,37 +637,38 @@ class ScriptureRetriever:
     # -- public entry point -------------------------------------------------
 
     def search(
-        self, language: str, queries: list[str], deadline: Deadline,
+        self, language: str, query: str, windows: list[str], deadline: Deadline,
         top_k: int = 20,
     ) -> list[Candidate]:
         """General search: strict hybrid retrieval without prayer policies.
 
-        The caller supplies search-intent rewrites, embedded concurrently up
-        to `embed_workers`. Every embedding must succeed; neither the prayer
-        blacklist nor safe pool participates.
+        `windows` are canonical IDs of the language, searched first by their
+        stored vectors: each leads its own ranking (a unit vector is its own
+        nearest neighbour), followed by the passages closest to it. A window's
+        vector is that of its first index row, i.e. the language's first
+        indexed translation (currently the only one). The query
+        is then searched like a prayer variant. Its embedding must succeed;
+        neither the prayer blacklist nor safe pool participates.
         """
         if language not in self.lexical_indexes or not self.lexical_indexes[language]:
             raise RuntimeError("search lexical index is unavailable")
         if deadline.expired():
             raise TimeoutError("search deadline exceeded")
-        with ThreadPoolExecutor(
-            max_workers=min(self.embed_workers, len(queries))
-        ) as pool:
-            vectors = list(
-                pool.map(
-                    lambda query: self.embedder.embed_query(query, deadline=deadline),
-                    queries,
-                )
-            )
-        rankings = []
-        for query, vector in zip(queries, vectors):
-            semantic = [
+        vector = self.embedder.embed_query(query, deadline=deadline)
+        rows = self._vector_rows(language)
+
+        def semantic(query_vector) -> list[tuple[str, float]]:
+            return [
                 (hit.canonical_id, hit.score)
                 for hit in self.index.search(
-                    vector, top_k=self.fetch_k, language=language
+                    query_vector, top_k=self.fetch_k, language=language
                 )
             ]
-            rankings.append(self._merge_lexical(language, query, vector, semantic))
+
+        rankings = [semantic(self.index.vectors[rows[w][0]]) for w in windows]
+        rankings.append(
+            self._merge_lexical(language, query, vector, semantic(vector))
+        )
         fused = fuse_interleave(rankings)
         covered = [hit for hit in fused if self._allowed(hit.canonical_id)]
         hits = apply_diversity(covered, top_k, self.max_per_book)
