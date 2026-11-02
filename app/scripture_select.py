@@ -96,6 +96,7 @@ from retrieval import (
     split_exclusions,
 )
 from vector_index import IndexVersionUnavailable, load_index
+from versification import PSALMS_BOOK, check_chapters, to_reference_numbering
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -652,6 +653,9 @@ class CorpusResources:
     metadata_available: bool = True
     # language -> canonical windows of the corpus (`canonical_windows`).
     windows: dict = field(default_factory=dict)
+    # The same windows in the numbering of search references
+    # (`reference_windows`); empty when metadata is unavailable.
+    reference_windows: dict = field(default_factory=dict)
 
 
 _resources_lock = threading.Lock()
@@ -797,6 +801,41 @@ def canonical_windows(index) -> dict[str, list[tuple]]:
     return windows
 
 
+def reference_windows(index) -> dict[str, list[tuple]]:
+    """`canonical_windows` located in English verse numbering.
+
+    General search references use it (`versification.REFERENCE_ALIAS`).
+    Psalm windows keep their canonical coordinates (ADR 0003); any other
+    window's stored verses are converted from its translation's numbering,
+    one tuple per English chapter they reach. Refuses a translation whose
+    stored chapters differ from its versification.
+    """
+    windows: dict[str, list[tuple]] = {}
+    seen: dict[str, set[str]] = {}
+    last_verses: dict[str, dict[tuple[int, int], int]] = {}
+    for meta in index.metas:
+        book, chapter = meta["book_number"], meta["chapter_number"]
+        start, end = meta["verse_number_start"], meta["verse_number_end"]
+        if book != PSALMS_BOOK:
+            last = last_verses.setdefault(meta["alias"], {})
+            last[(book, chapter)] = max(last.get((book, chapter), 0), end)
+        known = seen.setdefault(meta["language"], set())
+        if meta["canonical_id"] in known:
+            continue
+        known.add(meta["canonical_id"])
+        ranges = (
+            [parse_canonical_id(meta["canonical_id"])[1:]]
+            if book == PSALMS_BOOK
+            else to_reference_numbering(meta["alias"], book, chapter, start, end)
+        )
+        windows.setdefault(meta["language"], []).extend(
+            (meta["canonical_id"], *verse_range) for verse_range in ranges
+        )
+    for alias, last in last_verses.items():
+        check_chapters(alias, last)
+    return windows
+
+
 def _load_active_translations(cursor) -> dict[str, list[tuple[int, str]]]:
     """language -> [(code, alias), ...] of every ACTIVE translation."""
     cursor.execute(
@@ -914,6 +953,16 @@ def _load_resources() -> CorpusResources:
             metadata_available = False
         indexed = _indexed_translations(index)
         windows = canonical_windows(index)
+        try:
+            search_windows = reference_windows(index)
+        except Exception as error:
+            # Only general search locates references; selection is unaffected.
+            logger.warning(
+                "Search reference numbering unavailable: %s: %s",
+                type(error).__name__, error,
+            )
+            search_windows = {}
+            metadata_available = False
         primary = resolve_primary_translations(
             indexed, AI_SCRIPTURE_PRIMARY_TRANSLATIONS
         )
@@ -945,6 +994,7 @@ def _load_resources() -> CorpusResources:
         coverage=coverage,
         metadata_available=metadata_available,
         windows=windows,
+        reference_windows=search_windows,
     )
 
 

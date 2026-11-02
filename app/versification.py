@@ -39,13 +39,19 @@ exactly one translation verse (validated by ``build_psalm_map``).
 
 Storage (`cep_public.psalm_verse_mappings`) and verification against the
 live database live in `app/versification_cli.py`.
+
+The other books' numbering, needed only to locate general-search references,
+is described by the Paratext versification files of the last section.
 """
 
 from __future__ import annotations
 
+import functools
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Iterable, Mapping
 
+from canon import CANONICAL_BOOK_CODES
 from chunking import Verse
 
 # Bump on any change of the mapping rules or the exceptions table.
@@ -333,3 +339,159 @@ def canonicalize_psalm_chapters(
     for c_chapter in out_verses:
         out_titles.setdefault(c_chapter, {})
     return out_verses, out_titles, back
+
+
+# ---------------------------------------------------------------------------
+# Verse numbering of the other books (general search, ClickUp 123pfqn54zc)
+#
+# Search expansion references use English numbering, that of the indexed
+# `bsb`. Outside the Psalms the other indexed translations keep their own:
+# `syn` the Russian Synodal one (English Jonah 1:17 is its 2:1, Romans
+# 16:25-27 its 14:24-26), `ubh` mostly the Hebrew one (Malachi 4 is its
+# 3:19-24, Numbers 16:36-50 its 17:1-15). A Paratext versification file lists a numbering's chapter
+# lengths and maps its verses onto the original numbering (org.vrs); an
+# unmapped verse keeps its number. eng, org and rso.vrs are copied unchanged
+# from sillsdev/machine.py `machine/scripture` at abe3718 (MIT,
+# `vrs/LICENSE`); bsb and ubh.vrs correct their base file to the stored
+# texts.
+# ---------------------------------------------------------------------------
+
+VRS_DIRECTORY = Path(__file__).with_name("vrs")
+REFERENCE_ALIAS = "bsb"
+# Indexed translation alias -> its versification files, base first. A later
+# file's book line replaces the book's chapter lengths, its mapping of a
+# verse replaces the earlier one.
+TRANSLATION_VERSIFICATIONS: dict[str, tuple[str, ...]] = {
+    "bsb": ("eng", "bsb"),
+    "syn": ("rso",),
+    "ubh": ("org", "ubh"),
+}
+
+VerseKey = tuple[int, int, int]  # (book, chapter, verse)
+_BOOK_NUMBERS = {
+    code.upper(): number
+    for number, code in CANONICAL_BOOK_CODES.items()
+    if number != PSALMS_BOOK  # Psalms follow the canon of ADR 0003
+}
+
+
+@dataclass(frozen=True)
+class Versification:
+    """Chapter lengths and the mapping to the original numbering."""
+    chapters: dict[tuple[int, int], int]  # (book, chapter) -> last verse
+    # verse -> original verses; () = no counterpart in the 66 books
+    original: dict[VerseKey, tuple[VerseKey, ...]]
+    numbered: dict[VerseKey, tuple[VerseKey, ...]]  # the inverse
+
+    def to_original(self, verse: VerseKey) -> tuple[VerseKey, ...]:
+        return self.original.get(verse, (verse,))
+
+    def from_original(self, verse: VerseKey) -> tuple[VerseKey, ...]:
+        return self.numbered.get(verse, (verse,))
+
+
+def _verse_range(text: str) -> list[VerseKey] | None:
+    """`JON 1:17` or `JON 2:1-10`; None for a book outside the 66."""
+    book, _, place = text.strip().partition(" ")
+    number = _BOOK_NUMBERS.get(book)
+    if number is None:
+        return None
+    chapter, _, verses = place.partition(":")
+    first, _, last = verses.partition("-")
+    return [
+        (number, int(chapter), verse)
+        for verse in range(int(first), int(last or first) + 1)
+    ]
+
+
+@functools.cache
+def load_versification(names: tuple[str, ...]) -> Versification:
+    """Parse `vrs/<name>.vrs` files, base first; Psalms and books outside
+    the 66 are skipped."""
+    chapters: dict[tuple[int, int], int] = {}
+    original: dict[VerseKey, tuple[VerseKey, ...]] = {}
+    for name in names:
+        mappings: dict[VerseKey, tuple[VerseKey, ...]] = {}
+        for line in (VRS_DIRECTORY / f"{name}.vrs").read_text().splitlines():
+            line = line.partition("#")[0].strip()
+            if not line:
+                continue
+            if "=" not in line:
+                book, *lengths = line.split()
+                if book not in _BOOK_NUMBERS:
+                    continue
+                number = _BOOK_NUMBERS[book]
+                chapters = {k: v for k, v in chapters.items() if k[0] != number}
+                for length in lengths:
+                    chapter, verse = length.split(":")
+                    chapters[(number, int(chapter))] = int(verse)
+                continue
+            left_text, right_text = line.split("=")
+            left, right = _verse_range(left_text), _verse_range(right_text)
+            if left is None:
+                continue
+            if right is None:
+                pairs = [(verse, ()) for verse in left]
+            elif len(left) == len(right):
+                pairs = [(verse, (target,)) for verse, target in zip(left, right)]
+            elif len(left) == 1:
+                pairs = [(left[0], tuple(right))]
+            elif len(right) == 1:
+                pairs = [(verse, (right[0],)) for verse in left]
+            else:
+                raise ValueError(f"{name}.vrs: unsupported mapping {line!r}")
+            for verse, targets in pairs:
+                mappings[verse] = mappings.get(verse, ()) + targets
+        original.update(mappings)
+    numbered: dict[VerseKey, tuple[VerseKey, ...]] = {}
+    for verse, targets in original.items():
+        for target in targets:
+            numbered[target] = numbered.get(target, ()) + (verse,)
+    return Versification(chapters, original, numbered)
+
+
+def translation_versification(alias: str) -> Versification:
+    names = TRANSLATION_VERSIFICATIONS.get(alias)
+    if names is None:
+        raise ValueError(
+            f"Unknown verse numbering of translation '{alias}'; add it to "
+            "versification.TRANSLATION_VERSIFICATIONS"
+        )
+    return load_versification(names)
+
+
+def check_chapters(alias: str, last_verses: Mapping[tuple[int, int], int]) -> None:
+    """Refuse a translation whose stored chapters differ from its numbering.
+
+    `last_verses`: (book, chapter) -> the last stored verse, Psalms ignored.
+    """
+    expected = translation_versification(alias).chapters
+    stored = {k: v for k, v in last_verses.items() if k[0] != PSALMS_BOOK}
+    differing = sorted(
+        (key, expected.get(key), stored.get(key))
+        for key in expected.keys() | stored.keys()
+        if expected.get(key) != stored.get(key)
+    )
+    if differing:
+        raise ValueError(
+            f"{alias} chapters differ from its versification "
+            f"((book, chapter), expected, stored): {differing[:5]}"
+        )
+
+
+def to_reference_numbering(
+    alias: str, book: int, chapter: int, first: int, last: int
+) -> list[tuple[int, int, int, int]]:
+    """A non-Psalm verse range of the translation in English numbering.
+
+    Returns (book, chapter, first, last) per English chapter it spans; empty
+    when no verse has an English counterpart.
+    """
+    source = translation_versification(alias)
+    reference = translation_versification(REFERENCE_ALIAS)
+    verses: dict[tuple[int, int], list[int]] = {}
+    for verse in range(first, last + 1):
+        for original in source.to_original((book, chapter, verse)):
+            for b, c, v in reference.from_original(original):
+                verses.setdefault((b, c), []).append(v)
+    return [(b, c, min(v), max(v)) for (b, c), v in sorted(verses.items())]

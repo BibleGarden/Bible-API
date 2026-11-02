@@ -114,6 +114,7 @@ def environment(monkeypatch, request_log):
         loaded_at=0,
         psalm_maps=maps,
         windows=scripture_select.canonical_windows(index),
+        reference_windows=scripture_select.canonical_windows(index),
     )
     rewriter, ranker, embedder = MagicMock(), MagicMock(), MagicMock()
     for provider in (rewriter, ranker, embedder):
@@ -225,6 +226,24 @@ def test_reference_windows_precede_original_query_candidates(environment):
     # Only the original query is embedded: references bring no model text.
     environment.embedder.embed_query.assert_called_once()
     assert environment.embedder.embed_query.call_args.args == (QUERY,)
+
+
+@pytest.mark.parametrize(("chapter", "leads"), [(2, True), (1, False)])
+def test_references_locate_windows_in_english_numbering(environment, chapter, leads):
+    # The query embedding hits the psalm. The genealogy window holds what
+    # English numbering calls 1 Chronicles 2:1-4, so only that reference
+    # puts it first, whatever its canonical ID says.
+    environment.resources.reference_windows["ru"] = [
+        (GENEALOGY, 13, 2, 1, 4),
+        (PSALM, 19, 23, 1, 3),
+    ]
+    environment.embedder.embed_query.return_value = [0.0, 1.0]
+    environment.rewriter.complete.return_value = expansion_answer(
+        ("1ch", chapter, 1, 1)
+    )
+    assert post().status_code == 200
+    prompt = json.loads(environment.ranker.complete.call_args.args[1])
+    assert ("verse 4" in prompt["candidates"][0]["text"]) is leads
 
 
 def test_reference_outside_corpus_is_not_an_error(environment):
@@ -739,7 +758,9 @@ def test_search_refuses_corpus_with_failed_metadata(
         scripture_select.get_resources(allow_stale=False)
 
 
-@pytest.mark.parametrize("stage", ["psalm_maps", "catalogue"])
+@pytest.mark.parametrize(
+    "stage", ["load_psalm_maps", "_build_catalogue", "reference_windows"]
+)
 def test_loader_records_metadata_failures(environment, monkeypatch, stage):
     monkeypatch.setattr(
         scripture_select, "create_connection", Mock(return_value=environment.connection)
@@ -767,12 +788,13 @@ def test_loader_records_metadata_failures(environment, monkeypatch, stage):
             )
         ),
     )
-    failed = (
-        scripture_select.load_psalm_maps
-        if stage == "psalm_maps"
-        else scripture_select._build_catalogue
+    monkeypatch.setattr(
+        scripture_select,
+        "reference_windows",
+        Mock(return_value=environment.resources.reference_windows),
     )
-    failed.side_effect = RuntimeError("metadata unavailable")
+    assert scripture_select._load_resources().metadata_available is True
+    getattr(scripture_select, stage).side_effect = RuntimeError("metadata unavailable")
     resources = scripture_select._load_resources()
     assert resources.metadata_available is False
 

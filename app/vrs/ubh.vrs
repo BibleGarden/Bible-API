@@ -1,0 +1,28 @@
+# Versification "UBH": the stored Ukrainian `ubh` against org.vrs.
+# Bible-API correction file, checked 2026-11-02 against cep_public
+# translation 20 (chapter lengths and verse texts). A book line replaces the
+# book's chapter lengths; a mapping replaces the base mapping of its verse.
+# A mapping onto a book outside the 66 (ESG, DAG, SUS, BEL) marks verses with
+# no counterpart in them.
+#
+# Numbers 26:1 includes 25:19; Nehemiah 7 and Joel follow English numbering.
+NUM 1:54 2:34 3:51 4:49 5:31 6:27 7:89 8:26 9:23 10:36 11:35 12:16 13:33 14:45 15:41 16:35 17:28 18:32 19:22 20:29 21:35 22:41 23:30 24:25 25:18 26:65 27:23 28:31 29:39 30:17 31:54 32:42 33:56 34:29 35:34 36:13
+NEH 1:11 2:20 3:38 4:17 5:19 6:19 7:73 8:18 9:37 10:40 11:36 12:47 13:31
+JOL 1:20 2:32 3:21
+NUM 26:1 = NUM 25:19
+NUM 26:1 = NUM 26:1
+NEH 7:69-73 = NEH 7:68-72
+JOL 2:28-32 = JOL 3:1-5
+JOL 3:1-21 = JOL 4:1-21
+# Greek additions: Esther 10:4-12:6, Daniel 3:24-90, 13 and 14.
+EST 1:22 2:23 3:15 4:17 5:14 6:14 7:10 8:17 9:32 10:13 11:12 12:6
+DAN 1:21 2:49 3:100 4:34 5:30 6:29 7:28 8:27 9:27 10:21 11:45 12:13 13:64 14:43
+EST 10:4-13 = ESG 10:4-13
+EST 11:1-12 = ESG 11:1-12
+EST 12:1-6 = ESG 12:1-6
+DAN 3:24-90 = DAG 3:24-90
+DAN 3:91-100 = DAN 3:24-33
+DAN 13:1-64 = SUS 1:1-64
+DAN 14:1-43 = BEL 1:1-43
+# The stored text has no Song of Songs 1:15-17.
+SNG 1:14 2:17 3:11 4:16 5:16 6:12 7:14 8:14

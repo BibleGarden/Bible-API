@@ -1,0 +1,75 @@
+{"set": "control", "id": "en-noah-ark", "run": 1, "current": [1, 2], "vectors": [1, 2], "versification": [1, 2]}
+{"set": "control", "id": "ru-noah-ark", "run": 1, "current": [1, null], "vectors": [1, null], "versification": [1, null]}
+{"set": "control", "id": "en-covenant-ark", "run": 1, "current": [1, 4], "vectors": [1, 4], "versification": [1, 4]}
+{"set": "control", "id": "ru-covenant-ark", "run": 1, "current": [1, 5], "vectors": [1, null], "versification": [1, 5]}
+{"set": "control", "id": "en-worry", "run": 1, "current": [1, 2, 3], "vectors": [1, 2, 3], "versification": [1, 2, 3]}
+{"set": "control", "id": "ru-worry", "run": 1, "current": [2, 1, 3], "vectors": [2, 1, 7], "versification": [2, 1, 3]}
+{"set": "control", "id": "en-neighbour", "run": 1, "current": [1, 2, null, 3], "vectors": [1, 2, null, 3], "versification": [1, 2, null, 3]}
+{"set": "control", "id": "ru-neighbour", "run": 1, "current": [1, 2, null, 3], "vectors": [1, 2, null, 3], "versification": [1, 2, null, 3]}
+{"set": "control", "id": "en-goliath", "run": 1, "current": [1], "vectors": [1], "versification": [1]}
+{"set": "control", "id": "ru-goliath", "run": 1, "current": [1], "vectors": [1], "versification": [1]}
+{"set": "control", "id": "en-sea", "run": 1, "current": [1], "vectors": [1], "versification": [1]}
+{"set": "control", "id": "ru-sea", "run": 1, "current": [1], "vectors": [1], "versification": [1]}
+{"set": "control", "id": "en-enemies", "run": 1, "current": [1, 2, 3], "vectors": [1, 2, 3], "versification": [1, 2, 3]}
+{"set": "control", "id": "ru-enemies", "run": 1, "current": [1, 2, 3], "vectors": [1, 2, 3], "versification": [1, 2, 3]}
+{"set": "control", "id": "en-jonah", "run": 1, "current": [1], "vectors": [1], "versification": [1]}
+{"set": "control", "id": "ru-jonah", "run": 1, "current": [1], "vectors": [1], "versification": [1]}
+{"set": "control", "id": "en-season", "run": 1, "current": [1], "vectors": [1], "versification": [1]}
+{"set": "control", "id": "ru-season", "run": 1, "current": [1], "vectors": [1], "versification": [1]}
+{"set": "control", "id": "en-noah-ark", "run": 2, "current": [1, 2], "vectors": [1, 2], "versification": [1, 2]}
+{"set": "control", "id": "ru-noah-ark", "run": 2, "current": [1, 2], "vectors": [1, 2], "versification": [1, 2]}
+{"set": "control", "id": "en-covenant-ark", "run": 2, "current": [1, 4], "vectors": [1, 4], "versification": [1, 4]}
+{"set": "control", "id": "ru-covenant-ark", "run": 2, "current": [1, 5], "vectors": [1, null], "versification": [1, 5]}
+{"set": "control", "id": "en-worry", "run": 2, "current": [1, 2, 3], "vectors": [1, 2, 3], "versification": [1, 2, 3]}
+{"set": "control", "id": "ru-worry", "run": 2, "current": [2, 1, 3], "vectors": [2, 1, 7], "versification": [2, 1, 3]}
+{"set": "control", "id": "en-neighbour", "run": 2, "current": [1, 2, null, 3], "vectors": [1, 2, null, 3], "versification": [1, 2, null, 3]}
+{"set": "control", "id": "ru-neighbour", "run": 2, "current": [1, 2, null, 3], "vectors": [1, 2, null, 3], "versification": [1, 2, null, 3]}
+{"set": "control", "id": "en-goliath", "run": 2, "current": [1], "vectors": [1], "versification": [1]}
+{"set": "control", "id": "ru-goliath", "run": 2, "current": [1], "vectors": [1], "versification": [1]}
+{"set": "control", "id": "en-sea", "run": 2, "current": [1], "vectors": [1], "versification": [1]}
+{"set": "control", "id": "ru-sea", "run": 2, "current": [1], "vectors": [1], "versification": [1]}
+{"set": "control", "id": "en-enemies", "run": 2, "current": [1, 2, 3], "vectors": [1, 2, 3], "versification": [1, 2, 3]}
+{"set": "control", "id": "ru-enemies", "run": 2, "current": [1, 2, 3], "vectors": [1, 2, 3], "versification": [1, 2, 3]}
+{"set": "control", "id": "en-jonah", "run": 2, "current": [1], "vectors": [1], "versification": [1]}
+{"set": "control", "id": "ru-jonah", "run": 2, "current": [1], "vectors": [1], "versification": [1]}
+{"set": "control", "id": "en-season", "run": 2, "current": [1], "vectors": [1], "versification": [1]}
+{"set": "control", "id": "ru-season", "run": 2, "current": [1], "vectors": [1], "versification": [1]}
+{"set": "mini", "id": "jonah-fish", "language": "en", "current": 3, "vectors": 1, "versification": 1, "top": {"current": ["2:1-1", "12:38-42", "1:4-17"], "vectors": ["1:4-17", "2:1-1", "8:23-27"], "versification": ["1:4-17", "2:1-1", "8:23-27"]}}
+{"set": "mini", "id": "jonah-fish", "language": "ru", "current": 1, "vectors": 2, "versification": 1, "top": {"current": ["2:1-1", "12:38-42", "14:1-21"], "vectors": ["1:4-16", "2:1-1", "4:35-41"], "versification": ["2:1-1", "12:38-42", "1:4-16"]}}
+{"set": "mini", "id": "jonah-fish", "language": "uk", "current": 1, "vectors": 2, "versification": 1, "top": {"current": ["2:1-1", "1:4-16", "3:1-4"], "vectors": ["1:4-16", "2:1-1", "8:23-27"], "versification": ["2:1-1", "1:4-16", "1:12-15"]}}
+{"set": "mini", "id": "doxology", "language": "en", "current": 2, "vectors": 1, "versification": 1, "top": {"current": ["18:32-50", "16:21-27", "5:17-27"], "vectors": ["16:21-27", "18:32-50", "4:7-17"], "versification": ["16:21-27", "18:32-50", "4:7-17"]}}
+{"set": "mini", "id": "doxology", "language": "ru", "current": 3, "vectors": 6, "versification": 1, "top": {"current": ["1:24-25", "3:20-21", "14:13-26"], "vectors": ["16:21-24", "1:24-25", "1:1-4"], "versification": ["14:13-26", "1:24-25", "6:1-11"]}}
+{"set": "mini", "id": "doxology", "language": "uk", "current": 2, "vectors": 1, "versification": 1, "top": {"current": ["1:24-25", "16:21-27", "1:4-9"], "vectors": ["16:21-27", "1:24-25", "6:21-24"], "versification": ["16:21-27", "1:24-25", "4:7-17"]}}
+{"set": "mini", "id": "aaron-plague", "language": "en", "current": 1, "vectors": 1, "versification": 1, "top": {"current": ["16:41-50", "21:14-17", "24:25-25"], "vectors": ["16:41-50", "21:14-17", "24:25-25"], "versification": ["16:41-50", "21:14-17", "24:25-25"]}}
+{"set": "mini", "id": "aaron-plague", "language": "ru", "current": 1, "vectors": 1, "versification": 1, "top": {"current": ["16:41-50", "33:39-49", "6:1-11"], "vectors": ["16:41-50", "33:39-49", "16:10-27"], "versification": ["16:41-50", "33:39-49", "6:1-11"]}}
+{"set": "mini", "id": "aaron-plague", "language": "uk", "current": 2, "vectors": 1, "versification": 1, "top": {"current": ["26:5-14", "17:6-15", "21:14-17"], "vectors": ["17:6-15", "26:5-14", "16:10-27"], "versification": ["17:6-15", "26:5-14", "16:19-35"]}}
+{"set": "mini", "id": "elijah-sent", "language": "en", "current": 1, "vectors": 1, "versification": 1, "top": {"current": ["4:4-6", "1:14-18", "39:15-18"], "vectors": ["4:4-6", "1:14-18", "39:15-18"], "versification": ["4:4-6", "1:14-18", "39:15-18"]}}
+{"set": "mini", "id": "elijah-sent", "language": "ru", "current": 1, "vectors": 1, "versification": 1, "top": {"current": ["4:4-6", "26:42-46", "1:19-28"], "vectors": ["4:4-6", "38:17-23", "1:19-28"], "versification": ["4:4-6", "26:42-46", "1:19-28"]}}
+{"set": "mini", "id": "elijah-sent", "language": "uk", "current": null, "vectors": null, "versification": 1, "top": {"current": ["19:9-14", "1:17-18", "18:36-38"], "vectors": ["3:9-17", "19:9-14", "33:50-56"], "versification": ["3:13-24", "19:9-14", "1:6-14"]}}
+{"set": "mini", "id": "nebuchadnezzar", "language": "en", "current": 1, "vectors": 1, "versification": 1, "top": {"current": ["4:31-37", "2:46-49", "5:1-4"], "vectors": ["4:31-37", "2:46-49", "5:1-4"], "versification": ["4:31-37", "2:46-49", "5:1-4"]}}
+{"set": "mini", "id": "nebuchadnezzar", "language": "ru", "current": 1, "vectors": null, "versification": 1, "top": {"current": ["4:31-34", "5:18-24", "29:17-21"], "vectors": ["4:25-30", "29:17-21", "5:10-12"], "versification": ["4:31-34", "5:18-24", "29:17-21"]}}
+{"set": "mini", "id": "nebuchadnezzar", "language": "uk", "current": 1, "vectors": null, "versification": 1, "top": {"current": ["4:31-34", "3:90-100", "5:10-12"], "vectors": ["4:25-30", "3:90-100", "5:10-12"], "versification": ["4:31-34", "3:90-100", "5:10-12"]}}
+{"set": "mini", "id": "return-israel", "language": "en", "current": 1, "vectors": 1, "versification": 1, "top": {"current": ["14:1-9", "4:1-4", "3:13-20"], "vectors": ["14:1-9", "4:1-4", "3:13-20"], "versification": ["14:1-9", "4:1-4", "3:13-20"]}}
+{"set": "mini", "id": "return-israel", "language": "ru", "current": 1, "vectors": 1, "versification": 1, "top": {"current": ["14:1-10", "10:12-22", "49:7-13"], "vectors": ["14:1-10", "10:12-22", "3:13-20"], "versification": ["14:1-10", "10:12-22", "49:7-13"]}}
+{"set": "mini", "id": "return-israel", "language": "uk", "current": 1, "vectors": 1, "versification": 1, "top": {"current": ["14:1-10", "9:1-8", "4:1-4"], "vectors": ["14:1-10", "2:29-37", "4:1-4"], "versification": ["14:1-10", "9:1-8", "4:1-4"]}}
+{"set": "mini", "id": "grace-blessing", "language": "en", "current": 2, "vectors": 1, "versification": 1, "top": {"current": ["1:3-14", "13:11-14", "1:4-9"], "vectors": ["13:11-14", "1:3-14", "5:23-28"], "versification": ["13:11-14", "1:3-14", "5:23-28"]}}
+{"set": "mini", "id": "grace-blessing", "language": "ru", "current": 2, "vectors": 1, "versification": 1, "top": {"current": ["1:4-9", "13:11-13", "1:3-8"], "vectors": ["13:11-13", "1:4-9", "4:21-23"], "versification": ["13:11-13", "1:4-9", "5:23-28"]}}
+{"set": "mini", "id": "grace-blessing", "language": "uk", "current": 2, "vectors": 1, "versification": 1, "top": {"current": ["1:3-14", "13:11-13", "1:4-9"], "vectors": ["13:11-13", "1:3-14", "5:23-28"], "versification": ["13:11-13", "1:3-14", "5:23-28"]}}
+{"set": "mini", "id": "leviathan", "language": "en", "current": 1, "vectors": 1, "versification": 1, "top": {"current": ["41:1-11", "27:1-1", "12:7-25"], "vectors": ["41:1-11", "27:1-1", "12:7-25"], "versification": ["41:1-11", "27:1-1", "12:7-25"]}}
+{"set": "mini", "id": "leviathan", "language": "ru", "current": null, "vectors": 1, "versification": 1, "top": {"current": ["41:1-11", "16:4-6", "13:14-19"], "vectors": ["40:20-27", "16:4-6", "88:17-36"], "versification": ["40:20-27", "16:4-6", "39:19-25"]}}
+{"set": "mini", "id": "leviathan", "language": "uk", "current": 5, "vectors": 1, "versification": 1, "top": {"current": ["41:1-11", "27:1-1", "104:15-35"], "vectors": ["40:20-32", "27:1-1", "9:12-24"], "versification": ["40:20-32", "27:1-1", "104:15-35"]}}
+{"set": "mini", "id": "child-born", "language": "en", "current": 1, "vectors": 1, "versification": 1, "top": {"current": ["9:1-7", "60:1-8", "127:1-5"], "vectors": ["9:1-7", "60:1-8", "127:1-5"], "versification": ["9:1-7", "60:1-8", "127:1-5"]}}
+{"set": "mini", "id": "child-born", "language": "ru", "current": 1, "vectors": 1, "versification": 1, "top": {"current": ["9:1-7", "2:1-10", "60:15-22"], "vectors": ["9:1-7", "2:1-10", "60:15-22"], "versification": ["9:1-7", "2:1-10", "60:15-22"]}}
+{"set": "mini", "id": "child-born", "language": "uk", "current": 1, "vectors": 1, "versification": 1, "top": {"current": ["9:1-7", "8:17-25", "76:1-13"], "vectors": ["9:1-7", "8:17-25", "51:9-16"], "versification": ["9:1-7", "8:17-25", "76:1-13"]}}
+{"set": "mini", "id": "wise-boast", "language": "en", "current": 1, "vectors": 1, "versification": 1, "top": {"current": ["9:23-24", "1:25-31", "3:18-23"], "vectors": ["9:23-24", "1:25-31", "3:18-23"], "versification": ["9:23-24", "1:25-31", "3:18-23"]}}
+{"set": "mini", "id": "wise-boast", "language": "ru", "current": 1, "vectors": 1, "versification": 1, "top": {"current": ["9:23-24", "7:11-22", "3:18-23"], "vectors": ["9:23-24", "96:1-12", "3:18-23"], "versification": ["9:23-24", "7:11-22", "3:18-23"]}}
+{"set": "mini", "id": "wise-boast", "language": "uk", "current": 1, "vectors": 1, "versification": 1, "top": {"current": ["9:23-24", "3:18-23", "12:14-17"], "vectors": ["9:23-24", "3:18-23", "28:27-28"], "versification": ["9:17-22", "3:18-23", "44:20-30"]}}
+{"set": "mini", "id": "solomon-wisdom", "language": "en", "current": 1, "vectors": 1, "versification": 1, "top": {"current": ["4:29-34", "9:22-31", "1:1-6"], "vectors": ["4:29-34", "9:22-31", "1:1-6"], "versification": ["4:29-34", "9:22-31", "1:1-6"]}}
+{"set": "mini", "id": "solomon-wisdom", "language": "ru", "current": 1, "vectors": 1, "versification": 1, "top": {"current": ["4:29-34", "10:23-29", "10:1-32"], "vectors": ["4:29-34", "10:23-29", "10:1-32"], "versification": ["4:29-34", "10:23-29", "10:1-32"]}}
+{"set": "mini", "id": "solomon-wisdom", "language": "uk", "current": 2, "vectors": 1, "versification": 1, "top": {"current": ["1:8-10", "5:13-14", "11:41-43"], "vectors": ["5:13-14", "1:8-10", "9:22-31"], "versification": ["5:1-12", "1:8-10", "9:22-31"]}}
+{"set": "mini", "id": "frogs", "language": "en", "current": 1, "vectors": 1, "versification": 1, "top": {"current": ["8:1-15", "7:14-25", "78:34-51"], "vectors": ["8:1-15", "7:14-25", "78:34-51"], "versification": ["8:1-15", "7:14-25", "78:34-51"]}}
+{"set": "mini", "id": "frogs", "language": "ru", "current": 1, "vectors": 1, "versification": 1, "top": {"current": ["8:1-15", "9:12-21", "10:1-11"], "vectors": ["8:1-15", "9:12-21", "7:14-25"], "versification": ["8:1-15", "9:12-21", "10:1-11"]}}
+{"set": "mini", "id": "frogs", "language": "uk", "current": 2, "vectors": 2, "versification": 1, "top": {"current": ["8:1-15", "7:14-29", "106:17-37"], "vectors": ["8:1-15", "7:14-29", "106:17-37"], "versification": ["7:14-29", "8:1-15", "9:1-7"]}}
+{"set": "mini", "id": "few-words", "language": "en", "current": 1, "vectors": 1, "versification": 1, "top": {"current": ["5:1-9", "11:16-25", "5:1-12"], "vectors": ["5:1-9", "11:16-25", "5:1-12"], "versification": ["5:1-9", "11:16-25", "5:1-12"]}}
+{"set": "mini", "id": "few-words", "language": "ru", "current": 1, "vectors": 1, "versification": 1, "top": {"current": ["5:1-9", "61:1-13", "1:19-27"], "vectors": ["5:1-9", "61:1-13", "5:1-13"], "versification": ["4:13-17", "61:1-13", "9:13-18"]}}
+{"set": "mini", "id": "few-words", "language": "uk", "current": 1, "vectors": 1, "versification": 1, "top": {"current": ["5:1-9", "119:89-108", "14:20-25"], "vectors": ["5:1-9", "119:89-108", "11:16-25"], "versification": ["4:13-17", "119:89-108", "2:12-17"]}}

@@ -11,16 +11,22 @@ architect/adr/0003-psalm-versification-canon.md).
 import json
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from chunking import Verse
+from scripture_select import reference_windows
+from vector_index import InMemoryVectorIndex
 from versification import (
     PSALM_151_VERSES,
+    TRANSLATION_VERSIFICATIONS,
     PsalmMap,
     build_psalm_map,
     canonical_counts_with_extras,
     canonicalize_psalm_chapters,
+    check_chapters,
     septuagint_segments,
+    to_reference_numbering,
 )
 
 FIXTURE = Path(__file__).parent / "data" / "psalm_max_verses.json"
@@ -357,3 +363,101 @@ def test_canonicalize_is_deterministic(maps):
     first = canonicalize_psalm_chapters(verses, {9: {3: "T"}}, maps["syn"])
     second = canonicalize_psalm_chapters(verses, {9: {3: "T"}}, maps["syn"])
     assert first == second
+
+
+# ---------------------------------------------------------------------------
+# Other books: translation numbering -> English reference numbering.
+# tests/data/chapter_max_verses.json is MAX(verse_number) per non-Psalm
+# chapter of the indexed translations in cep_public (2026-11-02); the pairs
+# below were checked against the stored verse texts.
+# ---------------------------------------------------------------------------
+
+CHAPTERS = Path(__file__).parent / "data" / "chapter_max_verses.json"
+
+
+@pytest.fixture(scope="module")
+def stored_chapters():
+    return {
+        alias: {
+            (int(book), int(chapter)): last
+            for book, chapters in books.items()
+            for chapter, last in chapters.items()
+        }
+        for alias, books in json.loads(CHAPTERS.read_text()).items()
+    }
+
+
+def test_versifications_match_the_stored_chapters(stored_chapters):
+    assert set(stored_chapters) == set(TRANSLATION_VERSIFICATIONS)
+    for alias, chapters in stored_chapters.items():
+        check_chapters(alias, chapters)
+
+
+def test_differing_stored_chapter_is_refused(stored_chapters):
+    chapters = {**stored_chapters["syn"], (32, 2): 10}
+    with pytest.raises(ValueError, match=r"\(\(32, 2\), 11, 10\)"):
+        check_chapters("syn", chapters)
+    with pytest.raises(ValueError, match="TRANSLATION_VERSIFICATIONS"):
+        check_chapters("bti", chapters)
+
+
+@pytest.mark.parametrize(
+    ("alias", "stored", "english"),
+    [
+        # Jonah's fish and prayer: English 1:17 and 2:1-10.
+        ("syn", (32, 2, 1, 1), [(32, 1, 17, 17)]),
+        ("ubh", (32, 2, 2, 11), [(32, 2, 1, 10)]),
+        # The doxology closes Synodal Romans 14.
+        ("syn", (52, 14, 24, 26), [(52, 16, 25, 27)]),
+        ("ubh", (39, 3, 13, 24), [(39, 3, 13, 18), (39, 4, 1, 6)]),
+        ("ubh", (4, 17, 1, 15), [(4, 16, 36, 50)]),
+        ("syn", (4, 16, 36, 50), [(4, 16, 36, 50)]),
+        ("syn", (54, 13, 13, 13), [(54, 13, 14, 14)]),
+        ("syn", (18, 40, 20, 27), [(18, 41, 1, 8)]),
+        ("ubh", (18, 40, 25, 32), [(18, 41, 1, 8)]),
+        ("ubh", (23, 8, 23, 23), [(23, 9, 1, 1)]),
+        ("syn", (21, 4, 17, 17), [(21, 5, 1, 1)]),
+        ("syn", (27, 3, 98, 100), [(27, 4, 1, 3)]),
+        # ubh numbers Joel and Nehemiah 7 as English Bibles do.
+        ("ubh", (29, 3, 1, 5), [(29, 3, 1, 5)]),
+        ("ubh", (16, 7, 73, 73), [(16, 7, 73, 73)]),
+        # Greek additions have no English counterpart.
+        ("ubh", (27, 3, 24, 90), []),
+        ("bsb", (50, 1, 13, 14), [(50, 1, 13, 14)]),
+        ("bsb", (66, 12, 13, 17), [(66, 12, 13, 17)]),
+    ],
+)
+def test_translation_ranges_in_english_numbering(alias, stored, english):
+    assert to_reference_numbering(alias, *stored) == english
+
+
+def test_reference_windows_use_english_numbering(stored_chapters):
+    metas = [
+        dict(
+            canonical_id=f"v3:{book:02d}.{chapter:03d}.001-{last:03d}",
+            language=language,
+            translation=code,
+            alias=alias,
+            book_number=book,
+            chapter_number=chapter,
+            verse_number_start=1,
+            verse_number_end=last,
+        )
+        for language, code, alias in (("ru", 1, "syn"), ("uk", 20, "ubh"))
+        for (book, chapter), last in stored_chapters[alias].items()
+    ]
+    # A Psalm window keeps its canonical ID: Synodal Psalm 22 is Psalm 23.
+    metas.append({**metas[0], "canonical_id": "v3:19.023.001-006",
+                  "book_number": 19, "chapter_number": 22,
+                  "verse_number_end": 7})
+    index = InMemoryVectorIndex(np.zeros((len(metas), 2)), metas)
+    windows = {}
+    for language, rows in reference_windows(index).items():
+        for cid, *verse_range in rows:
+            windows.setdefault((language, cid), []).append(tuple(verse_range))
+    assert windows["ru", "v3:32.002.001-011"] == [(32, 1, 17, 17), (32, 2, 1, 10)]
+    assert windows["uk", "v3:39.003.001-024"] == [(39, 3, 1, 18), (39, 4, 1, 6)]
+    assert windows["ru", "v3:19.023.001-006"] == [(19, 23, 1, 6)]
+    metas[1] = {**metas[1], "verse_number_end": metas[1]["verse_number_end"] + 1}
+    with pytest.raises(ValueError, match="syn chapters differ"):
+        reference_windows(InMemoryVectorIndex(np.zeros((len(metas), 2)), metas))

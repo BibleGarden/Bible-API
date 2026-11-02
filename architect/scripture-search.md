@@ -1,7 +1,7 @@
 # General Bible search
 
 Implemented for task 123pfqn46h2; ranking and expansion revised for task
-123pfqn4yz5. Contract and source references checked on 2026-11-02 against
+123pfqn4yz5, reference numbering for task 123pfqn54zc. Contract and source references checked on 2026-11-02 against
 `app/scripture_search.py` and its offline contract tests.
 
 `POST /api/ai/scripture/search` accepts only the existing Bible Garden
@@ -77,13 +77,19 @@ safe pool, comforting-text preferences or degraded answers.
    (`verse_start` ≤ `verse_end`). The call runs before the database
    connection is opened.
 3. Map each reference to the canonical window of the request language that
-   the requested translation can serve and that overlaps it most. Windows
-   match the references' English numbering for `en` and for Psalms
-   (ADR 0003); other books of `ru` (`syn`) and `uk` (`ubh`) are cut in their
-   own versification (English Jonah 1:17 is their 2:1, Romans 16:25-27 is
-   `syn` 14:24-26, Malachi 4 is `ubh` 3:19-24, Numbers 16:36-50 is `ubh`
-   17:1-15). There a reference is lost or points to neighbouring text, which
-   the ranker leaves out as unrelated. A reference without a window is not an
+   the requested translation can serve and that overlaps it most, located in
+   English numbering. Psalm windows are matched by their canonical
+   coordinates (ADR 0003). Other windows are matched by their stored verses
+   converted from the indexed translation's own numbering
+   (`versification.TRANSLATION_VERSIFICATIONS`): English Jonah 1:17 finds
+   the `syn` and `ubh` window of their 2:1, Romans 16:25-27 that of `syn`
+   14:24-26, Malachi 4 that of `ubh` 3:19-24, Numbers 16:36-50 that of
+   `ubh` 17:1-15. The conversion uses Paratext versification files in
+   `app/vrs/` (`eng`, `org`, `rso` from sillsdev/machine.py, MIT; `bsb` and
+   `ubh` corrections checked against the stored texts). Corpus loading
+   refuses an indexed translation without a versification or with chapter
+   lengths differing from it; search then answers 503 and scripture
+   selection is unaffected. A reference without a window is not an
    error, and every window still has to pass the ranker, so a wrong reference
    cannot become an unverified result. Embed the original query (the only
    embedding call). Search each window by its stored vector (semantic
@@ -142,6 +148,10 @@ replaced retold queries with references and stored window vectors: no
 blocked expansion in 10 calls on a recitation-prone query (was 1/10), the
 primary reference in the top 5 in 36/36 passes, anchors in the top 5 67/72
 (was 62/72), and a median request of 2.9 s (was 3.3 s).
+The [versification replay](experiments/search-versification-2026-11-02/report.md)
+(offline, 13 references to differently numbered places) put the right
+passage first in 13/13 for each of `en`, `ru` and `uk` (was 10, 10 and 6),
+with the control set unchanged.
 
 ## Limits, privacy and errors
 
@@ -184,12 +194,16 @@ Keep Uvicorn access logging disabled as required by `AGENTS.md`.
 `tests/test_scripture_search.py` exercises the endpoint and real hybrid/range
 rendering logic over a tiny synthetic corpus, with model and database stand-ins.
 It covers expansion references and their validation, reference-to-window
-matching (overlap, absent references, Psalm numbering), windows leading
+matching (overlap, absent references, Psalm numbering, English-numbered
+windows), windows leading
 retrieval with a single embedding, grade ordering, unknown or
 repeated candidates, the Gemini `responseSchema`, limits, genre eligibility,
 translation selection, ru/en/uk, Psalm and key-verse coordinates,
 deduplication, authorization, validation/privacy, empty results, partial-stage
-failures, rate limiting and deadlines. Existing
+failures, rate limiting and deadlines. `tests/test_versification.py` checks
+the versification files against a snapshot of the stored chapter lengths
+(`tests/data/chapter_max_verses.json`) and converts the differently numbered
+places to English numbering. Existing
 `test_scripture_select.py`, `test_retrieval.py`, `test_query_rewrite.py` and
 `test_passage_render.py` remain regression checks for shared behavior.
 GitHub Actions runs these through the ordinary offline `pytest -q` suite.
