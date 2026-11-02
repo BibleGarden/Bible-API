@@ -257,9 +257,11 @@ General search locates English-numbered references in every indexed
 translation through `TRANSLATION_VERSIFICATIONS` in `app/versification.py`
 (alias → Paratext `.vrs` files in `app/vrs/`, base first). Corpus loading
 refuses an indexed alias missing there or whose stored chapter lengths differ
-from its files, and search then answers 503. Pick the matching base file
-(`eng`, `org`, `rso`; more in sillsdev/machine.py) and add a correction file
-for checked differences, as `ubh.vrs` does.
+from its files, and search then answers 503 (ADR 0028). Pick the matching
+base file (`eng`, `org`, `rso`; more in sillsdev/machine.py) and add a
+correction file for checked differences, as `syn.vrs` and `ubh.vrs` do.
+Chapter lengths miss shifts inside a chapter: check the mapping verse by
+verse with `architect/experiments/search-versification-2026-11-02/verify.py`.
 *Verify:* add the alias to `tests/data/chapter_max_verses.json` and run
 `tests/test_versification.py`.
 

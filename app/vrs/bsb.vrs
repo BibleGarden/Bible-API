@@ -11,3 +11,15 @@ REV 1:20 2:29 3:22 4:11 5:14 6:17 7:17 8:13 9:21 10:11 11:19 12:17 13:18 14:20 1
 REV 12:17 = REV 12:17-18
 2CO 13:12-13 = 2CO 13:12
 2CO 13:14 = 2CO 13:13
+# Mappings eng.vrs lacks, without which these verses would map back onto
+# their neighbour: Numbers 26:1 also holds the original 25:19; Nehemiah
+# 7:68, Isaiah 64:1 and Acts 19:41 share an original verse with the
+# preceding one.
+NUM 26:1 = NUM 25:19
+NUM 26:1 = NUM 26:1
+NEH 7:67 = NEH 7:67
+NEH 7:68 = NEH 7:67
+ISA 63:19 = ISA 63:19
+ISA 64:1 = ISA 63:19
+ACT 19:40 = ACT 19:40
+ACT 19:41 = ACT 19:40

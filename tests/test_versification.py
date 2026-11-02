@@ -418,6 +418,13 @@ def test_differing_stored_chapter_is_refused(stored_chapters):
         ("ubh", (23, 8, 23, 23), [(23, 9, 1, 1)]),
         ("syn", (21, 4, 17, 17), [(21, 5, 1, 1)]),
         ("syn", (27, 3, 98, 100), [(27, 4, 1, 3)]),
+        # Corrected in syn.vrs: rso.vrs maps both one verse off.
+        ("syn", (23, 3, 24, 24), [(23, 3, 25, 25)]),
+        ("syn", (27, 5, 31, 31), [(27, 5, 31, 31)]),
+        ("syn", (27, 6, 1, 28), [(27, 6, 1, 28)]),
+        # Septuagint additions keep their number, which English lacks.
+        ("syn", (6, 24, 34, 36), []),
+        ("syn", (4, 26, 1, 1), [(4, 26, 1, 1)]),
         # ubh numbers Joel and Nehemiah 7 as English Bibles do.
         ("ubh", (29, 3, 1, 5), [(29, 3, 1, 5)]),
         ("ubh", (16, 7, 73, 73), [(16, 7, 73, 73)]),
@@ -429,6 +436,25 @@ def test_differing_stored_chapter_is_refused(stored_chapters):
 )
 def test_translation_ranges_in_english_numbering(alias, stored, english):
     assert to_reference_numbering(alias, *stored) == english
+
+
+def test_reference_translation_maps_onto_itself(stored_chapters):
+    # The original numbering merges each of these with a neighbouring verse.
+    merged = {
+        (16, 7, 67), (16, 7, 68), (23, 63, 19), (23, 64, 1),
+        (44, 19, 40), (44, 19, 41), (54, 13, 12), (54, 13, 13),
+    }
+    for (book, chapter), last in stored_chapters["bsb"].items():
+        for verse in range(1, last + 1):
+            got = to_reference_numbering("bsb", book, chapter, verse, verse)
+            if (book, chapter, verse) not in merged:
+                assert got == [(book, chapter, verse, verse)]
+                continue
+            covered = {
+                (b, c, v) for b, c, first, end in got for v in range(first, end + 1)
+            }
+            assert (book, chapter, verse) in covered and len(covered) == 2
+            assert covered <= merged
 
 
 def test_reference_windows_use_english_numbering(stored_chapters):
@@ -458,6 +484,11 @@ def test_reference_windows_use_english_numbering(stored_chapters):
     assert windows["ru", "v3:32.002.001-011"] == [(32, 1, 17, 17), (32, 2, 1, 10)]
     assert windows["uk", "v3:39.003.001-024"] == [(39, 3, 1, 18), (39, 4, 1, 6)]
     assert windows["ru", "v3:19.023.001-006"] == [(19, 23, 1, 6)]
-    metas[1] = {**metas[1], "verse_number_end": metas[1]["verse_number_end"] + 1}
+    changed = [*metas]
+    changed[1] = {**metas[1], "verse_number_end": metas[1]["verse_number_end"] + 1}
     with pytest.raises(ValueError, match="syn chapters differ"):
-        reference_windows(InMemoryVectorIndex(np.zeros((len(metas), 2)), metas))
+        reference_windows(InMemoryVectorIndex(np.zeros((len(changed), 2)), changed))
+    # A second indexed translation of a language would share canonical IDs.
+    second = [*metas, {**metas[1], "translation": 11, "alias": "bti"}]
+    with pytest.raises(ValueError, match="several indexed translations of ru"):
+        reference_windows(InMemoryVectorIndex(np.zeros((len(second), 2)), second))

@@ -1,0 +1,11 @@
+# Versification "SYN": the stored Synodal `syn` against rso.vrs.
+# Bible-API correction file, checked 2026-11-02 against cep_public
+# translation 1 (verse texts). A mapping replaces the base mapping of its
+# verse.
+#
+# rso.vrs maps Isaiah 3:20-25 one verse short: syn 3:20 «перстни и кольца
+# в носу» is the original 3:21, 3:24 «Мужи твои падут от меча» its 3:25.
+ISA 3:20-25 = ISA 3:21-26
+# Daniel 5:31-6:28 is numbered as in English Bibles (5:31 «Дарий Мидянин»).
+DAN 5:31 = DAN 6:1
+DAN 6:1-28 = DAN 6:2-29

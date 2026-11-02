@@ -85,10 +85,11 @@ safe pool, comforting-text preferences or degraded answers.
    the `syn` and `ubh` window of their 2:1, Romans 16:25-27 that of `syn`
    14:24-26, Malachi 4 that of `ubh` 3:19-24, Numbers 16:36-50 that of
    `ubh` 17:1-15. The conversion uses Paratext versification files in
-   `app/vrs/` (`eng`, `org`, `rso` from sillsdev/machine.py, MIT; `bsb` and
-   `ubh` corrections checked against the stored texts). Corpus loading
-   refuses an indexed translation without a versification or with chapter
-   lengths differing from it; search then answers 503 and scripture
+   `app/vrs/` (`eng`, `org`, `rso` from sillsdev/machine.py, MIT; `bsb`,
+   `syn` and `ubh` corrections checked against the stored texts; ADR 0028).
+   Corpus loading refuses an indexed translation without a versification,
+   with chapter lengths differing from it or sharing its language with
+   another indexed translation; search then answers 503 and scripture
    selection is unaffected. A reference without a window is not an
    error, and every window still has to pass the ranker, so a wrong reference
    cannot become an unverified result. Embed the original query (the only

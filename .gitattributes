@@ -1,1 +1,2 @@
-app/vrs/*.vrs -whitespace
+app/vrs/org.vrs -whitespace
+app/vrs/rso.vrs -whitespace

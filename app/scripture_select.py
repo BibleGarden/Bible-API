@@ -808,21 +808,24 @@ def reference_windows(index) -> dict[str, list[tuple]]:
     Psalm windows keep their canonical coordinates (ADR 0003); any other
     window's stored verses are converted from its translation's numbering,
     one tuple per English chapter they reach. Refuses a translation whose
-    stored chapters differ from its versification.
+    stored chapters differ from its versification, and a second indexed
+    translation of a language, whose windows would share canonical IDs with
+    other verse numbers.
     """
     windows: dict[str, list[tuple]] = {}
-    seen: dict[str, set[str]] = {}
+    aliases: dict[str, str] = {}
     last_verses: dict[str, dict[tuple[int, int], int]] = {}
     for meta in index.metas:
+        if aliases.setdefault(meta["language"], meta["alias"]) != meta["alias"]:
+            raise ValueError(
+                f"several indexed translations of {meta['language']}: "
+                f"{aliases[meta['language']]}, {meta['alias']}"
+            )
         book, chapter = meta["book_number"], meta["chapter_number"]
         start, end = meta["verse_number_start"], meta["verse_number_end"]
         if book != PSALMS_BOOK:
             last = last_verses.setdefault(meta["alias"], {})
             last[(book, chapter)] = max(last.get((book, chapter), 0), end)
-        known = seen.setdefault(meta["language"], set())
-        if meta["canonical_id"] in known:
-            continue
-        known.add(meta["canonical_id"])
         ranges = (
             [parse_canonical_id(meta["canonical_id"])[1:]]
             if book == PSALMS_BOOK
