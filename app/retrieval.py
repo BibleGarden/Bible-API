@@ -636,6 +636,47 @@ class ScriptureRetriever:
 
     # -- public entry point -------------------------------------------------
 
+    def search(
+        self, language: str, query: str, windows: list[str], deadline: Deadline,
+        top_k: int = 20,
+    ) -> list[Candidate]:
+        """General search: strict hybrid retrieval without prayer policies.
+
+        `windows` are canonical IDs of the language, searched first by their
+        stored vectors: each leads its own ranking (a unit vector is its own
+        nearest neighbour), followed by the passages closest to it. A window's
+        vector is that of its first index row, i.e. the language's first
+        indexed translation (currently the only one). The query
+        is then searched like a prayer variant. Its embedding must succeed;
+        neither the prayer blacklist nor safe pool participates.
+        """
+        if language not in self.lexical_indexes or not self.lexical_indexes[language]:
+            raise RuntimeError("search lexical index is unavailable")
+        if deadline.expired():
+            raise TimeoutError("search deadline exceeded")
+        vector = self.embedder.embed_query(query, deadline=deadline)
+        rows = self._vector_rows(language)
+
+        def semantic(query_vector) -> list[tuple[str, float]]:
+            return [
+                (hit.canonical_id, hit.score)
+                for hit in self.index.search(
+                    query_vector, top_k=self.fetch_k, language=language
+                )
+            ]
+
+        rankings = [semantic(self.index.vectors[rows[w][0]]) for w in windows]
+        rankings.append(
+            self._merge_lexical(language, query, vector, semantic(vector))
+        )
+        fused = fuse_interleave(rankings)
+        covered = [hit for hit in fused if self._allowed(hit.canonical_id)]
+        hits = apply_diversity(covered, top_k, self.max_per_book)
+        candidates = self._resolve_candidates(language, hits)
+        if any(not candidate.passages for candidate in candidates):
+            raise RuntimeError("search indexed passage is missing")
+        return candidates
+
     def select(
         self, request: SelectionRequest, deadline: Deadline | None = None
     ) -> SelectionResult:

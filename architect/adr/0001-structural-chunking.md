@@ -154,9 +154,13 @@ chunks with a title).
 - ~~Versification mapping between traditions (ru/en Psalms offset) is not
   solved; canonical coordinates follow the pivot's versification and the
   refinement fallback handles size blow-ups. A proper verse-mapping table
-  could later make cross-language IDs semantically exact.~~ Resolved by
-  ADR 0003: `psalm_verse_mappings` + canonical-space Psalm chunking (v3) —
-  Psalm chunk boundaries and IDs are now shared across traditions.
+  could later make cross-language IDs semantically exact.~~ Resolved for
+  the Psalms by ADR 0003: `psalm_verse_mappings` + canonical-space Psalm
+  chunking (v3) — Psalm chunk boundaries and IDs are now shared across
+  traditions. Outside the Psalms the IDs still follow the pivot's (Synodal)
+  numbering, so one ID can hold differently numbered verses in another
+  translation; general search locates references by each translation's own
+  numbering instead (ADR 0028).
 - Title lookback is limited to the chunk's chapter; a section spanning a
   chapter boundary leaves the following chapter's first chunks untitled.
 - Whether the embedding input should be `title + "\n\n" + text` is left to

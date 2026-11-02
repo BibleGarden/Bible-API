@@ -28,6 +28,7 @@ PRIVATE_PATHS = frozenset({
     "/api/ai/question",
     "/api/ai/transcribe",
     "/api/ai/scripture",
+    "/api/ai/scripture/search",
     "/api/ai/content-reports",
 })
 

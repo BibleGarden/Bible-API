@@ -61,6 +61,7 @@ INTEGER_OPERATIONAL_VARS = (
     "AI_REQUESTS_PER_CLIENT_PER_MINUTE",
     "AI_SCRIPTURE_REQUESTS_PER_MINUTE",
     "AI_SCRIPTURE_REQUESTS_PER_CLIENT_PER_MINUTE",
+    "AI_SCRIPTURE_SEARCH_REQUESTS_PER_MINUTE",
     "AI_SCRIPTURE_INDEX_CACHE_SECONDS",
     "TRUSTED_PROXY_DNS_TTL_SECONDS",
 )
@@ -1331,6 +1332,8 @@ def test_operational_defaults_are_unchanged(monkeypatch):
     assert module.AI_QUESTION_TIMEOUT_SECONDS == 20.0
     assert module.AI_QUESTION_MAX_TOKENS == 4096
     assert module.AI_SCRIPTURE_PROVIDER_TIMEOUT_SECONDS == 8.0
+    assert module.AI_SCRIPTURE_REQUESTS_PER_CLIENT_PER_MINUTE == 3
+    assert module.AI_SCRIPTURE_SEARCH_REQUESTS_PER_MINUTE == 60
 
 
 def test_question_max_tokens_accepts_a_positive_override(monkeypatch):

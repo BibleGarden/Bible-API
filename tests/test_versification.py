@@ -11,16 +11,24 @@ architect/adr/0003-psalm-versification-canon.md).
 import json
 from pathlib import Path
 
+import numpy as np
 import pytest
 
+from canon import CANONICAL_BOOK_CODES
 from chunking import Verse
+from scripture_select import reference_windows
+from vector_index import InMemoryVectorIndex
 from versification import (
     PSALM_151_VERSES,
+    TRANSLATION_VERSIFICATIONS,
+    VRS_DIRECTORY,
     PsalmMap,
     build_psalm_map,
     canonical_counts_with_extras,
     canonicalize_psalm_chapters,
+    check_chapters,
     septuagint_segments,
+    to_reference_numbering,
 )
 
 FIXTURE = Path(__file__).parent / "data" / "psalm_max_verses.json"
@@ -357,3 +365,162 @@ def test_canonicalize_is_deterministic(maps):
     first = canonicalize_psalm_chapters(verses, {9: {3: "T"}}, maps["syn"])
     second = canonicalize_psalm_chapters(verses, {9: {3: "T"}}, maps["syn"])
     assert first == second
+
+
+# ---------------------------------------------------------------------------
+# Other books: translation numbering -> English reference numbering.
+# tests/data/chapter_max_verses.json is MAX(verse_number) per non-Psalm
+# chapter of the indexed translations in cep_public (2026-11-02); the pairs
+# below were checked against the stored verse texts.
+# ---------------------------------------------------------------------------
+
+CHAPTERS = Path(__file__).parent / "data" / "chapter_max_verses.json"
+
+
+@pytest.fixture(scope="module")
+def stored_chapters():
+    return {
+        alias: {
+            (int(book), int(chapter)): last
+            for book, chapters in books.items()
+            for chapter, last in chapters.items()
+        }
+        for alias, books in json.loads(CHAPTERS.read_text()).items()
+    }
+
+
+def test_versifications_match_the_stored_chapters(stored_chapters):
+    assert set(stored_chapters) == set(TRANSLATION_VERSIFICATIONS)
+    for alias, chapters in stored_chapters.items():
+        check_chapters(alias, chapters)
+
+
+def test_correction_files_name_only_the_66_books():
+    # The parser skips unknown books, which the vendored files need; a
+    # mistyped code in our files (NAH for NAM) would vanish silently.
+    known = {code.upper() for code in CANONICAL_BOOK_CODES.values()}
+    for name in ("bsb", "syn", "ubh"):
+        for line in (VRS_DIRECTORY / f"{name}.vrs").read_text().splitlines():
+            line = line.partition("#")[0].strip().lstrip("-")
+            for side in filter(None, line.split("=")):
+                assert side.split()[0] in known, (name, line)
+
+
+def test_differing_stored_chapter_is_refused(stored_chapters):
+    chapters = {**stored_chapters["syn"], (32, 2): 10}
+    with pytest.raises(ValueError, match=r"\(\(32, 2\), 11, 10\)"):
+        check_chapters("syn", chapters)
+    with pytest.raises(ValueError, match="TRANSLATION_VERSIFICATIONS"):
+        check_chapters("bti", chapters)
+
+
+@pytest.mark.parametrize(
+    ("alias", "stored", "english"),
+    [
+        # Jonah's fish and prayer: English 1:17 and 2:1-10.
+        ("syn", (32, 2, 1, 1), [(32, 1, 17, 17)]),
+        ("ubh", (32, 2, 2, 11), [(32, 2, 1, 10)]),
+        # The doxology closes Synodal Romans 14.
+        ("syn", (52, 14, 24, 26), [(52, 16, 25, 27)]),
+        ("ubh", (39, 3, 13, 24), [(39, 3, 13, 18), (39, 4, 1, 6)]),
+        ("ubh", (4, 17, 1, 15), [(4, 16, 36, 50)]),
+        ("syn", (4, 16, 36, 50), [(4, 16, 36, 50)]),
+        ("syn", (54, 13, 13, 13), [(54, 13, 14, 14)]),
+        ("syn", (18, 40, 20, 27), [(18, 41, 1, 8)]),
+        ("ubh", (18, 40, 25, 32), [(18, 41, 1, 8)]),
+        ("ubh", (23, 8, 23, 23), [(23, 9, 1, 1)]),
+        ("syn", (21, 4, 17, 17), [(21, 5, 1, 1)]),
+        ("syn", (27, 3, 98, 100), [(27, 4, 1, 3)]),
+        # Corrected in syn.vrs: rso.vrs maps both one verse off.
+        ("syn", (23, 3, 24, 24), [(23, 3, 25, 25)]),
+        ("syn", (27, 5, 31, 31), [(27, 5, 31, 31)]),
+        ("syn", (27, 6, 1, 28), [(27, 6, 1, 28)]),
+        ("syn", (57, 1, 16, 16), [(57, 1, 17, 17)]),
+        ("syn", (66, 20, 7, 7), [(66, 20, 7, 8)]),
+        ("ubh", (34, 2, 3, 3), [(34, 2, 1, 1)]),
+        ("ubh", (20, 6, 22, 22), [(20, 6, 23, 23)]),
+        # Septuagint additions: marked in syn.vrs.
+        ("syn", (20, 13, 14, 14), []),
+        ("syn", (20, 13, 15, 15), [(20, 13, 14, 14)]),
+        ("syn", (6, 24, 34, 36), []),
+        ("syn", (4, 26, 1, 1), [(4, 26, 1, 1)]),
+        # ubh numbers Joel and Nehemiah 7 as English Bibles do.
+        ("ubh", (29, 3, 1, 5), [(29, 3, 1, 5)]),
+        ("ubh", (16, 7, 73, 73), [(16, 7, 73, 73)]),
+        # Greek additions have no English counterpart.
+        ("ubh", (27, 3, 24, 90), []),
+        ("bsb", (50, 1, 13, 14), [(50, 1, 13, 14)]),
+        ("bsb", (66, 12, 13, 17), [(66, 12, 13, 17)]),
+    ],
+)
+def test_translation_ranges_in_english_numbering(alias, stored, english):
+    assert to_reference_numbering(alias, *stored) == english
+
+
+@pytest.mark.parametrize("alias", ["syn", "ubh"])
+def test_every_stored_verse_has_an_english_verse_or_a_mark(stored_chapters, alias):
+    # A verse landing past the end of its English chapter raises.
+    for (book, chapter), last in stored_chapters[alias].items():
+        to_reference_numbering(alias, book, chapter, 1, last)
+
+
+def test_verse_past_the_english_chapter_is_refused():
+    # English Joshua 24 ends at 33; syn marks its 34-36 with `-`.
+    with pytest.raises(ValueError, match="mark it with"):
+        to_reference_numbering("bsb", 6, 24, 33, 34)
+
+
+def test_reference_translation_maps_onto_itself(stored_chapters):
+    # The original numbering merges each of these with a neighbouring verse.
+    merged = {
+        (16, 7, 67), (16, 7, 68), (23, 63, 19), (23, 64, 1),
+        (44, 19, 40), (44, 19, 41), (54, 13, 12), (54, 13, 13),
+    }
+    for (book, chapter), last in stored_chapters["bsb"].items():
+        for verse in range(1, last + 1):
+            got = to_reference_numbering("bsb", book, chapter, verse, verse)
+            if (book, chapter, verse) not in merged:
+                assert got == [(book, chapter, verse, verse)]
+                continue
+            covered = {
+                (b, c, v) for b, c, first, end in got for v in range(first, end + 1)
+            }
+            assert (book, chapter, verse) in covered and len(covered) == 2
+            assert covered <= merged
+
+
+def test_reference_windows_use_english_numbering(stored_chapters):
+    metas = [
+        dict(
+            canonical_id=f"v3:{book:02d}.{chapter:03d}.001-{last:03d}",
+            language=language,
+            translation=code,
+            alias=alias,
+            book_number=book,
+            chapter_number=chapter,
+            verse_number_start=1,
+            verse_number_end=last,
+        )
+        for language, code, alias in (("ru", 1, "syn"), ("uk", 20, "ubh"))
+        for (book, chapter), last in stored_chapters[alias].items()
+    ]
+    # A Psalm window keeps its canonical ID: Synodal Psalm 22 is Psalm 23.
+    metas.append({**metas[0], "canonical_id": "v3:19.023.001-006",
+                  "book_number": 19, "chapter_number": 22,
+                  "verse_number_end": 7})
+    index = InMemoryVectorIndex(np.zeros((len(metas), 2)), metas)
+    windows = {}
+    for language, rows in reference_windows(index).items():
+        for cid, *verse_range in rows:
+            windows.setdefault((language, cid), []).append(tuple(verse_range))
+    assert windows["ru", "v3:32.002.001-011"] == [(32, 1, 17, 17), (32, 2, 1, 10)]
+    assert windows["uk", "v3:39.003.001-024"] == [(39, 3, 1, 18), (39, 4, 1, 6)]
+    assert windows["ru", "v3:19.023.001-006"] == [(19, 23, 1, 6)]
+    changed = [*metas]
+    changed[1] = {**metas[1], "verse_number_end": metas[1]["verse_number_end"] + 1}
+    with pytest.raises(ValueError, match="syn chapters differ"):
+        reference_windows(InMemoryVectorIndex(np.zeros((len(changed), 2)), changed))
+    # A second indexed translation of a language would share canonical IDs.
+    second = [*metas, {**metas[1], "translation": 11, "alias": "bti"}]
+    with pytest.raises(ValueError, match="several indexed translations of ru"):
+        reference_windows(InMemoryVectorIndex(np.zeros((len(second), 2)), second))

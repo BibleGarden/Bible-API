@@ -16,6 +16,7 @@ os.environ.setdefault("BIBLE_GARDEN_API_KEY", "test-api-key")
 import config
 from query_rewrite import (
     GeminiQueryRewriter,
+    GenerationStopped,
     QueryRewriteError,
     REWRITE_PROMPT_VERSION,
     REWRITE_VARIANTS,
@@ -294,6 +295,36 @@ def test_rewrite_fails_after_retries_without_leaking_context(monkeypatch):
         rewriter.rewrite("ru", "секретная тема молитвы", [])
     # failure category only — never the prayer context
     assert "секретная" not in str(exc_info.value)
+
+
+@pytest.mark.parametrize("content", [{}, None, "missing"])
+@pytest.mark.parametrize(
+    ("reason", "logged"),
+    [("RECITATION", "RECITATION"), ("secret prayer text", "UNKNOWN"), (None, "UNKNOWN")],
+)
+def test_blocked_answer_names_only_a_safe_finish_reason(content, reason, logged):
+    candidate = {"finishReason": reason}
+    if content != "missing":
+        candidate["content"] = content
+    rewriter = make_rewriter(
+        lambda r: httpx.Response(200, json={"candidates": [candidate]})
+    )
+    with pytest.raises(GenerationStopped) as exc_info:
+        rewriter.complete("instruction", "content")
+    assert exc_info.value.reason == logged
+
+
+@pytest.mark.parametrize("parts", [{"text": "x"}, "x"])
+def test_malformed_parts_are_not_a_blocked_answer(parts):
+    rewriter = make_rewriter(
+        lambda r: httpx.Response(
+            200,
+            json={"candidates": [{"finishReason": "STOP", "content": {"parts": parts}}]},
+        )
+    )
+    with pytest.raises(QueryRewriteError, match="malformed") as exc_info:
+        rewriter.complete("instruction", "content")
+    assert not isinstance(exc_info.value, GenerationStopped)
 
 
 def test_rewrite_fails_on_empty_candidates():

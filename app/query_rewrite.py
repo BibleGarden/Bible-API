@@ -77,6 +77,7 @@ REWRITE_PROMPT_VERSION = 8
 REWRITE_VARIANTS = 6
 _MAX_QUERY_CHARS = 200
 _MODEL_PATTERN = re.compile(r"^[a-zA-Z0-9._-]+$")
+_FINISH_REASON = re.compile(r"[A-Z_]{1,40}")
 # Linear backoff of the retry ladder: 2 s before the second attempt, 4 s
 # before the third (unchanged; only when the budget can still afford it).
 _RETRY_BASE_SECONDS = 2.0
@@ -114,6 +115,14 @@ SUPPORTED_LANGUAGES = tuple(_LANGUAGES)
 
 class QueryRewriteError(RuntimeError):
     """The rewrite backend is not configured, unreachable or returned junk."""
+
+
+class GenerationStopped(QueryRewriteError):
+    """Gemini returned no answer; `reason` is its finishReason (e.g. RECITATION)."""
+
+    def __init__(self, reason: str):
+        super().__init__(f"generation stopped: {reason}")
+        self.reason = reason
 
 
 def build_search_query(topic: str, user_replies: list[str]) -> str:
@@ -586,13 +595,32 @@ class GeminiQueryRewriter:
         if not _MODEL_PATTERN.fullmatch(self.model):
             raise QueryRewriteError("rewrite model name contains invalid characters")
 
+        text = self.complete(
+            build_rewrite_instruction(language, self.variants),
+            build_rewrite_user_content(topic, user_replies),
+            deadline=deadline,
+        )
+        return parse_rewrite_response(text, self.variants)
+
+    def complete(
+        self, instruction: str, user_content: str,
+        deadline: Deadline | None = None,
+        response_schema: dict | None = None,
+    ) -> str:
+        """Generate JSON with the configured transport, independent of intent.
+
+        `response_schema` is sent as Gemini `responseSchema` (constrained
+        decoding); callers still validate the answer themselves.
+        """
+        if not self.api_key or not _MODEL_PATTERN.fullmatch(self.model):
+            raise QueryRewriteError("generation provider is not configured")
         payload = {
             "system_instruction": {
-                "parts": [{"text": build_rewrite_instruction(language, self.variants)}]
+                "parts": [{"text": instruction}]
             },
             "contents": [{
                 "role": "user",
-                "parts": [{"text": build_rewrite_user_content(topic, user_replies)}],
+                "parts": [{"text": user_content}],
             }],
             "generationConfig": {
                 # Leave room for reasoning tokens: on "thinking" Gemini
@@ -605,6 +633,8 @@ class GeminiQueryRewriter:
                 "responseMimeType": "application/json",
             },
         }
+        if response_schema is not None:
+            payload["generationConfig"]["responseSchema"] = response_schema
         url = GEMINI_GENERATE_URL.format(model=self.model)
         data = None
         last_error: Exception | None = None
@@ -620,8 +650,10 @@ class GeminiQueryRewriter:
                     timeout=timeout,
                 )
                 if response.status_code in RETRYABLE_STATUS:
-                    last_error = QueryRewriteError(
-                        f"rewrite request failed (HTTP {response.status_code})"
+                    last_error = httpx.HTTPStatusError(
+                        f"HTTP {response.status_code}",
+                        request=response.request,
+                        response=response,
                     )
                     if not self._pause_before_retry(
                         deadline, attempt, rate_limit_of(response)
@@ -643,13 +675,25 @@ class GeminiQueryRewriter:
             ) from last_error
 
         try:
-            parts = data["candidates"][0]["content"]["parts"]
-            text = "".join(
-                part.get("text", "") for part in parts if isinstance(part, dict)
-            )
-        except (KeyError, IndexError, TypeError) as exc:
+            candidate = data["candidates"][0]
+            content = candidate.get("content")
+        except (KeyError, IndexError, TypeError, AttributeError) as exc:
             raise QueryRewriteError("rewrite response has no candidates") from exc
-        return parse_rewrite_response(text, self.variants)
+        parts = content.get("parts") if isinstance(content, dict) else None
+        if parts is None:
+            # A blocked answer (RECITATION, SAFETY, ...) arrives as HTTP 200
+            # without content; the enum is safe to log, anything else is not.
+            reason = candidate.get("finishReason")
+            raise GenerationStopped(
+                reason
+                if isinstance(reason, str) and _FINISH_REASON.fullmatch(reason)
+                else "UNKNOWN"
+            )
+        if not isinstance(parts, list):
+            raise QueryRewriteError("rewrite response is malformed")
+        return "".join(
+            part.get("text", "") for part in parts if isinstance(part, dict)
+        )
 
 
 class OpenAICompatQueryRewriter:
@@ -728,6 +772,25 @@ class OpenAICompatQueryRewriter:
         except LLMError as exc:
             raise QueryRewriteError(f"rewrite failed: {exc}") from None
         return parse_rewrite_response(text, self.variants)
+
+    def complete(
+        self, instruction: str, user_content: str,
+        deadline: Deadline | None = None,
+        response_schema: dict | None = None,
+    ) -> str:
+        """Generate JSON without applying the prayer rewrite prompt.
+
+        Chat completions have no counterpart of Gemini `responseSchema`
+        (see `llm_client.build_payload`): `response_schema` is not sent and
+        the caller's validation carries the whole contract.
+        """
+        try:
+            return self._chat.complete(
+                instruction, user_content, deadline=deadline,
+                json_object=True, temperature=0.0,
+            )
+        except LLMError:
+            raise QueryRewriteError("generation request failed") from None
 
 
 def build_query_rewriter(

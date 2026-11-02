@@ -20,6 +20,7 @@ from health import router as health_router
 from import_data import router as import_data_router
 from twinkler_ai import router as twinkler_ai_router
 from scripture_select import router as scripture_select_router
+from scripture_search import router as scripture_search_router
 from content_reports import (
     ContentReportBodyLimitMiddleware,
     router as content_reports_router,
@@ -326,6 +327,7 @@ api_router.include_router(health_router)
 api_router.include_router(import_data_router)
 api_router.include_router(twinkler_ai_router)
 api_router.include_router(scripture_select_router)
+api_router.include_router(scripture_search_router)
 api_router.include_router(content_reports_router)
 
 

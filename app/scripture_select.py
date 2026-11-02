@@ -96,6 +96,7 @@ from retrieval import (
     split_exclusions,
 )
 from vector_index import IndexVersionUnavailable, load_index
+from versification import PSALMS_BOOK, check_chapters, to_reference_numbering
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -135,7 +136,7 @@ TOP_K = 10
 # takes the MINIMUM of the two: a stage moved to a slower self-hosted model
 # would otherwise stay capped at 8 s however large the request budget is.
 _PROVIDER_TIMEOUT_SECONDS = AI_SCRIPTURE_PROVIDER_TIMEOUT_SECONDS
-_PROVIDER_ATTEMPTS = 2
+PROVIDER_ATTEMPTS = 2
 
 # How many query variants are embedded at once. On Gemini they are
 # independent round trips and doing them concurrently is the single biggest
@@ -400,7 +401,7 @@ class HighlightPassage(BaseModel):
 
 class HighlightModel(BaseModel):
     """Key verses inside `passage` — 1 to 3 verses carrying its central
-    thought for this prayer, chosen by the same grounded AI call that chose
+    thought for the request, chosen by the same grounded AI call that chose
     the passage. `passage` coordinates are always a real sub-range of the
     returned passage, and whenever `passage.verses` is served as well, both
     boundary numbers of that range occur among those verses (a translation
@@ -502,6 +503,7 @@ class ErrorResponse(BaseModel):
 
 SANITIZED_VALIDATION_PATHS = frozenset({
     "/api/ai/scripture",
+    "/api/ai/scripture/search",
     "/api/ai/content-reports",
 })
 
@@ -577,6 +579,10 @@ async def validation_exception_handler(
     request: Request, exc: RequestValidationError
 ) -> JSONResponse:
     """App-level handler: sanitised body for this endpoint, default elsewhere."""
+    if request.url.path.rstrip("/") == "/api/ai/scripture/search":
+        return JSONResponse(
+            status_code=422, content={"detail": "Invalid scripture search request"}
+        )
     if request.url.path.rstrip("/") in SANITIZED_VALIDATION_PATHS:
         return JSONResponse(
             status_code=422, content={"detail": summarize_validation_error(exc)}
@@ -643,6 +649,13 @@ class CorpusResources:
     # Built only for non-primary renderable translations (the primary needs
     # no filter: the corpus is its own chunk set).
     coverage: dict = field(default_factory=dict)
+    # Selection can survive metadata load failures; general search must fail.
+    metadata_available: bool = True
+    # language -> canonical windows of the corpus (`canonical_windows`).
+    windows: dict = field(default_factory=dict)
+    # The same windows in the numbering of search references
+    # (`reference_windows`); empty when metadata is unavailable.
+    reference_windows: dict = field(default_factory=dict)
 
 
 _resources_lock = threading.Lock()
@@ -766,7 +779,7 @@ def reference_translation(
     return entries[0][0] if entries else None
 
 
-def _canonical_windows(index) -> dict[str, list[tuple]]:
+def canonical_windows(index) -> dict[str, list[tuple]]:
     """language -> [(canonical_id, book, chapter, start, end), ...].
 
     The candidate universe of a language: every canonical window its indexed
@@ -788,6 +801,50 @@ def _canonical_windows(index) -> dict[str, list[tuple]]:
     return windows
 
 
+def reference_windows(index) -> dict[str, list[tuple]]:
+    """`canonical_windows` located in English verse numbering.
+
+    General search references use it (`versification.REFERENCE_ALIAS`).
+    Psalm windows keep their canonical coordinates (ADR 0003); any other
+    window's stored verses are converted from its translation's numbering,
+    one tuple per English chapter they reach. Refuses a translation whose
+    stored chapters differ from its versification, and a second indexed
+    translation of a language, whose windows would share canonical IDs with
+    other verse numbers.
+    """
+    aliases: dict[str, str] = {}
+    last_verses: dict[str, dict[tuple[int, int], int]] = {}
+    for meta in index.metas:
+        if aliases.setdefault(meta["language"], meta["alias"]) != meta["alias"]:
+            raise ValueError(
+                f"several indexed translations of {meta['language']}: "
+                f"{aliases[meta['language']]}, {meta['alias']}"
+            )
+        book, chapter = meta["book_number"], meta["chapter_number"]
+        if book != PSALMS_BOOK:
+            last = last_verses.setdefault(meta["alias"], {})
+            last[(book, chapter)] = max(
+                last.get((book, chapter), 0), meta["verse_number_end"]
+            )
+    for alias, last in last_verses.items():
+        check_chapters(alias, last)
+    windows: dict[str, list[tuple]] = {}
+    for meta in index.metas:
+        book, chapter = meta["book_number"], meta["chapter_number"]
+        ranges = (
+            [parse_canonical_id(meta["canonical_id"])[1:]]
+            if book == PSALMS_BOOK
+            else to_reference_numbering(
+                meta["alias"], book, chapter,
+                meta["verse_number_start"], meta["verse_number_end"],
+            )
+        )
+        windows.setdefault(meta["language"], []).extend(
+            (meta["canonical_id"], *verse_range) for verse_range in ranges
+        )
+    return windows
+
+
 def _load_active_translations(cursor) -> dict[str, list[tuple[int, str]]]:
     """language -> [(code, alias), ...] of every ACTIVE translation."""
     cursor.execute(
@@ -803,7 +860,7 @@ def _load_active_translations(cursor) -> dict[str, list[tuple[int, str]]]:
 
 
 def _build_catalogue(
-    cursor, index, psalm_maps: dict, indexed: dict, primary: dict
+    cursor, windows: dict, psalm_maps: dict, indexed: dict, primary: dict
 ) -> tuple[dict, dict]:
     """Renderable catalogue + per-translation coverage sets.
 
@@ -826,7 +883,6 @@ def _build_catalogue(
     its request path must stay byte-for-byte what it was, and the filter
     would be a no-op that costs a full verse scan.
     """
-    windows = _canonical_windows(index)
     active = _load_active_translations(cursor)
     renderable: dict[str, list[tuple[int, str]]] = {}
     coverage: dict[int, frozenset[str]] = {}
@@ -874,6 +930,7 @@ def _build_catalogue(
 
 
 def _load_resources() -> CorpusResources:
+    metadata_available = True
     connection = create_connection()
     if connection is None:
         raise ScriptureSelectUnavailable("database is not available")
@@ -902,13 +959,25 @@ def _load_resources() -> CorpusResources:
                 type(error).__name__,
             )
             psalm_maps = {}
+            metadata_available = False
         indexed = _indexed_translations(index)
+        windows = canonical_windows(index)
+        try:
+            search_windows = reference_windows(index)
+        except Exception as error:
+            # Only general search locates references; selection is unaffected.
+            logger.warning(
+                "Search reference numbering unavailable: %s: %s",
+                type(error).__name__, error,
+            )
+            search_windows = {}
+            metadata_available = False
         primary = resolve_primary_translations(
             indexed, AI_SCRIPTURE_PRIMARY_TRANSLATIONS
         )
         try:
             translations, coverage = _build_catalogue(
-                cursor, index, psalm_maps, indexed, primary
+                cursor, windows, psalm_maps, indexed, primary
             )
         except Exception as error:
             # The catalogue only ADDS translations; without it the endpoint
@@ -918,6 +987,7 @@ def _load_resources() -> CorpusResources:
                 type(error).__name__,
             )
             translations, coverage = dict(indexed), {}
+            metadata_available = False
     finally:
         cursor.close()
         connection.close()
@@ -931,10 +1001,13 @@ def _load_resources() -> CorpusResources:
         indexed=indexed,
         primary=primary,
         coverage=coverage,
+        metadata_available=metadata_available,
+        windows=windows,
+        reference_windows=search_windows,
     )
 
 
-def get_resources() -> CorpusResources:
+def get_resources(*, allow_stale: bool = True) -> CorpusResources:
     """Cached vector + BM25 indexes; reloaded after the configured TTL.
 
     Loading them costs ~1 s and ~45 MB, and the data is identical for every
@@ -944,7 +1017,8 @@ def get_resources() -> CorpusResources:
     A failed refresh serves the stale copy instead of failing the request:
     the cached corpus is still a valid corpus, and a DB blip during a
     refresh must not take the endpoint down. Only a cold cache propagates
-    the failure (503).
+    the failure (503). General search passes allow_stale=False to propagate
+    refresh failures even with a warm cache.
     """
     global _resources
     with _resources_lock:
@@ -952,11 +1026,13 @@ def get_resources() -> CorpusResources:
         if cached is not None and (
             time.monotonic() - cached.loaded_at < AI_SCRIPTURE_INDEX_CACHE_SECONDS
         ):
+            if not allow_stale and not cached.metadata_available:
+                raise ScriptureSelectUnavailable("corpus metadata is unavailable")
             return cached
         try:
             _resources = _load_resources()
         except Exception as error:
-            if cached is None:
+            if cached is None or not allow_stale:
                 raise
             # Category only, and keep serving the previous corpus. Reset
             # the timer so the next refresh is attempted after a full TTL
@@ -967,6 +1043,8 @@ def get_resources() -> CorpusResources:
             )
             cached.loaded_at = time.monotonic()
             return cached
+        if not allow_stale and not _resources.metadata_available:
+            raise ScriptureSelectUnavailable("corpus metadata is unavailable")
         return _resources
 
 
@@ -1015,18 +1093,18 @@ def _provider_clients() -> tuple:
         if _clients is None:
             _clients = (
                 build_query_rewriter(
-                    timeout=_PROVIDER_TIMEOUT_SECONDS, attempts=_PROVIDER_ATTEMPTS
+                    timeout=_PROVIDER_TIMEOUT_SECONDS, attempts=PROVIDER_ATTEMPTS
                 ),
                 (
                     build_embedding_client(
                         timeout=_PROVIDER_TIMEOUT_SECONDS,
-                        max_retries=_PROVIDER_ATTEMPTS,
+                        max_retries=PROVIDER_ATTEMPTS,
                     )
                     if AI_ENABLED
                     else _DisabledEmbeddingClient()
                 ),
                 build_passage_reranker(
-                    timeout=_PROVIDER_TIMEOUT_SECONDS, attempts=_PROVIDER_ATTEMPTS
+                    timeout=_PROVIDER_TIMEOUT_SECONDS, attempts=PROVIDER_ATTEMPTS
                 ),
             )
         return _clients
